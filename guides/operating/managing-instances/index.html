@@ -150,6 +150,68 @@ run the process, it validates the input data and
 stores the initial state is created.</p>
 <p>Then the process is picked up by a worker
 which advances the instance into a new state.</p>
+<h2 id="listing-instances">Listing instances<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#listing-instances"><span></span></a></h2>
+<p>To list current instances on the server, use <code>instnaces</code> command.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl instances      </span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">        STATUS</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">     PROCESS</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   UPDATED</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  CREATED</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  CODE</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  ERROR</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">006y1m7d</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  completed</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  hello@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  22h</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  22h</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">3kjfx4vm</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  completed</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  hello@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  just</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> now</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> just</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> now</span></span></code></pre>
+<p>You can also filter by various parameters like <code>--status</code> or <code>--process</code> (process name),
+check the full <a href="/reference/cli/instances/#instances">cli docs</a> for details.</p>
+<h2 id="info-about-the-instance">Info about the instance<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#info-about-the-instance"><span></span></a></h2>
+<p>To check current state of an instance use <code>get</code> command.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl get @last</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">       006y1m7d</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Process:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  hello@v1</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Status:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   completed</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Task:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">     greet</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Created:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  2026-09-30</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 12:53:58</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (just </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">now</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">)</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Updated:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  2026-09-30</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 12:53:58</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (just </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">now</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Output:</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">at:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-30T10:53:58.669Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">greeting:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> hello,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> world</span></span></code></pre>
+<p>The example shows us an instance which is compleded
+which is indicated by <code>status</code>.</p>
+<p>The output can also contain <code>Phase</code>, <code>Error</code>, <code>Code</code> and <code>Error data</code>.
+These are listed only if they contain any value.</p>
+<h3 id="task">Task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#task"><span></span></a></h3>
+<p>The <code>task</code> field tells you what task is being/going to be performed.
+If the instance is terminated it tells you which was the last task.</p>
+<h3 id="phase">Phase<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#phase"><span></span></a></h3>
+<p>Some tasks are not atomic (external/children), meaning
+the engine needs to perform multiple “ticks” per task.</p>
+<p>In that case the <code>phase</code> field is used to distinguish between the sub-states.
+It is shown only when it’s not empty and it has following meaning:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Phase</th><th>Meaning</th></tr></thead><tbody><tr><td><code>children</code></td><td>Child instances were spawned; the parent is blocked until all of them finish.</td></tr><tr><td><code>collecting</code></td><td>All children have finished; the engine still has to merge their outputs into the parent.</td></tr><tr><td><code>external</code></td><td>Parked on an external task, waiting for an answer or for its timeout.</td></tr></tbody></table>
+<h3 id="error-code-and-error-data">Error, Code and Error data<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#error-code-and-error-data"><span></span></a></h3>
+<p>Describes an error if the status is <code>raised</code> or <code>failed</code>.
+System error codes have ”.” inside (e.g. result.invalid), user defined can’t contain the dot.</p>
+<p>Check the <a href="/reference/definition/errors/">task error reference</a>.</p>
+<h3 id="output">Output<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#output"><span></span></a></h3>
+<p>This is a public process output.
+It’s available once the instance is completed and the <code>output</code> is defined in the process.</p>
 <h2 id="instance-lifecycle">Instance lifecycle<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instance-lifecycle"><span></span></a></h2>
 <p>Genroc instances communicate their lifecycle by <code>status</code> field.</p>
 <figure class="diagram" data-astro-cid-uwvadgfv><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 770 420" role="img" aria-labelledby="sd-title">
@@ -352,78 +414,24 @@ was cancelled while the worker was running.</p>
 <p>Retry can’t be used on <code>cancelled</code> or <code>raised</code> statuses.</p>
 <p>If the task is <code>only_once</code>, the retry needs to be used with <code>--force</code> flag -
 it’s because with retry you could easily break <code>only_once</code> rule by accident.</p>
-<h2 id="info-about-the-instance">Info about the instance<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#info-about-the-instance"><span></span></a></h2>
-<p>To check current state of an instance use <code>get</code> command.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl get @last</span></span>
+<h2 id="process-detail">Process detail<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-detail"><span></span></a></h2>
+<p>If you want more info about running instance, you can use <code>detail</code> command.</p>
+<p>It prints everything that <code>get</code>, but there is extra info about the internal state.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl detail @last</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">       006y1m7d</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Process:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  hello@v1</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Status:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   completed</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Task:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">     greet</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Created:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  2026-09-30</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 12:53:58</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (just </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">now</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">)</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Updated:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  2026-09-30</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 12:53:58</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (just </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">now</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">)</span></span>
-<span class="line"></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Output:</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">at:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-30T10:53:58.669Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">greeting:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> hello,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> world</span></span></code></pre>
-<p>The example shows us an instance which is compleded
-which is indicated by <code>status</code>.</p>
-<p>The output can also contain <code>Phase</code>, <code>Error</code>, <code>Code</code> and <code>Error data</code>.
-These are listed only if they contain any value.</p>
-<h3 id="task">Task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#task"><span></span></a></h3>
-<p>The <code>task</code> field tells you what task is being/going to be performed.
-If the instance is terminated it tells you which was the last task.</p>
-<h3 id="phase">Phase<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#phase"><span></span></a></h3>
-<p>Some tasks are not atomic (external/children), meaning
-the engine needs to perform multiple “ticks” per task.</p>
-<p>In that case the <code>phase</code> field is used to distinguish between the sub-states.
-It is shown only when it’s not empty and it has following meaning:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Phase</th><th>Meaning</th></tr></thead><tbody><tr><td><code>children</code></td><td>Child instances were spawned; the parent is blocked until all of them finish.</td></tr><tr><td><code>collecting</code></td><td>All children have finished; the engine still has to merge their outputs into the parent.</td></tr><tr><td><code>external</code></td><td>Parked on an external task, waiting for an answer or for its timeout.</td></tr></tbody></table>
-<h3 id="error-code-and-error-data">Error, Code and Error data<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#error-code-and-error-data"><span></span></a></h3>
-<p>Describes an error if the status is <code>raised</code> or <code>failed</code>.
-System error codes have ”.” inside (e.g. result.invalid), user defined can’t contain the dot.</p>
-<p>Check the <a href="/reference/definition/errors/">task error reference</a>.</p>
-<h3 id="output">Output<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#output"><span></span></a></h3>
-<p>This is a public process output.
-It’s available once the instance is completed and the <code>output</code> is defined in the process.</p>
-<h2 id="process-detail">Process detail<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-detail"><span></span></a></h2>
-<p>If you want more info about running instance, you can use <code>detail</code> command.</p>
-<p>It prints everything that <code>get</code>, but there is extra info about the internal state.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl detail 3kjfx4vm</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">       3kjfx4vm</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Process:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  hello@v1</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Status:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   completed</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Task:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">     greet</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Created:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  2026-09-25</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 18:37:52</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (4d </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">ago</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">)</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Updated:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  2026-09-25</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 18:37:53</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (4d </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">ago</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">)</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Epochs:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   lease</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 2,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 0,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> parent</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 0,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> external</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> claim</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 0</span></span>
 <span class="line"></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Output:</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">at:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-25T16:37:53.073Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">at:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-30T10:53:58.669Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">greeting:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> hello,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> world</span></span>
 <span class="line"></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Children:</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">greet:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 02pcayvt</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">greet:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 3k1nz7pq</span></span>
 <span class="line"></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">State:</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">input:</span></span>
@@ -431,7 +439,7 @@ It’s available once the instance is completed and the <code>output</code> is d
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">last_error:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> null</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">outputs:</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">  greet:</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">    at:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-25T16:37:53.073Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">    at:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-30T10:53:58.669Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">    greeting:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> hello,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> world</span></span></code></pre>
 
 
@@ -475,7 +483,7 @@ It’s available once the instance is completed and the <code>output</code> is d
 
 
 <table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires - a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task’s output under <code>outputs</code>, and <code>last_error</code> - the error last caught by <code>on_error</code>.</td></tr></tbody></table>
-<p>Only <code>Epochs</code> is always shown; the rest appear when they have a value.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/script-evaluation/"> <span>previous</span> <strong>Typescript evaluation</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#instance-lifecycle">Instance lifecycle</a></li><li class="depth-3"><a href="#pause-and-resume">Pause (and resume)</a></li><li class="depth-3"><a href="#cancel">Cancel</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-2"><a href="#info-about-the-instance">Info about the instance</a></li><li class="depth-3"><a href="#task">Task</a></li><li class="depth-3"><a href="#phase">Phase</a></li><li class="depth-3"><a href="#error-code-and-error-data">Error, Code and Error data</a></li><li class="depth-3"><a href="#output">Output</a></li><li class="depth-2"><a href="#process-detail">Process detail</a></li></ul><script>
+<p>Only <code>Epochs</code> is always shown; the rest appear when they have a value.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/script-evaluation/"> <span>previous</span> <strong>Typescript evaluation</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#listing-instances">Listing instances</a></li><li class="depth-2"><a href="#info-about-the-instance">Info about the instance</a></li><li class="depth-3"><a href="#task">Task</a></li><li class="depth-3"><a href="#phase">Phase</a></li><li class="depth-3"><a href="#error-code-and-error-data">Error, Code and Error data</a></li><li class="depth-3"><a href="#output">Output</a></li><li class="depth-2"><a href="#instance-lifecycle">Instance lifecycle</a></li><li class="depth-3"><a href="#pause-and-resume">Pause (and resume)</a></li><li class="depth-3"><a href="#cancel">Cancel</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-2"><a href="#process-detail">Process detail</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

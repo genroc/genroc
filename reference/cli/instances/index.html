@@ -148,9 +148,9 @@
 <h2 id="run">run<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#run"><span></span></a></h2>
 <p>start an instance</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> run</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">proces</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">s</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--channel </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">C</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> |</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> --version</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> N]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--input </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">json</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> -f</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> file]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--set </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">k=v</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ...]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [-q]</span></span></code></pre>
-<p>Input from —input (a literal, or - for stdin), -f, or —set k=v — dotted keys nest,
-values are type-inferred, and —set overrides the others. Latest version unless —channel
-or —version. -q prints only the new id: id=$(genctl run NAME -q).</p>
+<p>Input comes from —input (a literal, or - for stdin), -f, or —set k=v (dotted keys nest,
+values are type-inferred); —set wins. Runs the latest version unless —channel or —version.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">=</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">$(</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> run</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> hello</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -q</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">)</span></span></code></pre>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --channel  resolve the version via this channel</span></span>
 <span class="line"><span>  -f         read input from a file (path)</span></span>
@@ -165,165 +165,115 @@ or —version. -q prints only the new id: id=$(genctl run NAME -q).</p>
 <h2 id="instances">instances<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instances"><span></span></a></h2>
 <p>list instances (roots only unless —children)</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> instances</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--process </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">nam</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">e</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--version </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--status </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">statu</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">s</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--error-code </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">cod</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">e</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--phase </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">phas</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">e</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--task </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">task-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--children] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--sort updated</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">created</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--since </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">whe</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--until </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">whe</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--json </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> -q]</span></span></code></pre>
-<p>Roots only — one row per tree, which is the unit pause/resume/cancel/retry and upgrade act on.
-—children adds them back and turns on a PARENT column, since nothing else on a row tells
-the two apart. -q prints bare ids, and nothing at all when empty, for nesting:</p>
-<p>genctl pause $(genctl instances -q —status running)</p>
-<p>—phase asks why a running instance is not executing a task, which status does not say, and the
-three answers are not one kind of thing: <code>children</code> is BLOCKED until its children settle,
-<code>collecting</code> has their outputs still to merge and is runnable now, <code>external</code> is parked
-until someone answers it. So this is the listing of unresolved external tasks:</p>
-<p>genctl instances —phase external</p>
-<p>The STATUS column carries it after a <code>·</code> when a row has one (running·external).</p>
-<p>—task narrows to the task an instance sits on — where it is running, parked, or where it
-stopped. A task id is unique only within its definition, so pair it with —process to mean
-one task rather than that spelling anywhere.</p>
-<p>Oldest to newest, so the newest is nearest the prompt. No —limit: each list shows its
-newest N (20; logs 200) and says on stderr when that dropped rows. —since reaches further
-back — a duration (2h, 45m) or a timestamp — and —until is its far end; [since, until)
-is half-open. Times display in, and are read in, the local zone ($TZ).</p>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">       [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--phase </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">phase</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--task </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">task-id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--children</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--sort updated</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">created</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">       [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--since </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">when</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--until </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">when</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> -q</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
+<p>Lists root instances; —children adds child instances and a PARENT column. A phase is
+shown after the status (running·external).</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> instances</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --status</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> failed</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> instances</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --phase</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> external</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> pause</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> $(</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> instances</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -q</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --status</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> running</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">)</span></span></code></pre>
+<p>Shows the newest 20 rows (logs: 200), oldest first, and says on stderr when rows were left
+out. —since and —until take a duration (2h, 45m) or a timestamp (2006-01-02 15:04), read
+in the local zone ($TZ).</p>
 <p><strong>Flags</strong></p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --children    include child instances; by default the listing is roots only,</span></span>
-<span class="line"><span>                one row per tree</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --children    include child instances</span></span>
 <span class="line"><span>  --error-code  filter by exact error code (e.g. card_declined, http.500)</span></span>
 <span class="line"><span>  --json        print the raw items as a JSON array</span></span>
-<span class="line"><span>  --phase       filter by why a running instance is not executing a task</span></span>
-<span class="line"><span>                (children, collecting, external)</span></span>
+<span class="line"><span>  --phase       filter by phase: children, collecting or external</span></span>
 <span class="line"><span>  --process     filter by exact process name, across every version</span></span>
 <span class="line"><span>  -q            shorthand for --quiet</span></span>
-<span class="line"><span>  --quiet       print only instance ids, one per line — the form to nest in</span></span>
-<span class="line"><span>                another command</span></span>
+<span class="line"><span>  --quiet       print only instance ids, one per line</span></span>
 <span class="line"><span>  --server      genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>                http://localhost:8448)</span></span>
-<span class="line"><span>  --since       read forward from this point: a duration back from now (2h,</span></span>
-<span class="line"><span>                45m) or a timestamp (2006-01-02, 2006-01-02 15:04); bounds</span></span>
-<span class="line"><span>                whichever column --sort selects</span></span>
+<span class="line"><span>  --since       show rows from this point on: a duration ago (2h) or a</span></span>
+<span class="line"><span>                timestamp</span></span>
 <span class="line"><span>  --sort        sort key: created or updated (most recently active) (default</span></span>
 <span class="line"><span>                created)</span></span>
-<span class="line"><span>  --status      filter by status, comma-separated for several (running,</span></span>
-<span class="line"><span>                completed, failing, failed, raised, pausing, paused,</span></span>
-<span class="line"><span>                cancelling, cancelled)</span></span>
-<span class="line"><span>  --task        filter by the exact task id the instance sits on; pair with</span></span>
-<span class="line"><span>                --process, since a task id is unique only within its</span></span>
-<span class="line"><span>                definition</span></span>
-<span class="line"><span>  --until       stop at this point (same forms as --since); on its own it</span></span>
-<span class="line"><span>                keeps the cap, giving the newest rows before that instant</span></span>
-<span class="line"><span>  --version     filter by exact process version; with --process, that process</span></span>
-<span class="line"><span>                at that version</span></span></code></pre>
+<span class="line"><span>  --status      filter by status; comma-separate several</span></span>
+<span class="line"><span>  --task        filter by the task an instance is on; pair with --process</span></span>
+<span class="line"><span>  --until       show rows before this point; same forms as --since</span></span>
+<span class="line"><span>  --version     filter by process version</span></span></code></pre>
 <h2 id="get">get<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#get"><span></span></a></h2>
 <p>show one instance and what it produced</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> get</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--resolve] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run). A second id is refused rather than dropped.</p>
-<p>Prints what the instance reports OUTWARD: its status and its <code>output:</code> block, which is the
-same value a parent collects as a child’s result. The engine’s own slots are <code>detail</code>.</p>
-<p>—resolve fetches the values listed under “objects” and puts them back inline; without it a
-large value prints as a ref.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
+<p>Prints the status, the error and the <code>output:</code> block. <code>detail</code> adds the internal state.
+—resolve inlines large values that print as refs.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --json     print the raw JSON response</span></span>
-<span class="line"><span>  --resolve  fetch the values listed under "objects" and put them back</span></span>
-<span class="line"><span>             where they belong</span></span>
+<span class="line"><span>  --resolve  inline large values instead of printing their refs</span></span>
 <span class="line"><span>  --server   genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>             http://localhost:8448)</span></span></code></pre>
 <h2 id="detail">detail<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#detail"><span></span></a></h2>
 <p>show everything stored on one instance</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> detail</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--resolve] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run). A second id is refused rather than dropped.</p>
-<p>The whole row: everything <code>get</code> prints, plus parent, children, lease and epochs, and the
-state — engine bookkeeping and all — which is what an upgrade validates and a migration rewrites. Reading it is reading internals; <code>get</code> is the
-everyday view.</p>
-<p>—resolve fetches the values listed under “objects” and puts them back inline; without it a
-large value prints as a ref.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
+<p>Everything <code>get</code> prints, plus parent, children, lease, epochs and the full state.
+—resolve inlines large values that print as refs.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --json     print the raw JSON response</span></span>
-<span class="line"><span>  --resolve  fetch the values listed under "objects" and put them back</span></span>
-<span class="line"><span>             where they belong</span></span>
+<span class="line"><span>  --resolve  inline large values instead of printing their refs</span></span>
 <span class="line"><span>  --server   genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>             http://localhost:8448)</span></span></code></pre>
 <h2 id="logs">logs<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#logs"><span></span></a></h2>
 <p>print an instance’s log trail</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> logs</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--level </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">leve</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">l</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--since </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">whe</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--until </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">whe</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--time </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">clock</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|full]</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--flat] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--mode basic</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">detail</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">instance-id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span></span></code></pre>
-<p>A ROOT id answers with every row in its tree, an ID column telling them apart; —flat
-asks for its own rows alone. A child id answers with its own rows either way — a tree
-is addressed by its root here, as it is for pause/resume/cancel/retry/upgrade.</p>
-<p>—mode: basic is a line per entry, detail adds the payloads. —json prints JSONL, the one
-output that keeps the server’s UTC RFC3339. Refs are never resolved here — a trail is
-scanned, not read; <code>genctl object &#x3C;ref></code> fetches one. —time full puts the date on every
-row instead of a per-day separator.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
-<p>Oldest to newest, so the newest is nearest the prompt. No —limit: each list shows its
-newest N (20; logs 200) and says on stderr when that dropped rows. —since reaches further
-back — a duration (2h, 45m) or a timestamp — and —until is its far end; [since, until)
-is half-open. Times display in, and are read in, the local zone ($TZ).</p>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">       [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--flat</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--mode basic</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">detail</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;instance-id</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">></span></span></code></pre>
+<p>A root id shows its whole tree with an ID column; —flat shows the root’s rows only.
+—json prints JSONL in UTC. Refs are not resolved; <code>genctl object &#x3C;ref></code> prints one.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
+<p>Shows the newest 20 rows (logs: 200), oldest first, and says on stderr when rows were left
+out. —since and —until take a duration (2h, 45m) or a timestamp (2006-01-02 15:04), read
+in the local zone ($TZ).</p>
 <p><strong>Flags</strong></p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --flat    this instance's own rows only; by default a ROOT id answers</span></span>
-<span class="line"><span>            with every row in its tree</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --flat    only this instance's rows, not its tree's</span></span>
 <span class="line"><span>  --json    print the raw JSON entries, one per line (JSONL), untruncated</span></span>
-<span class="line"><span>  --level   lowest level to show: this level and everything above it (warn</span></span>
-<span class="line"><span>            keeps errors). `debug` is the bottom, so it is the whole trail</span></span>
-<span class="line"><span>            -- the engine records a call's request and response bodies</span></span>
-<span class="line"><span>            there (default info)</span></span>
-<span class="line"><span>  --mode    table density: basic (no data body) or detail (+ data, cut to</span></span>
-<span class="line"><span>            one line -- $COLUMNS sets the width) (default detail)</span></span>
+<span class="line"><span>  --level   lowest level to show; debug includes request and response</span></span>
+<span class="line"><span>            bodies (default info)</span></span>
+<span class="line"><span>  --mode    basic, or detail to add each entry's data on one line (default</span></span>
+<span class="line"><span>            detail)</span></span>
 <span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span>
-<span class="line"><span>  --since   read forward from this point: a duration back from now (2h,</span></span>
-<span class="line"><span>            45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty =</span></span>
-<span class="line"><span>            the newest 200 entries</span></span>
-<span class="line"><span>  --time    time column: clock (15:04:05, with a day separator per date)</span></span>
-<span class="line"><span>            or full (2006-01-02 15:04:05 +02:00); both render in the local</span></span>
-<span class="line"><span>            zone ($TZ) (default clock)</span></span>
-<span class="line"><span>  --until   stop at this point (same forms as --since); on its own it</span></span>
-<span class="line"><span>            keeps the cap, giving the newest rows before that instant</span></span></code></pre>
+<span class="line"><span>  --since   show rows from this point on: a duration ago (2h) or a</span></span>
+<span class="line"><span>            timestamp</span></span>
+<span class="line"><span>  --time    clock (time, with a line per day) or full (date and time on</span></span>
+<span class="line"><span>            every row) (default clock)</span></span>
+<span class="line"><span>  --until   show rows before this point; same forms as --since</span></span></code></pre>
 <h2 id="pause">pause<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pause"><span></span></a></h2>
 <p>stop an instance from advancing</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> pause</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [&#x3C;instance-id> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span></span></code></pre>
-<p>Takes several ids and acts on every one, one call each. These are ASSERTIONS: an id already
-in the state prints “already” and does NOT fail, so a line that was only half applied can be
-run again as-is. Only a refusal exits 1, and it stops neither the ids after it nor the code.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
+<p>Takes several ids. An id already in the target state prints “already” and does not fail,
+so the command is safe to re-run. Exits 1 only if an id was refused; the rest still run.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span></code></pre>
 <h2 id="resume">resume<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#resume"><span></span></a></h2>
 <p>let a paused instance advance again</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> resume</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [&#x3C;instance-id> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span></span></code></pre>
-<p>Takes several ids and acts on every one, one call each. These are ASSERTIONS: an id already
-in the state prints “already” and does NOT fail, so a line that was only half applied can be
-run again as-is. Only a refusal exits 1, and it stops neither the ids after it nor the code.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
+<p>Takes several ids. An id already in the target state prints “already” and does not fail,
+so the command is safe to re-run. Exits 1 only if an id was refused; the rest still run.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span></code></pre>
 <h2 id="cancel">cancel<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#cancel"><span></span></a></h2>
 <p>stop an instance for good</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> cancel</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [&#x3C;instance-id> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span></span></code></pre>
-<p>Terminal and irreversible: a cancelled instance cannot be resumed or retried.
-Use pause if the tree should be able to carry on later.</p>
-<p>Takes several ids and acts on every one, one call each. These are ASSERTIONS: an id already
-in the state prints “already” and does NOT fail, so a line that was only half applied can be
-run again as-is. Only a refusal exits 1, and it stops neither the ids after it nor the code.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
+<p>Final: a cancelled instance cannot be resumed or retried. Use pause to stop temporarily.</p>
+<p>Takes several ids. An id already in the target state prints “already” and does not fail,
+so the command is safe to re-run. Exits 1 only if an id was refused; the rest still run.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span></code></pre>
 <h2 id="retry">retry<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#retry"><span></span></a></h2>
 <p>retry a failed instance’s current task</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> retry</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--force] </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">instance-id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">instance-id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> ...</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
-<p>Takes several ids and acts on every one, one call each. These are ASSERTIONS: an id already
-in the state prints “already” and does NOT fail, so a line that was only half applied can be
-run again as-is. Only a refusal exits 1, and it stops neither the ids after it nor the code.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
-<p>—force overrides only_once protection, where a retried task may already have taken effect.</p>
+<p>—force retries an only_once task, which may already have taken effect.</p>
+<p>Takes several ids. An id already in the target state prints “already” and does not fail,
+so the command is safe to re-run. Exits 1 only if an id was refused; the rest still run.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --force   override only_once retry protection</span></span>
 <span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
@@ -332,40 +282,32 @@ recently started one (recorded by run).</p>
 <p>move instances to another version</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> upgrade</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">proces</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">s</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --from</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">version</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|channel</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">--to</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">version</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|channel</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> [--status </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">running,paused,failed]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--json]</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> upgrade</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [&#x3C;instance-id> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --to</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">version</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|channel</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> [--json]</span></span></code></pre>
-<p>A process name sweeps its fleet and needs —from, the selector saying which rows move.
-Ids move those trees instead, one call each, and refuse —from/—status: an id selects
-already. An instance moves only where the new version is compatible with where it is
-parked — <code>genctl compat</code> asks the same question without moving anything.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
+<p>By process, moves the instances on —from (narrowed by —status); by id, moves those.
+An instance moves only if the new version is compatible with where it is; <code>genctl compat</code>
+checks without moving.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
 <p><strong>Flags</strong></p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --from    the version instances are on now: a number, or a channel name.</span></span>
-<span class="line"><span>            Selects the sweep; instance ids need no --from</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --from    the version to move from: a number or a channel</span></span>
 <span class="line"><span>  --json    print one JSON object per tree instead of a progress table</span></span>
 <span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span>
-<span class="line"><span>  --status  comma-separated states to sweep: running, paused, failed.</span></span>
-<span class="line"><span>            Default is all three</span></span>
-<span class="line"><span>  --to      the version to move them to: a number, or a channel name</span></span></code></pre>
+<span class="line"><span>  --status  statuses to move, comma-separated: running, paused, failed</span></span>
+<span class="line"><span>            (default all three)</span></span>
+<span class="line"><span>  --to      the version to move to: a number or a channel</span></span></code></pre>
 <h2 id="signal">signal<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#signal"><span></span></a></h2>
 <p>deliver an outcome to an instance’s external task by id</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> signal</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --task</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">task-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--result </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">json</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> -f</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> file]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--set </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">k=v</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ...]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--code </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">C</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --message</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> M]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [-q]</span></span></code></pre>
-<p>No claim and no fence. It may arrive before the task arms: the server then BUFFERS it
-FIFO until the task parks, and the confirmation line says delivered or buffered. A worker
-that claimed a task answers through the API, with the token its claim returned.</p>
-<p>—code/—message answers on the ERROR channel instead of with a result, routed through the
-task’s on_error rules like any other call error. No result flags at all means an empty
-outcome: valid for a task declaring no result_schema, refused otherwise.</p>
-<p>An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).</p>
+<p>Answers an external task without claiming it. Sent before the task is waiting, it is
+buffered until it is. —code/—message sends an error instead, handled by the task’s
+on_error. No result flags sends an empty result, allowed only without a result_schema.</p>
+<p>An instance is named by its id (6fah8w2p) or @last, the one run started most recently.</p>
 <p><strong>Flags</strong></p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --code     answer on the ERROR channel with this code (lower_snake_case,</span></span>
-<span class="line"><span>             no dots)</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --code     answer with an error of this code (lower_snake_case) instead</span></span>
+<span class="line"><span>             of a result</span></span>
 <span class="line"><span>  -f         read result/payload from a file (path)</span></span>
 <span class="line"><span>  --message  with --code: human-readable cause; lands on error.message</span></span>
 <span class="line"><span>  -q         shorthand for --quiet</span></span>
-<span class="line"><span>  --quiet    on success print nothing (exit 0); by default prints a</span></span>
-<span class="line"><span>             confirmation line</span></span>
+<span class="line"><span>  --quiet    print nothing on success</span></span>
 <span class="line"><span>  --result   result as a JSON/YAML literal, or - for stdin</span></span>
 <span class="line"><span>  --server   genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>             http://localhost:8448)</span></span>
@@ -375,8 +317,7 @@ recently started one (recorded by run).</p>
 <h2 id="object">object<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#object"><span></span></a></h2>
 <p>print a stored object by ref</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">re</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">f</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span></span></code></pre>
-<p>A value too large to inline is stored once and referenced. get —resolve puts them back;
-logs never does, so this fetches the one payload you want.</p>
+<p>Prints a large value that other output shows as a ref.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span></code></pre>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/cli/definitions/"> <span>previous</span> <strong>Definitions</strong> </a> <a class="next" href="/reference/cli/channels/"> <span>next</span> <strong>Channels</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#run">run</a></li><li class="depth-2"><a href="#instances">instances</a></li><li class="depth-2"><a href="#get">get</a></li><li class="depth-2"><a href="#detail">detail</a></li><li class="depth-2"><a href="#logs">logs</a></li><li class="depth-2"><a href="#pause">pause</a></li><li class="depth-2"><a href="#resume">resume</a></li><li class="depth-2"><a href="#cancel">cancel</a></li><li class="depth-2"><a href="#retry">retry</a></li><li class="depth-2"><a href="#upgrade">upgrade</a></li><li class="depth-2"><a href="#signal">signal</a></li><li class="depth-2"><a href="#object">object</a></li></ul><script>

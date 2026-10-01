@@ -148,19 +148,15 @@
 <h2 id="apply">apply<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#apply"><span></span></a></h2>
 <p>register definitions; —check-only checks them and stores nothing</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> apply</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [-f </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">path</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|glob</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--channel </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">latest]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--check-only] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
-<p>A batch is one logical change: all are validated before any is written, and a child that
-exists only in the batch resolves against it. Identical bytes mint no new version, and the
-line reports the move —channel made either way: <code>new</code> minted one, <code>existing</code> matched a
-version already stored (how a revert lands), <code>current</code> moved nothing.
-<code>$&#x3C;resolver>:</code> leaves resolve first, on —check-only too. —json is the server’s answer.</p>
-<p>Files: -f takes several values and stops at the next flag; with no -f, <code>definitions:</code> in
-the nearest .genroc. An existing path is used literally, anything else is globbed (**
-matches any depth). A directory is refused.</p>
+<p>Validates every definition before registering any. An unchanged definition creates no new
+version. Each line says what happened on —channel: <code>new</code> version, <code>existing</code> version, or
+<code>current</code> (nothing moved). Resolvers (<code>$&#x3C;resolver>:</code>) run first, with —check-only too.</p>
+<p>Files: -f takes several values and repeats; without -f, the <code>definitions:</code> list in the
+nearest .genroc is used. Paths are globbed (** matches any depth); a directory is refused.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --channel     channel to apply definitions to (default latest)</span></span>
 <span class="line"><span>  --check-only  report whether the definitions are valid, registering nothing</span></span>
-<span class="line"><span>  -f            definition file or glob; an existing path is never globbed.</span></span>
-<span class="line"><span>                Takes several, and repeats</span></span>
+<span class="line"><span>  -f            definition file or glob; takes several, and repeats</span></span>
 <span class="line"><span>  --json        print the server's answer: the inferred schemas under</span></span>
 <span class="line"><span>                --check-only, what was registered otherwise</span></span>
 <span class="line"><span>  --server      genroc server base URL ($GENROC_SERVER) (default</span></span>
@@ -168,74 +164,59 @@ matches any depth). A directory is refused.</p>
 <h2 id="types">types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#types"><span></span></a></h2>
 <p>write the type declarations a resolver’s scripts import</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> types</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [-f </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">path</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|glob</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span></span></code></pre>
-<p>Runs each phase-2 resolver in “types” mode and writes what it generates, so an editor has
-the declarations before an apply ever runs. Needs no server: the types are inferred here.</p>
-<p>Files: -f takes several values and stops at the next flag; with no -f, <code>definitions:</code> in
-the nearest .genroc. An existing path is used literally, anything else is globbed (**
-matches any depth). A directory is refused.</p>
+<p>Writes the declarations each resolver generates, so an editor has them before the first
+apply. Needs no server.</p>
+<p>Files: -f takes several values and repeats; without -f, the <code>definitions:</code> list in the
+nearest .genroc is used. Paths are globbed (** matches any depth); a directory is refused.</p>
 <p><strong>Flags</strong></p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  -f  definition file or glob; an existing path is never globbed.</span></span>
-<span class="line"><span>      Takes several, and repeats</span></span></code></pre>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  -f  definition file or glob; takes several, and repeats</span></span></code></pre>
 <h2 id="schema">schema<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#schema"><span></span></a></h2>
 <p>what a slot’s type is, and what an expression there can read</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> schema</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> type</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">    &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">proces</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">s</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [address] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">-e </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">expression</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">-f </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">path</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">glob</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> ...</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> schema</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> context</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">proces</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">s</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [address] </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">[</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">-e </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">expression</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">-f </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">path</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">glob</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> ...</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">--json</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
-<p><code>type</code> is what shape a slot IS, <code>context</code> what an expression there may READ. Same
-addresses — input, output, tasks.&#x3C;id>.output, tasks.&#x3C;id>.action.input, raises[“a.code”]
-— and an address may continue into the schema; quote a non-identifier key:
-tasks[“step one”].output. With no address, each lists every slot it answers for. -e types
-one expression at that address. Neither needs a server.</p>
-<p>Files: -f takes several values and stops at the next flag; with no -f, <code>definitions:</code> in
-the nearest .genroc. An existing path is used literally, anything else is globbed (**
-matches any depth). A directory is refused.</p>
+<p><code>type</code> prints a slot’s schema; <code>context</code> prints what an expression there can read.
+Addresses: input, output, tasks.&#x3C;id>.output, tasks.&#x3C;id>.action.input, raises[“code”],
+optionally continuing into the schema (tasks[“step one”].output.items). With no address,
+lists every slot. -e types one expression at that address. Needs no server.</p>
+<p>Files: -f takes several values and repeats; without -f, the <code>definitions:</code> list in the
+nearest .genroc is used. Paths are globbed (** matches any depth); a directory is refused.</p>
 <h2 id="compat">compat<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#compat"><span></span></a></h2>
 <p>compare two versions and report what a move would break</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> compat</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --from</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">se</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">l</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [-f </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">path</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|glob</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">> </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">...]</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> compat</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --from</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">se</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">l</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --to</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">se</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">l</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--process </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">nam</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">e</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--ignore </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">contract]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--json]</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> compat</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">instance-i</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">d</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --to</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> &#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">version</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|channel</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">></span></span></code></pre>
-<p>A side is one channel OR name@version pins (a version may itself be a channel); mixing
-the two is refused, and —from is never defaulted. With -f the local files are the target
-side. An instance id names the from side by itself: <code>compat &#x3C;id> --to N</code> is the question
-<code>upgrade &#x3C;id> --to N</code> answers by moving.</p>
-<p>Exits non-zero on a break, so it drops into a pipeline. —ignore contract drops that one
-check from the exit code and nothing else — the break is still printed, as “(ignored)”.</p>
-<p>Files: -f takes several values and stops at the next flag; with no -f, <code>definitions:</code> in
-the nearest .genroc. An existing path is used literally, anything else is globbed (**
-matches any depth). A directory is refused.</p>
+<p>A side is a channel or name@version pins, not both. With -f, the local files are the
+target. <code>compat &#x3C;id> --to N</code> checks one instance; <code>upgrade</code> is the same with the move.</p>
+<p>Exits 1 on a break. —ignore contract still prints contract breaks but does not fail.</p>
+<p>Files: -f takes several values and repeats; without -f, the <code>definitions:</code> list in the
+nearest .genroc is used. Paths are globbed (** matches any depth); a directory is refused.</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  -f         definition file or glob to compare against --from; takes</span></span>
 <span class="line"><span>             several, and repeats</span></span>
-<span class="line"><span>  --from     the side instances are running now: a channel, or name@version</span></span>
-<span class="line"><span>             (repeatable). An instance id names this side by itself</span></span>
-<span class="line"><span>  --ignore   excuse a check from the exit code: only `contract` is</span></span>
-<span class="line"><span>             accepted, since the upgrade check answers for rows this</span></span>
-<span class="line"><span>             deployment already owns. It changes neither what is compared</span></span>
-<span class="line"><span>             nor what is printed</span></span>
+<span class="line"><span>  --from     the current side: a channel, or name@version (repeatable)</span></span>
+<span class="line"><span>  --ignore   do not fail on this check; only `contract` is accepted</span></span>
 <span class="line"><span>  --json     print the raw report</span></span>
 <span class="line"><span>  --process  narrow the report to one process</span></span>
 <span class="line"><span>  --server   genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>             http://localhost:8448)</span></span>
-<span class="line"><span>  --to       the side to compare against: a channel, or name@version</span></span>
-<span class="line"><span>             (repeatable); after an instance id, a bare version or channel</span></span></code></pre>
+<span class="line"><span>  --to       the target side: a channel, or name@version (repeatable);</span></span>
+<span class="line"><span>             after an instance id, a version or channel</span></span></code></pre>
 <h2 id="definitions">definitions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#definitions"><span></span></a></h2>
 <p>list registered definitions</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> definitions</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--sort </span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">created</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">|name]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--since </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">whe</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--until </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&#x3C;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">whe</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">n</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">></span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">]</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--json]</span></span></code></pre>
-<p>The one list whose cap keeps the FIRST N rather than the newest, since —sort name walks
-an alphabet rather than a history.</p>
-<p>Oldest to newest, so the newest is nearest the prompt. No —limit: each list shows its
-newest N (20; logs 200) and says on stderr when that dropped rows. —since reaches further
-back — a duration (2h, 45m) or a timestamp — and —until is its far end; [since, until)
-is half-open. Times display in, and are read in, the local zone ($TZ).</p>
+<p>With —sort name, shows the first 20 alphabetically rather than the newest.</p>
+<p>Shows the newest 20 rows (logs: 200), oldest first, and says on stderr when rows were left
+out. —since and —until take a duration (2h, 45m) or a timestamp (2006-01-02 15:04), read
+in the local zone ($TZ).</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --json    print the raw items as a JSON array</span></span>
 <span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span>
-<span class="line"><span>  --since   read forward from this point: a duration back from now (2h,</span></span>
-<span class="line"><span>            45m) or a timestamp (2006-01-02, 2006-01-02 15:04)</span></span>
+<span class="line"><span>  --since   show rows from this point on: a duration ago (2h) or a</span></span>
+<span class="line"><span>            timestamp</span></span>
 <span class="line"><span>  --sort    sort key: created (newest registered first) or name (default</span></span>
 <span class="line"><span>            created)</span></span>
-<span class="line"><span>  --until   stop at this point (same forms as --since); on its own it</span></span>
-<span class="line"><span>            keeps the cap, giving the newest rows before that instant</span></span></code></pre>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/rest-api/errors/"> <span>previous</span> <strong>API errors</strong> </a> <a class="next" href="/reference/cli/instances/"> <span>next</span> <strong>Instances</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#apply">apply</a></li><li class="depth-2"><a href="#types">types</a></li><li class="depth-2"><a href="#schema">schema</a></li><li class="depth-2"><a href="#compat">compat</a></li><li class="depth-2"><a href="#definitions">definitions</a></li></ul><script>
+<span class="line"><span>  --until   show rows before this point; same forms as --since</span></span></code></pre>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/rest-api/errors/"> <span>previous</span> <strong>API errors</strong> </a> <a class="next" href="/reference/cli/instances/"> <span>next</span> <strong>Instances</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#apply">apply</a></li><li class="depth-2"><a href="#types">types</a></li><li class="depth-2"><a href="#schema">schema</a></li><li class="depth-2"><a href="#compat">compat</a></li><li class="depth-2"><a href="#definitions">definitions</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
