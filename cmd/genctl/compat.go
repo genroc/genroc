@@ -92,16 +92,12 @@ func runCompatCmd(server string, args []string) {
 	var fromFlag, toFlag multiFlag
 	fs.String("f", "", "definition file or glob to compare against --from; takes several, and repeats")
 	processFlag := fs.String("process", "", "narrow the report to one process")
-	fs.Var(&fromFlag, "from", "the side instances are running now: a channel, or name@version (repeatable). "+
-		"An instance id names this side by itself")
-	fs.Var(&toFlag, "to", "the side to compare against: a channel, or name@version (repeatable); "+
-		"after an instance id, a bare version or channel")
+	fs.Var(&fromFlag, "from", "the current side: a channel, or name@version (repeatable)")
+	fs.Var(&toFlag, "to", "the target side: a channel, or name@version (repeatable); after an instance id, a version or channel")
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw report")
 	var ignore multiFlag
-	fs.Var(&ignore, "ignore", "excuse a check from the exit code: only `contract` is accepted, since the "+
-		"upgrade check answers for rows this deployment already owns. It changes neither what is "+
-		"compared nor what is printed")
+	fs.Var(&ignore, "ignore", "do not fail on this check; only `contract` is accepted")
 	files, rest := takeFileValues(args)
 	pos := leadingArgs(fs, rest)
 

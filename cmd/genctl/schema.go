@@ -79,8 +79,7 @@ var typeView = schemaView{
 // what can be asked. specs/schema-command.md.
 func runSchemaViewCmd(v schemaView, args []string) {
 	fs := newFlagSet("schema "+v.name, args)
-	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
-		"and repeats")
+	fs.String("f", "", "definition file or glob; takes several, and repeats")
 	asJSON := fs.Bool("json", false, v.jsonHelp)
 	expr := fs.String("e", "", v.exprHelp)
 	files, rest := takeFileValues(args)

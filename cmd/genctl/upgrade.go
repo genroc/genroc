@@ -45,10 +45,10 @@ type instanceRow struct {
 func runUpgradeCmd(server string, args []string) {
 	fs := newFlagSet("upgrade", args)
 	fromFlag := fs.String("from", "",
-		"the version instances are on now: a number, or a channel name. Selects the sweep; instance ids need no --from")
-	toFlag := fs.String("to", "", "the version to move them to: a number, or a channel name")
+		"the version to move from: a number or a channel")
+	toFlag := fs.String("to", "", "the version to move to: a number or a channel")
 	statusFlag := fs.String("status", "",
-		"comma-separated states to sweep: running, paused, failed. Default is all three")
+		"statuses to move, comma-separated: running, paused, failed (default all three)")
 	jsonOut := fs.Bool("json", false, "print one JSON object per tree instead of a progress table")
 	serverFlag := addServerFlag(fs, server)
 	pos := leadingArgs(fs, args)

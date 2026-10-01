@@ -15,7 +15,7 @@ import (
 type cliCommand struct {
 	name    string
 	summary string
-	grammar []string // usage lines, "genctl " already stripped
+	grammar []string // usage lines as printed; a continuation line keeps its alignment
 	detail  string
 	flags   string // the Flags: block verbatim, "" when the command has none
 }
@@ -96,7 +96,7 @@ func readCLICommand(genctl string, c *cliCommand) error {
 	lines := strings.Split(strings.TrimPrefix(body, "Usage:\n"), "\n")
 	i := 0
 	for ; i < len(lines) && strings.HasPrefix(lines[i], "  "); i++ {
-		c.grammar = append(c.grammar, strings.TrimPrefix(strings.TrimSpace(lines[i]), "genctl "))
+		c.grammar = append(c.grammar, strings.TrimPrefix(lines[i], "  "))
 	}
 	c.detail = strings.TrimSpace(strings.Join(lines[i:], "\n"))
 	if len(c.grammar) == 0 {
@@ -128,11 +128,11 @@ func renderCLIGroup(g cliGroup, order int) string {
 	for _, c := range g.commands {
 		fmt.Fprintf(b, "\n## %s\n\n%s\n\n```sh\n", c.name, escapeProse(c.summary))
 		for _, u := range c.grammar {
-			fmt.Fprintf(b, "genctl %s\n", u)
+			fmt.Fprintln(b, u)
 		}
 		fmt.Fprint(b, "```\n")
 		if c.detail != "" {
-			fmt.Fprintf(b, "\n%s\n", escapeProse(c.detail))
+			fmt.Fprintf(b, "\n%s\n", proseToMarkdown(c.detail))
 		}
 		if c.flags != "" {
 			fmt.Fprintf(b, "\n**Flags**\n\n```\n%s\n```\n", c.flags)
@@ -145,6 +145,37 @@ func renderCLIGroup(g cliGroup, order int) string {
 // `tasks.<id>`, and a `**` in a glob is one re-wrap away from opening emphasis that closes on
 // the next heading. Neither is escaped inside a code span, where both are already literal and
 // the escape would print itself.
+// proseToMarkdown fences each run of indented lines -- the help text's examples -- which
+// Markdown would otherwise fold into the paragraph around them.
+func proseToMarkdown(s string) string {
+	var out, block []string
+	flush := func() {
+		if len(block) == 0 {
+			return
+		}
+		lang := "sh"
+		for _, l := range block {
+			if !strings.Contains(l, "genctl ") {
+				lang = ""
+			}
+		}
+		out = append(out, "```"+lang)
+		out = append(out, block...)
+		out = append(out, "```")
+		block = nil
+	}
+	for _, l := range strings.Split(s, "\n") {
+		if strings.HasPrefix(l, "  ") {
+			block = append(block, strings.TrimPrefix(l, "  "))
+			continue
+		}
+		flush()
+		out = append(out, escapeProse(l))
+	}
+	flush()
+	return strings.Join(out, "\n")
+}
+
 func escapeProse(s string) string {
 	b := &strings.Builder{}
 	code := false

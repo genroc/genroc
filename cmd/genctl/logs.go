@@ -17,13 +17,13 @@ import (
 func runLogsCmd(server string, args []string) {
 	fs := newFlagSet("logs", args)
 	serverFlag := addServerFlag(fs, server)
-	levelFlag := fs.String("level", string(model.LogInfo), "lowest level to show: this level and everything above it (warn keeps errors). `debug` is the bottom, so it is the whole trail -- the engine records a call's request and response bodies there")
-	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
-	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
-	flatFlag := fs.Bool("flat", false, "this instance's own rows only; by default a ROOT id answers with every row in its tree")
-	modeFlag := fs.String("mode", "detail", "table density: basic (no data body) or detail (+ data, cut to one line -- $COLUMNS sets the width)")
+	levelFlag := fs.String("level", string(model.LogInfo), "lowest level to show; debug includes request and response bodies")
+	sinceFlag := fs.String("since", "", "show rows from this point on: a duration ago (2h) or a timestamp")
+	untilFlag := fs.String("until", "", "show rows before this point; same forms as --since")
+	flatFlag := fs.Bool("flat", false, "only this instance's rows, not its tree's")
+	modeFlag := fs.String("mode", "detail", "basic, or detail to add each entry's data on one line")
 	jsonFlag := fs.Bool("json", false, "print the raw JSON entries, one per line (JSONL), untruncated")
-	timeFlag := fs.String("time", "clock", "time column: clock (15:04:05, with a day separator per date) or full (2006-01-02 15:04:05 +02:00); both render in the local zone ($TZ)")
+	timeFlag := fs.String("time", "clock", "clock (time, with a line per day) or full (date and time on every row)")
 	id := instanceIDAndFlags(fs, args)
 	// --json is the machine form every other list command spells this way, so --mode is left
 	// with the choice it alone has: how much of a row the TABLE shows. logview.Mode still has

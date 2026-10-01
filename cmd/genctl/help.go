@@ -20,38 +20,32 @@ type commandDoc struct {
 	detail  string   // paragraphs; printed by `genctl <cmd> -h` only
 }
 
-// Shared paragraphs: a rule governing several commands is written once, because the version
-// someone reads has to be the version that is true.
+// Shared paragraphs: a rule governing several commands is written once.
 const (
-	definitionFiles = "Files: -f takes several values and stops at the next flag; with no -f, `definitions:` in\n" +
-		"the nearest .genroc. An existing path is used literally, anything else is globbed (**\n" +
-		"matches any depth). A directory is refused."
+	definitionFiles = "Files: -f takes several values and repeats; without -f, the `definitions:` list in the\n" +
+		"nearest .genroc is used. Paths are globbed (** matches any depth); a directory is refused."
 
-	listWindow = `Oldest to newest, so the newest is nearest the prompt. No --limit: each list shows its
-newest N (20; logs 200) and says on stderr when that dropped rows. --since reaches further
-back -- a duration (2h, 45m) or a timestamp -- and --until is its far end; [since, until)
-is half-open. Times display in, and are read in, the local zone ($TZ).`
+	listWindow = `Shows the newest 20 rows (logs: 200), oldest first, and says on stderr when rows were left
+out. --since and --until take a duration (2h, 45m) or a timestamp (2006-01-02 15:04), read
+in the local zone ($TZ).`
 
-	instanceRefs = `An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
-recently started one (recorded by run).`
+	instanceRefs = `An instance is named by its id (6fah8w2p) or @last, the one run started most recently.`
 )
 
 var commandDocs = map[string]commandDoc{
 	"apply": {
 		summary: "register definitions; --check-only checks them and stores nothing",
 		usage:   []string{"apply [-f <path|glob> ...] [--channel latest] [--check-only] [--json]"},
-		detail: "A batch is one logical change: all are validated before any is written, and a child that\n" +
-			"exists only in the batch resolves against it. Identical bytes mint no new version, and the\n" +
-			"line reports the move --channel made either way: `new` minted one, `existing` matched a\n" +
-			"version already stored (how a revert lands), `current` moved nothing.\n" +
-			"`$<resolver>:` leaves resolve first, on --check-only too. --json is the server's answer.\n\n" +
+		detail: "Validates every definition before registering any. An unchanged definition creates no new\n" +
+			"version. Each line says what happened on --channel: `new` version, `existing` version, or\n" +
+			"`current` (nothing moved). Resolvers (`$<resolver>:`) run first, with --check-only too.\n\n" +
 			definitionFiles,
 	},
 	"types": {
 		summary: "write the type declarations a resolver's scripts import",
 		usage:   []string{"types [-f <path|glob> ...]"},
-		detail: `Runs each phase-2 resolver in "types" mode and writes what it generates, so an editor has
-the declarations before an apply ever runs. Needs no server: the types are inferred here.
+		detail: `Writes the declarations each resolver generates, so an editor has them before the first
+apply. Needs no server.
 
 ` + definitionFiles,
 	},
@@ -61,11 +55,10 @@ the declarations before an apply ever runs. Needs no server: the types are infer
 			"schema type    <process> [address] [-e <expression>] [-f <path|glob> ...] [--json]",
 			"schema context <process> [address] [-e <expression>] [-f <path|glob> ...] [--json]",
 		},
-		detail: "`type` is what shape a slot IS, `context` what an expression there may READ. Same\n" +
-			"addresses -- input, output, tasks.<id>.output, tasks.<id>.action.input, raises[\"a.code\"]\n" +
-			"-- and an address may continue into the schema; quote a non-identifier key:\n" +
-			"tasks[\"step one\"].output. With no address, each lists every slot it answers for. -e types\n" +
-			"one expression at that address. Neither needs a server.\n\n" +
+		detail: "`type` prints a slot's schema; `context` prints what an expression there can read.\n" +
+			"Addresses: input, output, tasks.<id>.output, tasks.<id>.action.input, raises[\"code\"],\n" +
+			"optionally continuing into the schema (tasks[\"step one\"].output.items). With no address,\n" +
+			"lists every slot. -e types one expression at that address. Needs no server.\n\n" +
 			definitionFiles,
 	},
 	"compat": {
@@ -75,19 +68,15 @@ the declarations before an apply ever runs. Needs no server: the types are infer
 			"compat --from <sel> --to <sel> [--process <name>] [--ignore contract] [--json]",
 			"compat <instance-id> --to <version|channel>",
 		},
-		detail: "A side is one channel OR name@version pins (a version may itself be a channel); mixing\n" +
-			"the two is refused, and --from is never defaulted. With -f the local files are the target\n" +
-			"side. An instance id names the from side by itself: `compat <id> --to N` is the question\n" +
-			"`upgrade <id> --to N` answers by moving.\n\n" +
-			"Exits non-zero on a break, so it drops into a pipeline. --ignore contract drops that one\n" +
-			"check from the exit code and nothing else -- the break is still printed, as \"(ignored)\".\n\n" +
+		detail: "A side is a channel or name@version pins, not both. With -f, the local files are the\n" +
+			"target. `compat <id> --to N` checks one instance; `upgrade` is the same with the move.\n\n" +
+			"Exits 1 on a break. --ignore contract still prints contract breaks but does not fail.\n\n" +
 			definitionFiles,
 	},
 	"definitions": {
 		summary: "list registered definitions",
 		usage:   []string{"definitions [--sort created|name] [--since <when>] [--until <when>] [--json]"},
-		detail: `The one list whose cap keeps the FIRST N rather than the newest, since --sort name walks
-an alphabet rather than a history.
+		detail: `With --sort name, shows the first 20 alphabetically rather than the newest.
 
 ` + listWindow,
 	},
@@ -95,9 +84,10 @@ an alphabet rather than a history.
 	"run": {
 		summary: "start an instance",
 		usage:   []string{"run <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]"},
-		detail: `Input from --input (a literal, or - for stdin), -f, or --set k=v -- dotted keys nest,
-values are type-inferred, and --set overrides the others. Latest version unless --channel
-or --version. -q prints only the new id: id=$(genctl run NAME -q).`,
+		detail: `Input comes from --input (a literal, or - for stdin), -f, or --set k=v (dotted keys nest,
+values are type-inferred); --set wins. Runs the latest version unless --channel or --version.
+
+  id=$(genctl run hello -q)`,
 	},
 	"instances": {
 		summary: "list instances (roots only unless --children)",
@@ -106,60 +96,37 @@ or --version. -q prints only the new id: id=$(genctl run NAME -q).`,
 			"          [--phase <phase>] [--task <task-id>] [--children] [--sort updated|created]",
 			"          [--since <when>] [--until <when>] [--json | -q]",
 		},
-		detail: `Roots only -- one row per tree, which is the unit pause/resume/cancel/retry and upgrade act on.
---children adds them back and turns on a PARENT column, since nothing else on a row tells
-the two apart. -q prints bare ids, and nothing at all when empty, for nesting:
+		detail: `Lists root instances; --children adds child instances and a PARENT column. A phase is
+shown after the status (running·external).
 
-  genctl pause $(genctl instances -q --status running)
-
---phase asks why a running instance is not executing a task, which status does not say, and the
-three answers are not one kind of thing: ` + "`children`" + ` is BLOCKED until its children settle,
-` + "`collecting`" + ` has their outputs still to merge and is runnable now, ` + "`external`" + ` is parked
-until someone answers it. So this is the listing of unresolved external tasks:
-
+  genctl instances --status failed
   genctl instances --phase external
-
-The STATUS column carries it after a ` + "`·`" + ` when a row has one (running·external).
-
---task narrows to the task an instance sits on -- where it is running, parked, or where it
-stopped. A task id is unique only within its definition, so pair it with --process to mean
-one task rather than that spelling anywhere.
+  genctl pause $(genctl instances -q --status running)
 
 ` + listWindow,
 	},
 	"get": {
 		summary: "show one instance and what it produced",
 		usage:   []string{"get <instance-id> [--resolve] [--json]"},
-		detail: instanceRefs + ` A second id is refused rather than dropped.
+		detail: instanceRefs + `
 
-Prints what the instance reports OUTWARD: its status and its ` + "`output:`" + ` block, which is the
-same value a parent collects as a child's result. The engine's own slots are ` + "`detail`" + `.
-
---resolve fetches the values listed under "objects" and puts them back inline; without it a
-large value prints as a ref.`,
+Prints the status, the error and the ` + "`output:`" + ` block. ` + "`detail`" + ` adds the internal state.
+--resolve inlines large values that print as refs.`,
 	},
 	"detail": {
 		summary: "show everything stored on one instance",
 		usage:   []string{"detail <instance-id> [--resolve] [--json]"},
-		detail: instanceRefs + ` A second id is refused rather than dropped.
+		detail: instanceRefs + `
 
-The whole row: everything ` + "`get`" + ` prints, plus parent, children, lease and epochs, and the
-state -- engine bookkeeping and all -- which is what an upgrade validates and a migration rewrites. Reading it is reading internals; ` + "`get`" + ` is the
-everyday view.
-
---resolve fetches the values listed under "objects" and puts them back inline; without it a
-large value prints as a ref.`,
+Everything ` + "`get`" + ` prints, plus parent, children, lease, epochs and the full state.
+--resolve inlines large values that print as refs.`,
 	},
 	"lsp": {
 		summary: "run the language server an editor talks to over stdio",
 		usage:   []string{"lsp [--stdio]"},
-		detail: "Speaks LSP on stdin/stdout, so it is spawned by an editor rather than run by hand.\n" +
-			"It publishes diagnostics for `*.genroc.yaml` -- the same failures `apply` reports, from\n" +
-			"the same two calls, so what is underlined is what a registration would refuse.\n\n" +
-			"--stdio is accepted and ignored: it is the transport every client names on the\n" +
-			"command line, and it is the only one spoken here.\n\n" +
-			"VS Code: install the extension in editors/vscode. Neovim: pass `genctl lsp` as the\n" +
-			"`cmd` of a client started for the `yaml` filetype.",
+		detail: "Language server for `*.genroc.yaml` over stdin/stdout, started by an editor. Reports the\n" +
+			"same errors as `apply`. --stdio is accepted and ignored.\n\n" +
+			"VS Code: the extension in editors/vscode. Neovim: `genctl lsp` as the `cmd` for `yaml`.",
 	},
 	"logs": {
 		summary: "print an instance's log trail",
@@ -167,26 +134,21 @@ large value prints as a ref.`,
 			"logs [--level <level>] [--since <when>] [--until <when>] [--time clock|full]",
 			"     [--flat] [--mode basic|detail] [--json] <instance-id>",
 		},
-		detail: "A ROOT id answers with every row in its tree, an ID column telling them apart; --flat\n" +
-			"asks for its own rows alone. A child id answers with its own rows either way -- a tree\n" +
-			"is addressed by its root here, as it is for pause/resume/cancel/retry/upgrade.\n\n" +
-			"--mode: basic is a line per entry, detail adds the payloads. --json prints JSONL, the one\n" +
-			"output that keeps the server's UTC RFC3339. Refs are never resolved here -- a trail is\n" +
-			"scanned, not read; `genctl object <ref>` fetches one. --time full puts the date on every\n" +
-			"row instead of a per-day separator.\n\n" +
+		detail: "A root id shows its whole tree with an ID column; --flat shows the root's rows only.\n" +
+			"--json prints JSONL in UTC. Refs are not resolved; `genctl object <ref>` prints one.\n\n" +
 			instanceRefs + "\n\n" + listWindow,
 	},
 	"pause":  {summary: "stop an instance from advancing", usage: []string{"pause <instance-id> [<instance-id> ...]"}, detail: assertionHelp},
 	"resume": {summary: "let a paused instance advance again", usage: []string{"resume <instance-id> [<instance-id> ...]"}, detail: assertionHelp},
 	"cancel": {summary: "stop an instance for good", usage: []string{"cancel <instance-id> [<instance-id> ...]"},
-		detail: "Terminal and irreversible: a cancelled instance cannot be resumed or retried.\n" +
-			"Use pause if the tree should be able to carry on later.\n\n" + assertionHelp},
+		detail: "Final: a cancelled instance cannot be resumed or retried. Use pause to stop temporarily.\n\n" +
+			assertionHelp},
 	"retry": {
 		summary: "retry a failed instance's current task",
 		usage:   []string{"retry [--force] <instance-id> [<instance-id> ...]"},
-		detail: assertionHelp + `
+		detail: `--force retries an only_once task, which may already have taken effect.
 
---force overrides only_once protection, where a retried task may already have taken effect.`,
+` + assertionHelp,
 	},
 	"upgrade": {
 		summary: "move instances to another version",
@@ -194,10 +156,9 @@ large value prints as a ref.`,
 			"upgrade <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]",
 			"upgrade <instance-id> [<instance-id> ...] --to <version|channel> [--json]",
 		},
-		detail: "A process name sweeps its fleet and needs --from, the selector saying which rows move.\n" +
-			"Ids move those trees instead, one call each, and refuse --from/--status: an id selects\n" +
-			"already. An instance moves only where the new version is compatible with where it is\n" +
-			"parked -- `genctl compat` asks the same question without moving anything.\n\n" +
+		detail: "By process, moves the instances on --from (narrowed by --status); by id, moves those.\n" +
+			"An instance moves only if the new version is compatible with where it is; `genctl compat`\n" +
+			"checks without moving.\n\n" +
 			instanceRefs,
 	},
 	"signal": {
@@ -205,21 +166,16 @@ large value prints as a ref.`,
 		usage: []string{
 			"signal <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]",
 		},
-		detail: `No claim and no fence. It may arrive before the task arms: the server then BUFFERS it
-FIFO until the task parks, and the confirmation line says delivered or buffered. A worker
-that claimed a task answers through the API, with the token its claim returned.
-
---code/--message answers on the ERROR channel instead of with a result, routed through the
-task's on_error rules like any other call error. No result flags at all means an empty
-outcome: valid for a task declaring no result_schema, refused otherwise.
+		detail: `Answers an external task without claiming it. Sent before the task is waiting, it is
+buffered until it is. --code/--message sends an error instead, handled by the task's
+on_error. No result flags sends an empty result, allowed only without a result_schema.
 
 ` + instanceRefs,
 	},
 	"object": {
 		summary: "print a stored object by ref",
 		usage:   []string{"object <ref>"},
-		detail: `A value too large to inline is stored once and referenced. get --resolve puts them back;
-logs never does, so this fetches the one payload you want.`,
+		detail:  `Prints a large value that other output shows as a ref.`,
 	},
 
 	"channel": {
@@ -231,11 +187,10 @@ logs never does, so this fetches the one payload you want.`,
 			"channel promote --from <channel> --to <channel> [--process <name>]",
 			"channel status  [<channel>]",
 		},
-		detail: "A channel is a named pointer to a version, per process; `latest` is the one apply moves.\n" +
-			"promote copies every pointer from one channel to another, so a deployment moves as one;\n" +
-			"--process narrows it to that process and its dependency subtree. status is a coherence\n" +
-			"report: it prints only members whose child references are baked at a version the channel\n" +
-			"no longer points at.",
+		detail: "A channel is a named pointer to a version of a process; apply moves `latest`.\n" +
+			"promote copies every pointer of one channel to another; --process limits it to that\n" +
+			"process and its children. status lists members whose children are pinned to versions the\n" +
+			"channel no longer points at.",
 	},
 
 	"token": {
@@ -245,9 +200,8 @@ logs never does, so this fetches the one payload you want.`,
 			"token generate | token list [--json] | token revoke <id>...",
 		},
 		detail: "Perms: admin, deploy, operate, read, worker.\n\n" +
-			"create registers a credential over the API and so needs an admin one of its own.\n" +
-			"generate mints a secret OFFLINE -- no server, no credential -- which is how the first\n" +
-			"one can exist at all. Break-glass equivalent: `genroc token`, run against the database.",
+			"create needs an admin token. generate makes a secret offline, for the first token.\n" +
+			"Without any token: `genroc token`, run against the database.",
 	},
 	"init": {
 		summary: "scaffold a project, or mint a new UI password",
@@ -255,9 +209,8 @@ logs never does, so this fetches the one payload you want.`,
 			"init [dir] [--eval-node] [--auth] [--postgres] [--version <tag>] [-y]",
 			"init password [email]",
 		},
-		detail: "Writes a project that applies and runs: definitions/, a .genroc naming them, optionally\n" +
-			"a compose.yaml. It asks which parts you want; -y takes the defaults, as does a pipe or a\n" +
-			"CI job. `init password` mints a replacement for the UI login init printed.",
+		detail: "Writes definitions/, a .genroc and optionally a compose.yaml, asking which parts you\n" +
+			"want; -y (or no terminal) takes the defaults. `init password` mints a new UI password.",
 	},
 	"config": {
 		summary: "read and write ~/.config/genroc/config.yaml",
@@ -271,9 +224,8 @@ logs never does, so this fetches the one payload you want.`,
 	},
 }
 
-const assertionHelp = `Takes several ids and acts on every one, one call each. These are ASSERTIONS: an id already
-in the state prints "already" and does NOT fail, so a line that was only half applied can be
-run again as-is. Only a refusal exits 1, and it stops neither the ids after it nor the code.
+const assertionHelp = `Takes several ids. An id already in the target state prints "already" and does not fail,
+so the command is safe to re-run. Exits 1 only if an id was refused; the rest still run.
 
 ` + instanceRefs
 

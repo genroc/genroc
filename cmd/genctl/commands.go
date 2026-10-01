@@ -20,8 +20,7 @@ import (
 
 func runApplyCmd(server string, args []string) {
 	fs := newFlagSet("apply", args)
-	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
-		"and repeats")
+	fs.String("f", "", "definition file or glob; takes several, and repeats")
 	serverFlag := addServerFlag(fs, server)
 	channelFlag := fs.String("channel", "latest", "channel to apply definitions to")
 	// A check runs everything an apply does except the write — resolvers included, since a
@@ -114,8 +113,7 @@ func runApplyCmd(server string, args []string) {
 // server, so it runs on every edit whether or not one is reachable.
 func runTypesCmd(args []string) {
 	fs := newFlagSet("types", args)
-	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
-		"and repeats")
+	fs.String("f", "", "definition file or glob; takes several, and repeats")
 	files, rest := takeFileValues(args)
 	if pos := parseArgs(fs, rest); len(pos) > 0 {
 		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
@@ -393,11 +391,11 @@ func runSignalCmd(server string, args []string) {
 	taskFlag := fs.String("task", "", "the external task to deliver to (required)")
 	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
 	fileFlag := fs.String("f", "", "read result/payload from a file (path)")
-	codeFlag := fs.String("code", "", "answer on the ERROR channel with this code (lower_snake_case, no dots)")
+	codeFlag := fs.String("code", "", "answer with an error of this code (lower_snake_case) instead of a result")
 	messageFlag := fs.String("message", "", "with --code: human-readable cause; lands on error.message")
 	var sets multiFlag
 	fs.Var(&sets, "set", "set a result/payload field: key=value (repeatable; dotted keys nest, values are type-inferred)")
-	quietFlag := fs.Bool("quiet", false, "on success print nothing (exit 0); by default prints a confirmation line")
+	quietFlag := fs.Bool("quiet", false, "print nothing on success")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
 	id := instanceIDAndFlags(fs, args)
 	if *taskFlag == "" {
@@ -495,7 +493,7 @@ func runGetCmd(server string, args []string) {
 	fs := newFlagSet("get", args)
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw JSON response")
-	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
+	resolveFlag := fs.Bool("resolve", false, "inline large values instead of printing their refs")
 	id := instanceIDAndFlags(fs, args)
 
 	// The status endpoint: what the instance reports OUTWARD -- its `output:` block and the
@@ -535,7 +533,7 @@ func runDetailCmd(server string, args []string) {
 	fs := newFlagSet("detail", args)
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw JSON response")
-	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
+	resolveFlag := fs.Bool("resolve", false, "inline large values instead of printing their refs")
 	id := instanceIDAndFlags(fs, args)
 
 	u := "/api/instances/" + url.PathEscape(id) + "/detail"
@@ -651,18 +649,18 @@ func printInstanceHead(inst instanceView, extra func(io.Writer)) {
 func runInstancesCmd(server string, args []string) {
 	fs := newFlagSet("instances", args)
 	serverFlag := addServerFlag(fs, server)
-	statusFlag := fs.String("status", "", "filter by status, comma-separated for several (running, completed, failing, failed, raised, pausing, paused, cancelling, cancelled)")
-	phaseFlag := fs.String("phase", "", "filter by why a running instance is not executing a task (children, collecting, external)")
-	taskFlag := fs.String("task", "", "filter by the exact task id the instance sits on; pair with --process, since a task id is unique only within its definition")
+	statusFlag := fs.String("status", "", "filter by status; comma-separate several")
+	phaseFlag := fs.String("phase", "", "filter by phase: children, collecting or external")
+	taskFlag := fs.String("task", "", "filter by the task an instance is on; pair with --process")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
 	processFlag := fs.String("process", "", "filter by exact process name, across every version")
-	versionFlag := fs.Int("version", 0, "filter by exact process version; with --process, that process at that version")
+	versionFlag := fs.Int("version", 0, "filter by process version")
 	sortFlag := fs.String("sort", "created", "sort key: created or updated (most recently active)")
-	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); bounds whichever column --sort selects")
-	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
+	sinceFlag := fs.String("since", "", "show rows from this point on: a duration ago (2h) or a timestamp")
+	untilFlag := fs.String("until", "", "show rows before this point; same forms as --since")
 	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
-	childrenFlag := fs.Bool("children", false, "include child instances; by default the listing is roots only, one row per tree")
-	quietFlag := fs.Bool("quiet", false, "print only instance ids, one per line — the form to nest in another command")
+	childrenFlag := fs.Bool("children", false, "include child instances")
+	quietFlag := fs.Bool("quiet", false, "print only instance ids, one per line")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
 	fs.Parse(args)
 
@@ -799,8 +797,8 @@ func runDefinitionsCmd(server string, args []string) {
 	fs := newFlagSet("definitions", args)
 	serverFlag := addServerFlag(fs, server)
 	sortFlag := fs.String("sort", "created", "sort key: created (newest registered first) or name")
-	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04)")
-	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
+	sinceFlag := fs.String("since", "", "show rows from this point on: a duration ago (2h) or a timestamp")
+	untilFlag := fs.String("until", "", "show rows before this point; same forms as --since")
 	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
 	fs.Parse(args)
 

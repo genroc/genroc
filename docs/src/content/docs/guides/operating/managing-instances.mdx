@@ -14,61 +14,19 @@ stores the initial state is created.
 Then the process is picked up by a worker
 which advances the instance into a new state.
 
-## Instance lifecycle
+## Listing instances
 
-Genroc instances communicate their lifecycle by `status` field.
-
-<Diagram src="instance-statuses.svg" />
-
-<StatusTable />
-
-You have four commands to your disposal `pause`, `resume`, `cancel` and `retry`.
-If the instance has children, the commands must target the root process not
-to the children separately.
-
-### Pause (and resume)
+To list current instances on the server, use `instnaces` command.
 
 ```sh
-genctl pause @last
+> genctl instances      
+ID        STATUS     PROCESS   UPDATED  CREATED  CODE  ERROR
+006y1m7d  completed  hello@v1  22h ago  22h ago
+3kjfx4vm  completed  hello@v1  just now just now
 ```
 
-This will pause the instance if it's running. The instance can then be resumed by `resume` command with the same syntax.
-
-The `pause` command will wait for the running workers with `pausing` status, so no worker is forcefully
-interrupted and no work is repeated.
-
-Pause/resume operates strictly within the definition boundaries (they never do extra retry),
-so you can use them as you like without changing the instance behavior. Only caveat is that timers
-keep running even when the instance is paused, so if there is a timeout (e.g. on external task) it
-can run out while the instance is paused.
-
-An external worker can still deliver result through `resolve`. Even if the instance
-switched to `paused` status.
-
-### Cancel
-
-```sh
-genctl cancel @last
-```
-Will cancel the instnace terminally - it is not possible to resume cancelled instance.
-
-The `cancel` state also has `cancelling` as a transitioning instance.
-
-An external worker can't deliver result through `resolve` (it will fail), if the instance
-was cancelled while the worker was running.
-
-### Retry
-
-```sh
-genctl retry @last
-```
-
-Retries `failed` instance, it basically adds one extra `retry` attempt on the current task.
-
-Retry can't be used on `cancelled` or `raised` statuses.
-
-If the task is `only_once`, the retry needs to be used with `--force` flag -
-it's because with retry you could easily break `only_once` rule by accident.
+You can also filter by various parameters like `--status` or `--process` (process name),
+check the full [cli docs](../../reference/cli/instances.md#instances) for details.
 
 ## Info about the instance
 
@@ -126,6 +84,62 @@ Check the [task error reference](../../reference/definition/errors.md).
 This is a public process output.
 It's available once the instance is completed and the `output` is defined in the process.
 
+## Instance lifecycle
+
+Genroc instances communicate their lifecycle by `status` field.
+
+<Diagram src="instance-statuses.svg" />
+
+<StatusTable />
+
+You have four commands to your disposal `pause`, `resume`, `cancel` and `retry`.
+If the instance has children, the commands must target the root process not
+to the children separately.
+
+### Pause (and resume)
+
+```sh
+genctl pause @last
+```
+
+This will pause the instance if it's running. The instance can then be resumed by `resume` command with the same syntax.
+
+The `pause` command will wait for the running workers with `pausing` status, so no worker is forcefully
+interrupted and no work is repeated.
+
+Pause/resume operates strictly within the definition boundaries (they never do extra retry),
+so you can use them as you like without changing the instance behavior. Only caveat is that timers
+keep running even when the instance is paused, so if there is a timeout (e.g. on external task) it
+can run out while the instance is paused.
+
+An external worker can still deliver result through `resolve`. Even if the instance
+switched to `paused` status.
+
+### Cancel
+
+```sh
+genctl cancel @last
+```
+Will cancel the instnace terminally - it is not possible to resume cancelled instance.
+
+The `cancel` state also has `cancelling` as a transitioning instance.
+
+An external worker can't deliver result through `resolve` (it will fail), if the instance
+was cancelled while the worker was running.
+
+### Retry
+
+```sh
+genctl retry @last
+```
+
+Retries `failed` instance, it basically adds one extra `retry` attempt on the current task.
+
+Retry can't be used on `cancelled` or `raised` statuses.
+
+If the task is `only_once`, the retry needs to be used with `--force` flag -
+it's because with retry you could easily break `only_once` rule by accident.
+
 ## Process detail
 
 If you want more info about running instance, you can use `detail` command.
@@ -133,21 +147,21 @@ If you want more info about running instance, you can use `detail` command.
 It prints everything that `get`, but there is extra info about the internal state.
 
 ```sh
-> genctl detail 3kjfx4vm
-ID:       3kjfx4vm
+> genctl detail @last
+ID:       006y1m7d
 Process:  hello@v1
 Status:   completed
 Task:     greet
-Created:  2026-09-25 18:37:52  (4d ago)
-Updated:  2026-09-25 18:37:53  (4d ago)
+Created:  2026-09-30 12:53:58  (just now)
+Updated:  2026-09-30 12:53:58  (just now)
 Epochs:   lease 2, task 0, parent task 0, external claim 0
 
 Output:
-at: "2026-09-25T16:37:53.073Z"
+at: "2026-09-30T10:53:58.669Z"
 greeting: hello, world
 
 Children:
-greet: 02pcayvt
+greet: 3k1nz7pq
 
 State:
 input:
@@ -155,7 +169,7 @@ input:
 last_error: null
 outputs:
   greet:
-    at: "2026-09-25T16:37:53.073Z"
+    at: "2026-09-30T10:53:58.669Z"
     greeting: hello, world
 ```
 
