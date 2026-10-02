@@ -95,7 +95,8 @@ VALUES
 -- name: UpdateInstance :execrows
 -- input_data is never written (immutable). The status CASE lands a pause that arrived
 -- while this instance was leased, decided in SQL against the row's current value; only
--- a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
+-- a still-running instance settles into 'paused' (pause invariants: CLAUDE.md). 'paused' and
+-- 'cancelled' are matched too: a stop that settled a lapsed lease meets the live owner's late write.
 -- A claim belongs to one occurrence (task_epoch): a write that moves the epoch drops it.
 -- lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
 -- callers bind both as read under their row lock. worker_id is there because a rewind can
@@ -115,10 +116,10 @@ SET task             = sqlc.arg(task),
     objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
     wake_at    = sqlc.arg(wake_at),
-    status           = CASE WHEN status = 'pausing'
+    status           = CASE WHEN status IN ('pausing', 'paused')
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
                             THEN 'paused'
-                            WHEN status = 'cancelling'
+                            WHEN status IN ('cancelling', 'cancelled')
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
                             THEN 'cancelled' ELSE CAST(sqlc.arg(status) AS TEXT) END,
     phase       = sqlc.arg(phase),

@@ -576,3 +576,51 @@ func TestFence_ReusedEpochProgress(t *testing.T) {
 		})
 	}
 }
+
+// A pause or cancel that settles a lapsed lease is an operator's stop: the still-alive owner's late
+// write, with or without the gate's repair renewal first, must not turn it back into a run.
+func TestLapsedLease_TheStopSurvivesTheOwnersLateWrite(t *testing.T) {
+	stops := []struct {
+		name string
+		want model.Status
+		stop func(*dbpkg.DB) (dbpkg.LifecycleResult, error)
+	}{
+		{"pause", model.StatusPaused, func(d *dbpkg.DB) (dbpkg.LifecycleResult, error) {
+			return d.PauseProcess(context.Background(), "lapse-1", "")
+		}},
+		{"cancel", model.StatusCancelled, func(d *dbpkg.DB) (dbpkg.LifecycleResult, error) {
+			return d.CancelProcess(context.Background(), "lapse-1", "")
+		}},
+	}
+	for _, stop := range stops {
+		for _, renew := range []bool{false, true} {
+			for _, b := range testBackends(t) {
+				t.Run(fmt.Sprintf("%s/%s/renew=%v", b.name, stop.name, renew), func(t *testing.T) {
+					insertRunning(t, b.db, "lapse-1")
+					inst := claimOne(t, b.db, "worker-A", 30*time.Millisecond)
+					dbpkg.AdvanceClock(time.Second)
+
+					res, err := stop.stop(b.db)
+					if err != nil {
+						t.Fatalf("%s: %v", stop.name, err)
+					}
+					if res.Status != stop.want {
+						t.Fatalf("premise: a lapsed lease settles straight to %q, got %q", stop.want, res.Status)
+					}
+					if renew {
+						if _, err := b.db.RenewWorkerLeases("worker-A", []string{"lapse-1"}, time.Minute); err != nil {
+							t.Fatalf("RenewWorkerLeases: %v", err)
+						}
+					}
+
+					inst.Status = model.StatusRunning
+					_ = b.db.UpdateInstance(inst)
+
+					if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.want {
+						t.Fatalf("the owner's late write undid the %s: status %q", stop.name, got.Status)
+					}
+				})
+			}
+		}
+	}
+}

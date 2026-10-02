@@ -39,7 +39,8 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
    not regain the question.
 3. **A pending pause lands in SQL, not in Go.** A worker mid-task cannot know the pause arrived
    after its claim, so `pausing → paused` is a CASE on the lease-releasing writes — guarded in
-   `UpdateInstance` (only where the new status is `running`, so real outcomes win),
+   `UpdateInstance` (only where the new status is `running`, so real outcomes win; it matches
+   settled `paused`/`cancelled` too, which a stop leaves on a lapsed lease whose owner may still write),
    unconditional in `UpdateInstanceProgress` (a checkpoint means "still running"). Progress
    matters most: it is also the write that parks on a delay/external — the pause lands there or
    never. `SpawnChildrenAndWait` remaps explicitly, and children inherit the settled status so a

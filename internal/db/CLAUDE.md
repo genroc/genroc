@@ -364,7 +364,10 @@ Two invariants that are easy to break:
    the parent on `phase='children'` and would otherwise strand it). Everything not
    leased is set to `paused` directly — a row parked on `children` is excluded from
    `ClaimInstances`, so marking it `pausing` would leave it draining forever. `pausing`
-   stays in the claim predicate purely for crash recovery.
+   stays in the claim predicate purely for crash recovery. A LAPSED lease counts as not held,
+   so the row settles straight to `paused`/`cancelled` with `worker_id` kept; the CASE matches
+   those too, or the still-alive owner's late write undoes the stop
+   (`TestLapsedLease_TheStopSurvivesTheOwnersLateWrite`).
 2. **A failure outranks a pause.** `FailAncestors` includes `paused`/`pausing` rows, so a
    branch that dies while the tree is suspended still propagates `failing` upward. But a
    failing parent waits for every child and paused children count as active
