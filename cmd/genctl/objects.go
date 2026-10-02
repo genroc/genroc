@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 
 	"genroc/internal/numeric"
 )
@@ -129,19 +130,32 @@ func place(root any, path []any, value any) {
 			}
 			cur = node[key]
 		case []any:
-			idx, ok := seg.(float64) // JSON numbers decode as float64
-			if !ok || int(idx) < 0 || int(idx) >= len(node) {
+			idx, ok := arrayIndex(seg)
+			if !ok || idx < 0 || idx >= len(node) {
 				return
 			}
 			if last {
-				node[int(idx)] = value
+				node[idx] = value
 				return
 			}
-			cur = node[int(idx)]
+			cur = node[idx]
 		default:
 			return
 		}
 	}
+}
+
+// arrayIndex accepts json.Number, which is what genctl's decoder (UseNumber) hands over; a
+// float64-only check silently skipped every array-indexed path.
+func arrayIndex(seg any) (int, bool) {
+	switch n := seg.(type) {
+	case json.Number:
+		i, err := strconv.Atoi(string(n))
+		return i, err == nil
+	case float64:
+		return int(n), n == float64(int(n))
+	}
+	return 0, false
 }
 
 func runObjectCmd(server string, args []string) {

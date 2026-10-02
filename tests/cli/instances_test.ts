@@ -360,6 +360,42 @@ test("detail --resolve — materializes context values held in the object store"
   expect(full.stdout).toContain("BBBBBBBBBB");
 }, 15_000);
 
+// An array index arrives as a json.Number, not the float64 a hand-built path would hold.
+test("get — an externalized array element is marked and spliced at its index", async () => {
+  const name = uid("refindex");
+  const [first, second] = ["A".repeat(20 * 1024), "C".repeat(20 * 1024)];
+  runCli(bin, ["apply", "-f", writeDefs([{
+    name,
+    input_schema: {
+      type: "object",
+      properties: { blobs: { type: "array", items: { type: "string" } } },
+      required: ["blobs"],
+    },
+    output: { items: "$: input.blobs" },
+    tasks: [{ id: "s1", switch: [{ goto: "end" }] }],
+  }])]);
+  const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blobs: [first, second] }), "-q"])
+    .stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const raw = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  expect(
+    raw.objects.map((o: { path: unknown[] }) => o.path),
+    "the premise: each element is cut at its own index",
+  ).toEqual(expect.arrayContaining([["output", "items", 0], ["output", "items", 1]]));
+
+  const text = runCli(bin, ["get", id]);
+  expect(text.ok, text.stderr).toBe(true);
+  expect(text.stdout, "each cut element shows its ref where it belongs, not null").toMatch(
+    /items:\s+- ref: [0-9a-f]{32}\s+size: \d+\s+- ref: [0-9a-f]{32}\s+size: \d+/,
+  );
+
+  const resolved = runCli(bin, ["get", id, "--resolve", "--json"]);
+  expect(resolved.ok, resolved.stderr).toBe(true);
+  expect(JSON.parse(resolved.stdout).output.items, "--resolve puts each element back in place")
+    .toEqual([first, second]);
+}, 15_000);
+
 // ── instances: displayed fields ─────────────────────────────────────────────────
 
 test("instances — the table commits to ID, STATUS, PROCESS, UPDATED, CREATED, CODE, ERROR", async () => {
@@ -427,17 +463,25 @@ test("instances --phase — lists what is parked, which status cannot say", asyn
 
   const done = startedID(runCli(bin, ["run", apply(switchDef(uid("wait_done")))]).stdout);
   expect(await waitForInstance(done)).toBe("completed");
+  const napDef = {
+    name: uid("wait_nap"),
+    tasks: [{ id: "nap", action: { type: "delay", for: "1h" }, switch: "end" }],
+  };
+  const napping = startedID(runCli(bin, ["run", apply(napDef)]).stdout);
 
+  // One listing: comparing against a second is racy, as other files settle rows in between.
   const external = instances(["--since", "1h", "--phase", "external"]);
-  expect(external.some((i) => i.id === parked)).toBe(true);
+  expect(external.find((i) => i.id === parked)?.status, "parked is still running").toBe("running");
   expect(external.every((i) => i.phase === "external")).toBe(true);
   expect(external.some((i) => i.id === done)).toBe(false);
-
-  // Orthogonal to status: the parked row is still `running`, so a filter that had fallen
-  // back to status would return the same set for both of these.
-  const running = instances(["--since", "1h", "--status", "running"]);
-  expect(running.some((i) => i.id === parked)).toBe(true);
-  expect(external.length).toBeLessThan(running.length + 1);
+  expect(
+    external.some((i) => i.id === napping),
+    "a running row that is not parked; a filter that fell back to status would list it",
+  ).toBe(false);
+  expect(
+    instances(["--since", "1h", "--status", "running"]).some((i) => i.id === napping),
+    "the premise: the napping row is running",
+  ).toBe(true);
 
   // Answering it empties the filter of that row -- the listing tracks the park, not the run.
   runCli(bin, ["signal", parked, "--task", "approval", "--set", "approved=true"]);

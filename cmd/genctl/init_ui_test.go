@@ -152,12 +152,6 @@ func TestInitUI_SecretsAreWrittenOnceAndNeverRegenerated(t *testing.T) {
 	}
 }
 
-func TestInitOptions_LoginIsTheDefaultAndNoComposeDropsItSilently(t *testing.T) {
-	if !newPrompter("\n\n\n\n\n").askYesNo("a web UI behind a login (genroc-ui)", true) {
-		t.Error("the prompt default is not yes")
-	}
-}
-
 func TestInitUI_ThePrintedPasswordMatchesTheStoredHash(t *testing.T) {
 	l, err := newLogin("ada@example.com")
 	if err != nil {

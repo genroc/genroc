@@ -49,6 +49,13 @@ func TestWithObjectRefs(t *testing.T) {
 			want:    `{"items":["a",` + marker + `]}`,
 		},
 		{
+			name:    "an array position decoded from the wire is a json.Number",
+			value:   `{"items":["a","b"]}`,
+			objects: []objectEntry{entry(9, "state", "items", json.Number("1"))},
+			at:      []any{"state"},
+			want:    `{"items":["a",` + marker + `]}`,
+		},
+		{
 			name:  "nothing externalized leaves the value alone",
 			value: `{"who":"world"}`,
 			at:    []any{"state"},

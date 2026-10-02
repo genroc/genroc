@@ -61,6 +61,18 @@ func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 	}
 }
 
+// Only the folder may differ: -y writes here, the prompt offers a new one.
+func TestInitOptions_AssumeYesAndEnterScaffoldTheSameProject(t *testing.T) {
+	flags, _, _ := parseInitArgs([]string{"-y"})
+	enter := options{dir: "."}.prompt(newPrompter("\n\n\n\n\n"))
+	if flags.evalNode != enter.evalNode || flags.postgres != enter.postgres || flags.auth != enter.auth {
+		t.Errorf("-y gave %+v, Enter gave %+v: parseInitArgs and prompt disagree on a default", flags, enter)
+	}
+	if flags.auth {
+		t.Error("a login is on by default; init scaffolds a laptop, so it must be opt-in (--auth)")
+	}
+}
+
 func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 	for _, tc := range []struct {
 		name, input string
