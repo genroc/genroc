@@ -282,15 +282,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 		// is position-independent and the must-analysis is monotone along a path (§2a).
 		add(MemberUpgrade, t.ID, t.ID, storedExplainer.explain(oldA.contexts[t.ID], newA.contexts[t.ID]))
 		if typeChanged(t, nt) {
-			// State an instance left behind — a submitted result, children in flight, a timer —
-			// belongs to the old action, and no schema relation describes handing it over. Where
-			// the old type holds nothing, any instance here is at ENTRY and the new action runs.
-			if holdsAnInstance(actionTypeOf(t)) {
-				out = append(out, Issue{
-					Member: MemberUpgrade, Address: t.ID + ":action.type", Task: t.ID, Gating: true,
-					Message: fmt.Sprintf("%s → %s; an instance sitting there was left by an action the new type cannot take over from",
-						actionTypeOf(t), actionTypeOf(nt)),
-				})
+			if issue, ok := typeChangeIssue(t, nt); ok {
+				out = append(out, issue)
 			}
 			// Result schemas are not comparable across types either: the party that submits
 			// the value changed, so old ⊆ new would be asking a service to honour a contract
@@ -303,6 +296,21 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 
 	add(MemberContract, addressOutput, "", compareOutput(oldA, newA))
 	return out
+}
+
+// typeChangeIssue is the break a type change leaves under an instance sitting in the task: what
+// the old action left — a submitted result, children in flight, a timer — no schema relation
+// hands over. Where the old type holds nothing, any instance there is at ENTRY and the new
+// action runs. The upgrade gate asks the same question of the one row it holds.
+func typeChangeIssue(old, new *model.Task) (Issue, bool) {
+	if !typeChanged(old, new) || !holdsAnInstance(actionTypeOf(old)) {
+		return Issue{}, false
+	}
+	return Issue{
+		Member: MemberUpgrade, Address: old.ID + ":action.type", Task: old.ID, Gating: true,
+		Message: fmt.Sprintf("%s → %s; an instance sitting there was left by an action the new type cannot take over from",
+			actionTypeOf(old), actionTypeOf(new)),
+	}, true
 }
 
 // resultContract is one result schema pair, with the address it is reported under. A
@@ -530,15 +538,17 @@ func raiseIssues(old, new *model.Task) []Issue {
 				found = append(found, finding{path: path, msg: f.msg})
 			}
 		}
-		// UPGRADE only. What a call accepts back on the error channel is not a promise to its
-		// own callers -- registration already refuses a declaration the callee could overflow --
-		// so narrowing it breaks instances in flight and nobody else.
-		if !rc.parks {
-			continue
-		}
+		// Both members, as for a result: the submitter is the party narrowed. Registration does
+		// not cover it — it checks a child's raisable codes, never an external worker's.
 		for _, f := range found {
+			if rc.parks {
+				out = append(out, Issue{
+					Member: MemberUpgrade, Address: rc.address, Task: rc.task,
+					Path: f.path, Message: f.msg, Gating: true,
+				})
+			}
 			out = append(out, Issue{
-				Member: MemberUpgrade, Address: rc.address, Task: rc.task,
+				Member: MemberContract, Address: rc.address, Task: rc.task,
 				Path: f.path, Message: f.msg, Gating: true,
 			})
 		}

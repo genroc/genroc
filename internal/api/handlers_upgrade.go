@@ -163,16 +163,17 @@ func movableStatus(s model.Status) bool {
 	return s == model.StatusPaused || s == model.StatusFailed
 }
 
-// inFlightBreak reports why an instance parked on a task that holds an outstanding RESULT cannot
-// move, or "" when it can. Scoped to a parked instance: a task that merely COULD park is
-// registration's concern.
+// inFlightBreak reports why an instance HELD in its task cannot move, or "" when it can: the task
+// changed action type under it, or it holds an outstanding RESULT the new version would refuse.
+// Scoped to a held instance: a task that merely COULD hold one is registration's concern.
 //
 // It compares SCHEMAS and deliberately OVER-REFUSES on a child task, where conforming the
 // actual output would answer precisely. Kept because refusing leaves a tree paused and an
 // operator informed, while allowing wedges the parent at collect with a result nothing can
 // accept. Refining it needs materialisation, so it belongs here rather than in validation.
 func (h *Handlers) inFlightBreak(inst *model.ProcessInstance, to *model.ProcessDefinition, toVersion int) string {
-	if inst.Phase == model.PhaseNone {
+	// A delay holds its instance with no phase, only a wake_at.
+	if inst.Phase == model.PhaseNone && inst.WakeAt == nil {
 		return ""
 	}
 	from, err := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
@@ -180,7 +181,13 @@ func (h *Handlers) inFlightBreak(inst *model.ProcessInstance, to *model.ProcessD
 		return err.Error()
 	}
 	oldTask, newTask := taskByID(from, inst.Task), taskByID(to, inst.Task)
-	if oldTask == nil || newTask == nil || oldTask.Action == nil || !oldTask.Action.Type.Holds().Result {
+	if oldTask == nil || newTask == nil || oldTask.Action == nil {
+		return ""
+	}
+	if b, ok := validation.TypeChangeBreak(oldTask, newTask); ok {
+		return fmt.Sprintf("task %q: %s", inst.Task, b.Message)
+	}
+	if inst.Phase == model.PhaseNone || !oldTask.Action.Type.Holds().Result {
 		return ""
 	}
 	breaks := validation.InFlightResultBreaks(oldTask, newTask)

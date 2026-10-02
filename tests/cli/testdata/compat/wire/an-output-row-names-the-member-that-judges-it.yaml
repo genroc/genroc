@@ -1,0 +1,70 @@
+# An output means different things at the two levels, and `affects` must say which. A task's
+# output is read by the tasks after it, so it bears on the upgrade; the process's is read by
+# callers, so it bears on the contract compareOutput judges. Both `output_schema`s are judged
+# too — a declaration is the published type — so neither may render `(not judged)`.
+#
+# The member is invisible in the text rendering (`(ok)` either way), so only the wire holds it.
+apply:
+  - channel: outrow_a
+    definitions:
+      - name: outrow_proc
+        tasks:
+          - id: calc
+            output: {n: '$: 1'}
+            output_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+            switch: end
+        output: '$: outputs.calc.n'
+        output_schema: {type: number}
+  - channel: outrow_b
+    definitions:
+      - name: outrow_proc
+        tasks:
+          - id: calc
+            output: {n: '$: 1'}
+            output_schema: {type: object, properties: {n: {type: number, description: count}}, required: [n]}
+            switch: end
+        output: '$: outputs.calc.n * 1'
+        output_schema: {type: number, description: count}
+run: [--from, outrow_a, --to, outrow_b, --json]
+expect: |
+  {
+    "compatible": true,
+    "passes": true,
+    "processes": [
+      {
+        "name": "outrow_proc",
+        "status": "compared",
+        "from": 1,
+        "to": 2,
+        "upgrade": {
+          "compatible": true
+        },
+        "contract": {
+          "compatible": true
+        },
+        "changed": [
+          {
+            "address": "output",
+            "affects": [
+              "contract"
+            ]
+          },
+          {
+            "address": "output_schema",
+            "affects": [
+              "contract"
+            ]
+          },
+          {
+            "address": "calc:output_schema",
+            "task": "calc",
+            "affects": [
+              "upgrade"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+
+  exit 0

@@ -54,8 +54,8 @@ apply:
 run: [--from, dropped_a, --to, dropped_b]
 
 expect: |
-  dropped_boss  v1 → v2  breaking: upgrade; compatible
-    work:child.raises  (breaking: upgrade)
+  dropped_boss  v1 → v2  breaking: upgrade, contract
+    work:child.raises  (breaking: upgrade, contract)
       declined: code no longer declared
     explain:output     (ok)
 

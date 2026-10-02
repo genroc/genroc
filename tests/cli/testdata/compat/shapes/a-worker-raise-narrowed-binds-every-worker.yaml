@@ -1,0 +1,36 @@
+# On an external task `raises` is a closed set a worker submits against, and registration checks
+# no worker. So narrowing it refuses future submissions as well as the one in flight: both
+# members, as narrowing its `result_schema` is (a-parked-task-carries-its-result-schema.yaml).
+apply:
+  - channel: wraise_a
+    definitions:
+      - name: wraise_proc
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {}
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}}
+            switch: end
+  - channel: wraise_b
+    definitions:
+      - name: wraise_proc
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {}
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}, required: [why]}
+            switch: end
+run: [--from, wraise_a, --to, wraise_b]
+
+expect: |
+  wraise_proc  v1 → v2  breaking: upgrade, contract
+    hold:external.raises  (breaking: upgrade, contract)
+      declined.why: newly required field
+
+  exit 1

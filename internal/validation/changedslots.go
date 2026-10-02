@@ -138,7 +138,7 @@ func slotAffects(slot string) []Member {
 	// One slot, both questions — the case §3b is entirely about.
 	case "input_schema":
 		return []Member{MemberUpgrade, MemberContract}
-	case "output":
+	case "output", "output_schema":
 		return []Member{MemberUpgrade}
 	// Whether it is ALSO an upgrade concern depends on the action type rather than the slot,
 	// so that half is decided by the caller — see taskSlotAffects.
@@ -146,6 +146,15 @@ func slotAffects(slot string) []Member {
 		return []Member{MemberContract}
 	}
 	return nil
+}
+
+// definitionSlotAffects is slotAffects at process level, where an output is what callers read:
+// compareOutput judges it as the contract. A task's output bears on the contexts after it instead.
+func definitionSlotAffects(slot string) []Member {
+	if slot == "output" || slot == "output_schema" {
+		return []Member{MemberContract}
+	}
+	return slotAffects(slot)
 }
 
 func changedTaskSlots(old, new *model.Task) []SlotChange {
@@ -308,7 +317,7 @@ func changedDefinitionSlots(old, new *model.ProcessDefinition) []SlotChange {
 		if !sameJSON(s.get(old), s.get(new)) {
 			changed = append(changed, SlotChange{
 				Address: slotAddress("", s.name, ""),
-				Affects: slotAffects(s.name),
+				Affects: definitionSlotAffects(s.name),
 			})
 		}
 	}

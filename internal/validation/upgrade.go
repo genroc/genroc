@@ -81,3 +81,13 @@ func InFlightResultBreaks(from, to *model.Task) []Issue {
 	}
 	return out
 }
+
+// TypeChangeBreak reports a task that changed action type under an instance HELD in it —
+// parked, waiting on children, or on a timer. Ask it only of a held row: one at the task's
+// entry has nothing the old action left, and the new action simply runs.
+func TypeChangeBreak(from, to *model.Task) (Issue, bool) {
+	if from == nil || to == nil {
+		return Issue{}, false
+	}
+	return typeChangeIssue(from, to)
+}

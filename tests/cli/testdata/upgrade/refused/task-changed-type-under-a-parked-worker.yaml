@@ -1,0 +1,30 @@
+# compat reports `hold:action.type` as an upgrade break; the gate must refuse the same move. A
+# worker holds the old contract, and the row is parked in a phase the new action never reads,
+# so a move it allowed left the instance running forever on a delay that never arms.
+apply:
+  - definitions:
+      - name: retyped
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {}
+              result_schema: {type: object, properties: {ok: {type: boolean}}}
+            switch: end
+  - definitions:
+      - name: retyped
+        tasks:
+          - id: hold
+            action: {type: delay, for: 1h}
+            switch: end
+start: {process: retyped}
+at:
+  - ticks: 0
+    resting: {task: hold, phase: "", version: 1}
+    after: {task: hold, phase: "", version: 2}
+    refused: false
+  - ticks: 1
+    resting: {task: hold, phase: external, version: 1}
+    after: {task: hold, phase: external, version: 1}
+    refused: {says: 'external → delay'}
+run: [retyped, --from, "1", --to, "2"]

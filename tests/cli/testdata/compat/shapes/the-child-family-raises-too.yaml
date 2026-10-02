@@ -7,9 +7,7 @@
 #   many  child_map   one PER KEY, and the address carries the key: `many:child_map.a.raises`
 #   each  child_list  one map for every element
 #
-# UPGRADE only, and no contract row. What a call accepts back on the error channel is not a
-# promise to its own callers — registration already refuses a declaration the callee could
-# overflow — so narrowing it breaks instances in flight and nobody else.
+# Both members, as for the result: the child is the submitter the narrowing binds.
 apply:
   - channel: raisefam_a
     definitions:
@@ -93,12 +91,12 @@ run: [--from, raisefam_a, --to, raisefam_b]
 
 expect: |
   raisefam_kid   v1       unchanged
-  raisefam_proc  v1 → v2  breaking: upgrade; compatible
-    one:child.raises         (breaking: upgrade)
+  raisefam_proc  v1 → v2  breaking: upgrade, contract
+    one:child.raises         (breaking: upgrade, contract)
       declined.why: newly required field
-    many:child_map.a.raises  (breaking: upgrade)
+    many:child_map.a.raises  (breaking: upgrade, contract)
       declined.why: newly required field
-    each:child_list.raises   (breaking: upgrade)
+    each:child_list.raises   (breaking: upgrade, contract)
       declined.why: newly required field
 
   exit 1

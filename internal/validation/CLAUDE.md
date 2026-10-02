@@ -7,8 +7,8 @@
 assume every reachable state and report a structural difference wherever one exists —
 without judging whether it would hurt. That judgement needs a position (which task an
 instance sits on, which keys its row actually holds), and belongs to the upgrade gate —
-`MigrateState` / `InFlightResultBreaks` in `upgrade.go`, **built**, and specified in
-specs/version-compatibility.md.
+`MigrateState` / `InFlightResultBreaks` / `TypeChangeBreak` in `upgrade.go`, **built**, and
+specified in specs/version-compatibility.md.
 
 Two imprecisions follow, and neither is a bug to fix here: a branch that only sometimes runs
 makes its output merely optional, and a new main-line task carrying an `output` becomes

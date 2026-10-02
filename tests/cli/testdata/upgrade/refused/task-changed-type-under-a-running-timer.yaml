@@ -1,0 +1,26 @@
+# A delay holds its instance with no phase, only a wake_at, so a gate that keys on the phase
+# alone never sees it. The timer was armed by the old action; the new one never asked to be woken.
+apply:
+  - definitions:
+      - name: retimed
+        tasks:
+          - id: wait
+            action: {type: delay, for: 1h}
+            switch: end
+  - definitions:
+      - name: retimed
+        tasks:
+          - id: wait
+            action: {type: fetch, method: post, url: http://x/wait}
+            switch: end
+start: {process: retimed}
+at:
+  - ticks: 0
+    resting: {task: wait, phase: "", version: 1}
+    after: {task: wait, phase: "", version: 2}
+    refused: false
+  - ticks: 1
+    resting: {task: wait, phase: "", version: 1}
+    after: {task: wait, phase: "", version: 1}
+    refused: {says: 'delay → fetch'}
+run: [retimed, --from, "1", --to, "2"]

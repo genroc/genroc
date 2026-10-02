@@ -1,8 +1,8 @@
-# A caller declares the shape of a child's raised payload; narrowing that declaration is an
-# UPGRADE break and not a contract one. The break lands where the payload is read — the task
-# the rule routes to — because `raises` types `last_error.data` there, and an instance parked in
-# the child call resumes into a definition that demands more of the payload than the one it
-# was spawned under. The outside world submits and reads nothing here, so the contract holds.
+# A caller declares the shape of a child's raised payload; narrowing that declaration breaks
+# both members, as narrowing a result does. The upgrade break also lands where the payload is
+# read — the task the rule routes to — because `raises` types `last_error.data` there, and an
+# instance parked in the child call resumes into a definition that demands more of the payload
+# than the one it was spawned under.
 apply:
   - channel: declined_a
     definitions:
@@ -61,8 +61,8 @@ apply:
 run: [--from, declined_a, --to, declined_b]
 
 expect: |
-  declined_boss  v1 → v2  breaking: upgrade; compatible
-    work:child.raises  (breaking: upgrade)
+  declined_boss  v1 → v2  breaking: upgrade, contract
+    work:child.raises  (breaking: upgrade, contract)
       declined.why: newly required field
     explain            (breaking: upgrade)
       last_error.data.why: newly required field
