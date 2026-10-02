@@ -22,9 +22,8 @@ func pgDeadlock(err error) bool {
 	return errors.As(err, &pqErr) && pqErr.Code == "40P01"
 }
 
-// PauseProcess (top-down: parent then child) against FailInstanceAndAncestors (bottom-up:
-// child then parent) — the only real deadlock in the codebase. Postgres must always resolve
-// it without inconsistent state; other lock-order pairs cannot occur (exclusive WHEREs).
+// PauseProcess against FailInstanceAndAncestors: opposite ends of the tree, kept apart by the
+// shared id lock order (lockTree). A Postgres deadlock is still tolerated; inconsistent state is not.
 func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -231,9 +230,8 @@ func TestStress_ConcurrentFinishChild(t *testing.T) {
 	}
 }
 
-// PauseProcess (locks top-down via the CTE) against concurrent FinishChild (parent, then
-// child): the CTE can lock a child before the parent, inverting the order. Invariant: every
-// error is nil or a Postgres deadlock, and no instance is left 'running'.
+// PauseProcess against concurrent FinishChild, both locking in id order (lockTree). Invariant:
+// every error is nil or a Postgres deadlock, and no instance is left 'running'.
 func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")

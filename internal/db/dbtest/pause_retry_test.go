@@ -1164,9 +1164,9 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 	}
 }
 
-// Despite the name, only the REPORTED error clears; the CAUGHT one stays. The cleared slot's claim
-// outlives the retry (`objects` is the LOADED list) and drops with the next write.
-func TestRetryProcess_ClearsBothErrors(t *testing.T) {
+// The cleared slot's claim outlives the retry (`objects` is the LOADED list) and drops with the
+// next write.
+func TestRetryProcess_ClearsTheReportedErrorAndKeepsTheCaughtOne(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			inst := &model.ProcessInstance{

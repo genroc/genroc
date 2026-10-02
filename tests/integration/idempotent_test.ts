@@ -411,7 +411,6 @@ test("only_once:true — connection refused triggers pre.% retries", async () =>
 });
 
 test("only_once:true — not_reached:true allows retry on http.422", async () => {
-  let calls = 0;
   const mock = await startMockService(0, { statusCode: 200, response: { ok: true } });
   // The mock cannot vary status per call, so this only confirms the definition is accepted and
   // runs; the static acceptance test above is the meaningful check.

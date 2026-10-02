@@ -601,7 +601,6 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
 
   // The proof is on the CHILD's row: error_data has its own field, so the object listing names
   // it rather than a path through `state`.
-  const { data: lazy } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   const childId = (await childrenOfTask(started!.id, "pay")) as string;
   const { data: kid } = await client.GET("/instances/{id}/detail", { params: { path: { id: childId } } });
   expect(

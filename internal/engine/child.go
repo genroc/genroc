@@ -62,11 +62,6 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		if fail != nil {
 			return nil, fail
 		}
-		ids := make(map[string]any, len(mapped))
-		for _, c := range mapped {
-			key, _ := c.State["_spawn_child_key"].(string)
-			ids[key] = c.ID
-		}
 		children = mapped
 	case model.ActionTypeChildList:
 		listChildren, fail := e.buildListChildren(ctx, inst, task, childCallStack)
@@ -78,10 +73,6 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 			// would re-run this task forever.
 			e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventChildrenSpawned, Task: task.ID, Msg: "0 children"})
 			return []any{}, nil
-		}
-		ids := make([]any, len(listChildren))
-		for i, c := range listChildren {
-			ids[i] = c.ID
 		}
 		children = listChildren
 	}
