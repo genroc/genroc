@@ -54,7 +54,7 @@ func (j *JWTModeConfig) Validate() error {
 
 func (j JWTModeConfig) resolveSecret() (string, error) {
 	if j.Secret != "" && j.SecretFile != "" {
-		return "", fmt.Errorf("-jwt-secret and -jwt-secret-file are exclusive")
+		return "", fmt.Errorf("$GENROC_JWT_SECRET and -jwt-secret-file are exclusive")
 	}
 	secret := j.Secret
 	if j.SecretFile != "" {

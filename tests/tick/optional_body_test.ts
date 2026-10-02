@@ -1,8 +1,8 @@
 /**
- * POST /tick is the one HTTP endpoint whose request body reaches decodeOptionalBody
- * directly — every other optional-body action has a fromHTTP that rebuilds the payload
- * from query parameters, discarding whatever the client sent. So it is the only place
- * the "optional means absent, not unparseable" rule is observable over HTTP.
+ * POST /tick and POST /instances/{id}/upgrade are the HTTP endpoints whose request body
+ * reaches decodeOptionalBody directly — every other optional-body action has a fromHTTP that
+ * rebuilds the payload from query parameters, discarding whatever the client sent. /tick is
+ * where the "optional means absent, not unparseable" rule is pinned over HTTP.
  *
  * The failure this pins down is specific: advance_ms sent as a string used to decode to
  * 0, leaving the server clock unmoved while the response still said 200. A test written

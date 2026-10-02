@@ -121,7 +121,7 @@ func completeKey(text, file string, line, col int) []completionItem {
 // keysAt answers with the DECLARED schema's properties where one governs this mapping, and
 // with the definition language's own keys everywhere else. The generated schema cannot absorb
 // the first: a declaration is data in the document, possibly spread in from a file.
-// specs/declared-slot-schemas.md §6.
+// specs/declared-slot-schemas.md §7.
 func keysAt(doc *document, path string) []completionItem {
 	if items, ok := declaredKeys(doc, path); ok {
 		return items

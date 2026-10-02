@@ -138,7 +138,8 @@ func claimObjects(ctx context.Context, qtx *dbgen.Queries, owner model.ObjectOwn
 // applyContextObjectDiff, inside the caller's transaction: content for every pending object is
 // written once (deduped by hash) and this instance claims it; hashes it loaded but no longer
 // references have that claim released. Releasing is never a delete -- another owner may hold
-// the same bytes, or a client a reference handed out moments ago -- so it leaves a grace claim.
+// the same bytes, or a client a reference handed out moments ago -- so it only drops the claim,
+// and the sweep's release mark starts the grace window.
 func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, instanceID string, pending []*pendingObject, loaded, referenced map[string]struct{}, now int64) error {
 	if err := claimObjects(ctx, qtx, model.ObjectOwnerInstance, instanceID, pending, referenced, now); err != nil {
 		return err
@@ -160,10 +161,9 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 	return nil
 }
 
-// CollectObjects is the sweep, in the order the two questions must be asked: retire claims whose
-// horizon has passed, then delete content nothing claims any more. It never STAMPS a grace claim
-// -- only an owner releasing one does -- which is what keeps an expiring grace claim from
-// earning itself another window forever.
+// CollectObjects is the sweep, in the order its questions must be asked: retire log claims whose
+// row is gone, mark content nothing claims any more, then delete what has stayed marked past
+// --object-grace.
 func (db *DB) CollectObjects(now int64) (int64, error) {
 	ctx := context.Background()
 	if err := db.retireOrphanedLogRefs(ctx); err != nil {
@@ -189,10 +189,9 @@ func (db *DB) CollectObjects(now int64) (int64, error) {
 	return db.collectUnreferencedPG(ctx, cutoff)
 }
 
-// retireOrphanedLogRefs releases the claims of log rows that no longer exist, stamping grace as
-// an instance release does. Driven by the owner being absent rather than by ids the prune
-// collected, so a crash between the two is repaired by the next sweep. This is the one place
-// the sweep may stamp grace: a log claim retired once has no owner left to retire it again.
+// retireOrphanedLogRefs releases the claims of log rows that no longer exist. Driven by the owner
+// being absent rather than by ids the prune collected, so a crash between the two is repaired by
+// the next sweep.
 func (db *DB) retireOrphanedLogRefs(ctx context.Context) error {
 	orphans, err := db.q.OrphanedLogRefs(ctx)
 	if err != nil {

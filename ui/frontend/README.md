@@ -11,8 +11,8 @@ It expects genroc on `http://localhost:8448`; override with `GENROC_SERVER=… p
 `vite.config.ts` proxies `/api` and `/healthz` to genroc, so **the browser only ever talks to
 one origin** and the hop to genroc is server-to-server. genroc needs no `Access-Control-*`
 headers and this app needs no base URL — `fetch("/api/instances")` is a relative path in both
-dev and production, because in production genroc serves these assets itself at `/`
-(specs/api-auth.md §5.1).
+dev and production, because in production genroc-ui serves these assets and proxies `/api` the
+same way (specs/ui-component.md).
 
 That is worth preserving. The moment this app is served from an origin genroc does not own,
 CORS becomes a thing genroc has to configure and get right.
@@ -25,7 +25,8 @@ that is correct — there is no token to mint, store, refresh or expire, and `lo
 empty. This is less code than a session exchange, not more.
 
 **Without a proxy**, a person pastes their own credential and it goes into `localStorage`. Either
-kind works, because genroc accepts either: a `genroc_sk_*` token, or a JWT from your IdP.
+kind works, because genroc accepts either: a `genroc_sk_*` token, or a JWT signed with
+genroc-ui's secret.
 
     genctl token create --perms read --label ui -q
 

@@ -46,7 +46,7 @@ identity header and no cookie. specs/auth-two-credentials.md.
 **Both credentials arrive on `Authorization: Bearer`, so they compose through `Chain`.** Each declines what is not its own (`JWTAuth` skips a `genroc_sk_` prefix and anything
 without three dot-separated segments) and the first to recognise the credential answers. The rule
 that breaks silently: **a link returning an error stops the chain.** Falling through would let an
-unreachable JWKS or database read as "not authenticated", turning an outage into 401s the
+unreachable database read as "not authenticated", turning an outage into 401s the
 operator cannot tell from a bad client. `(nil, nil)` means "not mine"; an error means "cannot
 decide", and only the first is a fall-through.
 
@@ -80,7 +80,7 @@ The rest of this file is the part that breaks silently.
 
 `Principal.Actor()` is the ONE place an audit identity is spelled (specs/api-auth.md §7). The
 source is inside the string rather than in a second column, so a reader always knows which mode
-established the identity: `token:ci`, `jwt:ada@example.com`, `none:anonymous`. Every source that
+established the identity: `token:ci`, `jwt:ada@example.com`, `no-auth:anonymous`. Every source that
 can appear is one genroc verified — there is no unverified one left to distinguish.
 
 **`X-Genroc-Actor` reports that same string back on every HTTP response**, set in the route

@@ -141,7 +141,7 @@ because parsing it in JavaScript would corrupt the values under test.
 
 ## YAML merge keys
 
-`yamlToAny` walks mappings itself, so YAML's `<<` is not free — and getting it wrong is
+`defdoc` walks mappings itself (`mergeTarget`), so YAML's `<<` is not free — and getting it wrong is
 silent: the alias lands under a literal `"<<"` field, the server drops it as unknown, and
 the canonical re-marshal strips the evidence. Explicit keys beat merged ones (YAML's own
 precedence). The **sequence form is refused**: YAML 1.1 gives its *earlier* entries

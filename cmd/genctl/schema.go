@@ -2,8 +2,8 @@ package main
 
 // `genctl schema` hands back a piece of a definition's inferred view, as a schema document
 // something else can generate from. Local only: genctl infers the types itself (sources.go),
-// so this answers with no server and runs no resolver — an unresolved `$import` types as the
-// string it is. specs/schema-command.md.
+// so this answers with no server. It runs the structural phase, never the code phase — an
+// unresolved `$import` types as the string it is. specs/schema-command.md.
 
 import (
 	"bytes"
@@ -71,7 +71,7 @@ var typeView = schemaView{
 	document: validation.TypeDocument,
 	render:   printTypes,
 	exprHelp: "type this expression against the schema the address selected, bare: items[0].sku",
-	example:  "tasks.price.result",
+	example:  "tasks.price.action.result",
 	jsonHelp: "print JSON: the documents rather than a summary of what each is, and a schema as JSON rather than YAML",
 }
 

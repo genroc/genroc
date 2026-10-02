@@ -1,7 +1,7 @@
 package lsp
 
 // Key completion inside a shape whose slot carries a DECLARED schema.
-// specs/declared-slot-schemas.md §6.
+// specs/declared-slot-schemas.md §7.
 //
 // This is a second source beside `processSchema`, not a repair of it. The generated schema
 // describes the definition LANGUAGE, and "this mapping's keys come from the value of a sibling

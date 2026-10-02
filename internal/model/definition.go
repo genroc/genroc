@@ -327,7 +327,7 @@ var actionSchemaTemplate = `{
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against. Without it any JSON is accepted."},
 					"raises": {
 						"type": "object",
-						"description": "Code -> JSON Schema for a payload submitted to /external-tasks/fail, read as error.data.",
+						"description": "Code -> JSON Schema for the payload of an error outcome a worker submits, read as error.data.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
@@ -541,18 +541,6 @@ func (c *Action) ValidateOutput(output any) (any, error) {
 		return output, nil
 	}
 	return c.ResultSchema.Validate(output)
-}
-
-// ResultRedactionSchema is the schema governing a result for logging: the per-status one for
-// a fetch, ResultSchema for everything else. status 0 means "no HTTP status involved".
-// Redaction must resolve the schema the same way validation does — a secret marked on a
-// status whose schema the logger cannot find is a secret printed into the audit trail.
-func (c *Action) ResultRedactionSchema(status int) *schema.Schema {
-	if c.Type == ActionTypeFetch {
-		sc, _ := c.ResponseFor(status)
-		return sc
-	}
-	return c.ResultSchema
 }
 
 // ValidateResponse validates a fetch response body against the schema declared for its status

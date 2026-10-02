@@ -4,7 +4,7 @@ package lsp
 // half a TextMate grammar cannot do, since whether a scalar evaluates depends on WHICH SLOT holds
 // it. The insides come from the language's own lexer (`syntax.Tokens`) and the marker positions
 // from the template scanner (`template.Scan`), so nothing here re-derives a rule.
-// specs/language-server.md §5.
+// specs/language-server.md §6.
 
 import (
 	"sort"

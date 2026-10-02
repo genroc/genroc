@@ -377,8 +377,8 @@ func CatchableKinds(actionType ActionType, onlyOnce bool) errcode.Kind {
 // catchableVocabulary is the concrete set a pattern is matched against, and the list a
 // rejection shows. Two families are not in errcode's table: the http statuses, unbounded so
 // the probe stands in for them with the range `ValidStatusPattern` admits, and an external's
-// declared `raises` — authored codes a worker submits, which are exactly the set
-// /external-tasks/fail accepts. The editor offers both the same way.
+// declared `raises` — authored codes a worker submits, which are exactly the set an error
+// outcome may carry. The editor offers both the same way.
 func catchableVocabulary(s *Task, kinds errcode.Kind) (probe []errcode.Code, display []string) {
 	if kinds&errcode.KindFetch != 0 {
 		for status := 100; status <= 599; status++ {
@@ -657,7 +657,7 @@ func validateRaises(s *Task, pool schema.Defs) error {
 	}
 	switch s.Action.Type {
 	// External declares the same slot for a different producer: the code arrives from a
-	// worker's /external-tasks/fail rather than from a child, so the declared set is a
+	// worker's error outcome rather than from a child, so the declared set is a
 	// contract rather than a knowable set — which is why no reachability rule (R5) applies.
 	case ActionTypeChild, ActionTypeChildList, ActionTypeExternal:
 	case ActionTypeChildMap:
