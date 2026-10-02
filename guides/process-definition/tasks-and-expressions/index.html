@@ -300,9 +300,15 @@ In the examples above that is:</p>
 
 
 
-<table><thead><tr><th>Slot</th><th>Where</th><th>Syntax</th></tr></thead><tbody><tr><td><code>url</code>, <code>method</code></td><td><code>fetch</code> action</td><td>string template</td></tr><tr><td><code>body</code></td><td><code>fetch</code> action</td><td>shape</td></tr><tr><td><code>for</code></td><td><code>delay</code> action</td><td>literal duration, or a <code>$:</code> yielding integer *</td></tr><tr><td><code>case</code></td><td><code>switch</code></td><td>raw expression</td></tr><tr><td><code>output</code></td><td><code>task</code></td><td>shape</td></tr><tr><td><code>output</code></td><td><code>process</code></td><td>shape</td></tr></tbody></table>
+
+
+
+
+
+<table><thead><tr><th>Slot</th><th>Where</th><th>Syntax</th></tr></thead><tbody><tr><td><code>url</code>, <code>method</code></td><td><code>fetch</code> action</td><td>string template</td></tr><tr><td><code>body</code></td><td><code>fetch</code> action</td><td>shape</td></tr><tr><td><code>for</code></td><td><code>delay</code> action</td><td>literal duration, or a <code>$:</code> yielding integer *</td></tr><tr><td><code>until</code></td><td><code>delay</code> action</td><td>literal instant, or a <code>$:</code> yielding integer *</td></tr><tr><td><code>case</code></td><td><code>switch</code></td><td>raw expression</td></tr><tr><td><code>output</code></td><td><code>task</code></td><td>shape</td></tr><tr><td><code>output</code></td><td><code>process</code></td><td>shape</td></tr></tbody></table>
 <blockquote>
-<p>* A static <code>for</code> can use human-readable syntax, e.g. <code>2h30s</code>; a dynamic one can only give milliseconds as a number.</p>
+<p>* A static <code>for</code> or <code>until</code> can use human-readable syntax, e.g. <code>2h30s</code> or <code>mon 09:00</code>; a dynamic one can only give
+milliseconds as a number — a duration for <code>for</code>, a Unix timestamp for <code>until</code>.</p>
 </blockquote>
 <p>Every action and clause introduced later brings its own slots, but the syntax is always one of these.</p>
 <h2 id="process-output">Process output<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-output"><span></span></a></h2>
