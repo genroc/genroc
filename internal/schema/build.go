@@ -36,11 +36,8 @@ func Map(sub Schema) Schema {
 	return Schema{n: n}
 }
 
-// ArrayLiteral builds the schema of an array literal from its already-inferred element
-// schemas. An empty slice is the provably-empty array (maxItems 0) — which is what lets
-// a literal `[]` (and the `?? []` idiom) be a subset of any array<T>; a non-empty slice
-// is array<join of elements>, with an empty-array element absorbed so [xs, []] keeps xs's
-// element type. Element root $defs are dropped (WithoutDefs); the caller owns the pool.
+// ArrayLiteral: no elements is the provably-empty array (maxItems 0), a subset of any array<T>;
+// otherwise array<join>, an empty-array element absorbed. Element $defs are dropped.
 func ArrayLiteral(elems []Schema) Schema {
 	if len(elems) == 0 {
 		return emptyArray()
@@ -76,10 +73,8 @@ func nodesOf(vs []Schema) []*node {
 	return out
 }
 
-// defsOf carries the pool up from the arms. Resolution reads the handle on the ROOT node
-// (`rootDefs`), so a union built without one cannot deref a `$ref` ARM: `HasNull` answers false
-// about a nullable value and `Summary` renders it `unknown`. Every arm came from one Generate,
-// so the first pool found is the pool.
+// defsOf: resolution reads the pool off the ROOT, so without it a `$ref` arm cannot deref.
+// Every arm came from one Generate, so the first pool found is the pool.
 func defsOf(vs []Schema) map[string]*node {
 	for _, v := range vs {
 		if d := v.rootDefs(); d != nil {
@@ -106,10 +101,7 @@ func (s Schema) WithProperty(name string, sub Schema, required bool) Schema {
 	if required && !isRequired(base, name) {
 		n.Required = append(append([]string{}, base.Required...), name)
 	}
-	// Guards carry: this returns the SAME value with one more member, which is how a context
-	// gains `self` between the base scope and the slot that reads it. Navigation is the case
-	// that must not carry them — it returns a different value, and they are keyed from the
-	// root. specs/guard-narrowing.md.
+	// Guards carry: this is the SAME value with one more member. specs/guard-narrowing.md.
 	return s.keepingContext(Schema{n: &n})
 }
 

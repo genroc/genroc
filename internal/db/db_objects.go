@@ -14,37 +14,30 @@ import (
 	"genroc/internal/model"
 )
 
-// Inline cutoff for a context value-slot; larger values externalize to the object store.
-// ~2 KiB aligns with Postgres TOAST_TUPLE_THRESHOLD (above it a claim TOAST-fetches the
-// inline value anyway) and keeps SQLite rows off overflow pages. One value, both engines.
+// ~2 KiB matches Postgres TOAST_TUPLE_THRESHOLD (above it a claim TOAST-fetches the inline value
+// anyway) and keeps SQLite rows off overflow pages.
 const contextObjectThreshold = 2 * 1024
 
-// SetObjectGrace sets how long a released object stays fetchable. It is the contract a client
-// relies on: a reference it has been handed resolves for this long whatever happens to the data
-// that produced it. specs/object-store.md.
+// SetObjectGrace sets how long released content stays fetchable: a reference a client was handed
+// resolves for this long whatever happens to its data. specs/object-store.md.
 func (db *DB) SetObjectGrace(d time.Duration) { db.objectGraceMs.Store(d.Milliseconds()) }
 
-// pendingObject is a content object an encode step wants written. Hash is the
-// content address of Content (see hashContent); it is the object's id and the
-// change-detection key.
+// pendingObject is content an encode wants written; Hash (hashContent) is its id.
 type pendingObject struct {
 	Hash    string
 	Content string
 	Size    int64
 }
 
-// hashContent is an object's content address: the first 16 bytes of the sha256, hex
-// (32 chars). Deterministic, so byte-identical content dedups to one row; 128 bits
-// stays collision-free at any real scale. Truncation is safe — the hash is only
-// produced and compared here, never reconstructed from the full digest.
+// hashContent is the content address: the first 16 bytes of the sha256, hex. Deterministic, so
+// identical content dedups to one row.
 func hashContent(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:16])
 }
 
-// cutSlot cuts one context slot to fit: the fewest, largest leaves move to the object store and
-// the rest stays inline, so a big leaf repeated across calls hashes the same and is stored once.
-// A value that is ALREADY a reference comes back as one ref at the empty path and no data.
+// cutSlot moves the fewest, largest leaves out, so a big leaf repeated across calls hashes the
+// same and is stored once. An ALREADY-reference comes back as one ref at the empty path.
 // specs/object-store.md §Choosing what to externalize.
 func cutSlot(v any) (stripped any, refs []*model.ObjectRef, pending []*pendingObject, err error) {
 	if ref, ok := v.(*model.ObjectRef); ok {
@@ -72,19 +65,16 @@ func (db *DB) loadObjectValue(ctx context.Context, hash string) (any, error) {
 	return v, nil
 }
 
-// ObjectLoader is the hash -> value function model.NewContext takes, so every reader of a
-// context resolves through the same call rather than each rebuilding the closure. Callers that
-// need a read retried wrap this; the engine does, because a blip inside an advance is expensive
-// there in a way it is not to a one-shot reader (internal/engine/readretry.go).
+// ObjectLoader is the hash -> value function model.NewContext takes. It does not retry; the
+// engine wraps it (internal/engine/readretry.go).
 func (db *DB) ObjectLoader() func(hash string) (any, error) {
 	return func(hash string) (any, error) {
 		return db.ResolveObject(context.Background(), &model.ObjectRef{Ref: hash})
 	}
 }
 
-// ResolveObject loads an externalized value. Addressed by content hash and nothing else: the
-// owner is not a parameter because it would not be consulted, and a signature that accepts one
-// it ignores is a lie the next reader has to disprove. specs/object-store.md.
+// ResolveObject loads an externalized value by content hash alone; no owner parameter, since
+// none would be consulted. specs/object-store.md.
 func (db *DB) ResolveObject(ctx context.Context, ref *model.ObjectRef) (any, error) {
 	return db.loadObjectValue(ctx, ref.Ref)
 }
@@ -101,13 +91,9 @@ func (db *DB) GetObjectContent(hash string) (string, int64, error) {
 	return row.Content, row.Size, nil
 }
 
-// claimObjects is the ADDITION half of every object write: store the content this encode
-// produced, then claim every hash the value REFERENCES -- not merely the ones just written,
-// since a value can carry a reference it did not produce.
-//
-// Taking a TRANSACTION's queries is the contract, not a convenience: the content upsert's row
-// lock lasts only as long as its statement, so content claimed in a second transaction sits
-// committed and unclaimed in between, where the sweep may take it.
+// claimObjects stores pending content, then claims every hash the value REFERENCES, not just the
+// ones written. qtx must be the owner write's transaction: the upsert's row lock ends with its
+// statement, so content claimed in a second transaction is sweepable in between.
 func claimObjects(ctx context.Context, qtx *dbgen.Queries, owner model.ObjectOwner, ownerID string,
 	pending []*pendingObject, referenced map[string]struct{}, now int64) error {
 	for _, obj := range pending {
@@ -135,11 +121,8 @@ func claimObjects(ctx context.Context, qtx *dbgen.Queries, owner model.ObjectOwn
 	return nil
 }
 
-// applyContextObjectDiff, inside the caller's transaction: content for every pending object is
-// written once (deduped by hash) and this instance claims it; hashes it loaded but no longer
-// references have that claim released. Releasing is never a delete -- another owner may hold
-// the same bytes, or a client a reference handed out moments ago -- so it only drops the claim,
-// and the sweep's release mark starts the grace window.
+// applyContextObjectDiff claims pending objects and releases unreferenced ones in the caller's
+// transaction.
 func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, instanceID string, pending []*pendingObject, loaded, referenced map[string]struct{}, now int64) error {
 	if err := claimObjects(ctx, qtx, model.ObjectOwnerInstance, instanceID, pending, referenced, now); err != nil {
 		return err
@@ -148,8 +131,8 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 		if _, stillRef := referenced[h]; stillRef {
 			continue
 		}
-		// Drop the claim and nothing else. Whether this was the LAST claim, and therefore
-		// whether a grace window should start, is not knowable here -- the sweep decides it.
+		// Drop the claim and nothing else: whether it was the LAST one, starting a grace window,
+		// is not knowable here -- the sweep decides.
 		if err := qtx.DropObjectRef(ctx, dbgen.DropObjectRefParams{
 			Hash:      h,
 			OwnerKind: string(model.ObjectOwnerInstance),
@@ -161,18 +144,15 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 	return nil
 }
 
-// CollectObjects is the sweep, in the order its questions must be asked: retire log claims whose
-// row is gone, mark content nothing claims any more, then delete what has stayed marked past
-// --object-grace.
+// CollectObjects is the sweep, in the order its questions must be asked: retire orphaned log
+// claims, mark unclaimed content, delete what stayed marked past --object-grace.
 func (db *DB) CollectObjects(now int64) (int64, error) {
 	ctx := context.Background()
 	if err := db.retireOrphanedLogRefs(ctx); err != nil {
 		return 0, err
 	}
-	// Belt and braces: PutObject clears the mark when content is re-written, which covers a claim
-	// that comes and goes between two sweeps. This catches the rest -- a claim added without
-	// re-writing content, which is what a passed-through reference does. Before the mark, so an
-	// object that regained a claim is never collected on a stale one.
+	// Catches a claim added without re-writing content (a passed-through reference; PutObject
+	// covers the rest). Before the mark, so content that regained a claim is never collected.
 	if _, err := db.q.ClearObjectRelease(ctx); err != nil {
 		return 0, fmt.Errorf("clear object release marks: %w", err)
 	}
@@ -181,17 +161,14 @@ func (db *DB) CollectObjects(now int64) (int64, error) {
 	}
 	cutoff := now - db.objectGraceMs.Load()
 	if db.dialect != "postgres" {
-		// SQLite serializes writers, so no claim can be committed between this statement's
-		// snapshot and its delete -- the interleaving the Postgres path guards against cannot
-		// happen, and FOR UPDATE does not exist here.
+		// One statement: SQLite's single writer lets nothing commit between snapshot and delete.
 		return db.q.CollectUnreferencedObjects(ctx, nullInt64(cutoff))
 	}
 	return db.collectUnreferencedPG(ctx, cutoff)
 }
 
-// retireOrphanedLogRefs releases the claims of log rows that no longer exist. Driven by the owner
-// being absent rather than by ids the prune collected, so a crash between the two is repaired by
-// the next sweep.
+// retireOrphanedLogRefs is driven by the owner being absent, not by the ids a prune removed, so a
+// crash between the two is repaired by the next sweep.
 func (db *DB) retireOrphanedLogRefs(ctx context.Context) error {
 	orphans, err := db.q.OrphanedLogRefs(ctx)
 	if err != nil {
@@ -214,11 +191,9 @@ func (db *DB) retireOrphanedLogRefs(ctx context.Context) error {
 	})
 }
 
-// collectUnreferencedPG deletes unclaimed content in TWO statements, and the split is the
-// correctness argument: a single DELETE waking from a row lock re-checks only the target row,
-// so its NOT EXISTS subquery keeps the original snapshot and deletes content a writer just
-// claimed. Read committed takes a fresh snapshot per STATEMENT, so the SELECT ... FOR UPDATE
-// does the waiting and the DELETE that follows sees what those writers committed.
+// collectUnreferencedPG must stay TWO statements: a single DELETE woken from a row lock re-checks
+// only the target row, so its NOT EXISTS keeps the old snapshot and deletes just-claimed content.
+// internal/db/CLAUDE.md, the object store, item 2.
 func (db *DB) collectUnreferencedPG(ctx context.Context, cutoff int64) (int64, error) {
 	tx, err := db.sqldb.BeginTx(ctx, nil)
 	if err != nil {
@@ -257,10 +232,8 @@ func (db *DB) CountObjectRefs(hash string) (int64, error) {
 	return db.q.CountObjectRefs(context.Background(), hash)
 }
 
-// cutLogPayload cuts a log payload the same way a value-slot is cut, and WRITES NOTHING: the
-// claims belong to the log ROW and are written with it (AppendLogValue), so a claim can never
-// exist without its owner. Same machinery as a context slot deliberately, so a payload
-// repeating something the instance externalized hashes the same and shares that object.
+// cutLogPayload WRITES NOTHING: the claims belong to the log ROW and are written with it. Same
+// machinery as a slot, so a payload repeating externalized content shares its object.
 func cutLogPayload(v any, target int64) (any, []*model.ObjectRef, []*pendingObject, map[string]struct{}, error) {
 	stripped, refs, objs, err := cutForSize(v, target)
 	if err != nil {

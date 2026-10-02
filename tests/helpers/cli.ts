@@ -9,24 +9,14 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 
 let cachedBin: string | null = null;
 
-// genctl persists its "last started instance" id under the user config dir
-// (os.UserConfigDir → $HOME/Library/... on macOS, $XDG_CONFIG_HOME on Linux). Point
-// both at a throwaway dir so CLI tests exercise @last without touching the real
-// machine config, and so a `run` in one test is visible to a later command in it.
+// Where genctl keeps @last (os.UserConfigDir), so tests never touch the real machine config.
 const CLI_HOME = mkdtempSync(join(tmpdir(), "genroc_cli_home_"));
 
 export function buildGenctlBinary(): string {
   if (cachedBin) return cachedBin;
-  // Build genctl directly (like buildGenrocBinary builds genroc) rather than `make
-  // build`, which also runs sqlc — and sqlc@v1.31.1 needs Go >= 1.26, triggering a
-  // slow toolchain download on a fresh CI runner that blew the 10s test hook.
-  // genctl is a pure client (no CGO needed), and gen/ is committed.
-  //
-  // To a path no other worker can pick, for the reason tmpPath exists: seventeen test files
-  // build this, one worker each, and `go build -o` writes its output IN PLACE — so a shared
-  // path lets one worker exec what another is halfway through writing. That is an EPIPE the
-  // moment the harness writes to it, blamed on whichever suite drew the short straw. It also
-  // leaves the ./genctl a developer built alone.
+  // Not `make build`: it also runs sqlc, whose toolchain download blew the test hook on CI.
+  // A per-worker path: `go build -o` writes in place, so a shared one lets a worker exec what
+  // another is halfway through writing.
   const bin = tmpPath("genctl");
   const result = spawnSync("go", ["build", "-o", bin, "./cmd/genctl"], {
     cwd: ROOT,
@@ -39,8 +29,7 @@ export function buildGenctlBinary(): string {
 
 let cachedWasm: string | null = null;
 
-// buildGenctlWasm builds what the VS Code extension BUNDLES: the same `genctl lsp`, for a
-// machine that has no genctl on it. Its own path per worker, for the reason above.
+// What the VS Code extension bundles. Its own path per worker, for the reason above.
 export function buildGenctlWasm(): string {
   if (cachedWasm) return cachedWasm;
   const out = tmpPath("genctl", ".wasm");
@@ -112,9 +101,7 @@ function jsonToYaml(value: unknown, indent = 0): string {
       value === "false" ||
       value === "null" ||
       value === "~" ||
-      // A string that YAML would read back as another type has to be quoted, or it
-      // silently changes type on the round trip: accepted_status ["200"] became [200],
-      // and the server rejected it as "values must all be strings".
+      // A string YAML would read back as another type must be quoted: "200" would become 200.
       /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(value) ||
       /^(yes|no|on|off|Yes|No|On|Off|YES|NO|ON|OFF|True|False|Null|TRUE|FALSE|NULL)$/.test(value)
     ) {

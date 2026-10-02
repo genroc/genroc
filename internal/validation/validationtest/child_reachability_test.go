@@ -7,9 +7,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// R5 (rule reachability): every code an on_error rule names on a child task must be
-// raisable by some child of that task. The check runs one direction only — a typo'd or
-// orphaned rule is caught; a raisable code with no rule is allowed (D3, §3.1).
+// R5: every code an on_error rule names on a child task must be raisable by some child. One
+// direction only: a raisable code with no rule is allowed (D3, §3.1).
 
 // raisingChild builds a child definition that can raise the given codes from a switch.
 func raisingChild(name string, codes ...string) *model.ProcessDefinition {

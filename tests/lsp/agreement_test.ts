@@ -5,14 +5,8 @@ import { beforeAll, afterAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { at, Doc, Lsp, useWorkspace } from "./helpers.ts";
 
-// The two binaries answer "what is this slot" from ONE place. `genctl schema type <process>`
-// lists every slot with its summary, and a hover on a slot's key prints the same summary — both
-// are `validation.TypeSlots` rendered by `schema.Summary`, reached through two front doors.
-//
-// This pins the front doors. The rule that made them disagree lived one level down, on a KEY
-// inside a slot, and is pinned at that level by `TestKeyHoverIsTheCLIsOwnAnswer` in
-// internal/lsp — in Go, because the CLI prints a document there and a summary is not derivable
-// from one out here without re-implementing Summary.
+// `schema type` and a slot-key hover both render `validation.TypeSlots` via `schema.Summary`; this
+// pins those two front doors. The key-level rule is pinned in Go: TestKeyHoverIsTheCLIsOwnAnswer.
 
 let lsp: Lsp;
 let dir: string;

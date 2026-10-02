@@ -5,13 +5,9 @@ import (
 	"sort"
 )
 
-// The Solver resolves a system of named definitions whose bodies are computed rather than given.
-// Resolution is demand-driven: a computation looking inside a `$ref` to an uncomputed definition
-// computes it right there, so definitions are solved in dependency order without a maintained
-// graph. Cycles are detected on contact -- re-entering a definition mid-computation collapses the
-// demand-stack segment into an SCC, resolved by a joint fixpoint seeded null. Readers inside a
-// cycle see the running estimate wrapped nullable; the finalized definition is the exact type.
-// See specs/recursive-type-inference.md.
+// Solver resolves definitions whose bodies are computed, on demand: looking inside a `$ref` to
+// an uncomputed one computes it there. Re-entering one collapses the demand-stack segment into
+// an SCC, solved by a joint fixpoint seeded null. specs/recursive-type-inference.md.
 type Solver struct {
 	defs    Defs
 	members map[string]*solverMember
@@ -19,19 +15,15 @@ type Solver struct {
 	epoch   int
 }
 
-// maxSolvePasses bounds the joint fixpoint over one cluster. Fixed-shape
-// accumulators (counters, sums, toggles) converge in 1–2 passes; the cap turns
-// a genuinely diverging type into an error instead of an infinite loop.
+// maxSolvePasses turns a diverging type into an error; fixed-shape accumulators converge in 1–2.
 const maxSolvePasses = 16
 
-// Widening bound on a solved type's canonical size: a non-converging recursion grows
-// exponentially per pass, so the pass cap alone would build megabytes before giving up.
-// Far larger than any real output type; catches divergence within a few passes.
+// maxSolvedTypeBytes: divergence grows exponentially per pass, so the pass cap alone would
+// build megabytes before giving up.
 const maxSolvedTypeBytes = 64 * 1024
 
-// pendingAnchor marks a solver sentinel node. Sentinels never appear in solved
-// output; the marker exists so a leaked sentinel fails loudly in deref instead
-// of validating as an empty (permissive) schema.
+// pendingAnchor marks a solver sentinel so a leaked one fails loudly in deref instead of
+// validating as {}.
 const pendingAnchor = "genroc:pending"
 
 type pendingEntry struct {
@@ -60,10 +52,8 @@ type solverMember struct {
 	err      error // poison: a failed member keeps failing on later reads
 }
 
-// solverCluster is a detected cycle (strongly-connected set) of members. It is
-// always a contiguous segment at the top of the demand stack: merges take the
-// whole segment from the re-entered member up. version changes whenever
-// membership grows, so a running fixpoint notices and restarts.
+// solverCluster is always a contiguous segment at the top of the demand stack. version bumps
+// whenever membership grows, so a running fixpoint notices and restarts.
 type solverCluster struct {
 	members map[string]*solverMember
 	version int
@@ -112,10 +102,8 @@ func (s *Solver) Declare(name string, compute func() (Schema, error)) {
 	s.defs.m[name] = sentinel
 }
 
-// Solve computes every declared definition in exact dependency order (a computation
-// reading `$ref <other>` pulls <other> first), resolving cycles with a joint fixpoint
-// per cluster. On success every declared name holds its solved type in the defs handle;
-// on error the pending entries are unusable and the caller should discard the generation.
+// Solve computes every declared definition in dependency order, a cycle by a joint fixpoint.
+// On error the pending entries are unusable: discard the generation.
 func (s *Solver) Solve() error {
 	defer func() {
 		for _, m := range s.members {
@@ -148,10 +136,9 @@ func (s *Solver) Solve() error {
 	return nil
 }
 
-// Collapses definition cycles with no structural progress (every edge a bare $ref in
-// union position): X = anyOf[X, I] says only X = I, so members collapse to the cycle's
-// non-cyclic remainders; no remainder = no base case = error. Property/items cycles are
-// real recursion and stay; cycles holding a pending sentinel wait for a later call.
+// collapseDegenerateCycles: a cycle of bare union-position $refs makes no progress — X =
+// anyOf[X, I] says X = I — so members collapse to the remainders (none is an error).
+// Property/items cycles are real recursion; ones holding a sentinel wait for a later call.
 func (s *Solver) collapseDegenerateCycles() error {
 	// Bare-edge graph over the current defs (see collectBareRefs).
 	defs := s.defs.m
@@ -336,10 +323,8 @@ func (s *Solver) resolvePending(name string) (*node, error) {
 	}
 }
 
-// estimateNode serves the member's running estimate to a reader inside the cycle: the
-// null seed before the first fixpoint pass (which lets a `?? default` base case fire),
-// then the nullable-wrapped estimate. Nullability is expressed here at the use site —
-// the definition itself is stored as the exact type.
+// estimateNode: the null seed before the first pass (so a `?? default` base case fires), then
+// the estimate wrapped nullable — here at the use site; the definition stores the exact type.
 func (m *solverMember) estimateNode() *node {
 	if !m.hasEst {
 		return &node{Type: SchemaType{"null"}}
@@ -347,10 +332,8 @@ func (m *solverMember) estimateNode() *node {
 	return withNull(m.est.n)
 }
 
-// solveMember runs a member's first computation. With no cycle the result is final
-// (everything it read was solved on demand first). If it landed in a cluster, the
-// discovery result is discarded and the cluster root drives the joint fixpoint instead —
-// every member from the same null seed, as if the cycle had been known upfront.
+// solveMember: with no cycle the first result is final. In a cluster it is discarded and the
+// root drives the joint fixpoint, every member from the same null seed.
 func (s *Solver) solveMember(m *solverMember) error {
 	m.state = memberOnStack
 	m.stackPos = len(s.stack)
@@ -380,10 +363,8 @@ func (s *Solver) solveMember(m *solverMember) error {
 	return s.solveCluster(m)
 }
 
-// solveCluster runs the joint fixpoint for the cluster rooted at self. The cluster may
-// grow mid-pass (a member's computation can demand a new definition that reaches back
-// in); growth restarts the fixpoint from fresh seeds. Growth is monotone and bounded by
-// the declared-member count, so the restarts terminate.
+// solveCluster: growth mid-pass restarts the fixpoint from fresh seeds; it is monotone and
+// bounded by the member count, so restarts terminate.
 func (s *Solver) solveCluster(self *solverMember) error {
 	for {
 		c := self.cluster
@@ -441,9 +422,7 @@ func (s *Solver) solveCluster(self *solverMember) error {
 	}
 }
 
-// finalize publishes a member's solved type into the defs handle and retires its
-// sentinel. The stored definition is the exact type — estimate readers got their
-// nullable wrapper at the use site instead.
+// finalize stores the exact type; estimate readers got their nullable wrapper at the use site.
 func (s *Solver) finalize(m *solverMember, res Schema) {
 	final := res.n
 	if final == nil {

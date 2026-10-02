@@ -29,9 +29,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		refinements: computeRefinements(tasks),
 	}
 
-	// Phase 1: infer every output-map task's exported type, in dependency order
-	// (mutually-recursive tasks resolved jointly), writing each to defs so the
-	// switches and later tasks below see the final types.
+	// Phase 1: every exported output type, in dependency order (mutually recursive tasks jointly),
+	// written to defs before phase 2 reads any of them.
 	if err := inferOutputs(tasks, scopes, b); err != nil {
 		return err
 	}
@@ -46,9 +45,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			continue
 		}
 		if s.Action != nil {
-			// Each section below is one slot: the first failure inside it stops that section
-			// and is recorded against its address, so the sections after it are still
-			// analysed and the author sees every slot that is wrong at once.
+			// Each section is one slot: its first failure stops it and is recorded at its
+			// address, and the sections after it are still analysed.
 			b.add(taskSlot(s.ID, slotAction), CodeExpression, func() error {
 				ts, inMap := taskSchemas[s.ID]
 				touched := inMap
@@ -70,25 +68,19 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					s.Action.Type == model.ActionTypeChildMap
 				if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout || hasDeclared {
 					ctx := scopes.action(s)
-					// The child_list `over` expression must be a non-null array; each
-					// element becomes one child's input. Type-check it here so a malformed or
-					// non-array expression is rejected at registration.
+					// `over` must be a non-null array; each element is one child's input.
 					if hasOver {
 						arr, err := checkArrayTemplate(s.Action.Over, ctx, s.ID)
 						if err != nil {
 							return inField("over", err)
 						}
-						// A child_list has no `input` slot: each ELEMENT of `over` is one
-						// child's input, so that is what a declaration types — matching
-						// result_schema, which types one element there too.
+						// A declaration types one ELEMENT, as result_schema does here.
 						if err := checkDeclaredListElement(s, arr, scopes.defs); err != nil {
 							return inField("over", err)
 						}
 					}
-					// A delay `for` / `until` is classified syntactically: a literal is parsed
-					// against the delayspec grammar here, a $: expression is type-checked to a
-					// number, and a ${ } interpolation is rejected — so a malformed duration or
-					// instant fails at registration rather than when the task is reached.
+					// A literal is parsed against delayspec, a $: expression typed to a number, and
+					// ${ } refused — so a malformed one fails at registration, not when reached.
 					if hasFor {
 						if err := inField("for", checkDelaySlot(s.Action.For, ctx, s.ID, "delay", "for")); err != nil {
 							return err
@@ -106,9 +98,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 							return err
 						}
 					}
-					// The fetch url and method are templates evaluated against the context;
-					// type-check them and reject a possibly-null result (a null URL or method
-					// would silently stringify to "null").
+					// A null URL or method would silently stringify to "null".
 					if hasURL {
 						if err := inField("url", checkNonNullTemplate(s.Action.URL, ctx, fmt.Sprintf("task %q url", s.ID))); err != nil {
 							return err
@@ -119,7 +109,6 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 							return err
 						}
 					}
-					// Headers is a shape that must evaluate to a non-null object.
 					if hasHeaders {
 						if err := inField("headers", checkHeadersShape(s.Action.Headers.Raw, ctx, s.ID)); err != nil {
 							return err
@@ -130,9 +119,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						if err != nil {
 							return inField("query", err)
 						}
-						// The declaration is checked BESIDE the fixed target, not instead of it:
-						// a query value is a scalar, null or an array of scalars whatever a
-						// declaration says, and running both keeps each failure named as itself.
+						// BESIDE the fixed target, not instead of it: running both keeps each
+						// failure named as itself.
 						if isFetch && s.Action.QuerySchema != nil {
 							if q, err = checkDeclaredQuery(s, ctx); err != nil {
 								return inField("query", err)
@@ -141,10 +129,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						ts.Query = q
 						touched = true
 					}
-					// accepted_status is a shape that must evaluate to an array of strings.
-					// The per-pattern format ("2xx"/"404") is not checked — an expression's
-					// elements aren't known statically, and an unrecognized pattern simply
-					// never matches at runtime.
+					// An expression's elements are unknown statically; an unrecognized pattern
+					// simply never matches at runtime.
 					if hasAcceptedStatus {
 						if err := inField("accepted_status", checkAcceptedStatusShape(s.Action.AcceptedStatus.Raw, ctx, s.ID)); err != nil {
 							return err
@@ -185,9 +171,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				if err != nil {
 					return fmt.Errorf("task %q: %w", s.ID, err)
 				}
-				// An untyped action result cannot be read in a case any more than it can be
-				// exported through an output, so a case that touches self.result gets the same
-				// actionable message the output slot gives.
+				// An untyped result is no more readable in a case than in an output, and gets the
+				// same message.
 				untypedResult := s.Action != nil && !taskSchemas[s.ID].resultTyped
 				for i, c := range s.Switch {
 					if c.Case == "" {
@@ -207,8 +192,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						return inField(strconv.Itoa(i)+"."+slotCase, err)
 					}
 				}
-				// A message is a template rendered when the clause fires, so it is checked in
-				// that clause's own scope — a switch case sees `self`, which is why this runs
+				// Checked in the clause's own scope (a case sees `self`), which is why this runs
 				// here rather than beside the code's shape rule in model.
 				for i := range s.Switch {
 					where := fmt.Sprintf("switch case %d", i)
@@ -232,10 +216,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			b.add(ruleSlot(s.ID, i), CodeExpression, func() error {
 				ruleCtx := scopes.rule(s, i, ec)
 				where := fmt.Sprintf("on_error[%d]", i)
-				// The case is checked in the SAME per-rule scope as the clauses: `code` has
-				// already said which error this is, so `error.data` here is that code's declared
-				// shape rather than the union a routed task sees. `self` is previous-only: the
-				// task failed, so it has no result. specs/child-error-handling.md M2.
+				// The SAME per-rule scope as the clauses: `code` already chose the error, so
+				// `error.data` is that code's shape. specs/child-error-handling.md M2.
 				if ec.Case != "" {
 					hooks := shape.CheckHooks{
 						Result: func(inferred, _ schema.Schema) error {
@@ -253,9 +235,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				if err := checkFaultClauses(ec.Raise, ec.Panic, clauseCtx, s.ID, where, rd); err != nil {
 					return err
 				}
-				// A retry policy's slots are the same syntactic split as a delay's: a literal was
-				// checked by the decoder, a $: expression is type-checked here — in the rule's own
-				// scope, like the case above it.
+				// A literal retry slot was checked by the decoder; a $: expression is typed here,
+				// in the rule's own scope.
 				if err := checkRetrySlots(s.ID, i, ec, clauseCtx); err != nil {
 					return inField(slotRetry, err)
 				}
@@ -266,31 +247,23 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 	return nil
 }
 
-// Per-slot required structures for fetch slots: stringifiable scalar for url/method
-// (rendered with %v — null or a struct corrupts the request), array for `over`, object
-// for headers. shape.CheckWith turns mismatches into each slot's tailored message.
+// Fixed slot targets. url/method render with %v, so null or a struct corrupts the request.
 var (
-	scalarSchema = schema.Type("string", "number", "boolean")
-	arraySchema  = schema.Array(schema.Schema{})
-	// Headers must be a non-null object whose values are all strings (HTTP header values).
-	headersSchema = schema.Map(schema.Type("string"))
-	// accepted_status must be an array whose elements are all strings (HTTP status patterns).
+	scalarSchema         = schema.Type("string", "number", "boolean")
+	arraySchema          = schema.Array(schema.Schema{})
+	headersSchema        = schema.Map(schema.Type("string"))
 	acceptedStatusSchema = schema.Array(schema.Type("string"))
-	// query must be a non-null object of scalars; a null VALUE is fine and omits its
-	// parameter, which is the whole ergonomic point of the slot.
+	// A null VALUE omits its parameter, which is the whole point of the slot.
 	querySchema = schema.Map(schema.AnyOf(
 		schema.Type("string", "number", "boolean", "null"),
 		schema.Array(schema.Type("string", "number", "boolean", "null")),
 	))
 	boolSchema = schema.Type("boolean")
-	// A raise/panic message is rendered into inst.Error and the audit log, both of which
-	// are text — so unlike url/method it does not take a bare number or boolean. An
-	// interpolation stringifies and always satisfies this; a `$:` leaf must already be one.
+	// A message lands in inst.Error and the audit log, both text, so unlike url/method it takes
+	// no bare number or boolean; an interpolation always satisfies it.
 	messageSchema = schema.Type("string")
-	// A delay `for` / `until` expression must be a number: milliseconds for `for`, unix
-	// milliseconds for `until`. The literal grammars never reach the type system — they are
-	// parsed by delayspec at registration — so unlike the old ms slot, string is not
-	// accepted here.
+	// Milliseconds for `for`, unix milliseconds for `until`. Literals never reach the type system
+	// (delayspec parses them), so string is not accepted.
 	delaySchema = schema.Type("number")
 )
 
@@ -309,9 +282,8 @@ func checkNonNullTemplate(expr string, ctx schema.Schema, label string) error {
 	return err
 }
 
-// checkMessageTemplate type-checks one raise/panic message against the scope its clause
-// fires in. It must be a non-null string: the value lands in inst.Error, the audit log and
-// — via collect — a parent's `error.message`, none of which can hold anything else.
+// A message must be a non-null string: it lands in inst.Error, the audit log and, via collect,
+// a parent's `error.message`.
 func checkMessageTemplate(expr string, ctx schema.Schema, label string) error {
 	shp := shape.Shape{Raw: expr, Schema: &messageSchema, Name: label}
 	_, err := shp.CheckWith(ctx, shape.CheckHooks{
@@ -325,11 +297,9 @@ func checkMessageTemplate(expr string, ctx schema.Schema, label string) error {
 	return err
 }
 
-// checkFaultClauses checks whichever of a clause's raise/panic is set: the message renders to a
-// non-null string, and `data` type-checks against the same scope. Ordered rather than ranged
-// over a map so a definition with both reports the same one every run. A `raise` also RECORDS
-// what its data inferred to -- the only place the clause's scope is still in hand -- while a
-// panic records nothing, for the reason ProcessDefinition.Raises excludes its code.
+// Fixed order, so a clause with both reports the same one every run. A raise RECORDS what its
+// data inferred -- the only place its scope is in hand; a panic records nothing, for the reason
+// ProcessDefinition.Raises excludes its code.
 func checkFaultClauses(raise, panics *model.Fault, ctx schema.Schema, taskID, where string, rd *raiseData) error {
 	for _, c := range []struct {
 		name     string
@@ -375,9 +345,8 @@ func newRaiseData() *raiseData {
 
 func (r *raiseData) add(code string, t schema.Schema) { r.arms[code] = append(r.arms[code], t) }
 
-// absent records a clause that attached nothing. Not a no-op and not a zero schema: the slot
-// is CLEARED, so the payload a caller conforms is null — which a declared object shape does
-// not admit, and that refusal is the point.
+// absent is not a no-op: the slot is CLEARED, so a caller conforms null — which a declared object
+// shape refuses, and that refusal is the point.
 func (r *raiseData) absent(code string) { r.nullable[code] = true }
 
 // types collapses each code's arms into the one type its payload can carry. Identical arms
@@ -419,8 +388,6 @@ func dedupeSchemas(arms []schema.Schema) []schema.Schema {
 	return out
 }
 
-// checkArrayTemplate type-checks a child_list `over` against ctx: it must produce a
-// non-null array, the source of the per-child inputs.
 func checkArrayTemplate(expr string, ctx schema.Schema, taskID string) (schema.Schema, error) {
 	shp := shape.Shape{Raw: expr, Schema: &arraySchema, Name: fmt.Sprintf("task %q over", taskID)}
 	return shp.CheckWith(ctx, shape.CheckHooks{
@@ -433,14 +400,11 @@ func checkArrayTemplate(expr string, ctx schema.Schema, taskID string) (schema.S
 	})
 }
 
-// checkDelaySlot type-checks a delay for/until: a bare number is ms (nothing to check), a
-// pure literal parses the delayspec grammar, "$:" must infer to number, and ${ }
-// interpolation is rejected BY NAME — it produces a string, the failure this syntax
-// removes. where names the construct so the message points at the author's line.
+// checkDelaySlot: a bare number needs no check, a literal parses delayspec, "$:" must infer to
+// number, and ${ } is refused BY NAME — it produces a string, the failure this syntax removes.
 func checkDelaySlot(raw any, ctx schema.Schema, taskID, where, slot string) error {
 	label := fmt.Sprintf("task %q %s %s", taskID, where, slot)
 
-	// A bare number is milliseconds (for) or unix milliseconds (until): no parse, no check.
 	switch raw.(type) {
 	case float64, int, int64, json.Number:
 		return nil
@@ -462,9 +426,8 @@ func checkDelaySlot(raw any, ctx schema.Schema, taskID, where, slot string) erro
 			"Write a literal (e.g. %s) or a whole-value $: expression evaluating to a number (e.g. %q)",
 			label, delaySlotExample(slot), "$: input.wait_ms")
 	}
-	// Not an Expr shape: those carry a bare expression body (as a switch case does), while
-	// src still has its "$:" marker. A plain shape routes it through template.Parse, whose
-	// $: leaf is type-preserving — so the inferred type is the expression's own.
+	// Not an Expr shape: src still has its "$:" marker, and a plain shape's $: leaf is
+	// type-preserving anyway.
 	shp := shape.Shape{Raw: src, Schema: &delaySchema, Name: label}
 	_, err = shp.CheckWith(ctx, shape.CheckHooks{
 		Result: func(inferred, _ schema.Schema) error {
@@ -478,9 +441,8 @@ func checkDelaySlot(raw any, ctx schema.Schema, taskID, where, slot string) erro
 	return err
 }
 
-// checkTimeout: same slots and arity as delay. Positivity is deliberately not checked —
-// "0s" parses, and the resolved instant is judged by the engine against its real clock;
-// an `until` judged at registration would validate differently on different days.
+// Positivity is deliberately not checked: an `until` judged at registration would validate
+// differently on different days. The engine judges the resolved instant against its clock.
 func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
 	if t.For != nil && t.Until != nil {
 		return fmt.Errorf("task %q timeout: for and until are mutually exclusive — %q is a budget from when the task is reached, %q is a fixed deadline", taskID, "for", "until")
@@ -499,10 +461,8 @@ func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
 	return checkDelaySlot(t.Until, ctx, taskID, "timeout", "until")
 }
 
-// checkRetrySlots type-checks the $: slots of every on_error retry policy. The engine
-// reduces the whole policy to numbers when the rule fires, so every slot must infer to one;
-// the bounds (retries whole and non-negative, factor >= 1, max_delay >= delay) can only be
-// judged then, and Retry.Resolve judges them.
+// Every retry slot must infer to a number; the bounds (whole, non-negative, factor >= 1,
+// max_delay >= delay) can only be judged when the rule fires, by Retry.Resolve.
 func checkRetrySlots(taskID string, i int, ec model.ErrorCase, ctx schema.Schema) error {
 	slots := []struct{ name, expr string }{
 		{"retries", ec.Retry.Retries.Expr()},
@@ -528,9 +488,8 @@ func checkRetrySlots(taskID string, i int, ec model.ErrorCase, ctx schema.Schema
 	return nil
 }
 
-// checkDelayLiteral parses a pure literal at registration, so a typo fails when the
-// definition is applied rather than three days into a run. Parsing alone is the whole
-// check: it is clock-independent, so the same definition always validates the same way.
+// Parsing alone is the whole check: it is clock-independent, so a definition always validates
+// the same way.
 func checkDelayLiteral(lit, label, slot string) error {
 	var err error
 	if slot == "for" {
@@ -551,9 +510,8 @@ func delaySlotExample(slot string) string {
 	return `"2h30m"`
 }
 
-// inferActionPayload infers the schema of an action's payload shape — the fetch request
-// body (Body) or the child/external snapshot (Input). Free projection UNLESS the slot carries
-// a declaration, which is then both the check and the published type.
+// inferActionPayload types a fetch's Body or any other action's Input. A declaration, where one
+// exists, is both the check and the published type.
 func inferActionPayload(s *model.Task, ctx schema.Schema) (schema.Schema, error) {
 	sh := s.Action.Input
 	label := "input"
@@ -584,16 +542,14 @@ func inferActionPayload(s *model.Task, ctx schema.Schema) (schema.Schema, error)
 	return sent(inferred, declared), nil
 }
 
-// checkChildMapInputs is the child_map arm of the same check. It is here rather than in
-// validate_children.go because a declaration needs NO database: this is the child input check
-// an editor and an offline genctl can run, which the one against the child itself never could.
+// Here, not in validate_children.go: a declaration needs NO database, so an editor and an
+// offline genctl can run this check.
 func checkChildMapInputs(s *model.Task, ctx schema.Schema) (map[string]schema.Schema, error) {
 	out := make(map[string]schema.Schema, len(s.Action.Children))
 	for _, key := range sortedChildKeys(s.Action.Children) {
 		entry := s.Action.Children[key]
-		// The same guard a single child's payload has: an entry that neither writes an input
-		// nor declares one has nothing to type, and typing it as an empty object would put a
-		// task in the type view that has no typed surface at all.
+		// Typing such an entry as an empty object would put a task with no typed surface in the
+		// type view.
 		if !entry.Input.Present() && entry.InputSchema == nil {
 			continue
 		}
@@ -612,8 +568,6 @@ func checkChildMapInputs(s *model.Task, ctx schema.Schema) (map[string]schema.Sc
 	return out, nil
 }
 
-// checkHeadersShape verifies the fetch Headers shape produces a non-null object (a literal
-// map of templated values, or an expression yielding a map).
 func checkHeadersShape(raw any, ctx schema.Schema, taskID string) error {
 	shp := shape.Shape{Raw: raw, Schema: &headersSchema, Name: fmt.Sprintf("task %q headers", taskID)}
 	_, err := shp.CheckWith(ctx, shape.CheckHooks{
@@ -627,10 +581,8 @@ func checkHeadersShape(raw any, ctx schema.Schema, taskID string) error {
 	return err
 }
 
-// checkQueryShape verifies the fetch Query shape produces a non-null object of scalars. It is
-// checkHeadersShape with one difference that carries the feature: a null VALUE is accepted,
-// because omitting a parameter is what saves the author a conditional. The MAP itself may
-// still not be null — a null query is a mistake, not an empty one.
+// checkQueryShape is checkHeadersShape except a null VALUE is accepted (it omits the parameter).
+// A null MAP is still a mistake, not an empty query.
 func checkQueryShape(raw any, ctx schema.Schema, taskID string) (schema.Schema, error) {
 	shp := shape.Shape{Raw: raw, Schema: &querySchema, Name: fmt.Sprintf("task %q query", taskID)}
 	return shp.CheckWith(ctx, shape.CheckHooks{
@@ -643,9 +595,8 @@ func checkQueryShape(raw any, ctx schema.Schema, taskID string) (schema.Schema, 
 	})
 }
 
-// checkAcceptedStatusShape: must produce an array of strings; static literal elements are
-// format-checked now, ${ }/$: leaves are left to matchAcceptedStatus, where an
-// unrecognized value never matches.
+// Static literal elements are format-checked now; ${ }/$: leaves are left to
+// matchAcceptedStatus, where an unrecognized value never matches.
 func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 	shp := shape.Shape{Raw: raw, Schema: &acceptedStatusSchema, Name: fmt.Sprintf("task %q accepted_status", taskID)}
 	if _, err := shp.CheckWith(ctx, shape.CheckHooks{
@@ -658,9 +609,7 @@ func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 	}); err != nil {
 		return err
 	}
-	// The structural check above guarantees array<string>. For a literal array, also
-	// validate the FORMAT of each statically-known element; a whole-value expression (raw
-	// is not an array) has no static elements to check.
+	// Only a literal array has static elements whose FORMAT can be checked.
 	elems, ok := raw.([]any)
 	if !ok {
 		return nil
@@ -685,9 +634,8 @@ func contextSchema(preceding []string, optional []string, tasks map[string]TaskS
 	return contextSchemaAbsent(preceding, optional, nil, tasks, processInput, configSchema, e)
 }
 
-// contextSchema plus the outputs definitely NOT set on this path, typed null rather than
-// omitted — omission errors the access; null lets ?? take the other arm. A non-empty
-// absent list comes only from the per-terminal walk, only for tasks other terminals reach.
+// absent outputs type null rather than being omitted: omission errors the access, null lets ??
+// take the other arm. Only the per-terminal arms pass any.
 func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, e errAt) schema.Schema {
 	ctx := schema.Object()
 	if !processInput.IsZero() {
@@ -729,25 +677,22 @@ func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]
 	return withErrorProperty(ctx, model.StateLastError, e)
 }
 
-// withErrorProperty adds one error namespace under name: `last_error` for the failure that
-// routed control into the task, `error` for the one a rule is handling. Same shape, and the
-// two differ only in which failure fills it. specs/task-scopes.md.
+// name is `last_error` (the failure that routed here) or `error` (the one a rule is handling):
+// same shape, filled by different failures. specs/task-scopes.md.
 func withErrorProperty(ctx schema.Schema, name string, e errAt) schema.Schema {
 	if !e.must && !e.may {
 		return ctx
 	}
-	// child_key/child_index populate only from batch resolution (child-error-handling §5.3);
-	// an action task's on_error leaves them absent, and the schema cannot tell which produced
-	// a given failure — so both are optional, and separate single-typed fields (no type-switch).
+	// child_key/child_index come only from batch resolution (child-error-handling §5.3), and the
+	// schema cannot tell which produced a failure — so both are optional.
 	errSchema := schema.Object().
 		WithProperty("task", schema.Type("string"), true).
 		WithProperty("message", schema.Type("string"), true).
 		WithProperty("code", schema.Type("string"), true).
 		WithProperty("child_key", schema.Type("string"), false).
 		WithProperty("child_index", schema.Type("integer"), false)
-	// `data` is present exactly where a reaching rule declared a body for the status it
-	// catches; where sources disagree the union already carries the null arm, so the
-	// property is required and nullable rather than optional.
+	// Where sources disagree the union already carries the null arm, so `data` is required and
+	// nullable rather than optional.
 	if !e.data.IsZero() {
 		errSchema = errSchema.WithProperty("data", e.data, true)
 	}
@@ -757,10 +702,8 @@ func withErrorProperty(ctx schema.Schema, name string, e errAt) schema.Schema {
 	return ctx.WithProperty(name, errSchema.WithNull(), false)
 }
 
-// addPreActionSelf adds the half of the self scope that exists BEFORE the action runs:
-// addPreviousOnly is the self scope for every slot evaluated before this task's own output
-// is written — the action's own slots, and the on_error rules a failure routes through.
-// `previous` is the only member that exists there; specs/task-scopes.md has the table.
+// addPreviousOnly is `self` for every slot evaluated before the task's own output is written:
+// only `previous` exists there. specs/task-scopes.md has the table.
 func addPreviousOnly(ctx schema.Schema, s *model.Task, loops bool) schema.Schema {
 	if !s.Output.Present() || !loops {
 		return ctx
@@ -769,17 +712,13 @@ func addPreviousOnly(ctx schema.Schema, s *model.Task, loops bool) schema.Schema
 	return ctx.WithProperty("self", self, true)
 }
 
-// taskLoops reports whether control can re-enter s, which is what makes a previous output
-// exist. Both sets are the entry sets computeContextSets derived, so s's own id appears in
-// one of them exactly when some path returns to it.
+// s's own id is in its entry sets exactly when some path returns to it.
 func taskLoops(s *model.Task, required, optional map[string][]string) bool {
 	return slices.Contains(optional[s.ID], s.ID) || slices.Contains(required[s.ID], s.ID)
 }
 
-// addSelfSchema adds the transient self scope: self.result only when typed (no
-// result_schema ⇒ no self.result at all — undeclared data is never accessible),
-// self.output only when the task projects one, self.previous only when it loops. The
-// latter two resolve through $defs[<id>_output].
+// addSelfSchema: self.result only when typed (undeclared data is never readable), self.output
+// only when projected, self.previous only when the task loops.
 func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, resultType schema.Schema, typed bool) schema.Schema {
 	self := schema.Object()
 	if typed {
@@ -795,9 +734,8 @@ func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, resultType sche
 	return ctx.WithProperty("self", self, true)
 }
 
-// actionResultType types self.result; the bool is "typed", and it is true only where a
-// DECLARATION types the result. Nothing declared means no self.result at all — reading it is a
-// mistake with its own sentence (untypedResultAdvice), not a slot that reads null forever.
+// The bool is true only where a DECLARATION types the result. Otherwise there is no self.result
+// at all: reading it gets its own sentence (untypedResultAdvice), not a slot reading null forever.
 func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, error) {
 	if s.Action == nil {
 		return schema.Schema{}, false, nil
@@ -817,10 +755,8 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 		sc, err := childListOutputSchema(s, defs)
 		return sc, true, err
 	case model.ActionTypeDelay:
-		// A delay waits; it hands nothing back. Typing it `null` put a self.result in scope
-		// that could only ever BE null, so a switch reading it answered "comparison requires
-		// non-nullable operands" — which sends the author to `?? 0` instead of to the
-		// reference that cannot work.
+		// Not `null`: a self.result that is always null sends the author to `?? 0` instead of
+		// to the reference that cannot work.
 		return schema.Schema{}, false, nil
 	case model.ActionTypeFetch:
 		// The body is typed per status, so the result is the union over the statuses that can
@@ -828,10 +764,8 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 		return fetchResultType(s.Action, defs)
 	default:
 		if s.Action.ResultSchema != nil {
-			// The result schema is self-contained (shared $defs baked in at
-			// Normalize). Hoist its definitions into the generation pool — reusing
-			// content-equal entries, renaming collisions and rewriting the schema's
-			// $refs — so they resolve in every inference context it is embedded in.
+			// Hoisted into the pool (content-equal reuse, collisions renamed) so it resolves
+			// in every context it is embedded in.
 			sc, err := s.Action.ResultSchema.MergeInto(defs)
 			return sc, true, err
 		}
@@ -839,10 +773,8 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 	}
 }
 
-// withFetchMeta adds self.status / self.headers, and only for a fetch. They are SIBLINGS of
-// self.result, never a wrapper around it. The runtime builds its map under the same gate
-// (engine.taskSelf): a slot in one and not the other is either unreadable or reads null where
-// the type promised a value. Header keys are lowercased by the transport.
+// self.status / self.headers are SIBLINGS of self.result, fetch only — the gate engine.taskSelf
+// shares, or a slot is unreadable or reads null where a value was promised.
 func withFetchMeta(self schema.Schema, a *model.Action) schema.Schema {
 	if a == nil || a.Type != model.ActionTypeFetch {
 		return self
@@ -851,14 +783,11 @@ func withFetchMeta(self schema.Schema, a *model.Action) schema.Schema {
 	return self.WithProperty("headers", schema.Map(schema.Type("string")), true)
 }
 
-// outputMapContext: the base context plus self.result, plus self.previous ONLY when the task
-// loops — only then is there a prior iteration, and previous and outputs.<id> both resolve
-// through $defs[<id>_output], the placeholder the fixpoint drives.
+// self.previous ONLY when the task loops; it resolves through $defs[<id>_output], the
+// placeholder the fixpoint drives.
 func outputMapContext(base schema.Schema, resultType schema.Schema, typed bool, taskID string, loops bool, action *model.Action) schema.Schema {
 	self := withFetchMeta(schema.Object(), action)
-	// An untyped result (fetch/external with no result_schema) is omitted here, so an
-	// output that references self.result is a registration error: you cannot export an
-	// untyped value — add a result_schema to type the response.
+	// An untyped result is omitted, so an output reading self.result is a registration error.
 	if typed {
 		self = self.WithProperty("result", resultType, true)
 	}

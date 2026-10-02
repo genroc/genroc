@@ -7,8 +7,6 @@ import (
 	"genroc/internal/model"
 )
 
-// TestEvalConfigNamespace verifies the resolved config map is reachable in
-// expressions under the "config" namespace.
 func TestEvalConfigNamespace(t *testing.T) {
 	ctx := map[string]any{"input": nil, "outputs": map[string]any{}}
 	config := map[string]any{"flag": true, "url": "http://x", "port": int64(8080)}
@@ -33,8 +31,7 @@ func TestEvalConfigNamespace(t *testing.T) {
 	}
 }
 
-// TestEvalNilConfig ensures a nil config does not break expression evaluation:
-// referencing config.* yields nil rather than erroring.
+// config.* on a nil config yields nil rather than erroring.
 func TestEvalNilConfig(t *testing.T) {
 	ctx := map[string]any{"input": nil, "outputs": map[string]any{}}
 	got, err := evalBool("config.anything == null", ctx, nil, nil)
@@ -46,9 +43,7 @@ func TestEvalNilConfig(t *testing.T) {
 	}
 }
 
-// Config is never persisted: it is re-resolved from the OS environment at the start of every
-// tick, so a value that changes between ticks is picked up by the next one.
-// docs reference/definition/expressions.mdx.
+// Config is never persisted. docs reference/definition/expressions.mdx.
 func TestConfigReResolvedEveryTick(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)

@@ -1,8 +1,7 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
-# Something for the evaluator to actually do. It calls `script` as a CHILD, which is the
-# documented way to run user TypeScript: the caller writes a child call and a result_schema,
-# and one process (script-node.genroc.yaml) knows the evaluator's contract. specs/script-tasks.md.
+# Runs a TypeScript module through script-node as a CHILD, the documented way to run user code
+# (specs/script-tasks.md).
 name: hello-script
 input_schema:
   type: object
@@ -14,14 +13,9 @@ tasks:
       type: child
       name: script-node
       input:
-        # A MODULE: the evaluator imports the code and calls its default export with `input`.
-        # A script that exports something else comes back as a classified `compile_error`,
-        # routed by script-node.genroc.yaml to `script_broken` — a panic, because no caller can
-        # fix someone else's script.
-        #
-        # `$${input.name}` is a TypeScript template literal, ESCAPED. genroc's value layer
-        # reads `${...}` as an interpolation of its own context and would resolve `input.name`
-        # against this task's input before the script ever runs. Caught at apply, not at run.
+        # A MODULE: the evaluator calls its default export with `input`; anything else comes
+        # back as compile_error, which script-node panics as `script_broken`.
+        # `$${input.name}` is ESCAPED: genroc would otherwise interpolate `${...}` itself.
         code: |
           export default function (input) {
             return {

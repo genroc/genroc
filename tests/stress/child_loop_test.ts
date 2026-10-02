@@ -2,27 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
-// A child task RE-ENTERED by a loop, under a real worker fleet.
-//
-// multi_worker_test.ts stresses recursion, which spawns forward: every batch belongs to a
-// fresh instance, so it never exercises the case where one instance spawns repeatedly under
-// the same (parent_id, spawn_task_id). That case is scoped by task_epoch, and everything
-// that makes it interesting is concurrency: the parent's spawn and its collect are two
-// different claims, by two different worker processes, with a lease handover and a
-// pause/resume window in between. If the epoch is ever written by the wrong claim — or the
-// resume is miscounted as a task entry — the parent collects a batch that is not its own.
-//
-// The exactly-once checksum here is a COUNT rather than an aggregate: a loop of N passes
-// must leave exactly N children under the task, no more. A batch collected twice, a pass
-// re-spawned after a pause, or a lost update that replays a spawn all show up as a surplus.
-//
-// Chaos is pause/resume ONLY, deliberately. A retry is an operator override that re-enters
-// the task and legitimately spawns another batch (see tests/tick/task_epoch_test.ts), so
-// including it would make the exact count meaningless — the property under test would be
-// unstated rather than merely unasserted.
-//
-// Postgres only, for the same reason as the rest of this suite: a worker fleet is separate
-// processes relying on FOR UPDATE SKIP LOCKED.
+// A child task RE-ENTERED by a loop, its spawn and collect claimed by different workers (scoped by
+// task_epoch). The checksum is a COUNT: N passes, N children. Chaos is pause/resume ONLY: a retry
+// legitimately spawns another batch (tests/tick/task_epoch_test.ts).
 
 const DSN = process.env.POSTGRES_DSN;
 
@@ -33,8 +15,7 @@ const CHAOS_MS = 4_000;
 const SETTLE_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// `paused`/`pausing` are absent on purpose: a pause is not an outcome, just a tree nobody
-// is advancing, so it never counts as settled.
+// Not `paused`/`pausing`: a pause is not an outcome.
 const isTerminal = (s?: string) => s === "completed" || s === "failed";
 
 describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
@@ -90,9 +71,7 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
       }
       const randomRoot = () => rootIds[Math.floor(Math.random() * rootIds.length)];
 
-      // Pause/resume window: the gap is what lands a pause between a spawn and its collect,
-      // which is the handover this scoping has to survive. Errors (pausing a completed root,
-      // resuming a running one) are part of the contention and ignored.
+      // The gap lands a pause between a spawn and its collect. Errors are contention; ignored.
       let chaosOn = true;
       const pauser = (async () => {
         while (chaosOn) {
@@ -132,8 +111,7 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
       const stuck = instances.filter((i) => !isTerminal(i.status));
       expect(stuck.map((i) => `${i.id}:${i.status}`), "nothing left mid-flight").toEqual([]);
 
-      // No root may FAIL: pause/resume is non-destructive, and the collect error this whole
-      // mechanism exists to prevent surfaces exactly here.
+      // Pause/resume is non-destructive, so a failure here is the collect error epochs prevent.
       const failed = instances.filter((i) => i.status === "failed");
       expect(failed.map((i) => `${i.id}:${i.error_message}`), "no tree failed").toEqual([]);
 

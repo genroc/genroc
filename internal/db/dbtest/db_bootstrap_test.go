@@ -52,10 +52,8 @@ func TestConcurrentOpenPostgres(t *testing.T) {
 	}
 }
 
-// freshDatabase creates a uniquely-named throwaway database on the same server as
-// dsn and returns a DSN pointing at it plus a cleanup that drops it. CREATE/DROP
-// DATABASE cannot run inside the target, so it connects to the "postgres"
-// maintenance database. Skips the test if the role lacks CREATEDB.
+// freshDatabase creates a throwaway database beside dsn's, through the "postgres" maintenance
+// database (CREATE/DROP cannot run inside the target); skips without CREATEDB.
 func freshDatabase(t *testing.T, dsn string) (string, func()) {
 	t.Helper()
 	u, err := url.Parse(dsn)

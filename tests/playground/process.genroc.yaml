@@ -31,8 +31,7 @@ tasks:
       <<: "$process: ./script-node.genroc.yaml"
       input:
         code: "$import: ./reading.ts"
-        # The script's own budget. script.yaml waits 30s on top of it, so an overrun
-        # arrives here as script_timeout rather than an unknowable http.timeout.
+        # Under script-node's 30s, so an overrun arrives as script_timeout, not external.timeout.
         timeout_ms: 20000
         input:
           geo: >
@@ -45,8 +44,7 @@ tasks:
 output: "$: outputs.reading"
 
 $defs:
-  # Only the two fields this process reads: the conform narrows the forwarded payload to
-  # exactly what was declared, so kind and stack stay where they were produced.
+  # Only the fields this process reads: the conform narrows the forwarded payload to them.
   script_throw:
     type: object
     properties:

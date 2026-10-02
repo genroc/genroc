@@ -13,10 +13,8 @@ import (
 	"genroc/internal/numeric"
 )
 
-// binaryPrec mirrors expr-lang's precedence for every operator the two share, so
-// an expression that parses in both languages groups identically. Notably `??`
-// binds tighter than arithmetic (500), which is why mixing it with another
-// operator without parentheses is rejected outright — see parseBinary.
+// binaryPrec mirrors expr-lang's, so a shared expression groups identically. `??` binds tighter
+// than arithmetic, which is why mixing it unparenthesised is rejected (parseBinary).
 var binaryPrec = map[string]int{
 	"||": 10,
 	"&&": 15,
@@ -92,9 +90,8 @@ func (p *parser) expect(kind lexer.Kind, val string) lexer.Token {
 	return p.next()
 }
 
-// fail reports an error against src with a caret pointing at offset. These errors
-// reach users through the definition-registration API, so they quote the
-// expression the author actually wrote.
+// failAt reports with a caret at tok; these reach authors through registration, so they quote
+// the expression as written.
 func (p *parser) failAt(tok lexer.Token, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	at := tok.From
@@ -291,10 +288,8 @@ func (p *parser) parsePrimary() Node {
 	return nil
 }
 
-// isArrow reports whether the tokens at offset n form "=>". expr-lang's lexer has
-// no "=>" token, so it arrives as adjacent "=" and ">" operators; adjacency is
-// checked by byte offset so "a = > b" is not mistaken for a lambda. ">=" lexes as
-// a single token, so there is no ambiguity with comparison.
+// isArrow: expr-lang lexes "=>" as adjacent "=" and ">", so adjacency is checked by byte offset
+// ("a = > b" is no lambda). ">=" is one token, so comparison cannot collide.
 func (p *parser) isArrow(n int) bool {
 	eq, gt := p.at(n), p.at(n+1)
 	return eq.Kind == lexer.Operator && eq.Value == "=" &&
@@ -508,10 +503,8 @@ func isIntLiteral(s string) bool {
 	return !strings.ContainsAny(low, ".e")
 }
 
-// parseIndex reads an array index. Unlike a value literal this genuinely must fit
-// in a Go int, since it indexes a slice. Non-prefixed literals are decimal: base 0
-// would apply C's leading-zero-octal rule, making 017 mean 15 and rejecting 08
-// outright, where expr-lang's lexer reads both as plain decimal.
+// parseIndex must fit a Go int, unlike a value literal. Non-prefixed literals are decimal: base 0
+// would read 017 as octal 15 and reject 08, where expr-lang reads both as decimal.
 func parseIndex(s string) (int, error) {
 	clean := strings.ReplaceAll(s, "_", "")
 	base := 10

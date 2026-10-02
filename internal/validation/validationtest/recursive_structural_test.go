@@ -1,6 +1,5 @@
-// Generation-level tests for recursive output types: exact collapse of
-// degenerate cycles, kept structural recursion (self and mutual), and mixed
-// computational/structural output maps. See specs/recursive-type-inference.md.
+// Recursive output types through Generate: degenerate cycles collapse, structural recursion is
+// kept. specs/recursive-type-inference.md.
 package validationtest
 
 import (
@@ -8,10 +7,8 @@ import (
 	"testing"
 )
 
-// A bare `$: self.previous ?? input` output is the coinductive tautology
-// X = X ∨ I: it collapses to the input type exactly — no fixpoint widening, no
-// recursive wrapper. The input itself was passed through whole, so the
-// collapsed type is the reference to the input definition.
+// `$: self.previous ?? input` is X = X ∨ I: it collapses to the input reference exactly — no
+// widening, no recursive wrapper.
 func TestGenerate_DegenerateSelfOutputCollapsesToInput(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
@@ -29,9 +26,7 @@ func TestGenerate_DegenerateSelfOutputCollapsesToInput(t *testing.T) {
 		`{"type":"object","properties":{"seed":{"type":"integer"}},"required":["seed"]}`)
 }
 
-// A bare `$: self.previous` with no base case is X = X ∨ null (the wrapper
-// adds the null of "no previous iteration"), which collapses to exactly null —
-// the value it will always hold at runtime.
+// X = X ∨ null collapses to exactly null, what it always holds at runtime.
 func TestGenerate_PureSelfOutputCollapsesToNull(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
@@ -47,9 +42,7 @@ func TestGenerate_PureSelfOutputCollapsesToNull(t *testing.T) {
 	assertJSON(t, defOf(out, "loop_output"), `{"type":"null"}`)
 }
 
-// A mixed output map: one field is a computational accumulator (fixpointed to
-// its scalar type), the other passes the previous value through whole (kept as
-// a recursive $ref). Both coexist in one definition.
+// An accumulator fixpoints to its scalar; a pass-through stays a recursive $ref.
 func TestGenerate_MixedComputationalAndStructuralRecursion(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
@@ -73,9 +66,7 @@ func TestGenerate_MixedComputationalAndStructuralRecursion(t *testing.T) {
 	}
 }
 
-// Mutual structural recursion across two tasks in one loop: each passes the
-// other's output through whole, yielding a pair of mutually-recursive
-// definitions — legal, because the references sit under properties.
+// Legal because the references sit under properties.
 func TestGenerate_MutualStructuralRecursionKept(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
@@ -128,9 +119,7 @@ func TestGenerate_RecursiveGenerationDeterministic(t *testing.T) {
 	}
 }
 
-// The recursive definitions a generation emits must themselves be well-formed
-// schema documents — every kept cycle productive — so a stored definition
-// re-parses cleanly.
+// Every kept cycle must be productive, so a stored definition re-parses cleanly.
 func TestGenerate_EmittedRecursiveDefsPassCheckDoc(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
@@ -151,15 +140,9 @@ func TestGenerate_EmittedRecursiveDefsPassCheckDoc(t *testing.T) {
 	}
 }
 
-// MUTUAL recursion between two tasks' outputs, which is the only shape that hands `??` a BARE
-// `$ref` onto a definition still being solved. `self.previous` never does: its nullability is a
-// use-site wrapper the strip removes, so by the time `??` sees it the reference is gone.
-//
-// A read that closes the cycle is served the running estimate, wrapped nullable at the use site
-// (`estimateNode`) — and `inferNullCoalesce` has to unwrap that, or the recovery's own result is
-// nullable and the fixpoint describes a value that cannot be null as if it could. Both shapes
-// below are accepted either way, so what this pins is the TYPE: without the unwrap the arm that
-// carries the recursion is dropped and the definition collapses to the base case.
+// Only MUTUAL recursion hands `??` a BARE `$ref` to a definition still being solved. Both shapes
+// pass even if inferNullCoalesce stops unwrapping the use-site estimate (`estimateNode`), so this
+// pins the TYPE: without the unwrap the recursive arm drops and it collapses to the base case.
 func TestGenerate_MutualOutputRecursionUnwrapsTheEstimate(t *testing.T) {
 	def := func(aOut, bOut string) string {
 		return `{"name":"p","tasks":[

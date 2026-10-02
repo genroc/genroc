@@ -66,9 +66,7 @@ func TestInferError_UnaryNegOnString(t *testing.T) {
 }
 
 // ---- ordering type mismatches ----
-//
-// expr-lang ordering operators only accept numbers. InferType must catch string
-// and boolean operands before they reach the runtime.
+// Ordering accepts only numbers; inference catches the rest before runtime.
 
 func TestInferError_CompareStringLessThanInteger(t *testing.T) {
 	inferErr(t, "x < 1", stringXSchema, `numeric operands, got "string" and "integer"`)
@@ -100,9 +98,7 @@ func TestInferError_NotOnInteger(t *testing.T) {
 }
 
 // ---- null operands ----
-//
-// A nullable operand is caught before the operator even runs, producing a clear
-// "non-nullable" message rather than a cryptic runtime panic.
+// A nullable operand is refused before the operator runs.
 
 func TestInferError_NullArithmetic(t *testing.T) {
 	inferErr(t, "x + 1", nullableIntegerAnyOf, "non-nullable operands")

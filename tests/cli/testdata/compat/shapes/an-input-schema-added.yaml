@@ -1,10 +1,5 @@
-# The mirror of the silent removals, and the one addition that breaks BOTH questions at
-# once. A process that accepted anything now demands an input: a caller sending nothing is
-# rejected at creation (contract), and a row created before — which holds no input at all —
-# cannot satisfy a schema that requires one (upgrade).
-#
-# Adding a process OUTPUT is the opposite and stays silent (output-removed.yaml says why):
-# a consumer cannot have been written against a value that was never produced.
+# Adding an input schema breaks both: a caller sending nothing is rejected (contract), and an
+# old row holding no input cannot satisfy it (upgrade). An added output stays silent.
 apply:
   - channel: inadd_a
     definitions:

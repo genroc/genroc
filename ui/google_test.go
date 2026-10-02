@@ -9,9 +9,8 @@ import (
 	"testing"
 )
 
-// Workspace membership, read from Cloud Identity because a Google ID token carries none.
-// The stub answers the shape the live API's discovery document declares:
-// SearchTransitiveGroupsResponse{ memberships[].groupKey.id, nextPageToken }.
+// The stub answers SearchTransitiveGroupsResponse{ memberships[].groupKey.id, nextPageToken },
+// the shape the live API's discovery document declares.
 
 func stubDirectory(t *testing.T, h http.HandlerFunc) *googleDirectory {
 	t.Helper()

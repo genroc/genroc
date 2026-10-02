@@ -1,9 +1,7 @@
 import { waitForParked } from "./external.ts";
 import { client } from "./client.ts";
 
-// Shared fixtures for the per-entity genctl suites (tests/cli/*_test.ts). Each of those
-// files owns one entity's commands and pins its full flag surface and displayed fields;
-// everything they have in common lives here so a definition shape is described once.
+// Shared fixtures for the per-entity genctl suites (tests/cli/*_test.ts).
 
 /** A name unique per test, so nothing collides on the server the CLI suites share. */
 export function uid(prefix: string): string {
@@ -17,29 +15,21 @@ export function startedID(stdout: string): string {
   return m[1];
 }
 
-/**
- * Today's date as genctl renders it. genctl works in the local zone, so a UTC-derived
- * date is off by one for part of every day — build the expectation the same way it does.
- */
+/** Today in the LOCAL zone, as genctl renders it: a UTC date is off by one for part of every day. */
 export function localDate(at = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}`;
 }
 
-/**
- * A local "YYYY-MM-DD HH:MM:SS" stamp, the form --since/--until parse. Second resolution,
- * matching the flags' own precision.
- */
+/** A local "YYYY-MM-DD HH:MM:SS" stamp, the form and resolution --since/--until parse. */
 export function localStamp(at = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${localDate(at)} ${p(at.getHours())}:${p(at.getMinutes())}:${p(at.getSeconds())}`;
 }
 
 /**
- * Freeze the population a list read sees, so two reads compare like for like on a server
- * the other suites are writing to. Waits past a second boundary, then returns a stamp to
- * pass as --until: every row created from that second onward is excluded from every read
- * using it, whenever those reads happen.
+ * Waits past a second boundary and returns an --until stamp, so every read using it sees the
+ * same rows however much the other suites write afterwards.
  */
 export async function frozenUntil(): Promise<string> {
   await new Promise((r) => setTimeout(r, 1100));
@@ -94,10 +84,7 @@ export function childDef(name: string, childName: string) {
   };
 }
 
-/**
- * Parks on an external action awaiting {approved: boolean}, so it sits `running external`
- * until a caller resolves or signals it — a stable non-terminal state.
- */
+/** Parks on an external action awaiting {approved: boolean}: a stable non-terminal state. */
 export function externalDef(name: string) {
   return {
     name,
@@ -138,9 +125,8 @@ export function failingDef(name: string) {
 }
 
 /**
- * Ends in an authored raise, so --error-code has an exact value to match. The raise is the
- * switch's unconditional last case — a trailing `case` is rejected as a non-catch-all.
- * An unhandled raise settles the instance `raised`, not `failed`.
+ * Ends in an authored raise (settling `raised`, not `failed`), so --error-code has a value to
+ * match. The raise is the unconditional last case: a trailing `case` is not a catch-all.
  */
 export function raisingDef(name: string, code: string) {
   return {
@@ -170,12 +156,7 @@ export function blobInputDef(name: string) {
 
 // ── waits ───────────────────────────────────────────────────────────────────────
 
-/**
- * Poll until the instance is parked on an external task, returning its resolve token
- * (`<instance-id>.<task_epoch>`). Derived from the instance: the listing that used to hand
- * tokens out is gone (helpers/external.ts). The shared server auto-polls, so parking lands a
- * cycle or two after run.
- */
+/** The resolve token once parked; the shared server auto-polls, so that is a cycle or two after run. */
 export async function waitForExternalToken(id: string, timeoutMs = 5000): Promise<string> {
   return (await waitForParked(id, client, timeoutMs)).token;
 }

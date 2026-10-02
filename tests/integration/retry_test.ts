@@ -12,7 +12,6 @@ async function getStatus(genroc: GenrocProcess, id: string) {
   return data!;
 }
 
-// failed → retry → completes, without re-executing the task that already succeeded.
 test("retry failed instance — resumes from the failed task", async () => {
   const name = `retry_failed_${crypto.randomUUID()}`;
   const step1Mock = await startMockService(0, { response: { ok: true } });
@@ -61,8 +60,6 @@ test("retry failed instance — resumes from the failed task", async () => {
   }
 }, 30_000);
 
-// retry is for failures only: a paused process has not failed and is owed no extra
-// attempt, so the endpoint refuses it and points at resume instead.
 test("retry on a paused instance — rejected, pointing at resume", async () => {
   const name = `retry_paused_${crypto.randomUUID()}`;
   const db = join(tmpdir(), `genroc_retry_paused_${Date.now()}.db`);
@@ -119,7 +116,6 @@ test("retry on a paused instance — rejected, pointing at resume", async () => 
   }
 }, 30_000);
 
-// only_once → plain retry rejected, force retry succeeds.
 test("retry only_once task — rejected without force, allowed with force", async () => {
   const name = `retry_only_once_${crypto.randomUUID()}`;
   let chargeMock = await startMockService(0, { statusCode: 500 });
@@ -165,7 +161,6 @@ test("retry only_once task — rejected without force, allowed with force", asyn
   }
 }, 30_000);
 
-// retry/pause on a child instance → rejected with the root's id.
 test("retry and pause on non-root instance — rejected naming the root", async () => {
   const id = crypto.randomUUID();
   const leafName = `nonroot_leaf_${id}`;
@@ -222,7 +217,6 @@ test("retry and pause on non-root instance — rejected naming the root", async 
   }
 }, 30_000);
 
-// parallel children, one failed → root retry re-runs only the failed child.
 test("retry with parallel children — only the failed child re-runs", async () => {
   const id = crypto.randomUUID();
   const goodName = `par_good_${id}`;
@@ -299,9 +293,8 @@ test("retry with parallel children — only the failed child re-runs", async () 
     // The completed child was never re-executed.
     expect(goodMock.requestCount()).toBe(1);
 
-    // Asserting the COLLECTED OUTPUT, not just the status: a revived parent whose batch was
-    // orphaned still reaches 'completed', merging {} and reporting success with every
-    // child's output silently gone. Status alone cannot tell the two apart.
+    // Assert the COLLECTED OUTPUT: a parent whose batch was orphaned still reaches 'completed',
+    // merging {}.
     const { data: detail } = await client.GET("/instances/{id}/detail", {
       params: { path: { id: rootId } },
     });
@@ -330,10 +323,8 @@ test("tick is rejected when the engine runs the continuous pump", async () => {
   }
 }, 30_000);
 
-// The case §12 was written for: a child concluded with a RAISE its parent has no rule for,
-// so the tree failed. The condition is fixed outside, and retry must actually run that child
-// again — reviving it would only re-run the switch that decided to raise, against the same
-// upstream state. specs/child-error-handling.md §12.
+// Reviving a raised child would only re-run the switch that raised, so retry must re-spawn it.
+// specs/child-error-handling.md §12.
 test("retry re-spawns a raised child once its cause is fixed", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const childName = `respawn_child_${uid}`;
@@ -399,9 +390,8 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
     const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     expect((detail?.output as any)?.kid).toEqual({ reached: true });
 
-    // The slot now has two rows, and the placeholder must name the LIVE one. The retired
-    // attempt is the older of the two, so a single `child` that took the first row would
-    // point an operator at the instance that raised rather than the one that succeeded.
+    // The retired attempt is the older row, so a placeholder taking the first row would name
+    // the instance that raised, not the LIVE one.
     const live = await listAllInstances();
     const kids = live.filter((i) => i.parent_id === id);
     expect(kids, "both attempts are kept as history").toHaveLength(2);
@@ -412,11 +402,8 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
   }
 }, 30_000);
 
-// §5.5: a child task retries like any other task. The child raises a code the parent names in
-// on_error with a budget; each round re-spawns the raised slot, and when the budget is spent
-// the rule routes. Exhaustion is the deterministic half — it proves admission runs, that the
-// per-slot counter advances (rather than resetting, which would never terminate), and that
-// routing waits for the budget.
+// specs/child-error-handling.md §5.5. Exhaustion is the deterministic half: it proves admission
+// runs and the per-slot counter advances rather than resetting.
 test("child task retry — a raised slot is re-spawned until its budget is spent", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const childName = `slotretry_child_${uid}`;
@@ -479,9 +466,7 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
   }
 }, 40_000);
 
-// The fan-out case per-slot budgets exist for: one slot raises and retries on its own while a
-// completed sibling stands. A shared budget could not express this, and a batch-wide re-spawn
-// would re-run the sibling. specs/child-error-handling.md §5.5.
+// A batch-wide re-spawn would re-run the sibling. specs/child-error-handling.md §5.5.
 test("child task retry — one slot retries while its completed sibling stands", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const goodName = `fanretry_good_${uid}`;

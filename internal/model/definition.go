@@ -10,12 +10,10 @@ import (
 	"genroc/internal/shape"
 )
 
-// GotoEnd signals process termination. Stored verbatim in SwitchCase.Goto and
-// compared against the goto value at runtime; on the wire it is literally "end".
+// GotoEnd terminates the process.
 const GotoEnd = "end"
 
-// GotoNext signals advance to the next task in the sequence. Valid only on
-// non-terminal tasks; using it on the last task is a validation error.
+// GotoNext advances to the following task; refused on the last task.
 const GotoNext = "next"
 
 type ActionType string
@@ -39,23 +37,14 @@ type ChildEntry struct {
 	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. Read as error.data."`
 }
 
-// Raises maps a raise code to the shape that code's fault data carries, declared by the
-// caller rather than the child. A nil value declares a code whose fault carries no payload,
-// which is distinct from omitting the code — on an external task the declared set is the
-// closed set of codes a worker may submit. specs/error-extensions.md §X2-c.
+// Raises maps a raise code to its fault data's shape, declared by the caller. A nil value
+// declares a payload-less code, unlike omitting it: on an external task the keys are the closed
+// set a worker may submit. specs/error-extensions.md §X2-c.
 type Raises map[string]*schema.Schema
 
-// Action describes how to invoke a task's action, a discriminated union on Type. Required
-// per type: fetch — URL; child — Name; child_list — Name and Over; child_map — Children;
-// delay — exactly one of For/Until; external — nothing. Every other field belongs to the
-// types its own comment names, and validation rejects it elsewhere.
-//
-// The result differs per type: child yields the child's output unwrapped, child_map an object
-// keyed by child name, child_list an array in Over's order, fetch the response body typed by
-// Responses (a fetch has no ResultSchema), external whatever the worker submits.
-//
-// See specs/fetch-http-surface.md, specs/error-extensions.md §X2-c,
-// specs/external-task-queue.md, specs/unknown-type.md and internal/delayspec.
+// Action is a discriminated union on Type; each field belongs to the types its comment names
+// and is refused elsewhere. Result: child — the output unwrapped; child_map — keyed by entry;
+// child_list — an array in Over's order; fetch — the body typed by Responses.
 type Action struct {
 	Type           ActionType                `json:"type"`
 	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
@@ -70,9 +59,8 @@ type Action struct {
 	Version        int                       `json:"version,omitempty"`         // child/child_list
 	Body           *Shape                    `json:"body,omitempty"`            // fetch: templated request body
 	Input          *Shape                    `json:"input,omitempty"`           // child/external: templated input payload
-	// The declared slot schemas. Each is the PUBLISHED type of the shape beside it: the
-	// inferred type is checked against it at registration and the value is conformed to it
-	// before it leaves. specs/declared-slot-schemas.md.
+	// Declared slot schemas: each is the PUBLISHED type of the shape beside it, checked at
+	// registration and conformed to before the value leaves. specs/declared-slot-schemas.md.
 	BodySchema  *schema.Schema        `json:"body_schema,omitempty"`      // fetch
 	QuerySchema *schema.Schema        `json:"query_schema,omitempty"`     // fetch
 	InputSchema *schema.Schema        `json:"input_schema,omitempty"`     // child/child_list/external
@@ -82,28 +70,24 @@ type Action struct {
 	DelaySpec                         // delay: exactly one of for / until, plus tz
 }
 
-// DelaySpec is a target instant named by exactly one of `for` (a duration from now) or
-// `until` (an instant), resolved in `tz`. Grammars: internal/delayspec.
-//
-// Do not give this type an UnmarshalJSON: Action embeds it, so the promoted method would be
-// handed the whole action object and every other action field would decode to nothing.
+// DelaySpec is a target instant: `for` (a duration) or `until` (an instant), in `tz`. Never give
+// it an UnmarshalJSON: Action embeds it, so the promoted method would swallow every other
+// action field.
 type DelaySpec struct {
 	For   any    `json:"for,omitempty"`   // a duration — literal ("2h30m"), bare number of milliseconds, or $: numeric expression
 	Until any    `json:"until,omitempty"` // an instant — literal ("+2d 08:00"), bare number of unix milliseconds, or $: numeric expression
 	TZ    string `json:"tz,omitempty"`    // IANA name or fixed offset the calendar units of `for` / wall clocks of `until` resolve in
 }
 
-// queryValueSchema is what one query parameter may evaluate to: a scalar, null to omit the
-// parameter, or an array of scalars repeating it once per element (`?tag=a&tag=b`). Null is
-// allowed at either level; elements may be null because there is no filter builtin.
+// queryValueSchema: a scalar, null to omit, or an array repeating the parameter. Elements may
+// be null too, because there is no filter builtin to drop them.
 func queryValueSchema() schema.Schema {
 	scalarOrNull := schema.Type("string", "number", "boolean", "null")
 	return schema.AnyOf(scalarOrNull, schema.Array(scalarOrNull))
 }
 
-// JSONSchemaBytes returns Action's schema as a discriminated union so OpenAPI reflection emits
-// a oneOf. The relaxed slots are generated from their runtime targets so editor and validator
-// cannot drift.
+// JSONSchemaBytes is a hand-written oneOf; the relaxed slots are generated from their runtime
+// targets so editor and validator cannot drift.
 func (Action) JSONSchemaBytes() ([]byte, error) {
 	headers, err := relaxedHeadersSchema()
 	if err != nil {
@@ -133,8 +117,6 @@ func (Action) JSONSchemaBytes() ([]byte, error) {
 	return []byte(out), nil
 }
 
-// relaxedHeadersSchema builds the editor schema for fetch headers from its object<string>
-// target and merges a property-level description onto the generated node.
 func relaxedHeadersSchema() ([]byte, error) {
 	raw, err := shape.RelaxedSchema(schema.Map(schema.Type("string")))
 	if err != nil {
@@ -148,9 +130,6 @@ func relaxedHeadersSchema() ([]byte, error) {
 	return json.Marshal(node)
 }
 
-// relaxedQuerySchema builds the editor schema for fetch query from its runtime target — a map
-// of scalars, null permitted, which is what makes an optional parameter writable without a
-// conditional.
 func relaxedQuerySchema() ([]byte, error) {
 	raw, err := shape.RelaxedSchema(schema.Map(queryValueSchema()))
 	if err != nil {
@@ -164,8 +143,6 @@ func relaxedQuerySchema() ([]byte, error) {
 	return json.Marshal(node)
 }
 
-// relaxedAcceptedStatusSchema builds the editor schema for fetch accepted_status from its
-// array<string> target and merges a property-level description onto the generated node.
 func relaxedAcceptedStatusSchema() ([]byte, error) {
 	raw, err := shape.RelaxedSchema(schema.Array(schema.Type("string")))
 	if err != nil {
@@ -179,10 +156,8 @@ func relaxedAcceptedStatusSchema() ([]byte, error) {
 	return json.Marshal(node)
 }
 
-// timeoutSchema builds a variant's timeout node from Timeout's own schema, so the editor
-// cannot describe a shape the decoder refuses. `until` stays offered on both: that it is
-// external-only is a value rule validateTimeout owns, and encoding it here too would be a
-// second copy to keep true.
+// timeoutSchema derives from Timeout's own schema. `until` stays offered on fetch too: that is
+// validateTimeout's rule, and encoding it here would be a second copy to keep true.
 func timeoutSchema(description string) ([]byte, error) {
 	raw, err := Timeout{}.JSONSchemaBytes()
 	if err != nil {
@@ -339,10 +314,8 @@ var actionSchemaTemplate = `{
 		"discriminator": {"propertyName": "type"}
 	}`
 
-// Task is a single unit of work: an optional action, then a switch that routes on its result.
-// Switch is required — a task with no action is pure routing. Its scalar shorthand is "end"
-// (terminate), "next" (the following task, invalid on the last) or "$task-id" (jump); as an
-// array of cases the last must be a catch-all with no "case" expression.
+// Task is an optional action, then a required switch routing on its result. As a list of
+// cases, the switch must end in a catch-all.
 type Task struct {
 	ID           string         `json:"id"                 validate:"required" description:"Task identifier, unique within the definition."`
 	Action       *Action        `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
@@ -371,10 +344,9 @@ func (t *Task) OnlyOnceAction() bool {
 	return t != nil && t.Action != nil && t.OnlyOnce != nil && *t.OnlyOnce
 }
 
-// Raises returns the set of error codes this definition can raise, sorted — a syntactic scan
-// over every raise clause, so it errs safe (a raise on an unreachable task inflates it).
-// Panic codes are excluded: a panicking child is 'failed', so no parent rule can ever match
-// one and including them would let R5 bless rules that cannot fire.
+// Raises returns the codes this definition can raise, sorted: a syntactic scan, so it errs
+// safe. Panic codes are excluded — no parent rule can match a 'failed' child, so including
+// them would let R5 bless rules that cannot fire.
 func (d *ProcessDefinition) Raises() []string {
 	seen := map[string]struct{}{}
 	for _, t := range d.Tasks {
@@ -397,10 +369,8 @@ func (d *ProcessDefinition) Raises() []string {
 	return codes
 }
 
-// Normalize normalizes InputSchema and all task result schemas in-place (flatten $defs, drop
-// unused definitions, rewrite $refs). Each schema comes out self-contained, with the
-// process-level $defs it uses baked into its own root; a schema-local definition of the same
-// name wins.
+// Normalize makes every schema self-contained in place: the process-level $defs it uses are
+// baked into its root, and a schema-local definition of the same name wins.
 func (d *ProcessDefinition) Normalize() error {
 	if !d.Defs.IsZero() {
 		flat, err := d.Defs.Flatten()
@@ -420,9 +390,8 @@ func (d *ProcessDefinition) Normalize() error {
 		}
 		d.InputSchema = normalized
 	}
-	// A declared slot schema is baked self-contained for the reason the responses loop below
-	// gives: inference embeds the document in a task context, where a `$ref` into the process
-	// pool resolves nowhere.
+	// Every declared schema is baked, not just input_schema: inference embeds it in a task
+	// context, where a `$ref` into the process pool resolves nowhere.
 	if d.OutputSchema != nil {
 		normalized, err := norm(d.OutputSchema)
 		if err != nil {
@@ -462,9 +431,6 @@ func (d *ProcessDefinition) Normalize() error {
 			}
 			s.Action.ResultSchema = normalized
 		}
-		// Each declared status carries its own document, so each is baked self-contained the
-		// same way — a `$ref` into the process pool resolves nowhere once inference embeds it
-		// in a task context otherwise. A nil entry declares no body and has nothing to bake.
 		for key, sc := range s.Action.Responses {
 			if sc == nil {
 				continue
@@ -507,10 +473,6 @@ func (d *ProcessDefinition) Normalize() error {
 	return nil
 }
 
-// normalizeRaises bakes each declared payload schema self-contained, for the reason the
-// responses loop above gives: a `$ref` into the process pool resolves nowhere once inference
-// embeds the document in a task context. Maps are reference types, so writing back in place
-// updates the caller's map.
 func normalizeRaises(r Raises, norm func(*schema.Schema) (*schema.Schema, error), where string) error {
 	for code, sc := range r {
 		if sc == nil {
@@ -543,10 +505,8 @@ func (c *Action) ValidateOutput(output any) (any, error) {
 	return c.ResultSchema.Validate(output)
 }
 
-// ValidateResponse validates a fetch response body against the schema declared for its status
-// and returns the normalized value. declared=false means no key covered the status, which is
-// not an error — the body is simply untyped. A declared status whose body does not conform is
-// a failure on both channels, which is the caller's to raise.
+// ValidateResponse types a fetch body by the schema declared for its status. declared=false
+// means no key covered the status: not an error, the body is simply untyped.
 func (c *Action) ValidateResponse(status int, body any) (value any, declared bool, err error) {
 	sc, ok := c.ResponseFor(status)
 	if !ok {

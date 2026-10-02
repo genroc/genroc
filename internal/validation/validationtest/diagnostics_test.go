@@ -10,8 +10,6 @@ import (
 	"genroc/internal/validation"
 )
 
-// Inference used to return the first failure with its location in prose, so a client could not
-// say which field was wrong and an author fixed one thing per round trip.
 // specs/language-server.md §2.
 
 func check(t *testing.T, defJSON string) validation.Diagnostics {
@@ -148,10 +146,8 @@ func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
 	}
 }
 
-// The test the whole address decision rests on: a diagnostic's address, handed to the lookup
-// `genctl schema context` answers from, names a slot that exists -- so "what is wrong here" and
-// "what could I have written here" are asked of one place, in one grammar.
-// specs/language-server.md §2, §7b.
+// The address decision rests on this: "what is wrong here" and "what could I write here" name
+// one place, in one grammar. specs/language-server.md §2, §7b.
 func TestEveryDiagnosticAddressIsASlotTheContextViewNames(t *testing.T) {
 	for _, defJSON := range []string{twoBrokenActions, brokenOutputThenBrokenAction,
 		`{"name":"p","tasks":[{"id":"a","action":{"type":"fetch","method":"post","url":"$: nope.x"},
@@ -191,9 +187,7 @@ func keysOf[V any](m map[string]V) []string {
 	return out
 }
 
-// A task reads its OWN output through `self.output` in the switch that routes on it. When that
-// output fails to type, the switch fails too — one mistake, and the second report is the
-// server explaining its own recovery back to the author.
+// One mistake: a second report from the switch would be the server explaining its own recovery.
 func TestATasksOwnPoisonedOutputDoesNotAlsoBreakItsSwitch(t *testing.T) {
 	ds := check(t, `{"name":"p","tasks":[
 		{"id":"a","action":{"type":"fetch","method":"post","url":"u",

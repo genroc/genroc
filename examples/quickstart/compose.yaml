@@ -1,11 +1,7 @@
-# genroc: engine, UI, a script worker, three example processes. One command, no credentials.
-#
+# genroc: engine, UI, a script worker, three example processes. NO AUTHENTICATION: fine for a
+# laptop, wrong for anything others can reach (examples/auth and examples/ui add it).
 #   docker compose -f examples/quickstart/compose.yaml up --build
 #   open http://localhost:8448
-#
-# NO AUTHENTICATION — every caller is an operator, and genroc warns about it on startup. Right
-# for a laptop, wrong for anything anyone else can reach. examples/auth adds tokens,
-# examples/ui adds a login; same image throughout.
 
 name: genroc-quickstart
 
@@ -16,11 +12,8 @@ services:
     command: [-db, /data/genroc.db, -http, ":8448"]
     volumes: [data:/data]
 
-  # The UI is its own image: the server is meant to be embedded, and a deployment that embeds it
-  # has no use for a monitoring UI in its address space. specs/ui-component.md §1.
-  #
-  # No config, so no login -- requests are proxied as they arrive, which is the right shape here
-  # and the wrong one anywhere else. examples/ui/ adds the login.
+  # Its own image, so a deployment embedding the server carries no UI (specs/ui-component.md §1).
+  # No config means no login: requests are proxied as they arrive.
   genroc-ui:
     build: { context: ../.., dockerfile: ui/Dockerfile }
     command: [-server, "http://genroc:8448"]

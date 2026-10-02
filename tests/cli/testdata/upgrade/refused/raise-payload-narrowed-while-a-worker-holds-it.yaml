@@ -1,15 +1,5 @@
-# The error channel is the same promise as the result, and it escaped the same gate.
-#
-# A worker answers a failure with {code, message, data}, and `data` is conformed against
-# raises[code]. Narrowing that payload refuses a submission the old version entitled the worker
-# to make — and until this was compared, an external task got no warning at all: the upgrade
-# allowed it and compat reported `upgrade: compatible`, listing raises only as a slot that had
-# CHANGED. A child call was luckier for the wrong reason: its handler task reads `error.data`,
-# so the layer comparison caught the narrowing indirectly, and coverage depended on a handler
-# happening to exist.
-#
-# Compared per code and strictly, `old ⊆ new`, for the reason the result is: the answer comes
-# from OUTSIDE and no migration repairs it.
+# A worker's failure `data` is conformed against raises[code], so a narrowing is compared per
+# code, strictly (old ⊆ new): the answer comes from outside and no migration repairs it.
 apply:
   - definitions:
       - name: raiseproc

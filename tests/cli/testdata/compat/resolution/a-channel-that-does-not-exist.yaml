@@ -1,14 +1,6 @@
-# A channel nobody ever created resolves to no processes rather than failing, so the target
-# side arrives empty and `reconcile` carries every from-side process across at its own
-# version — a full page of `nothing changed`, exit 0. Each row is individually true and the
-# report as a whole is the answer indistinguishable from "checked, and fine" that every
-# refusal in this group exists to prevent. Refused instead, at the resolution step, where the
-# selector that named nothing still knows what it was.
-#
-# Only the TARGET side. An empty `--from` is the bootstrap case — nothing is deployed yet, so
-# every submitted process is legitimately `new` — and refusing it would fail the first deploy
-# of every process. a-process-the-target-side-does-not-carry.yaml is the partial case, which
-# stays a report: there, other rows were genuinely compared.
+# An empty target channel is refused: otherwise every row reads `unchanged`, indistinguishable
+# from "checked, and fine". Only the target: an empty --from is the bootstrap case, where
+# every process is legitimately `new`.
 apply:
   - channel: nochan_a
     definitions:

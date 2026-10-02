@@ -1,10 +1,5 @@
-# A narrowing that does not move the TYPE must still say what narrowed. This block used to
-# read `tier: string → string` — a line asserting nothing changed, about a change that breaks
-# both questions — because the message came from a walk beside the relation that could only
-# render type names. The relation reports the constraint it rejected, so the enum appears.
-#
-# `maximum` and `minLength` travel the same path; only the first break is named, so one
-# property is still the whole report.
+# A narrowing that leaves the type alone must name the constraint (the enum), not print
+# `tier: string → string`. Only the first break is named.
 apply:
   - channel: narrowc_a
     definitions:

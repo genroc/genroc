@@ -20,10 +20,8 @@ func (e *Engine) retryDelay(attempt int, r model.ResolvedRetry) time.Duration {
 // Jitter stops a fleet re-hitting a recovering endpoint in lockstep, and only ever
 // SHORTENS — the ceiling stays true and clock-advancing tests still expire timers.
 func backoff(attempt int, base time.Duration, factor float64, ceiling time.Duration) time.Duration {
-	// Accumulating in float64 rather than shifting a Duration: a wrapped or negative
-	// Duration is a retry with no backoff at all, which is the one outcome worse than a
-	// wait that is too long. Growth stops at the ceiling, so the loop cannot run away and
-	// the multiply cannot reach the range where the conversion below overflows.
+	// float64, not a shifted Duration: a wrapped Duration is a retry with no backoff. Stopping
+	// at the ceiling keeps the conversion below from overflowing. CLAUDE.md.
 	d := float64(base)
 	limit := float64(ceiling)
 	// Guarded on factor, not just on the ceiling: factor 1 is a constant delay, and

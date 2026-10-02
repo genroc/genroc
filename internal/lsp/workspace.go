@@ -1,10 +1,8 @@
 package lsp
 
-// Finding a process by name across the workspace.
-//
-// The folders come from `initialize`, not from `.genroc`: an editor already knows what is open,
-// and `definitions:` answers a different question — which files an `apply` deploys, not which
-// exist. specs/language-server.md §7.
+// Finding a process by name across the workspace. The folders come from `initialize`, not from
+// `.genroc`, whose `definitions:` says what an apply deploys, not what exists.
+// specs/language-server.md §4.
 
 import (
 	"io/fs"

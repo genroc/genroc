@@ -20,9 +20,8 @@ type objectEntry struct {
 	Size int64  `json:"size"`
 }
 
-// withObjectRefs puts a {ref, size} marker at every path an `objects` section names, relative
-// to at -- where v itself sits in the response. The wire leaves the slot absent so nothing in a
-// payload can be mistaken for a reference (specs/object-store.md §The wire); a reader needs one.
+// withObjectRefs marks every `objects` path relative to at, where v sits in the response. The
+// wire leaves the slot absent (specs/object-store.md §The wire); a reader needs the marker.
 func withObjectRefs(v any, objects []objectEntry, at ...any) any {
 	if len(objects) == 0 {
 		return v
@@ -39,9 +38,8 @@ func withObjectRefs(v any, objects []objectEntry, at ...any) any {
 	return root[""]
 }
 
-// pathUnder returns path with the prefix at removed, and whether it was under it at all. One
-// response's section can name paths outside the value being rendered (`get` lists the whole
-// response's, of which State is one branch), and those belong to nobody here.
+// pathUnder strips the prefix at. A section can name paths outside the rendered value (`get`
+// lists the whole response's), and those belong to nobody here.
 func pathUnder(path, at []any) ([]any, bool) {
 	if len(path) < len(at) {
 		return nil, false
@@ -54,10 +52,8 @@ func pathUnder(path, at []any) ([]any, bool) {
 	return path[len(at):], true
 }
 
-// logData renders a log payload for one row: whatever the entry carried inline, with each
-// externalized piece shown as its {ref,size} handle in the place it was cut from. logs never
-// fetches -- a trail is scanned, and these payloads are large by definition; `genctl object
-// <ref>` gets the one that matters.
+// logData never fetches: a trail is scanned and these payloads are large by definition, so
+// `genctl object <ref>` gets the one that matters.
 func logData(raw json.RawMessage, objects []objectEntry) string {
 	if len(raw) == 0 {
 		return ""
@@ -77,10 +73,8 @@ func logData(raw json.RawMessage, objects []objectEntry) string {
 	return string(b)
 }
 
-// spliceObjects fetches every value a response listed under `objects` and puts it back at the path
-// it named -- the whole of what a recipient owes the objects protocol. The paths are arrays of
-// keys, so walking one needs no parser and no unescaping. Client-side, because the server
-// materializing every value behind a query parameter is an unbounded response.
+// spliceObjects is client-side because the server materializing every value behind a query
+// parameter would be an unbounded response.
 func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
 	var body map[string]any
 	if err := numeric.Decode(raw, &body); err != nil {
@@ -117,9 +111,8 @@ func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
 	return out
 }
 
-// place walks path and writes value at the end of it. A step that does not exist is skipped
-// rather than created: the path came from this same response, so a miss means the response and
-// its objects section disagree, and inventing structure would hide that.
+// place skips a missing step rather than creating it: the path came from this response, so a
+// miss means it disagrees with its objects section, and invented structure would hide that.
 func place(root any, path []any, value any) {
 	cur := root
 	for i, seg := range path {
@@ -151,9 +144,6 @@ func place(root any, path []any, value any) {
 	}
 }
 
-// runObjectCmd fetches one externalized value by the ref a response listed for it. The escape
-// hatch that lets `logs` print an id instead of a payload: a trail is scanned, and the one entry
-// you care about is fetched on purpose.
 func runObjectCmd(server string, args []string) {
 	fs := newFlagSet("object", args)
 	serverFlag := addServerFlag(fs, server)

@@ -1,13 +1,6 @@
-# The check slices the process into every state that can be PERSISTED and picked up again,
-# and asks whether each still fits. A looping task is the slice that is easy to forget: on
-# re-entry the row already holds this task's OWN prior output, which `self.previous` reads —
-# so `outputs.poll` is in poll's own entry context, optional, because the first iteration
-# does not have it.
-#
-# Here the new version's poll output gains a required field. An instance parked at poll on
-# its second lap holds the old shape, and the new definition's own `self.previous` read
-# expects the new one. That is a break at poll, and it is only visible because the task's
-# context includes itself.
+# On re-entry a looping task's row holds its own prior output (`self.previous`), so poll's
+# entry context includes `outputs.poll`. A required field added there breaks an instance
+# parked at poll on its second lap.
 apply:
   - channel: loopslice_a
     definitions:

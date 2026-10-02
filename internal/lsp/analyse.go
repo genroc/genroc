@@ -22,10 +22,8 @@ import (
 
 const source = "genroc"
 
-// analyse returns every diagnostic for text, in the order they were found. A file may hold
-// several definitions; each is indexed and analysed on its own. path is the document's file on
-// disk, which structural resolution needs to read a directive's relative argument; "" for a
-// buffer that has none.
+// analyse returns every diagnostic for text, each definition in it analysed on its own. file
+// anchors a directive's relative argument; "" for a buffer with no path on disk.
 func analyse(text, file string) []diagnostic {
 	lines := splitLines(text)
 	docs, err := parseDocuments(text, file)
@@ -148,10 +146,8 @@ func nodeHoldingQuoted(doc *defdoc.Doc, message string) (defdoc.Range, bool) {
 	return defdoc.Range{}, false
 }
 
-// unknownFieldRe reads the key out of encoding/json's message, which is the only place it
-// appears: DisallowUnknownFields reports prose and stops at the first. Underlining the right
-// key matters more than the shortcut costs, and §5's reflection walk is what replaces this —
-// it reports every unknown key with a path instead of one with a name.
+// unknownFieldRe reads the key out of encoding/json's prose, which names only the first unknown
+// key. §5's reflection walk is what replaces this shortcut.
 var unknownFieldRe = regexp.MustCompile(`unknown field "([^"]+)"`)
 
 func decodeDiagnostic(doc *defdoc.Doc, lines []string, err error) diagnostic {
@@ -163,9 +159,8 @@ func decodeDiagnostic(doc *defdoc.Doc, lines []string, err error) diagnostic {
 		}
 		return at(doc, lines, "", "def.unknown_key", msg)
 	}
-	// A schema reports where it failed relative to its OWN root (`properties.who`), because a
-	// sub-schema does not know which slot of which document holds it. The document path ends
-	// in that one, so the suffix finds it.
+	// A schema reports its failure relative to its OWN root (`properties.who`), so it is matched
+	// as a suffix of the document path.
 	if p := schema.PathOf(err); p != "" {
 		if path, ok := solePathEndingIn(doc, p); ok {
 			if errors.Is(err, schema.ErrUnknownKeyword) {
@@ -197,11 +192,8 @@ func decodeDiagnostic(doc *defdoc.Doc, lines []string, err error) diagnostic {
 	return at(doc, lines, "", "def.structure", msg)
 }
 
-// typeErrorMessage says what the field takes in the words the document is written in.
-// encoding/json's own prose names the Go type that could not hold the value
-// ("json: cannot unmarshal number into Go struct field Task.tasks.only_once of type bool"),
-// which is an implementation detail wherever it is read. Falls back to that prose for a type
-// with no such word.
+// typeErrorMessage says what the field takes in the document's own words, where encoding/json
+// names a Go type. Falls back to raw for a type with no such word.
 func typeErrorMessage(e *json.UnmarshalTypeError, raw string) string {
 	want := goTypeWord(e.Type)
 	got := jsonValueWord(e.Value)
@@ -263,11 +255,8 @@ func keyDiagnostic(doc *defdoc.Doc, lines []string, path, message string) diagno
 	return d
 }
 
-// solePathEndingIn finds the one place key appears. Several occurrences means the decoder's
-// name does not identify a node, and pointing at either would be a guess.
-//
-// Matches are counted by SPAN, not by path: every node is addressable twice — physically and
-// logically — so counting paths would find two of everything and never decide.
+// solePathEndingIn finds the one place key appears, counting by SPAN: every node is addressable
+// twice (physically and logically), so counting paths finds two of everything.
 func solePathEndingIn(doc *defdoc.Doc, key string) (string, bool) {
 	var found string
 	seen := map[defdoc.Span]bool{}

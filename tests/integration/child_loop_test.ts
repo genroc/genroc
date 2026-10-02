@@ -1,11 +1,8 @@
 import { expect, test } from "vitest";
 import { client, runToEnd } from "../helpers/client.ts";
 
-// A child task re-entered by a loop spawns a NEW batch each pass. Children live under
-// (parent_id, spawn_task_id), so without a generation number the second collect saw every
-// child ever spawned there — `expected exactly one child, got 2` for a single child, and
-// silently merged duplicate slots for the keyed and list shapes. spawn_epoch scopes both
-// the collect and the wake decision to the current batch.
+// Children live under (parent_id, spawn_task_id), so each loop pass must spawn a NEW batch, with
+// the epoch scoping both the collect and the wake to it.
 
 async function define(name: string, body: Record<string, unknown>) {
   const { error } = await client.PUT("/definitions", { body: { name, ...body } as never });

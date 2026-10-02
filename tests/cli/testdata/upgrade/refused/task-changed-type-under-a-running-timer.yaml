@@ -1,5 +1,4 @@
-# A delay holds its instance with no phase, only a wake_at, so a gate that keys on the phase
-# alone never sees it. The timer was armed by the old action; the new one never asked to be woken.
+# A delay holds its instance with no phase, only a wake_at — a gate keyed on phase misses it.
 apply:
   - definitions:
       - name: retimed

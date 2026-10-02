@@ -1,9 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// A fetch whose mock holds the first response for 3s. Every timeout below is far under
-// that and far under the 30s default, so the task erroring at all is the proof that the
-// authored deadline — not the default — is what bounded the call.
+// Every timeout below is far under the mock's 3s hold and the 30s default, so erroring at all
+// proves the authored deadline bounded the call.
 const HELD_MS = 3_000;
 
 async function runWithTimeout(timeout: unknown) {
@@ -85,9 +84,7 @@ test("expression timeout bounds a fetch", async () => {
   }
 });
 
-// The slot `until` exists for: a deadline that is an instant rather than a budget. Passed as
-// unix ms from the caller, so the deadline is a fixed point in time regardless of when the
-// engine reaches the task.
+// Unix ms, so the deadline is fixed regardless of when the engine reaches the task.
 test("until deadline bounds an external task", async () => {
   const name = `timeout_until_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {

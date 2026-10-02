@@ -1,16 +1,5 @@
-/**
- * POST /tick and POST /instances/{id}/upgrade are the HTTP endpoints whose request body
- * reaches decodeOptionalBody directly — every other optional-body action has a fromHTTP that
- * rebuilds the payload from query parameters, discarding whatever the client sent. /tick is
- * where the "optional means absent, not unparseable" rule is pinned over HTTP.
- *
- * The failure this pins down is specific: advance_ms sent as a string used to decode to
- * 0, leaving the server clock unmoved while the response still said 200. A test written
- * that way silently never advanced time, then asserted against timers that never fired.
- *
- * Needs manual-tick mode (--poll 0); on a polling server /tick answers 501 before it
- * ever looks at the body.
- */
+/** Optional means absent, not unparseable: advance_ms sent as a string once decoded to 0, so the
+ *  clock never moved while /tick answered 200. Needs --poll 0. */
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 

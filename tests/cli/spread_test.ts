@@ -4,9 +4,8 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// The spread form: `<<: "$<resolver>: <params>"` pre-fills the mapping it sits in, where the
-// same directive in a VALUE fills that slot. `$process` is the built-in that answers it with
-// another definition's call-site types. specs/source-resolution.md §The spread form, §`$process`.
+// `<<: "$<resolver>: <params>"` pre-fills the mapping it sits in. specs/source-resolution.md
+// §The spread form, §`$process`.
 
 let bin: string;
 beforeAll(() => {
@@ -38,9 +37,7 @@ function parent(body: string[]): string {
     "input_schema:",
     "  type: object",
     "  properties: { n: { type: number } }",
-    // Required, because the parent forwards `n` straight into a child that requires it: an
-    // optional property reads as nullable, and the call site's declared input_schema (spread
-    // in from the child) refuses a null where the child declares a number.
+    // Required: optional reads as nullable, and the input_schema spread from the child refuses null.
     "  required: [n]",
     "tasks:",
     "  - id: call",
@@ -76,8 +73,7 @@ test("a spread fills name, result_schema and raises from the child definition", 
     properties: { doubled: { type: "number" }, label: { type: "string" } },
   });
 
-  // `raises` came across too: the child's raise set, keyed by code. Without the spread the
-  // rule below names a code the call never declared.
+  // `raises` came across too: without it the rule below names a code the call never declared.
   const withRule = project([
     SPREAD,
     "      input: { n: '$: input.n' }",
@@ -149,8 +145,7 @@ test("a .genroc entry of the same name is matched before the built-in", () => {
 });
 
 test("an override is per suffix: a local entry claiming another one falls through", () => {
-  // The honest reading of a first-match table, and the reason there is no shadowing rule:
-  // the local entry does not accept this argument, so the built-in still answers it.
+  // The local entry does not accept this argument, so the built-in still answers it.
   const { parent: path } = project(
     [SPREAD, "      input: { n: '$: input.n' }"],
     "resolvers:\n  - { name: process, phase: structural, ext: [.genroc.json], command: [node, x.mjs] }\n",

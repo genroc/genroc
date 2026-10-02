@@ -5,34 +5,25 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess, freePort } from "../helpers/server.ts";
 import { createClientTyped, listAllInstances } from "../helpers/client.ts";
 
-// GC-under-chaos (SQLite, one server crashed/restarted at random). An object is legitimate iff
-// some claim holds it -- a live context slot, a log, or a grace window; this
-// hammers that bookkeeping -- big blobs round-tripping parent->child->parent, flaky 500s,
-// random SIGKILLs, pauses/resumes/force-retries -- then reads the raw tables and asserts
-// every row is reachable and every reference resolves. SQLite-only: the check reads the
-// DB file, and one crashed process avoids multi-writer contention (multi_worker_test.ts
-// is the Postgres fleet shape).
+// An object is legitimate iff some claim holds it (a live slot, a log, a grace window). Chaos, then
+// the raw tables are read. SQLite only: the check reads the DB file, and one crashing process
+// avoids multi-writer contention (multi_worker_test.ts is the Postgres fleet).
 
 const ROOT_COUNT = 8;
 const CHAOS_MS = 6_000;
 const SETTLE_MS = 60_000;
 
-// Both comfortably over the 2 KiB externalization threshold so every slot that holds
-// one lands in the object store.
+// Over the 2 KiB externalization threshold, so every slot holding one lands in the object store.
 const BLOB = "B".repeat(12 * 1024);
 const PAD = "P".repeat(12 * 1024);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pick = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)];
-// `paused`/`pausing` are deliberately absent: a pause is not an outcome, it only
-// says the tree is not being advanced, so it never counts as settled.
+// Not `paused`/`pausing`: a pause is not an outcome.
 const isTerminal = (s?: string) => s === "completed" || s === "failed";
 
 // ── flaky mock backing the `gen` action ───────────────────────────────────────
-// Returns a large result (pad) plus a monotonic counter `i` and a `done` flag. In
-// chaos mode it randomly 500s and randomly finishes; in settle mode it always
-// succeeds and reports done, so every loop terminates and instances can be driven
-// green.
+// Chaos mode 500s and finishes at random; settle mode always succeeds with done, so loops end.
 function startGenMock() {
   let calls = 0;
   let failRate = 0;
@@ -79,10 +70,8 @@ let server: GenrocProcess | undefined;
 let mock: ReturnType<typeof startGenMock>;
 let mockPort = 0;
 
-// Spawn a SQLite-backed server on the file's port with a short lease so a reclaim
-// after a crash happens within a couple of seconds. The lease is passed through the
-// env knobs spawnProc already reads, set only across the spawn so no other stress
-// file inherits them.
+// A short lease, so a post-crash reclaim lands within seconds; the env knobs are set only across
+// the spawn so no other stress file inherits them.
 async function spawn(): Promise<GenrocProcess> {
   const prev = {
     d: process.env.GENROC_LEASE_DURATION,
@@ -121,12 +110,9 @@ test(
     const root = `gc_root_${suffix}`;
     const isMine = (p?: string) => p === leaf || p === root;
 
-    // The LEAF is a looping worker that externalizes values three ways:
-    //   • input.blob              — large input (instance claim + a log claim on inst_created's row → one shared object)
-    //   • gen → self.result       — large action result (instance claim + per-row log claims → churned to log-only each loop)
-    //   • scratch → blob + i      — large task output, NOT logged (pure context; deleted outright on each loop)
-    // gen loops back through scratch until the mock reports done, then the leaf returns
-    // the big blob in its OUTPUT.
+    // The LEAF externalizes three ways: input.blob (instance + log claim on one object), gen's
+    // self.result (churned to log-only each loop), and scratch's output (unlogged, deleted each
+    // loop). It returns the big blob in its OUTPUT.
     const { error: leafErr } = await api.PUT("/definitions", {
       body: {
         name: leaf,
@@ -171,9 +157,7 @@ test(
     });
     expect(leafErr).toBeUndefined();
 
-    // The ROOT spawns the leaf with the big blob and collects the leaf's (big) output
-    // back into its own context — so the value round-trips parent → child → parent and
-    // lands in a parent-owned object, on top of the child-owned ones.
+    // The ROOT collects the leaf's big output, so the value round-trips parent → child → parent.
     const { error: rootErr } = await api.PUT("/definitions", {
       body: {
         name: root,
@@ -229,8 +213,7 @@ test(
     const chaosMid = Date.now() + CHAOS_MS / 2;
     while (Date.now() < chaosDeadline) {
       const roll = Math.random();
-      // Random crashes, but guarantee at least one by the halfway mark so the run
-      // always exercises a real SIGKILL+restart.
+      // At least one crash by the halfway mark, so every run has a real SIGKILL+restart.
       const forceCrash = crashes === 0 && Date.now() > chaosMid;
       try {
         if (roll < 0.12 || forceCrash) {
@@ -239,17 +222,14 @@ test(
           await sleep(200); // let the OS reap the pid / free the port
           server = await spawn();
         } else if (roll < 0.5) {
-          // Pause is not an outcome and never settles by itself, so every pause is
-          // paired with a resume; the short beat in between is what races the worker
-          // (pausing → paused → running while a task is mid-flight). A resume lost to
-          // a crash landing in the gap is picked up by the settle sweep below.
+          // The beat between pause and resume races the worker; a resume lost to a crash is
+          // picked up by the settle sweep.
           const id = pick(rootIds);
           await api.POST("/instances/{id}/pause", { params: { path: { id } } });
           await sleep(60);
           await api.POST("/instances/{id}/resume", { params: { path: { id } } });
         } else {
-          // Retry only takes a `failed` root now; on anything else the server replies
-          // with an error, which is fine — it is part of the contention.
+          // Retry takes only a `failed` root; an error otherwise is part of the contention.
           await api.POST("/instances/{id}/retry", {
             params: { path: { id: pick(rootIds) }, query: { force: true } },
           });
@@ -270,18 +250,14 @@ test(
       server = await spawn();
     }
 
-    // Resume sweep: a root the chaos left paused (or pausing, if a crash swallowed the
-    // resume half of a pair) would never advance again, so nothing below could ever
-    // settle. Unpause every root before the settle loop even starts.
+    // A root left paused (a crash swallowed its resume) would never advance, so unpause all first.
     for (const id of rootIds) {
       await api
         .POST("/instances/{id}/resume", { params: { path: { id } } })
         .catch(() => {});
     }
 
-    // Settle: mock always succeeds + reports done so every loop terminates; keep
-    // resuming paused roots and force-retrying failed ones until the whole fleet is
-    // terminal & green.
+    // Settle: keep resuming paused roots and force-retrying failed ones until all are green.
     mock.enterSettle();
     let settled = false;
     const settleDeadline = Date.now() + SETTLE_MS;
@@ -293,10 +269,8 @@ test(
         await sleep(200);
         continue;
       }
-      // Recover via the roots only (pause/resume/retry is root-scoped and cascades to
-      // the subtree); a failed leaf is brought back by retrying its root, a paused one
-      // by resuming it. A `pausing` root is re-swept every iteration until the in-flight
-      // task's write lands it in `paused` and the resume takes.
+      // Via roots only: the verbs are root-scoped and cascade. A `pausing` root is re-swept until
+      // its in-flight task lands it in `paused` and the resume takes.
       const byId = new Map(insts.map((i) => [i.id, i]));
       for (const id of rootIds) {
         const r = byId.get(id);
@@ -320,18 +294,14 @@ test(
     }
     expect(settled, "all instances reached completed after settling").toBe(true);
 
-    // Quiesce, then wait for the server process to EXIT before touching the file. AWAITING
-    // stop() is what makes that true -- it resolves on real process exit. Polling the HTTP port
-    // until it refuses connections is weaker and was the bug here: the listener closes before
-    // the DB does.
+    // Await stop() before touching the file: it resolves on process exit, whereas the HTTP
+    // listener closes before the DB does.
     await sleep(500);
     await server!.stop();
     server = undefined;
 
     // ── Verify the GC invariant against the raw tables ──────────────────────────
-    // Read the DB via the sqlite3 CLI (-json): there is no SQLite driver among the test
-    // dependencies. The selected columns are all small — an externalized
-    // slot stores only its {refs} envelope, never the content — so the JSON stays tiny.
+    // Via the sqlite3 CLI: the test deps have no SQLite driver.
     const sqlJson = <T,>(query: string): T[] => {
       // .timeout mirrors the engine's own _busy_timeout=5000: wait for a lock, never fail on one.
       const r = spawnSync("sqlite3", ["-cmd", ".timeout 5000", "-json", dbPath, query], {
@@ -343,8 +313,7 @@ test(
       return out ? (JSON.parse(out) as T[]) : [];
     };
 
-    // Content and claims are separate tables now: one object per distinct content, and a row
-    // per owner holding it. specs/object-store.md.
+    // One object per distinct content, one claim row per owner. specs/object-store.md.
     const objs = sqlJson<{ hash: string; releasedAt: number | null }>(
       "SELECT hash, released_at AS releasedAt FROM objects",
     );
@@ -355,10 +324,7 @@ test(
     }>(
       "SELECT hash, owner_kind AS ownerKind, owner_id AS ownerId FROM object_refs",
     );
-    // Every owner lists what it references in its own `objects` column, so this reads the
-    // declaration instead of reconstructing it. It used to parse input_data, output_data,
-    // outputs_data.items and process_logs.data, which meant the check carried a second copy of
-    // the encoder's layout and could drift from it silently.
+    // Each owner declares its references in its `objects` column: read that, not the encoder's layout.
     const insts = sqlJson<{ id: string; objects: string }>(
       "SELECT id, objects FROM process_instances",
     );
@@ -386,8 +352,7 @@ test(
     const logRefs = new Set<string>();
     for (const l of logs) declared(l.id, l.objects, logRefs);
 
-    // A claim is (kind, owner, hash). The old shape could only say that SOMEONE pinned a row;
-    // this can say who, so the checks below are stricter than the ones they replace.
+    // A claim is (kind, owner, hash), so the checks below can say WHO holds a row.
     const claims = new Set(refs.map((r) => `${r.ownerKind}|${r.ownerId}|${r.hash}`));
     const claimsByHash = new Map<string, number>();
     for (const r of refs) claimsByHash.set(r.hash, (claimsByHash.get(r.hash) ?? 0) + 1);
@@ -406,8 +371,7 @@ test(
     );
 
 
-    // 1. Every live context reference resolves to content, held by a claim belonging to THAT
-    //    instance. The old shape could only check that the row was pinned by someone.
+    // 1. Every live context reference resolves to content claimed by THAT instance.
     for (const k of contextRefs) {
       const [instanceId, hash] = k.split("|");
       expect(objs.some((o) => o.hash === hash), `context ref ${k} has no content`).toBe(true);
@@ -425,14 +389,9 @@ test(
     }
 
 
-    // 3. No OVERDUE content. Unclaimed is not a leak: the sweep marks an object when it notices
-    //    nothing holds it and collects a window later, and the janitor runs once a minute — so a
-    //    recent release is legitimately unclaimed and unmarked. A leak is content whose window
-    //    passed long ago and which is still here.
-    //
-    //    A crash-orphaned LOG claim (its row lost to a SIGKILL before the write landed) is
-    //    likewise a pending release, not a leak: the sweep drops it once it sees the owner is
-    //    gone, which is why this checks the claim rather than a surviving log row.
+    // 3. No OVERDUE content: a recent release is legitimately unclaimed until the sweep's window
+    //    passes. A crash-orphaned LOG claim is likewise a pending release, so this checks claims,
+    //    not surviving log rows.
     for (const o of objs) {
       const overdue = o.releasedAt !== null && Date.now() - o.releasedAt > 10 * 60_000;
       expect(
@@ -451,9 +410,7 @@ test(
       ).toBe(true);
     }
 
-    // 5. No leaked claims: an INSTANCE claim must be backed by a live context slot. Log and
-    //    grace claims are exempt by construction — a log claim outlives its slot on purpose, and
-    //    a grace claim exists precisely because no slot references it any more.
+    // 5. An INSTANCE claim needs a live slot; log and grace claims outlive their slots by design.
     for (const r of refs) {
       if (r.ownerKind !== "instance") continue;
       expect(

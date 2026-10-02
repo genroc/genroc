@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// `{}` is genroc's `unknown`: carried, compared, exported — never read INTO. Comparison is
-// allowed because it treats the value as one opaque token (and is how a definition tests an
-// opaque body for presence); member access is not, because it reads a shape nobody declared.
-// The same line TypeScript draws for `unknown`.
+// `{}` is carried, compared, exported — never read INTO. Comparison treats it as one opaque
+// token; member access reads a shape nobody declared.
 func unknownAccessDef(t *testing.T, expr string, tSchema map[string]any) string {
 	t.Helper()
 	if tSchema == nil {
@@ -45,9 +43,8 @@ func TestGenerate_Unknown_ComparedNotRead(t *testing.T) {
 	}
 }
 
-// Every route that could carry an unknown into a position where a property is read. Each one
-// reaches the access through a different construct, so a guard added to only one of them
-// leaves the others open — which is how the union case survived until it was looked for.
+// Each route reaches the access through a different construct, so a guard on one leaves the
+// others open.
 func TestGenerate_Unknown_CannotBeLaundered(t *testing.T) {
 	for _, tc := range []struct{ name, expr string }{
 		{"coalesced with a scalar", "$: (input.u ?? 'x').field"},
@@ -64,10 +61,8 @@ func TestGenerate_Unknown_CannotBeLaundered(t *testing.T) {
 	}
 }
 
-// The one shape that IS allowed, and why: `a ?? b` where `a` cannot be null never evaluates
-// `b`, so the unknown arm is dead and the result is just `a`. Make the left side nullable and
-// the arm becomes reachable, so the same expression is refused. Pinning both directions keeps
-// a later change from "fixing" the accepted case into a false refusal.
+// `a ?? b` with a non-null `a` never evaluates the unknown `b`. Both directions are pinned so a
+// later change cannot "fix" the accepted case into a false refusal.
 func TestGenerate_Unknown_DeadCoalesceArmIsNotALeak(t *testing.T) {
 	nullable := map[string]any{"type": []string{"object", "null"},
 		"properties": map[string]any{"field": map[string]any{"type": "string"}}}
@@ -80,11 +75,8 @@ func TestGenerate_Unknown_DeadCoalesceArmIsNotALeak(t *testing.T) {
 	}
 }
 
-// An unknown is unreadable wherever it SITS, not just where it was declared. Each row reaches
-// the value by a different route, and the routes are separate code paths — property lookup,
-// index, computed key — so a guard on one says nothing about the others. The `$ref` row is the
-// one that would break silently: the emptiness test has to run after the deref, or a `{}`
-// behind a reference looks like an ordinary object schema and reads straight through.
+// Each row is a separate code path (property, index, computed key). The `$ref` row breaks
+// silently: the emptiness test must run after the deref.
 func TestGenerate_Unknown_UnreadableInEveryPosition(t *testing.T) {
 	unknown := map[string]any{}
 	for _, tc := range []struct {
@@ -149,10 +141,8 @@ func TestGenerate_Unknown_UnreadableInEveryPosition(t *testing.T) {
 	}
 }
 
-// `query` is `headers` with the differences that carry the feature: a null VALUE is legal and omits
-// its parameter, while the MAP may still not be null. Scalars rather than strings-only, or an
-// optional NUMBER parameter would be unwritable; an array of scalars repeats the parameter, and an
-// array of objects is refused for the same reason a bare object is -- it has no url encoding.
+// Scalars, not strings-only, or an optional NUMBER parameter is unwritable; an array of objects
+// is refused like a bare object -- it has no url encoding.
 func TestGenerate_QueryShape(t *testing.T) {
 	def := func(query string) string {
 		return `{"name":"p","input_schema":{"type":"object","properties":{

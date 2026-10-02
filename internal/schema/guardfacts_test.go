@@ -6,10 +6,8 @@ import (
 	"genroc/internal/expression/syntax"
 )
 
-// The catalogue as a table, independent of what either consumer does with it: the
-// expression inferrer turns a fact into a narrowed Schema, the cross-task pass will turn the
-// same fact into a symbolic non-null (specs/guard-narrowing.md). Both rest on this walk
-// being exact, and the false branch is where the unsound mistakes live.
+// The catalogue alone, independent of either consumer (specs/guard-narrowing.md); the false
+// branch is where the unsound mistakes live.
 func TestGuardFacts_Catalogue(t *testing.T) {
 	// fact renders one fact as "path==lit" / "path!=lit" so a table row reads as the claim.
 	render := func(facts []guardFact) []string {

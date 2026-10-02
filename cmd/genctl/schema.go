@@ -1,9 +1,8 @@
 package main
 
-// `genctl schema` hands back a piece of a definition's inferred view, as a schema document
-// something else can generate from. Local only: genctl infers the types itself (sources.go),
-// so this answers with no server. It runs the structural phase, never the code phase — an
-// unresolved `$import` types as the string it is. specs/schema-command.md.
+// `genctl schema`: a piece of a definition's inferred view, answered locally with no server. Runs
+// the structural phase, never the code phase, so an unresolved `$import` types as a string.
+// specs/schema-command.md.
 
 import (
 	"bytes"
@@ -39,9 +38,8 @@ func runSchemaCmd(args []string) {
 	}
 }
 
-// A view is one question asked of a process. The two differ in the document they build and how
-// a listing reads — everything else (the file rules, `--json`, navigation, `-e`, what stdout may
-// carry) is the command's, so a change to any of it cannot reach one view and not the other.
+// Views differ only in the document they build and how a listing reads; everything else is the
+// command's, so a change to it cannot reach one view and not the other.
 type schemaView struct {
 	name string
 	// document is the whole view as one schema. An address is a path into it and nothing else,
@@ -101,10 +99,8 @@ func runSchemaViewCmd(v schemaView, args []string) {
 		if err != nil {
 			fatal("%v", err)
 		}
-		// The flat slots answer first, because a slot address may be a PREFIX of another one
-		// and the nested document cannot tell the two apart: `tasks.a.switch` would come back
-		// carrying its own case indexes as names in scope. The document still answers for an
-		// intermediate node and words every miss.
+		// Flat slots first: a slot address may PREFIX another, and the nested document would answer
+		// `tasks.a.switch` with its case indexes in scope. The document handles the rest.
 		slots, err := v.slots(def)
 		if err != nil {
 			fatal("%s: %v", def.Name, err)
@@ -124,9 +120,8 @@ func runSchemaViewCmd(v schemaView, args []string) {
 			}
 		}
 		if *expr != "" {
-			// Availability before inference, the order the checker runs them in: "not readable
-			// here" beats the "field not found" the schema would answer with. It answers only
-			// where the address named a slot; inside one, nothing is being written.
+			// Availability before inference, as the checker orders them: "not readable here" beats
+			// the schema's "field not found".
 			if err := validation.CheckSlotRoots(def, pos[1], *expr); err != nil {
 				fatal("%v", err)
 			}
@@ -147,9 +142,8 @@ func runSchemaViewCmd(v schemaView, args []string) {
 	v.render(slots)
 }
 
-// otherView names the sibling when the address it could not find is one the OTHER view answers.
-// The two share an address space, so a miss here is usually a question asked of the wrong half —
-// `tasks.x.switch` has a context and no type, `tasks.x.result` a type and no context.
+// otherView points at the sibling view when it answers the missed address: `tasks.x.switch` has a
+// context and no type, `tasks.x.result` a type and no context.
 func otherView(v schemaView, def *model.ProcessDefinition, path []schema.Segment) string {
 	other := typeView
 	if v.name == typeView.name {
@@ -166,8 +160,6 @@ func otherView(v schemaView, def *model.ProcessDefinition, path []schema.Segment
 		other.name, other.name, v.name)
 }
 
-// printTypes is the human answer: one line per address naming what is there. The documents are
-// `--json`, or one address at a time.
 func printTypes(slots map[string]schema.Schema) {
 	addresses := slices.Sorted(maps.Keys(slots))
 	width := 0
@@ -182,9 +174,8 @@ func printTypes(slots map[string]schema.Schema) {
 // summaryOf is schema.Summary, kept as a name this file already reads by.
 func summaryOf(s schema.Schema) string { return s.Summary() }
 
-// inferExpr types one expression against a slot's context: the context query with its last
-// step taken. The expression is BARE — the `${…}` a leaf wraps it in belongs to the template
-// layer, which types every interpolated string as `string` and so answers nothing.
+// inferExpr takes the expression BARE: the `${…}` wrapper belongs to the template layer, which
+// types every interpolated string as `string`.
 func inferExpr(ctx schema.Schema, expr string) schema.Schema {
 	t, err := ctx.Infer(expr)
 	if err != nil {
@@ -212,10 +203,8 @@ func unwrapHint(expr string) string {
 	return fmt.Sprintf("\n-e takes the expression itself: -e '%s'", strings.TrimSpace(inner))
 }
 
-// loadDefinition reads the named process out of the file set, leaving directives where they
-// are: a code string is opaque to inference, so `$import: ./x.ts` types as the string it is
-// and no resolver has to run for a query. specs/source-resolution.md §"Why the placeholder is
-// sound".
+// loadDefinition leaves code directives in place: a code string is opaque to inference.
+// specs/source-resolution.md §"Why the placeholder is sound".
 func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	files, err := definitionPaths(files)
 	if err != nil {
@@ -229,11 +218,8 @@ func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	if err != nil {
 		fatal("%v", err)
 	}
-	// The STRUCTURAL phase only: it changes the types this command reports, so skipping it
-	// would answer about a definition nobody applies. The code phase is skipped on purpose --
-	// it shells out, and a string splice cannot move a type anyway. No config is not an error;
-	// a malformed one is, and swallowing it left a directive unresolved with a decode error
-	// pointing at the definition.
+	// The STRUCTURAL phase moves types, so it must run; the code phase shells out and moves none.
+	// A malformed config is fatal: swallowed, it surfaces as a decode error in the definition.
 	cfg, err := sources.FindProjectConfig(filepath.Dir(files[0]))
 	if err != nil {
 		fatal("%v", err)
@@ -266,14 +252,9 @@ func listing(slots map[string]schema.Schema) map[string]any {
 	for address, s := range slots {
 		out[address] = mustSchemaDoc(s)
 	}
-	// selfContained hoists every entry's pool into one at the root — the same schema appears at
-	// several addresses, so a pool per entry would repeat most of the answer.
 	return mustSelfContained(out)
 }
 
-// printInScope is the human answer: one line per slot naming what it can read. The schemas
-// themselves repeat their fixed part at every address, so the names are the readable part —
-// `--json` is for the documents.
 func printInScope(slots map[string]schema.Schema) {
 	addresses := slices.Sorted(maps.Keys(slots))
 	width := 0
@@ -287,10 +268,8 @@ func printInScope(slots map[string]schema.Schema) {
 	}
 }
 
-// inScope names a context's roots, spelling out the members of the two that vary — `self` and
-// `outputs` — and marking with `?` what may be absent. A context with several ARMS is one per
-// state the slot can be evaluated in — the process output has one per way the process ends —
-// and each is named by its own description.
+// inScope spells out members only for `self` and `outputs`, the two roots that vary. A context's
+// ARMS are one per state the slot can be evaluated in, each named by its description.
 func inScope(ctx schema.Schema) string {
 	if arms := ctx.Variants(); len(arms) > 0 {
 		lines := make([]string, 0, len(arms))
@@ -323,11 +302,8 @@ func inScope(ctx schema.Schema) string {
 	return strings.Join(roots, ", ")
 }
 
-// memberNames spells out one root's own properties, `?` for the ones a path may not set —
-// which outputs and self differ by, and is the whole reason to look.
 func memberNamesOf(s schema.Schema) string { return s.MemberNames() }
 
-// pair is one key and its value, in the order it is printed.
 type pair struct {
 	key string
 	val any
@@ -360,9 +336,8 @@ func (d document) MarshalJSON() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// ordered rebuilds a decoded document with its keys in reading order, recursively. A map whose
-// keys are not keywords — `properties`, `$defs`, an address listing — keeps them sorted, which
-// is the order they are looked up in.
+// ordered puts keywords in reading order; non-keyword keys (`properties`, `$defs`, an address
+// listing) stay sorted, the order they are looked up in.
 func ordered(v any) any {
 	switch node := v.(type) {
 	case map[string]any:
@@ -392,8 +367,7 @@ func ordered(v any) any {
 
 func val(m map[string]any, key string) any { return m[key] }
 
-// printDoc: a schema is YAML unless JSON was asked for. stdout still carries the document and
-// nothing else — the choice is which surface syntax, not whether to decorate it.
+// printDoc: stdout carries the document and nothing else, in either syntax.
 func printDoc(asJSON bool, v any) {
 	if asJSON {
 		printJSON(v)
@@ -410,13 +384,11 @@ func printJSON(v any) {
 	fmt.Println(string(b))
 }
 
-// printYAML is the default for a schema: it is the language definitions are written in, so an
-// answer can be pasted into one, and it spends no lines on punctuation.
+// printYAML is the default: definitions are written in it, so an answer can be pasted into one.
 func printYAML(v any) { printYAMLDoc(v, schema.KeywordOrder()) }
 
-// The CLI's answer to a render failure is what it always was -- exit with the message. The
-// library returns an error instead because the language server shares this code and a
-// library that exits takes the editor's session with it.
+// Exit here, never in sources: the language server shares it, and a library that exits takes the
+// editor's session with it.
 func mustSchemaDoc(s schema.Schema) map[string]any {
 	doc, err := sources.SchemaDoc(s)
 	if err != nil {

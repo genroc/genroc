@@ -1,13 +1,8 @@
 package main
 
-// genctl upgrade: move every live tree of a process to another version, or the one tree an
-// instance id names. There is no --dry-run -- compat answers the question before anything is
-// applied, and a per-instance rehearsal is stale the moment it prints. What stands in for it is
-// the shape of the real run: one atomic transaction per tree, idempotent.
-//
-// The server moves ONE tree per call and only settles instances, so the sweep is the client's job:
-// find the roots still on the old version, pause the running ones, move them, put back the ones it
-// paused. Server-side, that sweep would hold a transaction open across unboundedly many trees.
+// genctl upgrade: move every live tree of a process, or the trees named by id, to another version.
+// No --dry-run (specs/version-compatibility.md); the sweep is client-side, one atomic idempotent
+// call per tree, never one server transaction over many (specs/id-list-commands.md).
 
 import (
 	"encoding/json"
@@ -83,10 +78,8 @@ func runUpgradeCmd(server string, args []string) {
 		fatal("--from and --to both resolve to version %d; nothing to move", from)
 	}
 
-	// Roots only, and only those still on the old version. A child is not a unit of upgrade
-	// -- its root moves the whole tree -- so a sweep that included them would collect
-	// refusals it could do nothing about. Roots-only is the endpoint's default now, which
-	// is why nothing here asks for it.
+	// Roots only -- the endpoint's default, so nothing asks for it; a child is not a unit of
+	// upgrade -- and only those still on the old version.
 	base := appendQuery(*serverFlag+"/api/instances", "process", process)
 	base = appendQuery(base, "version", strconv.Itoa(from))
 
@@ -142,24 +135,21 @@ func (t upgradeTally) done(target string, jsonOut bool) {
 	}
 }
 
-// What idgen mints, and the UUIDs rows written before it still carry. The leading DIGIT is what
-// keeps a process name from matching -- `upgrade` and `compat` read a name and an id in the same
-// positional, and `catcher` is otherwise a perfectly good id.
+// The leading DIGIT keeps a process name from matching: `upgrade` and `compat` read a name and an
+// id in the same positional, and `catcher` is otherwise a perfectly good id.
 var (
 	mintedIDRe = regexp.MustCompile(`^[0-9][0-9a-hjkmnp-tv-z]{7,13}$`)
 	legacyIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
-// isInstanceRef serves two callers: `upgrade` and `compat` tell an id from a PROCESS NAME with
-// it, and the lifecycle commands reject an argument that can name no row before anything is
-// sent (instanceIDsAndFlags).
+// isInstanceRef tells an id from a PROCESS NAME (upgrade, compat) and refuses a non-id before
+// anything is sent (instanceIDsAndFlags).
 func isInstanceRef(arg string) bool {
 	return arg == "@last" || mintedIDRe.MatchString(arg) || legacyIDRe.MatchString(arg)
 }
 
-// upgradeByIDs moves the trees the ids name, one atomic call each. --from is the sweep's
-// SELECTOR, so ids -- which select already -- do not need it: each version is read off its own
-// row and goes out as that write's assertion. specs/version-compatibility.md s6.
+// upgradeByIDs needs no --from: ids already select, and each row's own version goes out as that
+// write's assertion. specs/version-compatibility.md s6.
 func upgradeByIDs(server string, refs []string, fromRef, toRef, statusFlag string, jsonOut bool) {
 	if statusFlag != "" {
 		fatal("--status narrows a sweep; instance ids already name the trees that move")
@@ -170,8 +160,7 @@ func upgradeByIDs(server string, refs []string, fromRef, toRef, statusFlag strin
 	var tally upgradeTally
 	for _, ref := range refs {
 		id := resolveInstanceID(ref)
-		// detail rather than the status shape, for parent_id: the sweep never sees a child
-		// (?root=true), and here the refusal has to come before the pause mutates a row the
+		// detail, for parent_id: a child must be refused before the pause mutates a row the
 		// server would then refuse anyway.
 		var row instanceRow
 		if err := callGet(server+"/api/instances/"+id+"/detail", &row); err != nil {
@@ -183,9 +172,7 @@ func upgradeByIDs(server string, refs []string, fromRef, toRef, statusFlag strin
 	tally.done(" to "+toRef, jsonOut)
 }
 
-// upgradeNamedTree answers what only the row can -- it is a root, it is where the caller
-// believes it is, and it is not there already -- then moves it. One id refused must not stop
-// the ones after it, so every answer here is a reason rather than an exit.
+// upgradeNamedTree returns a reason, never exits: one refused id must not stop the ones after it.
 func upgradeNamedTree(server string, row instanceRow, fromRef, toRef string, jsonOut bool) *string {
 	if row.ParentID != "" {
 		return reasonf("has a parent (%s); upgrade its root instead, which moves the whole tree", row.ParentID)
@@ -216,9 +203,8 @@ func upgradeNamedTree(server string, row instanceRow, fromRef, toRef string, jso
 	return upgradeOneTree(server, row, to, jsonOut)
 }
 
-// reportAlreadyThere keeps --json one object per named tree. A tree that needs no call still
-// gets one, marshalled from the struct the moved ones print -- which is the client's shape
-// either way, since upgradeOneTree prints what it DECODED and not the server's bytes.
+// reportAlreadyThere keeps --json one object per named tree, marshalled from the struct
+// upgradeOneTree prints (what it DECODED, not the server's bytes).
 func reportAlreadyThere(row instanceRow, to int, jsonOut bool) {
 	if !jsonOut {
 		fmt.Printf("%-10s %-12s already on %d\n", row.ID, row.Process, to)
@@ -236,8 +222,7 @@ func reportAlreadyThere(row instanceRow, to int, jsonOut bool) {
 func upgradeOneTree(server string, row instanceRow, to int, jsonOut bool) *string {
 	paused := false
 	if row.Status == "running" {
-		// The endpoint only moves settled rows, so a running one is paused first. A pause is
-		// a request, not an act: it lands on the owner's next write, so this waits for it.
+		// The endpoint only moves settled rows, so a running one is paused first.
 		if err := call(server+"/api/instances/"+row.ID+"/pause", "POST", nil, nil); err != nil {
 			return reasonf("pause: %v", err)
 		}
@@ -282,11 +267,8 @@ func upgradeOneTree(server string, row instanceRow, to int, jsonOut bool) *strin
 	return nil
 }
 
-// parseSweepStatuses reads --status. The default is every state that can actually move:
-// completed and raised move no work at all -- an upgrade would only re-lens data they
-// already hold -- and failing/pausing are mid-drain, with descendants still running, so the
-// server refuses them. Naming one of those is a mistake worth reporting rather than a
-// filter that silently matches nothing.
+// parseSweepStatuses refuses an unmovable status rather than letting it filter to nothing:
+// completed/raised move no work, and failing/pausing are mid-drain, which the server refuses.
 func parseSweepStatuses(flag string) map[string]bool {
 	movable := movableStatuses()
 	if flag == "" {
@@ -321,8 +303,7 @@ func reasonf(format string, a ...any) *string {
 	return &s
 }
 
-// waitForStatus polls until the instance settles. A pause is a request the engine lands on
-// its owner's next write, so there is no synchronous form to wait on.
+// waitForStatus polls: a pause lands on its owner's next write, so there is no synchronous form.
 func waitForStatus(server, id, want string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -340,8 +321,6 @@ func waitForStatus(server, id, want string, timeout time.Duration) error {
 	}
 }
 
-// resolveVersionRef reads a --from/--to side for the sweep, where either side failing to
-// resolve leaves nothing to do.
 func resolveVersionRef(server, process, ref string) int {
 	n, err := lookupVersionRef(server, process, ref)
 	if err != nil {
@@ -350,9 +329,8 @@ func resolveVersionRef(server, process, ref string) int {
 	return n
 }
 
-// lookupVersionRef reads one side: a number is a version, anything else is a channel name
-// resolved against this process. Separate from the fatal above because ids name rows of
-// different processes, where a channel missing on one must refuse that row, not the command.
+// lookupVersionRef does not exit: ids name rows of different processes, and a channel missing
+// on one must refuse that row, not the command.
 func lookupVersionRef(server, process, ref string) (int, error) {
 	if n, err := strconv.Atoi(ref); err == nil {
 		return n, nil

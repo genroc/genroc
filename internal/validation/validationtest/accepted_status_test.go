@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// accepted_status is a shape that must evaluate to an array of strings. The structural
-// array<string> check is enforced at registration (checkAcceptedStatusShape); the per-pattern
-// format ("2xx"/"404") is intentionally NOT checked — an expression's elements aren't known
-// statically, and an unrecognized pattern simply never matches at runtime.
+// An expression's per-pattern format is deliberately NOT checked: its elements are unknown
+// statically, and an unrecognized pattern never matches at runtime.
 
 func acceptedStatusFetchDef(acceptedStatus string) string {
 	return `{

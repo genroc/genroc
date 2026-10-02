@@ -1,15 +1,5 @@
-# Two independent breaks under one address, and both are lines. Neither is discovered by
-# fixing the other, so a report naming one sends an operator round the loop once per
-# difference — a release each to learn what one comparison already knew.
-#
-# The relation stops at the first failure when it is answering a bool and keeps walking when
-# it is explaining, which is what makes this affordable: nothing pays for the second break
-# except the run that is already going to print it.
-#
-# The two are of different KINDS on purpose — a new requirement and a type change — so a
-# block that merged them could not render both. Their ORDER is the walk's and not the
-# document's: `required` is checked before the properties, and the properties are taken in
-# sorted order, so the list does not move when a schema is reformatted.
+# Two independent breaks under one address both print. They differ in kind on purpose, and
+# their order is the walk's (`required` first, then properties sorted), not the document's.
 apply:
   - channel: twobreak_a
     definitions:

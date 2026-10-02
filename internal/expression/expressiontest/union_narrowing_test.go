@@ -2,10 +2,8 @@ package expressiontest
 
 import "testing"
 
-// Null narrowing — a null-check in the condition narrows x to non-null in the
-// safe branch. The unsafe branch must still be rejected.
-//
-// Standard nullable schemas (nullableInteger, etc.) are defined in helpers_test.go.
+// A null-check narrows x to non-null in the safe branch; the unsafe one is still rejected.
+// Schemas are in helpers_test.go.
 
 var (
 	// memberPathSchema — x is a nullable integer nested under an object, used to

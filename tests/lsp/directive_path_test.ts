@@ -3,10 +3,8 @@ import { join } from "path";
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, CompletionItem, Doc, Lsp, orders, useWorkspace } from "./helpers.ts";
 
-// The path a `$<resolver>:` directive names: offered while it is typed, and followed once it is
-// written. Resolution itself never treats the argument as a path — it is handed to the resolver
-// verbatim — so this is the editor guessing, shell-style, and the guess is the whole rule: an
-// argument beginning `/` or `.` is a path and nothing else is.
+// Resolution hands the argument over verbatim, so treating it as a path is the editor guessing,
+// shell-style: an argument beginning `/` or `.` is a path and nothing else is.
 
 let lsp: Lsp;
 let dir: string;
@@ -33,8 +31,7 @@ beforeAll(async () => {
   );
   writeFileSync(join(dir, "worker.ts"), "export const x = 1\n", "utf8");
   writeFileSync(join(dir, "notes.md"), "# notes\n", "utf8");
-  // A dotfile that DOES pass the suffix filter, so the dot rule is tested on its own rather
-  // than through the filter that would have hidden it anyway.
+  // A dotfile that DOES pass the suffix filter, so only the dot rule can hide it.
   writeFileSync(join(dir, ".hidden.genroc.yaml"), "name: hidden\ntasks: []\n", "utf8");
   mkdirSync(join(dir, "sub"), { recursive: true });
   writeFileSync(join(dir, "sub", "nested.genroc.yaml"), "name: nested\ntasks: []\n", "utf8");
@@ -116,8 +113,6 @@ test("a partial name narrows nothing server-side — the editor filters, the ran
   expect(labels).toContain("shipment.genroc.yaml");
 });
 
-// Where this started: `$process: ` answered with nothing, so the first keystroke of a path had
-// to be guessed blind. An empty argument has no meaning yet to invent, so it is offered one.
 test("an argument with nothing typed yet offers the directory beside the file", async () => {
   const d = doc('      <<: "$process: "');
   const labels = await lsp.completions(at('      <<: "$process: <|>"', d));
@@ -130,8 +125,7 @@ function inserted(items: CompletionItem[], label: string): string | undefined {
   return items.find((i) => i.label === label)?.textEdit?.newText;
 }
 
-// A relative path is written `./name`: explicit is clearer, and a bare name is the one spelling
-// a resolver may read as something that is not a path at all.
+// A bare name is the one spelling a resolver may read as something that is not a path.
 test("choosing from an empty argument writes a ./ path, not a bare name", async () => {
   const items = await lsp.completionItems(at('      <<: "$process: <|>"', doc('      <<: "$process: "')));
   expect(inserted(items, "shipment.genroc.yaml")).toBe("./shipment.genroc.yaml");
@@ -150,9 +144,7 @@ test("an absolute path is left absolute", async () => {
   expect(inserted(items, "shipment.genroc.yaml")).toBe("shipment.genroc.yaml");
 });
 
-// `.` is a trigger character, because a member list needs one — so accepting a lone dot put a
-// directory listing on screen the instant anyone typed one, dotfiles and all. One more
-// keystroke says which of `./` and `../` was meant, and there is nothing to guess until then.
+// `.` is a trigger character (member lists need it), so a lone dot must not list the directory.
 test("a lone dot offers nothing — it is a prefix of two spellings, not either of them", async () => {
   const d = doc('      <<: "$process: .x"');
   const labels = await lsp.completions(at('      <<: "$process: <^.x>"', d));
@@ -197,8 +189,7 @@ test("dotfiles stay hidden until one is asked for", async () => {
   const asked = await lsp.completions(
     at('      <<: "$process: ./<^.h>"', doc('      <<: "$process: ./.h"')),
   );
-  // It passes the suffix filter, so only the leading dot was ever hiding it — which is what
-  // makes this the dot rule and not the filter tested twice.
+  // It passes the suffix filter, so only the leading dot was hiding it.
   expect(asked).toContain(".hidden.genroc.yaml");
 });
 

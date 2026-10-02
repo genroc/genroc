@@ -1,10 +1,6 @@
-# Order fulfilment with a non-idempotent charge.
-#
-# The interesting task is `charge`: it is `only_once`, so the engine will never re-run it
-# on its own. If a worker dies mid-charge the next claim raises `only_once.interrupted`,
-# which routes to `reconcile` — a read-only question to the payment API, which is the
-# system of record for whether the money moved. Only that answer decides whether the order
-# ships or the charge is deliberately re-sent.
+# Order fulfilment with a non-idempotent charge. `charge` is `only_once`: if a worker dies
+# mid-charge, the next claim raises `only_once.interrupted`, routed to `reconcile`, which asks
+# the payment API (the system of record) whether the money moved.
 name: place-order
 input_schema:
   type: object

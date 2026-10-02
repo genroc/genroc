@@ -7,10 +7,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// The REMOVE half of ConformToSchemaExactly (absent_test.go holds the add half): a stored null the
-// new schema will not hold, where the property is optional so dropping the key reconciles the row.
-// The pairing is the point -- IsSubsetAsStored must accept exactly what this can close, or an
-// upgrade the report blessed fails at the conform, or the relation refuses something that works.
+// The REMOVE half of ConformToSchemaExactly (absent_test.go holds the add half). IsSubsetAsStored
+// must accept exactly what this can close.
 
 // closable is a version gap the strict relation refuses and IsSubsetAsStored accepts, written
 // as the whole transformation — the two schemas, the row stored under `old`, and the exact row
@@ -73,10 +71,8 @@ var closables = []closable{
 		want: `{}`,
 	},
 	{
-		// A key the target does not name is one nothing on the new version can read -- an
-		// expression naming it is refused at registration -- so carrying it forward stores
-		// weight that only grows and pins whatever it references. A caller whose schema is
-		// deliberately partial puts the rest back itself; see validation.MigrateState.
+		// Nothing on the new version can read it, so carrying it only stores weight. A caller
+		// whose schema is deliberately partial puts the rest back; see validation.MigrateState.
 		name: "an undeclared key is stripped, like it is at every other boundary",
 		old:  `{"type":"object","properties":{"note":{"type":["string","null"]}}}`,
 		new:  `{"type":"object","properties":{"note":{"type":"string"}}}`,
@@ -157,10 +153,8 @@ func TestConformExact_RemovalIsIdempotent(t *testing.T) {
 	}
 }
 
-// Removal fires on the null the TARGET will not hold, never on one it will. Nullable admits
-// both states, so there is nothing to reconcile and the row stands exactly as stored —
-// removing there would invent a canonical form the schema does not name, and destroy a null
-// someone wrote on purpose.
+// Nullable admits both states: removing would invent a canonical form the schema does not name
+// and destroy a null someone wrote on purpose.
 func TestConformExact_ANullTheTargetStillHoldsIsLeftAlone(t *testing.T) {
 	cases := []struct{ name, schema, unchanged string }{
 		{
@@ -214,10 +208,8 @@ func TestConformExact_WhereAbsenceIsNotValidTheRelationRefuses(t *testing.T) {
 			why:  "an element has no absent state — dropping it would shorten the array",
 		},
 		{
-			// Removable in principle: absence is valid for an open map's key too. But the
-			// rule only walks declared properties, so BOTH sides refuse. That is the safe
-			// direction of the pairing — a promise not made — and pinning it here means a
-			// fix has to move the relation and the conform together.
+			// Removable in principle, but the rule only walks declared properties, so BOTH
+			// sides refuse — the safe direction. A fix must move relation and conform together.
 			name: "an open map's value",
 			old:  `{"type":"object","additionalProperties":{"type":["string","null"]}}`,
 			new:  `{"type":"object","additionalProperties":{"type":"string"}}`,

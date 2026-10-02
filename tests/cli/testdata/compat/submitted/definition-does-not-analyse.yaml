@@ -1,7 +1,5 @@
-# A submitted document is validated before anything is compared. This one reads an output
-# no task produces, so there are no schemas to compare — and answering "unanalysable" would
-# be a worse version of what validate already says properly, naming the task and the
-# expression.
+# A submitted document is validated before comparison; validate's error names the task and
+# expression better than an "unanalysable" verdict could.
 apply:
   - channel: badexpr_a
     definitions:

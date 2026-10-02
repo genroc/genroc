@@ -16,22 +16,18 @@ import (
 	"genroc/internal/model"
 )
 
-// actorHeader reports the calling principal's identity back to it, as `source:subject`. HTTP
-// only: TCP and UDS encode a Reply and have no header channel, which is right — this is a
-// presentation affordance, not part of the API contract those clients share.
+// actorHeader echoes `source:subject` to the caller, HTTP only (CLAUDE.md).
 const actorHeader = "X-Genroc-Actor"
 
-// HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed instances
-// finish, so any useful ceiling would sever legitimate long ticks; readHeaderTimeout is what
-// bounds a connection that opens and sends nothing.
+// HTTP listener limits. Deliberately no WriteTimeout: it would sever a legitimate long
+// /tick (CLAUDE.md).
 const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 60 * time.Second
 	idleTimeout       = 120 * time.Second
 	shutdownTimeout   = 15 * time.Second
-	// maxRequestBytes caps a request body across every route. Comfortably above the
-	// largest definition batch anyone submits, and below the point where a body costs
-	// more to buffer than the process it describes.
+	// maxRequestBytes caps every route's body, comfortably above any real definition
+	// batch.
 	maxRequestBytes = 10 << 20
 )
 
@@ -53,9 +49,8 @@ type Server struct {
 	auth Authenticator
 }
 
-// guard authorizes a hand-written route, for the handful that cannot be registry actions
-// because they answer with something other than a Reply. Everything else goes through
-// authorize in the registry loop; this is the same decision spelled at the call site.
+// guard is authorize spelled at the call site, for hand-written routes that cannot answer
+// with a Reply.
 func (s *Server) guard(r *http.Request, allow ...Perm) *Error {
 	p, err := s.httpPrincipal(r)
 	if err != nil {
@@ -64,9 +59,8 @@ func (s *Server) guard(r *http.Request, allow ...Perm) *Error {
 	return authorize(actionDef{Name: r.URL.Path, Allow: allow}, p)
 }
 
-// httpPrincipal resolves who is asking over HTTP. There is exactly one place identity can come
-// from — the bearer credential — whether that is a genroc token or a JWT the deployment's IdP
-// signed. No header carries identity and no cookie is read. specs/auth-two-credentials.md §0.
+// httpPrincipal reads identity from the bearer credential only: no header, no cookie.
+// specs/auth-two-credentials.md §0.
 func (s *Server) httpPrincipal(r *http.Request) (*Principal, *Error) {
 	return s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
 }
@@ -74,9 +68,8 @@ func (s *Server) httpPrincipal(r *http.Request) (*Principal, *Error) {
 // SetAuthenticator turns on an identity mode. Called once at startup, before Listen*.
 func (s *Server) SetAuthenticator(a Authenticator) { s.auth = a }
 
-// principalFor resolves the caller. An authenticator that cannot DECIDE (its database is
-// unreachable) fails the request rather than answering "unauthenticated": a valid credential
-// refused as invalid is a lie the operator never sees, and 503 is the honest answer.
+// principalFor answers 503 when an authenticator cannot DECIDE, rather than refusing a
+// valid credential as invalid.
 func (s *Server) principalFor(ctx context.Context, credential string) (*Principal, *Error) {
 	if s.auth == nil {
 		return anonymousAdmin(), nil
@@ -117,19 +110,15 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 					return
 				}
 				env.principal = p
-				// Told, not inferred: behind a proxy a browser holds no credential of its
-				// own, so "it worked and I sent nothing" cannot distinguish `-auth none` from
-				// "the proxy authenticated me". Set before any body is written, and only when
-				// an identity exists -- its absence on a 401 is what tells a client to ask for
-				// a credential, while a 403 carries it.
+				// Before any body is written, and only with an identity: its absence on a 401 is
+				// what tells a client to ask for a credential (CLAUDE.md).
 				if p != nil {
 					w.Header().Set(actorHeader, p.Actor())
 				}
 			}
 			if err != nil {
-				// The envelope only fails on a body that is not JSON at all, or one
-				// past maxRequestBytes, so this is always the caller's fault, never
-				// the server's.
+				// The envelope fails only on non-JSON or an oversized body: always the
+				// caller's fault.
 				writeReply(w, invalid("bad request: %w", err).reply())
 				return
 			}
@@ -141,11 +130,8 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		})
 	}
 
-	// The generic API documentation is UNAUTHENTICATED, and lives under its own prefix so that
-	// is legible from a routing rule. Under /api/ it read as gated and was not — the exact
-	// mismatch specs/api-auth.md §1 exists to prevent, since a deployment writes its ingress
-	// rules from the prefix. Nothing here is derived from a user's data: it is the same spec
-	// published at genroc.org, and the UI is a static page.
+	// Unauthenticated, so under publicPrefix: ingress rules are written from the prefix
+	// (specs/api-auth.md §1). Nothing here derives from a user's data.
 	mux.HandleFunc("GET "+publicPrefix+"/docs", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, swaggerUIHTML("genroc API", publicPrefix+"/openapi.json"))
@@ -156,20 +142,15 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		w.Write(buildSpec())
 	})
 
-	// A schema document, unauthenticated and derived from nothing a caller stored — the same
-	// class as the OpenAPI spec above, so it lives beside it. The docs site publishes the same
-	// bytes at genroc.org/process-schema.json; that is a released artifact at a stable public
-	// URL, while this is the convenience for an unreleased build, and getting-started.mdx says
-	// which to use. They do not have to share a path.
+	// Derived from nothing a caller stored, like the spec above. Its path differs from the
+	// released genroc.org/process-schema.json on purpose (CLAUDE.md).
 	mux.HandleFunc("GET "+publicPrefix+"/process-schema.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(defschema.Process())
 	})
 
-	// The PER-PROCESS documentation stays under /api/ and is gated: it is generated from a
-	// stored definition, so it discloses process names, input schemas and task structure —
-	// the caller's data, not ours. It cannot be a registry action because it answers with
-	// HTML and raw JSON rather than a Reply, so the check is explicit here instead.
+	// Gated: generated from a stored definition, it discloses the caller's data. Not a registry
+	// action (it answers HTML and raw JSON), so it must call guard itself.
 	mux.HandleFunc("GET /api/definitions/{name}/docs", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.guard(r, PermRead); err != nil {
 			writeReply(w, err.reply())
@@ -197,9 +178,8 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		}
 		data, err := h.ProcessSpec(r.PathValue("name"), version)
 		if err != nil {
-			// Was an unconditional 404 with a text/plain body; now it classifies like
-			// every other route, so a broken spec build reports 500 rather than
-			// masquerading as an unknown process.
+			// Classified like every route, so a broken spec build is a 500, not an
+			// unknown process.
 			writeReply(w, errReply(err))
 			return
 		}
@@ -232,9 +212,8 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		// goroutine above is still parked on ctx.Done() and waiting on it would hang.
 		return err
 	}
-	// ListenAndServe returns the moment Shutdown closes the listener, so without this the
-	// caller's WaitGroup completes while requests are still in flight and process exit
-	// severs them — a graceful shutdown that is graceful in name only.
+	// ListenAndServe returns before in-flight requests finish; without this wait, exit
+	// severs them (CLAUDE.md).
 	<-drained
 	return nil
 }
@@ -270,10 +249,8 @@ func (s *Server) acceptLoop(ctx context.Context, ln net.Listener, trustedTranspo
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			// The normal shutdown path: the context goroutine above closed the
-			// listener. Tested with errors.Is rather than by matching the stdlib's
-			// message text — a mismatch there would turn a clean shutdown into a
-			// logged error plus a hot retry loop.
+			// Normal shutdown. errors.Is, not message matching: a mismatch would turn a
+			// clean shutdown into a logged error and a hot retry loop.
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
@@ -293,10 +270,8 @@ func (s *Server) handleConn(conn net.Conn, trustedTransport bool) {
 		if err := dec.Decode(&env); err != nil {
 			return
 		}
-		// A trusted transport is authorised by the filesystem, so it skips the mode entirely.
-		// Everything else presents its credential in the envelope, which is the only metadata
-		// channel this protocol has — `principal` is unexported precisely so the wire cannot
-		// set it directly.
+		// A trusted transport is authorised by the filesystem. Otherwise the credential rides in
+		// the envelope; `principal` is unexported so the wire cannot set it.
 		if trustedTransport {
 			env.principal = anonymousAdmin()
 		} else {
@@ -315,19 +290,16 @@ func (s *Server) handleConn(conn net.Conn, trustedTransport bool) {
 	}
 }
 
-// errorBody is the JSON shape of every failed HTTP response. It mirrors the failure
-// half of Reply, which is what TCP and UDS clients receive verbatim, so the three
-// transports report the same facts under the same names.
+// errorBody mirrors Reply's failure half, so all three transports report the same facts
+// under the same names.
 type errorBody struct {
 	Error  string             `json:"error"`
 	Code   Code               `json:"code"`
 	Fields []model.FieldError `json:"fields,omitempty"`
 }
 
-// writeReply renders a Reply over HTTP, mapping its Code to a status through the one
-// table in errors.go. An unclassified failure becomes 500, not 400: an error nobody
-// classified is a server problem until someone shows otherwise, and that default is
-// what makes the remaining unclassified paths findable.
+// writeReply maps Code to a status through errors.go's one table. Unclassified is 500, not
+// 400, which keeps the remaining unclassified paths findable.
 func writeReply(w http.ResponseWriter, r Reply) {
 	w.Header().Set("Content-Type", "application/json")
 	if !r.OK {
@@ -335,9 +307,8 @@ func writeReply(w http.ResponseWriter, r Reply) {
 		json.NewEncoder(w).Encode(errorBody{Error: r.Error, Code: r.Code, Fields: r.Fields})
 		return
 	}
-	// A successful assertion carries its own status (statusOfOutcome); every other
-	// success is the implicit 200. 204 must not be given a body, and outcomeReply
-	// leaves Data empty for exactly that outcome.
+	// An assertion carries its own status; a 204 must have no body, which outcomeReply
+	// ensures by leaving Data empty.
 	if r.Outcome != "" {
 		w.WriteHeader(statusOfOutcome(r.Outcome))
 		if len(r.Data) == 0 {

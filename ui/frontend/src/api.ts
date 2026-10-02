@@ -1,13 +1,6 @@
-// The genroc client. Every request is same-origin — the Vite dev server proxies /api, and in
-// production genroc serves this app itself — so there is no base URL here and no CORS to
-// configure anywhere.
-//
-// The credential, when this app holds one, is a bearer token in localStorage — a genroc token
-// or a JWT, since genroc accepts either (specs/auth-two-credentials.md).
-//
-// Behind an SSO proxy it holds NONE: the proxy turns the browser's session cookie into a JWT
-// and attaches it to every request, so sending nothing is correct there. The stored value is
-// the no-proxy case, where a person pastes their own credential.
+// The genroc client. Always same-origin (Vite proxies /api in dev), so no base URL and no CORS.
+// A stored bearer token is the no-proxy case, where a person pastes one; behind genroc-ui
+// nothing is sent, and the proxy attaches a JWT minted from the session cookie.
 
 const TOKEN_KEY = "genroc.token";
 
@@ -43,10 +36,8 @@ export class ApiError extends Error {
   }
 }
 
-/** Who genroc says we are on the last response, as `source:subject` — or null when it did not
- *  say, which is what a 401 looks like. The server reports it on every reply because a client
- *  cannot infer it: behind a proxy this app sends no credential and still succeeds, which is
- *  indistinguishable from `-auth none` unless someone says so. */
+/** Who genroc says we are on the last response (`source:subject`), null when it did not say, as
+ *  on a 401. Reported, never inferred: behind a proxy we send nothing and still succeed. */
 let lastActor: string | null = null;
 export const actor = () => lastActor;
 
@@ -85,9 +76,8 @@ export const listInstances = (q: string) => get<Page<Instance>>(`/api/instances$
 export const getInstance = (id: string) =>
   get<Instance & { state?: Record<string, unknown> }>(`/api/instances/${encodeURIComponent(id)}/detail`);
 
-/** The five permissions, in the order specs/api-auth.md §3 introduces them — weakest inbound
- *  zone first, admin last. The server rejects anything outside this set at mint time rather
- *  than letting a typo become a 403 somewhere unrelated. */
+/** The five permissions, weakest first (specs/api-auth.md §3). The server rejects anything else
+ *  at mint time. */
 export const PERMS = ["worker", "read", "operate", "deploy", "admin"] as const;
 
 export type ApiToken = {
@@ -114,12 +104,8 @@ export const createToken = (label: string, perms: string[]) =>
 export const revokeToken = (id: string) =>
   call<{ revoked: boolean }>(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
 
-/** Signs out: clears the session cookie and reloads into the login.
- *
- *  A POST, because it changes state — a GET would be reachable from any page that can make the
- *  browser follow a link. It is also how someone picks up a change to their own GROUPS, which
- *  are captured at login and carried in the cookie; the role map is read per request and needs
- *  no sign-out. */
+/** Signs out: clears the session cookie and reloads into the login. Also how someone picks up
+ *  changed GROUPS, captured at login; the role map is read per request. */
 export async function signOut(): Promise<void> {
   await fetch("/auth/logout", { method: "POST" });
   lastActor = null;

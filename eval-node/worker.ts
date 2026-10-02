@@ -1,34 +1,21 @@
 #!/usr/bin/env node
-// The queue worker: claims parked `external` script tasks from genroc, evaluates each in its
-// own realm, and answers. This is the whole genroc-facing half — eval.ts and realm.ts know
-// nothing about the queue, which is what keeps the containment strategy swappable.
-//
-// See README.md for the contract, and specs/external-task-queue.md for the queue itself.
+// The queue worker: claims parked `external` script tasks, evaluates each in its own realm, and
+// answers. The only genroc-facing half (README.md; specs/external-task-queue.md).
 
 import { readFileSync } from "node:fs";
 import { Cancelled, evaluate, type EvalRequest, type FailureKind } from "./eval.ts";
 
 const SERVER = (process.env.GENROC_SERVER ?? "http://localhost:8448").replace(/\/$/, "");
 const WORKER_ID = process.env.WORKER_ID ?? `evaluator-${process.pid}`;
-// The credential, when the server runs with --auth token. A worker needs exactly the `worker`
-// permission — the four queue verbs plus GET /api/objects — so mint it scoped rather than
-// handing a worker an admin token: this is the credential most likely to sit on a machine you
-// trust least. specs/api-auth.md §5.
-//
-// Sent as a header rather than in the URL because Node's fetch REFUSES a URL carrying
-// credentials ("Request cannot be constructed from a URL that includes credentials"), so the
-// basic-auth-in-the-URL trick that works for genctl is not available here.
-// GENROC_TOKEN_FILE is the mounted-secret shape: a credential in a file rather than an
-// environment variable, so it stays out of `docker inspect` and out of the process environment
-// any child inherits. The inline variable wins when both are set.
+// Needs only the `worker` permission (specs/api-auth.md §5): this credential sits on the machine
+// you trust least. A header, because Node's fetch refuses credentials in a URL. The file form
+// keeps it out of `docker inspect` and child environments; the inline variable wins.
 const TOKEN =
   process.env.GENROC_TOKEN ??
   (process.env.GENROC_TOKEN_FILE ? readFileSync(process.env.GENROC_TOKEN_FILE, "utf8").trim() : "");
 const authHeaders: Record<string, string> = TOKEN ? { authorization: `Bearer ${TOKEN}` } : {};
-// Concurrency is the worker's to set, and that is the point of pulling: under the old fetch
-// shape genroc decided how many scripts ran at once (--max-concurrent, default 200) and the
-// evaluator accepted every one of them. Here it claims what it can run and no more, so a
-// backlog is a queue rather than 200 threads fighting over a core.
+// The worker claims only what it can run, so a backlog is a queue rather than threads fighting
+// over a core.
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 4);
 const POLL_MS = Number(process.env.POLL_MS ?? 250);
 // The visibility timeout. Short, and renewed while work is in flight: a worker that dies
@@ -49,17 +36,15 @@ type QueueTask = {
   raises?: Record<string, unknown>;
 };
 
-// Values too large to ship inline are listed rather than carried, and a bundle is exactly that:
-// one object shared by every instance of a definition version, fetched once instead of copied
-// into each task. A ref is a content hash, so it is immutable — the cache never invalidates.
+// Large values arrive as refs; a bundle is one object per definition version, fetched once.
+// Refs are content hashes, so the cache never invalidates.
 const objectCache = new Map<string, unknown>();
 
 async function fetchObject(ref: string): Promise<unknown> {
   const cached = objectCache.get(ref);
   if (cached !== undefined) return cached;
-  // Left to throw on purpose: this runs while a task is IN FLIGHT, and a task whose input
-  // cannot be fetched must fail rather than silently run against a missing value. The caller
-  // releases the claim, so the task returns to the queue.
+  // Left to throw: a task whose input cannot be fetched must not run against a missing value.
+  // The caller releases the claim.
   const res = await fetch(`${SERVER}/api/objects/${encodeURIComponent(ref)}`, { headers: authHeaders });
   if (!res.ok) throw new Error(`fetch object ${ref}: HTTP ${res.status}`);
   const { data } = (await res.json()) as { data: string };
@@ -97,10 +82,8 @@ async function resolveObjects(job: QueueTask): Promise<unknown> {
 }
 
 async function call(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: any }> {
-  // A network error is a REPLY, not a throw. A worker outlives the server it polls — a
-  // restart, a rolling deploy, a container coming up before genroc is listening — and an
-  // unhandled rejection here kills it for a condition the next poll would clear. Status 0
-  // says "never reached the server", which is distinct from anything genroc answers.
+  // A network error is a REPLY (status 0, "never reached the server"), not a throw: a worker
+  // outlives restarts and deploys, and an unhandled rejection would kill it.
   let res: Response;
   try {
     res = await fetch(SERVER + path, {
@@ -121,9 +104,8 @@ async function call(path: string, body: unknown): Promise<{ ok: boolean; status:
   return { ok: res.ok, status: res.status, data };
 }
 
-/** The task input IS an EvalRequest: `code` required, `input` and `timeout_ms` optional. A task
- *  whose input is not that shape is the definition's fault, not the script's, and is reported
- *  as a compile_error — the nearest permanent kind, since no retry can fix the definition. */
+/** A task input that is not an EvalRequest is the definition's fault, reported as compile_error:
+ *  the nearest permanent kind, since no retry fixes the definition. */
 function asEvalRequest(input: unknown): EvalRequest | string {
   if (typeof input !== "object" || input === null) return "the task input is not an object";
   const r = input as Record<string, unknown>;
@@ -135,18 +117,15 @@ function asEvalRequest(input: unknown): EvalRequest | string {
   };
 }
 
-/** A claim this worker is currently serving. The controller is how the renewal loop reaches
- *  the evaluation: genroc cannot call us, so a cancellation arrives as an answer to our own
- *  heartbeat and has to be delivered inward from there. */
+/** genroc cannot call us, so a cancellation arrives on our own heartbeat and reaches the
+ *  evaluation through the controller. */
 type Running = { job: QueueTask; abort: AbortController };
 
 const inFlight = new Map<string, Running>();
 let running = true;
 
-// Whether the last claim reached genroc. A worker polls several times a second, so an
-// unreachable server would otherwise emit a line per poll — thousands during a restart, which
-// buries the one line that mattered. Announce the TRANSITIONS instead: going away, and coming
-// back. Silence in between is the report that nothing changed.
+// Announce reachability TRANSITIONS only: polling several times a second would otherwise emit
+// thousands of lines during a restart.
 let serverReachable = true;
 
 async function claim(n: number): Promise<QueueTask[]> {
@@ -158,9 +137,8 @@ async function claim(n: number): Promise<QueueTask[]> {
     ...(TASK_FILTER ? { task: TASK_FILTER } : {}),
   });
   if (!ok) {
-    // A credential problem is not transient, and polling through it looks like a healthy
-    // worker that never picks anything up — the worst shape for an operator to debug. Exit
-    // instead, so a supervisor restarts it and the failure is visible where it happened.
+    // A credential problem is not transient, and polling through it looks like a healthy idle
+    // worker. Exit, so a supervisor restarts it visibly.
     if (status === 401 || status === 403) {
       console.error(
         `claim rejected (${status}): ${JSON.stringify(data)}\n` +
@@ -169,9 +147,7 @@ async function claim(n: number): Promise<QueueTask[]> {
       );
       process.exit(1);
     }
-    // status 0 is "never reached the server" (see call): a restart, a rolling deploy, a
-    // network blip. Not an error to act on — the next poll clears it — so it is reported once
-    // and then waited out.
+    // status 0 (see call): a restart or blip the next poll clears, so it is reported once.
     if (status === 0) {
       if (serverReachable) {
         serverReachable = false;
@@ -197,10 +173,8 @@ async function release(token: string): Promise<void> {
   if (!ok) console.error(`release failed: ${JSON.stringify(data)}`);
 }
 
-/** answer submits the outcome. A refusal is NOT retried with a different one: the definition
- *  declared a contract this worker does not satisfy (an undeclared code, a payload that does
- *  not fit `raises`), and guessing again would only pick a second wrong answer. Release it, so
- *  the task returns to the queue and an operator sees it waiting rather than silently gone. */
+/** A refused outcome is not retried with another: the worker does not satisfy the declared
+ *  contract. Released, so an operator sees the task waiting rather than gone. */
 async function answer(token: string, outcome: Record<string, unknown>): Promise<void> {
   const { ok, data } = await call("/api/external-tasks/resolve", { token, ...outcome });
   if (ok) return;
@@ -231,18 +205,15 @@ async function run(job: QueueTask, signal: AbortSignal): Promise<void> {
   try {
     result = await evaluate(req, signal);
   } catch (err) {
-    // Cancelled is not a fault: the process was stopped while this ran. The claim still goes
-    // back — the row is terminal, so nothing re-claims it, and the release is what stops it
-    // waiting out a lease nobody is serving.
+    // Cancelled is not a fault. Still released: the row is terminal so nothing re-claims it,
+    // but the release stops it waiting out a lease nobody serves.
     if (err instanceof Cancelled) {
       console.log(`cancelled: ${job.token}`);
       await release(job.token);
       return;
     }
-    // The RUNNER faulted, not the script — the one class where a retry can help. There is no
-    // error code for it on purpose: releasing the claim is how a queue spells "retryable", and
-    // it puts the task in front of a different worker instead of burning the definition's
-    // on_error budget on this one's bad day.
+    // The RUNNER faulted, the one retryable class. Releasing is how a queue spells "retryable",
+    // and it reaches another worker without spending the definition's on_error budget.
     console.error(`evaluator fault on ${job.token}: ${err instanceof Error ? err.message : String(err)}`);
     await release(job.token);
     return;
@@ -278,17 +249,13 @@ async function renewLoop(): Promise<void> {
     });
     if (!ok) continue;
 
-    // Cancelled: the process was stopped, so the evaluation is abandoned and the claim handed
-    // back. Aborting first is the point of the list — waiting for the script to finish would
-    // keep burning a core on work an operator has already stopped. The release rides run()'s
-    // own catch, so nothing is released twice.
+    // Abort first rather than let a stopped script burn a core; the release rides run()'s
+    // catch, so nothing is released twice.
     for (const token of (data?.cancelled ?? []) as string[]) {
       inFlight.get(token)?.abort.abort();
     }
-    // Lost: someone else holds this claim now. The work continues and its answer will be
-    // refused — that is not fixable here — but say so, because it is the signal that LEASE_MS
-    // is too short for what these scripts actually take. Deliberately NOT released: the claim
-    // is the new holder's, and releasing would bump the epoch out from under it.
+    // Lost: another worker holds it now and our answer will be refused; logged as the sign that
+    // LEASE_MS is too short. NOT released: that would bump the epoch out from under the holder.
     const lost = (data?.lost ?? []) as string[];
     if (lost.length) {
       console.error(`lost ${lost.length}/${tokens.length} claims; a lease lapsed under load`);

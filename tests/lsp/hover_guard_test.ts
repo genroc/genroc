@@ -1,12 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { at, guarded, Lsp, useWorkspace } from "./helpers.ts";
 
-// What a GUARD proves, as the author sees it: hover the same reference on both sides of a
-// null check and the answer must differ. `<^text>` puts the cursor inside `text`.
-//
-// This is the pairing that matters — the checker accepting a definition while the hover says
-// the value may be null is the editor contradicting registration, and the author believes the
-// editor. specs/guard-narrowing.md.
+// A hover on either side of a null check must differ: saying nullable where the checker proved
+// otherwise contradicts registration. specs/guard-narrowing.md.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -57,9 +53,8 @@ test("the rule below a pure case reads it narrowed", async () => {
   );
 });
 
-// The other half of an edge: not the NEGATION of the cases above, but what the case that was
-// taken proves itself. `missing` is reached only by the null check, so the proof arriving
-// there is that one's own — and it proves the value IS null, the state nothing else covers.
+// Not the negation of the cases above: `missing` is reached only by the null check, so it reads
+// that case's own proof, that the value IS null.
 test("a case's own proof travels the edge it selects", async () => {
   expect(await lsp.hover(at(`      absent: "$: outputs.<^load> == null"`, guarded))).toBe(
     "`outputs.load` → `null`",
@@ -68,25 +63,21 @@ test("a case's own proof travels the edge it selects", async () => {
 
 // ── a clause is not its case: `panic`, `raise` and `retry` assume the guard held ──
 
-// The case expression must keep the UNNARROWED type — it is what establishes the fact, and an
-// editor that already showed it proved would be reasoning in a circle.
+// The case establishes the fact, so showing it already proved would be circular.
 test("the rule's own case still reads the payload nullable", async () => {
   expect(await lsp.hover(at(`        case: "error.data.<^wait> != null"`, guarded))).toBe(
     "`error.data.wait` → `integer|null`",
   );
 });
 
-// One line down, inside the retry the case guards, it is proved: the rule only retries when it
-// CAUGHT, and catching means `(code…) && case` held.
+// A rule retries only when it CAUGHT, and catching means `(code…) && case` held.
 test("the retry delay beside it reads it narrowed", async () => {
   expect(await lsp.hover(at(`          delay: "$: error.data.<^wait>"`, guarded))).toBe(
     "`error.data.wait` → `integer`",
   );
 });
 
-// The same one level down in a switch: the panic renders only if its case matched, so it may
-// read what that case proved — which is the shape an author writes first, a guard and the
-// message it was written to make safe.
+// The panic renders only if its case matched, so it may read what that case proved.
 test("a switch case's panic message reads what its own case proved", async () => {
   expect(await lsp.hover(at(`          message: "already \${ self.output.<^receipt> }"`, guarded))).toBe(
     "`self.output.receipt` → `string`",

@@ -1,24 +1,14 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance, spliceObjects } from "../helpers/client.ts";
 
-// self.previous is a task's own prior output — the same value as outputs[<this task>]. A
-// task that gotos itself and appends to self.previous each iteration accumulates a string.
-// We exercise that in the two execution modes the engine distinguishes:
-//   1. no action in the loop  → the whole loop runs in one in-memory advance().
-//   2. an action each iteration → the engine persists + reclaims between iterations, so
-//      self.previous round-trips through the DB every time.
-// Both deliberately push the accumulated value past the 2 KiB object-store threshold, so
-// outputs[<task>] externalizes and reloads as an *ObjectRef — which self.previous must
-// resolve exactly like outputs.<id> does (the regression scenario 2 guards).
+// self.previous accumulates in-memory (no action) and across persist + reclaim (an action per
+// iteration); both pass 2 KiB, so self.previous must resolve an externalized ref.
 
-// A big chunk so the accumulator crosses the 2 KiB threshold within a handful of
-// iterations (each iteration appends CHUNK), keeping the server-side work modest.
+// Crosses the 2 KiB threshold within a few iterations while keeping server work modest.
 const CHUNK = "0123456789".repeat(100); // 1000 chars
 
-// makeDef builds a process whose single "append" task loops on itself, appending CHUNK to
-// self.previous.text and counting in self.previous.i, until the count reaches input.n. The
-// process projects the accumulated text + final count as its output. With actionPort set,
-// each iteration also makes a REST call, which forces a persist+reclaim between iterations.
+// With actionPort set, each iteration also makes a REST call, forcing a persist + reclaim between
+// iterations.
 function makeDef(name: string, actionPort?: number) {
   const append: Record<string, unknown> = {
     id: "append",
@@ -89,9 +79,8 @@ test("self.previous accumulates across an in-memory loop (single advance)", asyn
 });
 
 test("self.previous accumulates across DB persist+reclaim (action each iteration)", async () => {
-  // text crosses 2 KiB at iteration 3, so the remaining iterations reload self.previous as
-  // an externalized ref that must resolve — without the resolve it would silently reset to
-  // "" (and the counter with it, so the loop would never even terminate).
+  // Past iteration 3 self.previous reloads as an externalized ref; unresolved, it would reset to ""
+  // and the loop would never terminate.
   const n = 20;
   const mock = await startMockService(0, { response: { ok: true } });
   try {

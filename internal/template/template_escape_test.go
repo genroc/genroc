@@ -2,9 +2,6 @@ package template
 
 import "testing"
 
-// Escaping is $-doubling (collision-free with JSON/YAML, which don't treat $ as an escape).
-// "$$" renders one literal "$", so "$${" is a literal "${" and a leaf-leading "$$:" is a
-// literal "$:". These assert the rendered (evaluated) string.
 func TestEscape_RendersLiterally(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"escaped interpolation", `$${input.n}`, `${input.n}`},
@@ -30,34 +27,25 @@ func TestEscape_RendersLiterally(t *testing.T) {
 	}
 }
 
-// Escaping shapes the chunk structure: an escaped ${ is literal text, a literal $ before a
-// live ${ stays literal, and an escaped leaf marker is literal text preceding interpolation.
 func TestEscape_Split(t *testing.T) {
 	assertSplit(t, `$${x}`, `LIT("${x}")`)
 	assertSplit(t, `$$${x}`, `LIT("$") EXPR("x")`)
 	assertSplit(t, `$$: foo ${x}`, `LIT("$: foo ") EXPR("x")`)
 }
 
-// An escaped leaf marker is not a $: expression — it is a plain (literal) template, so it
-// infers to string, and a nullable would not be reported (it is never evaluated).
 func TestEscape_LeafMarkerIsLiteralString(t *testing.T) {
 	assertInferType(t, `$$: input.n`, "string")
 }
 
-// $ is not an escape character in JSON or YAML, so $$ survives every quoting style. (A
-// backslash escape would break in JSON and double-quoted YAML, where \$ is an invalid
-// escape — the reason for $-doubling.)
 func TestEscape_SurvivesHostQuoting(t *testing.T) {
-	// The genroc string these hosts would decode to is $${x}; it must render literal ${x}.
+	// Every JSON/YAML quoting style decodes to $${x}: $ is no escape character in either host.
 	got, err := mustParse(t, `$${x}`).EvalAny(evalCtx)
 	if err != nil || got != `${x}` {
 		t.Errorf("EvalAny(`$${x}`) = %q, %v; want `${x}`", got, err)
 	}
 }
 
-// Two-layer trap: escaping applies only to literal text. Inside a ${ } (or $:) body the raw
-// source goes to the expression lexer — a \t there is a string escape (-> a tab), and a $
-// there is ordinary expression content, neither touched by the template's $-handling.
+// Escaping applies only to literal text; a ${ } or $: body reaches the expression lexer raw.
 func TestEscape_TwoLayer_BodyIsExpressionLayer(t *testing.T) {
 	// "${ 'a\\tb' }" is the literal chars ${ 'a\tb' } — the expression string 'a\tb'.
 	got, err := mustParse(t, "${ 'a\\tb' }").EvalAny(evalCtx)
@@ -87,7 +75,6 @@ func TestEscape_TwoLayer_BodyIsExpressionLayer(t *testing.T) {
 	}
 }
 
-// A } that follows an escaped quote inside a block string is not the block terminator.
 func TestEscape_BackslashInBlockDoesNotEndBlock(t *testing.T) {
 	assertSplit(t, `${ "x\"}y" }`, `EXPR(" \"x\\\"}y\" ")`)
 }

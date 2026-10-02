@@ -2,10 +2,8 @@ import { parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-// Exercises the `external` action: the engine parks the instance (phase='external',
-// no worker held), an outside caller discovers it via GET /external-tasks and submits a
-// result to POST /external-tasks/resolve, and the process resumes. An optional timeout
-// raises a catchable external.timeout. Driven in manual-tick mode.
+// `external` parks the instance (phase='external', no worker held) until a result is submitted;
+// an optional timeout raises a catchable external.timeout.
 const ctx = useTickEnv();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,8 +13,7 @@ const approvedSchema: any = {
   required: ["approved"],
 };
 
-// The parked task, assembled from the instance itself — the listing that used to hand these
-// out is gone (helpers/external.ts).
+// Assembled from the instance itself (helpers/external.ts).
 const queueEntryFor = (id: string) => parkedTask(id, ctx.env.client);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -150,8 +147,7 @@ test("an external timeout that elapses while paused fires on resume", async () =
   await ctx.env.client.POST("/tick", { body: { advance_ms: 90000 } });
   expect(await ctx.env.status(id)).toBe("paused external");
 
-  // On resume the timer is already overdue, so it fires with no further clock advance
-  // and routes through the on_error handler exactly as an un-paused timeout would.
+  // Already overdue on resume, so it fires with no further clock advance.
   await ctx.env.resume(id);
   await ctx.env.tickUntilIdle();
   expect(await ctx.env.status(id)).toBe("completed");
@@ -188,7 +184,7 @@ test("pausing an externally-waiting instance takes it out of the queue", async (
   await ctx.env.pause(id);
   expect(await ctx.env.status(id)).toBe("paused external");
 
-  // "Out of the queue" is observable where the queue now lives: a claim does not offer it.
+  // Out of the queue: a claim does not offer it.
   const claimed = await ctx.env.client.POST("/external-tasks/claim", {
     body: { worker_id: "w-pause", limit: 10 },
   });

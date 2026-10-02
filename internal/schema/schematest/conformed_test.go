@@ -8,11 +8,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// Conformed is the TYPE of what the fill produces, and this file holds it to the fill directly:
-// for every case a value of `inf` is run through Validate(v, ConformToSchemaExactly) against
-// `dec`, and the result must validate STRICTLY against Conformed(inf, dec). A type that the real
-// output does not satisfy is a hover, a CLI answer and a generated TypeScript type that are all
-// wrong together, which is the one way the unification could be worse than the drift it replaced.
+// Each case runs a value of `inf` through Validate(v, ConformToSchemaExactly) against `dec`; the
+// result must validate STRICTLY against Conformed(inf, dec), or hover, CLI and generated TS lie.
 
 type conformedCase struct {
 	name string

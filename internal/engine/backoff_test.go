@@ -62,9 +62,7 @@ func TestBackoff_IsJittered(t *testing.T) {
 	}
 }
 
-// The first retry waits the authored delay, not the delay already scaled once. Every other
-// engine documents `delay` as the wait before the first retry, and an off-by-one here is
-// invisible: it just makes every curve start one step in.
+// An off-by-one here is invisible: every curve just starts one step in.
 func TestBackoff_FirstRetryWaitsTheBaseDelay(t *testing.T) {
 	base := 30 * time.Second
 	got := backoff(1, base, 4, time.Hour)

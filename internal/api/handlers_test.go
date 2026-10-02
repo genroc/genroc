@@ -25,9 +25,7 @@ func newTestHandlers(t *testing.T) (*Handlers, func()) {
 	}
 }
 
-// TestHandle_UnknownAction covers the envelope-dispatch default — there is no HTTP
-// route equivalent, so this stays a Go test. CRUD and validation behavior is
-// covered end-to-end by the TypeScript suite in tests/integration.
+// Envelope dispatch has no HTTP equivalent, so this stays a Go test.
 func TestHandle_UnknownAction(t *testing.T) {
 	h, cleanup := newTestHandlers(t)
 	defer cleanup()

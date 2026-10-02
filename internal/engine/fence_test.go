@@ -1,9 +1,7 @@
 package engine
 
-// Engine-side behaviour of the lease fence (specs/lease-fencing.md, Testing §4–§5):
-// what a worker does when its write is refused, how a self-reclaimed row hands back,
-// and that the only_once verdict survives a genuine takeover. The epoch mechanics and
-// the per-entry-point fence live in internal/db/dbtest/lease_epoch_test.go.
+// Engine-side lease fence behaviour (specs/lease-fencing.md, Testing §4–§5). The epoch
+// mechanics and per-entry-point fence live in internal/db/dbtest/lease_epoch_test.go.
 
 import (
 	"context"
@@ -37,10 +35,7 @@ func hasLogEvent(t *testing.T, database *db.DB, instID, event string) bool {
 	return false
 }
 
-// §4.1–§4.3, §4.9 — a fence loss drops the outcome: no failInstance (writing a failure
-// is the clobber under another name), no worker error, and a lease_lost entry on the
-// instance as the only trace. Driven through runAdvance directly, which is also the
-// manual-tick path (§4.9: no pump, no marker assumptions).
+// §4.1–§4.3, §4.9. Driven through runAdvance directly, which is also the manual-tick path.
 func TestRunAdvance_LeaseLostDropsOutcome(t *testing.T) {
 	database := openTestDB(t)
 	var hits atomic.Int32
@@ -86,9 +81,7 @@ func TestRunAdvance_LeaseLostDropsOutcome(t *testing.T) {
 	}
 }
 
-// The hand-back path end to end: a self-reclaim skips the dispatch, the doomed advance is
-// fenced out, the row leaves the held set and expires with worker_id intact, and the NEXT
-// claim completes it. Fails if the held set renews rows it no longer advances (a stuck row).
+// Fails if the held set renews rows it no longer advances (a stuck row).
 func TestSelfReclaim_RowHandsBackAndCompletes(t *testing.T) {
 	database := openTestDB(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,9 +255,8 @@ func TestFence_TakeoverVerdictOutlivesTheFrozenWorker(t *testing.T) {
 	}
 }
 
-// §5.5 — the payoff case, pairing the takeover test above: the same freeze on a single
-// worker, but nobody takes the row, so the gate's repair keeps the lease alive and the
-// only_once task completes — one execution, no interrupted verdict to adjudicate.
+// §5.5, pairing the takeover test above: nobody takes the row, so the gate's repair keeps
+// the lease and the only_once task completes once.
 func TestLeaseGate_RepairSavesOnlyOnceThroughFreeze(t *testing.T) {
 	database := openTestDB(t)
 
@@ -286,9 +278,7 @@ func TestLeaseGate_RepairSavesOnlyOnceThroughFreeze(t *testing.T) {
 
 	id := seedOnlyOnceInstance(t, database, "repair-oo", srv.URL)
 
-	// Renewer an hour out but a free slot, so the pump keeps polling and the gate can
-	// repair — the same setup as TestLeaseGate_SurvivesFrozenHost, on the task class
-	// where losing the lease would not merely re-run work but fail the process.
+	// Renewer an hour out but a free slot, so the pump keeps polling and the gate can repair.
 	eng := New(database, 50*time.Millisecond, 2, true, 10*time.Second, time.Hour, LogConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

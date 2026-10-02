@@ -31,7 +31,6 @@ func mustParse(t *testing.T, s string) *Template {
 	return tmpl
 }
 
-// assertSplit checks how src was cut into chunks, rendered by describe.
 func assertSplit(t *testing.T, src, want string) {
 	t.Helper()
 	if got := describe(mustParse(t, src)); got != want {
@@ -50,7 +49,6 @@ func assertParseError(t *testing.T, src, wantContains string) {
 	}
 }
 
-// evalCtx is the context every EvalAny assertion runs against.
 var evalCtx = map[string]any{
 	"input": map[string]any{"name": "ann", "n": 3, "ok": true},
 }

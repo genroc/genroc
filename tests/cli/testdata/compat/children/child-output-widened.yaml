@@ -1,6 +1,5 @@
-# Only the child moved, so its own output contract is what breaks: a consumer written
-# against a string id would now receive an integer. The parent did not move and reads
-# "nothing to compare".
+# Only the child moved, so only its own output contract breaks; the parent reads "nothing to
+# compare".
 apply:
   - channel: widen_a
     definitions:

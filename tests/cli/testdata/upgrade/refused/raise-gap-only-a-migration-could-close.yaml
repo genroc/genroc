@@ -1,12 +1,5 @@
-# The nullable-versus-optional gap, on the error channel.
-#
-# `why` was optional; it becomes required AND nullable. For STORED state that gap is closable —
-# a migration writes the null in — and every storage-optics check accepts it. A worker's failure
-# submission is not stored state: it arrives from outside, is conformed once, and `data: {}` is
-# refused. So the same gap must be judged strictly here, and the move refused.
-#
-# The result-channel twin is refused/result-gap-only-a-migration-could-close. Both channels need
-# it because both are conformed at a boundary, and neither is repaired by anything.
+# `why` optional → required-and-nullable: closable for stored state, but a worker's failure
+# arrives from outside and is conformed once (`data: {}` is refused), so it is judged strictly.
 apply:
   - definitions:
       - name: raisegap

@@ -30,10 +30,8 @@ func TestInstant_PatternSkipsMonthsWithoutThatDay(t *testing.T) {
 	}
 }
 
-// A month/day pair no year can ever satisfy is decidable without consulting a clock, so it
-// fails at parse. Keeping it there is what makes registration deterministic: the
-// alternative — discovering it during the resolve walk — would let the same definition
-// validate or not depending on the day someone registered it.
+// At parse, not in the resolve walk: that would let the same definition validate or not
+// depending on the day it was registered.
 func TestInstant_ImpossibleDateIsRejectedAtParse(t *testing.T) {
 	if _, err := ParseInstant("*-02-30 08:00"); err == nil {
 		t.Error("*-02-30 was accepted; February never has 30 days, in any year")
@@ -102,10 +100,8 @@ func TestInstant_SteppedFieldsCarryBackToTheirBase(t *testing.T) {
 	}
 }
 
-// The gotcha every stepped schedule inherits from cron: a step that does not divide its
-// field's range leaves a short interval at the wrap. Pinned rather than fixed — "every 7
-// seconds" cannot be both aligned to the minute and evenly spaced, and alignment is what
-// the grammar promises.
+// Pinned rather than fixed: "every 7 seconds" cannot be both minute-aligned and evenly
+// spaced, and alignment is what the grammar promises.
 func TestInstant_StepThatDoesNotDivideItsRangeWrapsShort(t *testing.T) {
 	i, err := ParseInstant("*:*:0/7")
 	if err != nil {
@@ -124,10 +120,8 @@ func TestInstant_StepThatDoesNotDivideItsRangeWrapsShort(t *testing.T) {
 	}
 }
 
-// The property the feature exists for: repeated resolution stays on the grid. A drifting
-// implementation passes every single-shot test above and still fails this one, because
-// drift only shows up once the result is fed back in — which is exactly what a process loop
-// does.
+// A drifting implementation passes every single-shot test above: drift shows only once the
+// result is fed back in, which is what a process loop does.
 func TestInstant_RepeatedResolutionDoesNotDrift(t *testing.T) {
 	i, err := ParseInstant("*:*:0/5")
 	if err != nil {
@@ -247,10 +241,8 @@ func TestInstant_ClockWildcardAcrossDSTTransitions(t *testing.T) {
 		}
 	})
 
-	// Fall back: the clock repeats 03:00 → 02:00, so every wall clock in that hour happens
-	// twice. resolveWall names the first occurrence, and once now is past it the *second*
-	// one is the next match. Getting this wrong is not a rounding error: a per-minute
-	// schedule would go an hour without firing, once a year.
+	// Fall back: once now is past the first 02:30 the *second* is next. Getting this wrong
+	// silences a per-minute schedule for an hour, once a year.
 	t.Run("fall back", func(t *testing.T) {
 		// Pinned through UTC, because parsing the wall clock "02:30" cannot say which of the
 		// two it means — that is the whole ambiguity. Prague falls back at 01:00 UTC, so
@@ -291,10 +283,7 @@ func TestInstant_DenseClockDoesNotSearchSecondBySecond(t *testing.T) {
 	}
 }
 
-// A wall clock a spring-forward deleted normalizes forward, and "forward" has to hold
-// wherever the gap sits. Santiago's is at midnight, and time.Date answers it with the
-// previous day's 23:49 — trusting that direction cost a whole day before the cross-check
-// caught it.
+// Santiago's gap is at midnight, where time.Date answers with the previous day's 23:49.
 func TestInstant_DeletedWallClockNormalizesForwardEvenAtMidnight(t *testing.T) {
 	for _, tc := range []struct {
 		zone string
@@ -432,10 +421,8 @@ func TestInstant_FiveYearBoundIsTheLimitOfTheSearch(t *testing.T) {
 	}
 }
 
-// An instant already behind now is a legitimate state, not an error. Timers keep running
-// while an instance is paused, so an `until` written months ago can resolve into the past
-// the moment it resumes — the caller clamps it to now, and delayspec must hand it over
-// rather than fail.
+// Timers run while paused, so an `until` can resolve into the past on resume; the caller
+// clamps, and delayspec must not fail.
 func TestInstant_PastTargetResolvesWithoutError(t *testing.T) {
 	i, err := ParseInstant("2020-01-01 08:00")
 	if err != nil {

@@ -6,10 +6,8 @@ import (
 	"genroc/internal/expression"
 )
 
-// Through separates a root the expression READS INTO from one it merely copies: a copied root
-// reaches the next write unloaded, while one read through must be materialized or the read finds a
-// marker. The direction is not symmetric -- every case expecting `false` is a saved load, every
-// case expecting `true` a correctness requirement.
+// Not symmetric: every case expecting `false` is a saved load, every `true` a correctness
+// requirement.
 func TestRootsThrough_SeparatesReadingFromCopying(t *testing.T) {
 	cases := []struct {
 		expr    string

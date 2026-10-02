@@ -31,9 +31,7 @@ export default defineConfig({
       },
       ...pgProject,
       {
-        // The language server needs no genroc running: it answers from the definition
-        // language alone, which is the property the whole design rests on. No globalSetup
-        // here says so, and would break if that stopped being true.
+        // No globalSetup: the language server answers from the definition language alone.
         test: {
           name: "lsp",
           include: ["lsp/**/*_test.ts"],
@@ -41,25 +39,13 @@ export default defineConfig({
         },
       },
       {
-        // Stress tests spawn their own worker fleet, so no shared globalSetup
-        // server. Runs the SQLite backend always and Postgres when DSN is set.
-        //
-        // Run in its own vitest invocation (see the `test` script in package.json):
-        // the postgres project's globalSetup server is a full worker (poll on,
-        // max-concurrent 200) against the same database, so while it is alive it
-        // claims and advances the stress suites' instances too. That both breaks
-        // their premise — lease_pressure asserts exactly one processor exists,
-        // so no peer can steal a lapsed lease — and drains their trees, starving
-        // the crippled worker of the in-flight work it must thrash on.
-        // Selecting only this project skips the other projects' globalSetup, so
-        // nothing but the suite's own fleet is on the database.
+        // No globalSetup, and its own vitest invocation (package.json `test`): the postgres project's
+        // server is a full worker on the same database and would claim the stress suites' instances.
         test: {
           name: "stress",
           include: ["stress/**/*_test.ts"],
           testTimeout: 120_000,
-          // Run stress files one at a time: each saturates a worker fleet against the
-          // single Postgres, so running two concurrently starves the other's workers
-          // (connection/CPU contention) and flakes their startup.
+          // One file at a time: each saturates a worker fleet against the single Postgres.
           fileParallelism: false,
           env: process.env.POSTGRES_DSN
             ? { POSTGRES_DSN: process.env.POSTGRES_DSN }

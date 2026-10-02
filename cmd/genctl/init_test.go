@@ -31,8 +31,7 @@ func TestInitPrompt_ReadsAnAnswer(t *testing.T) {
 	}
 }
 
-// EOF is what a closed pipe and a Ctrl-D both look like. Neither may hang or produce an empty
-// project name.
+// EOF is a closed pipe or Ctrl-D: neither may hang or produce an empty folder name.
 func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 	p := newPrompter("")
 	if got := p.ask("name", "fallback"); got != "fallback" {
@@ -43,15 +42,12 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 	}
 }
 
-// A flag answers its own question and the prompt must not reopen it — nor override it with its own
-// default, which is how `genctl init --postgres` used to come back as SQLite. Each case presses
-// enter through every prompt, so only the flag can survive.
+// Each case presses enter through every prompt, so only the flag can survive.
 func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 	enter := "\n\n\n\n\n\n"
 	if got := (options{dir: ".", postgres: true, setPostgres: true}).prompt(newPrompter(enter)); !got.postgres {
 		t.Error("--postgres was overridden by the prompt's sqlite default")
 	}
-	// These two used to imply -y, which answered every OTHER question silently as well.
 	if got := (options{dir: ".", auth: true, setAuth: true}).prompt(newPrompter(enter)); !got.auth {
 		t.Error("--auth was overridden by the prompt's default")
 	}
@@ -90,10 +86,8 @@ func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 	}
 }
 
-// `^dev` and `^edge` both shipped as invalid npm ranges, and `edge` as a dist-tag that does not
-// exist. A channel name is not a version, and the scaffold has to tell them apart or
-// `npm install` fails on a fresh project. The version case is EXACT: the resolver speaks a
-// protocol with this binary, so a range could pull one the binary does not expect.
+// A channel name is not a version: `^dev` or `^edge` is an invalid npm range, and `npm install`
+// fails on a fresh project.
 func TestReleaseTag(t *testing.T) {
 	saved := version
 	t.Cleanup(func() { version = saved })
@@ -101,9 +95,7 @@ func TestReleaseTag(t *testing.T) {
 		"0.1.0":      "0.1.0",
 		"0.1.0-rc.1": "0.1.0-rc.1",
 		"edge":       "edge", // published from main, as both an image tag and an npm dist-tag
-		// A local build takes `latest`, not `preview` (published only from a prerelease tag, so
-		// it named an image that does not exist) and not `edge` (main, which is not what someone
-		// scaffolding a project wants by default). `--version edge` is how to ask for main.
+		// Not `preview` (published only from a prerelease tag) nor `edge` (main, a poor default).
 		"dev":    "latest",
 		"":       "latest",
 		"v0.1.0": "latest", // the tag, not the version — a `v` is not a number

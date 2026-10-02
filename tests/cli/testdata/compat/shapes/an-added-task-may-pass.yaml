@@ -1,20 +1,6 @@
-# The half of §2b that had no passing fixture. `(added)` appears twice elsewhere —
-# task-renamed.yaml and inserted-task-with-an-output.yaml — and both runs exit 1 for a
-# DIFFERENT reason (a removal; a main-line output). So nothing pinned that an addition can
-# pass at all: `(added)` starting to gate, or the tolerance below collapsing so that every
-# new task read as breaking, would have broken no test.
-#
-# Two additions, one per reason they are tolerated:
-#
-#   side   on a branch. Its output is merely POSSIBLE, so the context marks `outputs.side`
-#          nullable and §2d's tolerance closes the gap against an old row that has no key
-#          there. This is "you may add an optional task" being the tolerance rather than a
-#          rule of its own.
-#   audit  on the main line, and reached by every path — but it declares no `output`, so it
-#          puts nothing in the context and there is nothing for an old row to lack. What
-#          makes inserted-task-with-an-output.yaml break is the output, not the position.
-#
-# The re-routing that reaches them is a changed slot and nothing more.
+# An addition can pass (§2b): side is on a branch, so `outputs.side` is nullable and §2d's
+# tolerance covers old rows; audit is on the main line but declares no output. The other
+# `(added)` fixtures exit 1 for unrelated reasons.
 apply:
   - channel: addok_a
     definitions:

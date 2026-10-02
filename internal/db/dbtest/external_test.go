@@ -9,10 +9,8 @@ import (
 	"genroc/internal/model"
 )
 
-// insertExternalParked saves an instance parked on an external task: status=running,
-// phase='external', with the external_input snapshot. The occurrence a resolve must
-// match is task_epoch on the row, not anything in the slot.
-// wakeAt is the (optional) timeout deadline.
+// insertExternalParked parks an instance on an external task with an external_input snapshot; a
+// resolve matches task_epoch on the row, not the slot. wakeAt is the optional deadline.
 func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wakeAt *time.Time) {
 	t.Helper()
 	inst := &model.ProcessInstance{
@@ -33,8 +31,7 @@ func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wa
 	}
 }
 
-// TestResolveExternalTask covers the exact-occurrence epoch check, the successful
-// resolve (result stored + un-parked), and double-submit rejection, on both engines.
+// The exact-occurrence epoch check, a successful resolve, and double-submit rejection.
 func TestResolveExternalTask(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -86,9 +83,7 @@ func TestResolveExternalTask(t *testing.T) {
 	}
 }
 
-// TestResolveExternalTask_RejectsWhenLeased verifies the resolve loses to a timeout
-// claim already in flight: once a worker has leased the (due) external instance, a
-// submit racing the timeout's advance is rejected rather than overwriting it.
+// A timeout claim already in flight wins; the submit must not overwrite its advance.
 func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -114,8 +109,7 @@ func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 	}
 }
 
-// TestClaim_ExternalNoTimeoutNotClaimable verifies a no-timeout external wait (wake_at
-// NULL) is never returned by the claim, while a due-timeout one is.
+// A no-timeout wait (wake_at NULL) is the resolve API's; a due-timeout one is claimable.
 func TestClaim_ExternalNoTimeoutNotClaimable(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -138,11 +132,8 @@ func TestClaim_ExternalNoTimeoutNotClaimable(t *testing.T) {
 	}
 }
 
-// A large submitted outcome arrives CUT: externalized, declared in the instance's objects and
-// claimed, exactly like a value the process produced itself. The resolve API cannot do that -- it
-// holds only the row lock and has no reference set to reconcile -- so the outcome goes through the
-// buffer, and the engine writes it under lease through the ordinary context encode.
-// specs/external-outcome-as-signal.md.
+// The resolve path cannot cut (row lock only, no reference set), so the outcome is buffered and
+// the engine cuts it under lease. specs/external-outcome-as-signal.md.
 func TestResolveExternalTask_LargeOutcomeIsCutWhenConsumed(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

@@ -35,10 +35,8 @@ func TestInstant_RandomPatternsMatchAScan_FixedOffsetZones(t *testing.T) {
 	}
 }
 
-// Suite 2: zones that transition, with `now` drawn from a two-day window around each
-// transition so the repeated and the deleted hour are hit constantly rather than by luck.
-// Santiago is here because it transitions at midnight — the repeat spans a date boundary,
-// which the date walk and the repeat search have to agree about.
+// Suite 2: `now` from a two-day window around each transition, so the repeated and deleted
+// hours are hit constantly. Santiago transitions at midnight: its repeat spans a date boundary.
 func TestInstant_RandomPatternsMatchAScan_AcrossDSTTransitions(t *testing.T) {
 	for _, tc := range []struct {
 		zone        string

@@ -11,16 +11,12 @@ var (
 	// empty signal queue is control flow, and those must keep testing sql.ErrNoRows.
 	ErrNotFound = errors.New("not found")
 
-	// ErrConflict means the request is well-formed and the target exists, but its
-	// current state does not admit the operation — resuming a process that is not
-	// paused, retrying one that is not failed, signalling one that has settled.
-	// Distinct from a bad request: the same call may succeed later without changing.
+	// ErrConflict means the target exists but its current state does not admit the
+	// operation; unlike ErrInvalid, the same call may succeed later.
 	ErrConflict = errors.New("conflict")
 
 	// ErrInvalid means the arguments are wrong independently of any state, so the
-	// same call will never succeed — naming a descendant where a tree root is
-	// required, for instance. The contrast with ErrConflict is exactly "retrying
-	// this is pointless" vs "retrying this may work later".
+	// same call never succeeds (naming a descendant where a root is required).
 	ErrInvalid = errors.New("invalid argument")
 
 	// ErrLeaseLost means a fenced write matched no row: the lease grant (lease_epoch)

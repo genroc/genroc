@@ -1,13 +1,6 @@
-// Package template parses and evaluates template strings in three modes, fixed at parse time:
-// a "$: expr" leaf is one expression whose result type is preserved, "text${expr}text"
-// stringifies and concatenates, and anything else is a literal. Escaping is $-doubling in
-// literal text only ("$$" is one "$"), never a backslash, so it cannot collide with JSON or
-// YAML escaping; a ${ } or $: body reaches the expression lexer raw.
-//
-// Where an interpolation ends is decided by the expression parser, not by scanning for the
-// next "}": candidate terminators are tried in order and the first body that parses wins, so a
-// "}" inside an object or string literal does not end the block. That keeps the lexical rules
-// in one place. specs/typed-values.md.
+// Package template parses template strings in three modes fixed at parse time: a typed "$: expr"
+// leaf, a stringifying "text${expr}text", or a literal. "$$" escapes only in literal text; a ${ }
+// ends at the first "}" whose body parses, not the next "}". specs/typed-values.md.
 package template
 
 import (
@@ -27,9 +20,7 @@ import (
 type Template struct {
 	src    string
 	chunks []chunk
-	// expr marks a $: leaf — one typed expression — so evaluation returns the raw
-	// value (preserving its type) instead of stringifying it. Interpolation (${ })
-	// always stringifies, so it never sets this.
+	// expr marks a $: leaf: evaluation returns the raw value instead of stringifying it.
 	expr bool
 }
 
@@ -40,13 +31,9 @@ type chunk struct {
 	node syntax.Node
 }
 
-// exprMarker prefixes a leaf that is a single typed expression: everything after it
-// (trimmed) is one expression whose result type is preserved, bypassing block
-// splitting and stringification. A leaf is a $: expression when its first
-// non-whitespace content is this marker (unescaped).
+// exprMarker makes the whole leaf one typed expression only as its first non-whitespace content.
 const exprMarker = "$:"
 
-// leadingWS returns the byte length of s's leading ASCII whitespace.
 func leadingWS(s string) int {
 	i := 0
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') {
@@ -71,8 +58,6 @@ func Parse(s string) (*Template, error) {
 	return scanTemplate(s)
 }
 
-// scanTemplate splits a template into literal and ${ } expression chunks, collapsing a
-// doubled "$$" in literal text to a single literal "$" (see Parse).
 func scanTemplate(s string) (*Template, error) {
 	t := &Template{src: s}
 	var lit []byte
@@ -107,10 +92,8 @@ func scanTemplate(s string) (*Template, error) {
 	return t, nil
 }
 
-// parseBlock splits one ${ } off the front: each "}" is tried as terminator and the first
-// body that PARSES wins, so a "}" inside a nested string or literal cannot end the block.
-// Shortest-match is sound: a longer intended body puts the inner "}" inside brackets or a
-// string — exactly where the shorter candidate fails to parse.
+// parseBlock ends a ${ } at the first "}" whose body PARSES. Shortest-match is sound: a longer
+// intended body puts the inner "}" inside brackets or a string, where the shorter cut fails.
 func parseBlock(s string) (expr string, node syntax.Node, rest string, err error) {
 	var longest error
 	for at := 0; ; {
@@ -119,9 +102,7 @@ func parseBlock(s string) (expr string, node syntax.Node, rest string, err error
 			if longest == nil {
 				return "", nil, "", errors.New("unclosed ${")
 			}
-			// Every candidate failed. Report the longest one's error: a truncated
-			// candidate dies with an uninformative "unexpected EOF", while the full
-			// body dies with the syntax error the author actually needs to see.
+			// The longest candidate's error: shorter ones die with a useless "unexpected EOF".
 			return "", nil, "", longest
 		}
 		end += at
@@ -137,10 +118,8 @@ func parseBlock(s string) (expr string, node syntax.Node, rest string, err error
 
 func (t *Template) Source() string { return t.src }
 
-// Static returns the template's constant value and true when it is a pure literal — not a
-// $: expression and free of any ${ } interpolation — so its value is fixed at authoring
-// time without a context. Callers use it to statically validate hand-written literals
-// (e.g. a fetch accepted_status pattern) while leaving dynamic leaves for runtime.
+// Static returns the template's constant value and true when it is a pure literal (no $: and
+// no ${ }), so it can be validated at authoring time without a context.
 func (t *Template) Static() (string, bool) {
 	if t.expr {
 		return "", false
@@ -155,10 +134,8 @@ func (t *Template) Static() (string, bool) {
 	return b.String(), true
 }
 
-// IsExpr reports whether the leaf is a single $: typed expression rather than a template.
-// With Static it gives the three-way split — literal, $: expression, ${ } interpolation —
-// decidable syntactically, which is what a delay's `for` / `until` slot needs: each of the
-// three is handled differently, and an interpolation is rejected outright.
+// IsExpr reports whether the leaf is a single $: typed expression. With Static it decides the
+// literal / $: / ${ } split syntactically.
 func (t *Template) IsExpr() bool { return t.expr }
 
 // EvalAny evaluates the template against ctx. A $: expression returns the raw value,
@@ -209,18 +186,13 @@ func (t *Template) InferType(sc schema.Schema) (schema.Schema, error) {
 		if inferred.HasNull() {
 			return schema.Schema{}, fmt.Errorf("template expression %q may be null; use ?? to provide a default value", c.text)
 		}
-		// The top type is not "a type we could not pin down" — it is UNDECLARED data, and
-		// rendering it into text is reading it, which is the one thing {} forbids. The `$:`
-		// spelling already refuses it (unknown is not a subset of a scalar target), so
-		// admitting it here would make one value legal in one spelling and not the other,
-		// and the runtime failure is a terminal engine.expression rather than a catchable one.
+		// {} is undeclared data and rendering it is reading it. `$:` already refuses it, so
+		// admitting it here would make one value legal in one spelling only.
 		if inferred.IsUnknown() {
 			return schema.Schema{}, fmt.Errorf("template expression %q is unknown (its schema is {}); declare its shape before interpolating it into text", c.text)
 		}
-		// stringify accepts only string/number/bool, so an array or object here is a
-		// guaranteed runtime failure. Catch it at registration instead: IsType is
-		// "resolves uniformly to", so this fires only when the value provably cannot
-		// be interpolated, never on a type we merely cannot pin down.
+		// IsType is "resolves uniformly to": this fires only when stringify must fail, never
+		// on a type we merely cannot pin down.
 		if inferred.IsType("array") || inferred.IsType("object") {
 			return schema.Schema{}, fmt.Errorf("template expression %q is %s; only string, number and boolean values can be interpolated into surrounding text", c.text, inferred.TypeName())
 		}
@@ -228,11 +200,8 @@ func (t *Template) InferType(sc schema.Schema) (schema.Schema, error) {
 	return schema.Type("string"), nil
 }
 
-// RootRefs reports which context roots the embedded expressions read, merged across
-// every block, so the engine lazily resolves only the value-slots a template needs.
-// RootRefs unions the root references of every block. A ${ } interpolation STRINGIFIES its
-// value, so its roots are read through; a `$:` expression hands the value on untouched, so its
-// roots may stay references. specs/lazy-context.md.
+// RootRefs unions every block's root references; only ${ } roots are read through, since it
+// stringifies. specs/lazy-context.md.
 func (t *Template) RootRefs() expression.Roots {
 	var out expression.Roots
 	for _, c := range t.chunks {
@@ -244,10 +213,8 @@ func (t *Template) RootRefs() expression.Roots {
 	return out
 }
 
-// cache memoises Parse (failures too — a bad template must not re-parse every tick). The one
-// package-level mutable value left in internal/ by choice: an owner would mean threading a
-// cache through shape.Eval/Roots/infer and every recursive call, for a memo of a pure function
-// with no correctness role. template_bench_test.go is the standing justification.
+// cache memoises Parse, failures too: a bad template must not re-parse every tick. Why it has
+// no owner: archtest's `allowed`.
 var cache sync.Map // string -> parsed
 
 type parsed struct {
@@ -276,8 +243,7 @@ func stringify(v any) (string, error) {
 	case string:
 		return val, nil
 	case json.Number:
-		// Already the exact literal; rendering it any other way would reintroduce
-		// the float64 rounding this representation exists to avoid.
+		// Any other rendering reintroduces the float64 rounding json.Number exists to avoid.
 		return val.String(), nil
 	case int:
 		return fmt.Sprintf("%d", val), nil

@@ -1,8 +1,5 @@
-# The break that had no test anywhere. `IsSubset` ignored minItems/maxItems entirely, so
-# capping an array read as compatible and then rejected the stored value at conform time —
-# a wrong answer in the permissive direction, which is the one that ships. Reported on both
-# questions: an instance's stored input no longer fits, and a caller who could send four
-# tags no longer can.
+# minItems/maxItems are part of IsSubset: capping an array breaks both questions. Unpinned,
+# they were once ignored and the stored value failed at conform instead.
 apply:
   - channel: itemc_a
     definitions:

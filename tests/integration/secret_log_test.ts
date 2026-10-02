@@ -4,13 +4,8 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { createClientTyped } from "../helpers/client.ts";
 
-// `secret: true` has exactly one job: keep a value out of the server's STDOUT, where an operator
-// reads it without having asked. Everything else — the durable trail, every API response —
-// carries what actually happened, because protecting a value at rest is encryption's job and
-// redacting on read was never that. specs/object-store.md §Redaction.
-//
-// This file needs its own server: the shared one runs at --log error with stdout discarded, and
-// the whole assertion is about what reaches stdout.
+// `secret: true` only keeps a value off the server's console; the trail and the API carry it
+// verbatim (specs/object-store.md §Redaction). Own server: the shared one discards stdout.
 
 const SECRET = "supersecret-api-key-value";
 
@@ -96,9 +91,8 @@ test("a secret config value is scrubbed from stdout and kept verbatim everywhere
 });
 
 test("secret: true is refused outside config_schema", async () => {
-  // The scrubber finds secrets by knowing their values verbatim, which it can do for config and
-  // cannot for anything a process computes. Accepting the marker elsewhere would promise a
-  // protection nothing delivers, so registration refuses it rather than ignoring it.
+  // The scrubber knows secret values verbatim only for config, so registration refuses the marker
+  // anywhere else rather than promise protection nothing delivers.
   for (const [where, def] of [
     [
       "input_schema",

@@ -8,16 +8,10 @@ import { expect, test, beforeAll } from "vitest";
 import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
 import { startGenroc } from "../helpers/server.ts";
 
-// The definition under test is the real example file in examples/order-fulfilment/,
-// applied verbatim — so this doubles as an executable check that the shipped example
-// works. The point of the example is what happens when a worker dies mid-charge, so the
-// interesting tests really kill a worker and let a second one take the work over.
-// (Vitest's bundler can't `import` a .yaml file, so we read + parse the source instead.)
+// Applies examples/order-fulfilment verbatim; the interesting tests really kill a worker mid-charge.
+// (Vitest's bundler cannot `import` a .yaml file, so the source is read and parsed.)
 const EXAMPLES = new URL("../../examples/order-fulfilment/", import.meta.url);
 const order: any = loadYaml(readFileSync(new URL("order.genroc.yaml", EXAMPLES), "utf8"));
-
-// The sqlite and postgres vitest projects run this file in parallel and each spawns its
-// own genroc pair, so offset the ports per project to keep them from colliding.
 
 interface CommerceOptions {
   // Never answer the first charge, so the worker can be killed with it in flight.
@@ -31,9 +25,8 @@ interface CommerceOptions {
   reserveStatus?: number;
 }
 
-// startCommerceService stands in for the three services the order talks to. The payment
-// lookup is the important one: it is the system of record the example consults after an
-// interruption, and the ONLY thing that can answer "did the money move?".
+// The payment lookup is the system of record consulted after an interruption: the ONLY thing
+// that can answer "did the money move?".
 async function startCommerceService(opts: CommerceOptions = {}) {
   let chargeAttempts = 0;
   let lookupCount = 0;
@@ -94,9 +87,8 @@ async function startCommerceService(opts: CommerceOptions = {}) {
     chargeAttempts: () => chargeAttempts,
     lookupCount: () => lookupCount,
     releaseCount: () => releaseCount,
-    // closeAllConnections is required, not tidiness: genroc's HTTP client keeps
-    // connections alive (and one request here is deliberately never answered), so a
-    // bare close() waits for them and hangs the test.
+    // closeAllConnections is required: genroc keeps connections alive (and one is deliberately
+    // never answered), so a bare close() hangs the test.
     stop: () =>
       new Promise<void>((r) => {
         hung.forEach((h) => h.destroy());
@@ -206,16 +198,14 @@ test("examples/order-fulfilment: an out-of-stock order never reaches the charge"
 
 // ── The interrupted paths, through a real worker crash ───────────────────────
 
-// Kill a worker with the charge in flight, bring a second one up, and expire the lease.
-// The engine refuses to repeat the only_once call and raises only_once.interrupted,
-// which the definition catches and routes to `reconcile`.
+// Kills a worker with the charge in flight and expires its lease, so the definition's
+// only_once.interrupted rule routes to `reconcile`.
 async function crashMidCharge(
   mock: Awaited<ReturnType<typeof startCommerceService>>,
   tag: string,
 ) {
-  // A temp SQLite file even under the postgres project: this test is about the example,
-  // not the storage engine, and a file DB keeps the two workers on one database with no
-  // per-run database to create and drop.
+  // SQLite even under the postgres project: this is about the example, and a file keeps both
+  // workers on one database.
   const db = join(tmpdir(), `genroc_order_${tag}_${Date.now()}.db`);
 
   const genroc1 = await startGenroc({ db });
@@ -277,9 +267,7 @@ test("examples/order-fulfilment: an interrupted charge that did NOT land is deli
 
     expect(await waitForInstanceTicking(run.id, run.api)).toBe("completed");
 
-    // Two attempts: the abandoned one, and the one the DEFINITION asked for after
-    // establishing it was safe. The engine never repeats an only_once call on its own,
-    // but it does not stand in the way of an authored re-entry.
+    // Two attempts: the abandoned one, and the authored re-entry once the lookup said it was safe.
     expect(mock.chargeAttempts()).toBe(2);
     expect(mock.lookupCount()).toBe(1);
 

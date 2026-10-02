@@ -2,10 +2,8 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
-// The login page, built as its own bundle. It is the one screen that must render before any
-// session exists, so it shares no code path with the app behind the session -- and being a
-// separate entry point means it does not carry the app's weight to do it.
-// specs/ui-issued-tokens.md §5.
+// The login page, its own bundle: it must render before any session exists, so it shares no code
+// path with the app behind the session (specs/ui-issued-tokens.md §5).
 
 type Options = { providers: { id: string; name: string }[]; passwords: boolean };
 

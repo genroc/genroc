@@ -4,9 +4,7 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// The config entity: `genctl config get/set`, the CLI's own persisted state. Each test
-// works in a throwaway config home, so nothing here touches the one the other suites
-// share for @last.
+// Each test works in a throwaway config home: the shared one holds the other suites' @last.
 
 let bin: string;
 beforeAll(() => {

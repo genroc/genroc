@@ -16,10 +16,9 @@ type DefinitionGetter interface {
 	LatestVersion(name string) (int, error)
 }
 
-// ValidateChildProcessRefs checks, for every child/child_map/child_list task in def, that the
-// referenced process exists (version 0 resolves to latest) and that the schema inferred from its
-// input expressions is a subset of the child's InputSchema. currentVersion is def's own
-// server-assigned version, for self-reference detection; def must already be normalised.
+// ValidateChildProcessRefs checks every child task's process exists (version 0 is latest) and
+// agrees with the call's input, result and raises. currentVersion is def's own version, for
+// self-reference; def must already be normalised.
 func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) error {
 	defs, tasks, processInput, configSchema, err := buildSchemaContext(def)
 	if err != nil {
@@ -78,10 +77,8 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 	return nil
 }
 
-// R5: every code pattern a child task's on_error names must match something its children
-// can raise — one direction only (D3): typos are caught, uncovered raisables surface at
-// runtime. Matched with the runtime's errcode.MatchCode; catch-alls exempt; the raise set
-// unions the task's children via Raises().
+// R5: every code a child task's on_error names must match something its children can raise.
+// One direction only (D3): typos are caught, uncovered raisables surface at runtime.
 func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) error {
 	if len(s.OnError) == 0 || s.Action == nil {
 		return nil
@@ -116,9 +113,8 @@ func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefin
 		return nil // not a child task: on_error codes are engine codes, not raised ones
 	}
 
-	// The catchable set is raises(D) ∪ {result.invalid}: a child's output failing the
-	// result_schema this task narrowed it with is reactable, so R5 must admit the one
-	// dotted code a child task can see. specs/error-extensions.md §X2-c.
+	// Plus result.invalid: a child's output failing the result_schema this task narrowed it with
+	// is reactable. specs/error-extensions.md §X2-c.
 	raisable = append(raisable, string(errcode.ResultInvalid))
 
 	matchesSomeRaise := func(pattern string) bool {
@@ -140,10 +136,8 @@ func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefin
 	return nil
 }
 
-// resolveChild resolves the (name, version) a child task references to its definition
-// and concrete version. A self-reference (same name, version 0 or the current version)
-// resolves to current without a lookup; otherwise version 0 means the child's latest
-// published version. Shared by the child_map and child_list validators.
+// A self-reference (same name, version 0 or current) resolves without a lookup; otherwise
+// version 0 means the child's latest.
 func resolveChild(name string, version int, current *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) (*model.ProcessDefinition, int, error) {
 	if name == current.Name && (version == 0 || version == currentVersion) {
 		return current, currentVersion, nil
@@ -173,10 +167,8 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 	// Input compatibility is checkable only when the child declares an input schema; the
 	// output check runs regardless (not gated behind it).
 	if child.InputSchema != nil {
-		// A call site that DECLARES what it sends is checked declaration-to-declaration: the
-		// value is conformed to that declaration before it leaves, so the inferred type is no
-		// longer what arrives — it still carries the nulls the conform removes, and comparing
-		// it here would refuse a call that works. specs/declared-slot-schemas.md §5.
+		// Declaration-to-declaration: the inferred type still carries nulls the conform removes,
+		// and would refuse a call that works. specs/declared-slot-schemas.md §5.
 		if p.InputSchema != nil {
 			if err := checkDeclaredAgainstChild(prefix, *p.InputSchema, child, childVersion); err != nil {
 				return err
@@ -193,9 +185,8 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 // `result_schema` against the child's output type, `raises[code]` against that code's payload
 // type. One SchemaFile serves both — they are one contract. See CLAUDE.md.
 func checkChildContract(prefix string, child *model.ProcessDefinition, childVersion int, resultSchema *schema.Schema, raises model.Raises) error {
-	// A child with no declared output is the open type: nothing to compare, and the conform
-	// at collect is the whole check. Kept as a short-circuit so a child_map of many entries
-	// pointing at such a child does not infer it once per entry.
+	// Short-circuit, so a child_map of many entries naming an open-output child does not infer
+	// it once per entry.
 	needOutput := resultSchema != nil && child.Output.Present()
 	if !needOutput && len(raises) == 0 {
 		return nil
@@ -249,10 +240,8 @@ func sortedCodes(raises model.Raises) []string {
 	return codes
 }
 
-// checkChildOutputType: the child's declared output must NarrowsTo the parent's
-// result_schema — the output analogue of the input subset check. NarrowsTo (not IsSubset)
-// is this slot's privilege and the error channel's alike: collect conforms the value at
-// runtime, so an unknown {} is backed by a real check.
+// NarrowsTo, not IsSubset: collect conforms the value at runtime, so an unknown {} is backed by
+// a real check.
 func checkChildOutputType(prefix string, sf SchemaFile, resultSchema *schema.Schema) error {
 	childOut, ok, err := schemaFileOutput(sf)
 	if err != nil {
@@ -268,9 +257,7 @@ func checkChildOutputType(prefix string, sf SchemaFile, resultSchema *schema.Sch
 		prefix, narrowBreaks(childOut, *resultSchema))
 }
 
-// narrowBreaks words every place `actual` fails to narrow to `declared`, in the relation's own
-// walk order. Both channels print through here, so a caller reads the same sentence whichever
-// broke. Wording only — compat.go's explainer carries why it lives beside the check.
+// Both channels print through here, so a caller reads the same sentence whichever broke.
 func narrowBreaks(actual, declared schema.Schema) string {
 	breaks := actual.ExplainNarrowsTo(declared)
 	parts := make([]string, 0, len(breaks))
@@ -287,9 +274,8 @@ func narrowBreaks(actual, declared schema.Schema) string {
 	return strings.Join(parts, "; ")
 }
 
-// schemaFileOutput RESOLVES a definition's inferred output (Generate returns a $ref into its
-// own $defs; resolving makes it comparable against another pool). ok=false = no declared
-// output = open type = nothing to check, at every caller.
+// Resolved, so it compares against another pool. ok=false is no declared output: the open type,
+// nothing to check, at every caller.
 func schemaFileOutput(sf SchemaFile) (schema.Schema, bool, error) {
 	if sf.ProcessOutput.IsZero() {
 		return schema.Schema{}, false, nil
@@ -301,9 +287,6 @@ func schemaFileOutput(sf SchemaFile) (schema.Schema, bool, error) {
 	return out, true, nil
 }
 
-// validateChildListEntry checks a child_list task: the referenced child exists,
-// `over` is a non-null array, and the array's element type (each element is one
-// child's input) is a subset of the child's InputSchema.
 func validateChildListEntry(taskID string, action *model.Action, ctx schema.Schema, defs schema.Defs, current *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) error {
 	prefix := fmt.Sprintf("task %q: child_list", taskID)
 
@@ -312,8 +295,7 @@ func validateChildListEntry(taskID string, action *model.Action, ctx schema.Sche
 		return fmt.Errorf("%s: %w", prefix, err)
 	}
 
-	// Infer `over` and confirm it is a non-null array. This also type-checks the
-	// expression itself (done again here — with the child in scope — after buildInputs).
+	// Re-checked here, after buildInputs, with the child in scope.
 	arr, err := checkArrayTemplate(action.Over, ctx, taskID)
 	if err != nil {
 		return err
@@ -328,9 +310,7 @@ func validateChildListEntry(taskID string, action *model.Action, ctx schema.Sche
 			return err
 		}
 	} else if child.InputSchema != nil {
-		// Extract the element type (resolving `over` through a $ref first, so an array
-		// reached via a shared definition still yields its item schema), then subset-check
-		// it against the child's input schema.
+		// Reading `Items` off a $ref node finds nothing.
 		if arr.HasRef() {
 			if resolved, rerr := arr.Resolve(); rerr == nil {
 				arr = resolved
@@ -350,8 +330,7 @@ func validateChildListEntry(taskID string, action *model.Action, ctx schema.Sche
 		}
 	}
 
-	// result_schema types each element of the child_list output, and each child's output
-	// is validated against it individually — so the per-child check is childOutput ⊆
-	// action.ResultSchema, the same shape as child_map's.
+	// result_schema types each element, so each child's output is checked against it, as in
+	// child_map.
 	return checkChildContract(prefix, child, childVersion, action.ResultSchema, action.Raises)
 }

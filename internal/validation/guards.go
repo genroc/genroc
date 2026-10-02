@@ -7,23 +7,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// translateGuard rewrites a reference proved in the guarding task's frame into the frame the
-// task it routes to will read it in, reporting false where the proof cannot travel.
-// specs/guard-narrowing.md.
-//
-// Four rules, and only the last is counter-intuitive:
-//
-//   - `self.output.v` becomes `outputs.<guard task>.v`, and only where that task exports an
-//     output at all — otherwise the name it would translate to does not exist downstream.
-//   - `input.*` and `outputs.*` pass through: they name the same value in every frame.
-//   - `self.result` / `self.previous` / `last_error` are dropped. They are the GUARDING
-//     task's, and the target has its own values under those same names.
-//   - `config` is dropped even though the name means the same thing everywhere: it is
-//     re-resolved from the environment every tick and never persisted, so proving something
-//     about it here proves nothing about the value the next task reads.
-//
-// A path the parser cannot read back is a computed key (`m[k]`), and it is dropped for a
-// reason of its own: `k` is a different value in the target's frame, if it is there at all.
+// translateGuard moves a proved reference into the target task's frame, or reports false; the
+// rules are specs/guard-narrowing.md's (`config` never travels). An unparseable path is a computed
+// key (`m[k]`), dropped too: `k` is a different value in the target's frame.
 func translateGuard(path, guardTask string, exportsOutput bool) (string, bool) {
 	segs, err := schema.ParsePath(path)
 	if err != nil || len(segs) == 0 || segs[0].IsIndex {
@@ -75,12 +61,8 @@ func factState(f schema.GuardFact) (refState, bool) {
 	return 0, false
 }
 
-// clause is a switch case and an `on_error` rule seen as ONE thing: a guard, plus whether its
-// FALSITY may be read. That is the only way the two differ. A rule's predicate is
-// `(code == a || code == b) && case`, so a rule naming a code proves nothing by not firing —
-// the negation of a conjunction is a fact about neither half, since it may have been skipped on
-// the code before its `case` ever ran (`matchOnErrorWith`). Both prove their guard when they DO
-// fire. specs/guard-narrowing.md.
+// clause is a switch case or an `on_error` rule: a guard, plus whether its FALSITY may be read. A
+// rule naming a code proves nothing by not firing (`matchOnErrorWith`). specs/guard-narrowing.md.
 type clause struct {
 	cond    string
 	negates bool
@@ -103,12 +85,8 @@ func ruleClauses(t *model.Task) []clause {
 	return out
 }
 
-// clauseFacts is what reaching clause k establishes: every earlier clause that CAN be read
-// failed, and — where `own` — this one held. The negation is most of what makes the feature
-// useful (the guard-clause shape, handle the bad case and fall through, gets all its narrowing
-// from it); `own` is what an outgoing edge and a clause's siblings may assume, and what the
-// guard's own expression never may, being what proves it. `frame` decides which frame the facts
-// are read in, and may refuse one.
+// clauseFacts: reaching clause k proves every earlier readable clause false and, where `own`, k
+// true — which the guard's own expression never may assume. `frame` may refuse a reference.
 func clauseFacts(cs []clause, k int, own bool, frame func(string) (string, bool)) refs {
 	out := refs{}
 	if k < 0 || k >= len(cs) {
@@ -141,9 +119,8 @@ func factsOf(cond string, whenTrue bool) []schema.GuardFact {
 	return no
 }
 
-// addFacts folds catalogue facts into a set, dropping what proves nothing and what the frame
-// refuses. A reference one predicate proves both null and non-null is dropped rather than
-// picked: the predicate cannot hold, and either answer would be a guess.
+// A reference one predicate proves both null and non-null is dropped, not picked: the predicate
+// cannot hold, and either answer would be a guess.
 func (r refs) addFacts(facts []schema.GuardFact, frame func(string) (string, bool)) {
 	for _, f := range facts {
 		state, ok := factState(f)
@@ -162,9 +139,8 @@ func (r refs) addFacts(facts []schema.GuardFact, frame func(string) (string, boo
 	}
 }
 
-// sameFrame reads a guard in the frame it was written in: nothing is translated and nothing is
-// dropped, which is what every name still in scope one slot later needs — `config` included,
-// since one `evalSwitch` pass reads one resolved value.
+// sameFrame drops nothing — `config` included, since one `evalSwitch` pass reads one resolved
+// value.
 func sameFrame(path string) (string, bool) { return path, true }
 
 // edgeRefs is what taking switch case k proves, in the frame of the task it routes to.
@@ -174,18 +150,16 @@ func edgeRefs(t *model.Task, k int) refs {
 	})
 }
 
-// ruleEdgeRefs is edgeRefs for an `on_error` rule's `goto`. The task FAILED, so it exported no
-// output and nothing under `self` has a downstream name — which is the whole of the difference,
-// and translateGuard's `exportsOutput` says it.
+// ruleEdgeRefs is edgeRefs for an `on_error` goto: the task FAILED, so it exported no output and
+// nothing under `self` has a downstream name.
 func ruleEdgeRefs(t *model.Task, k int) refs {
 	return clauseFacts(ruleClauses(t), k, true, func(path string) (string, bool) {
 		return translateGuard(path, t.ID, false)
 	})
 }
 
-// meetRefs keeps only what BOTH sides prove, identically. A nil map is "not computed yet"
-// (top) and yields the other side; two edges disagreeing about a reference leave it
-// unrefined, which is the conservative direction.
+// meetRefs keeps only what BOTH sides prove, identically. A nil map is top ("not computed yet")
+// and yields the other side.
 func meetRefs(a, b refs) refs {
 	if a == nil {
 		return b
@@ -202,9 +176,8 @@ func meetRefs(a, b refs) refs {
 	return out
 }
 
-// killOutput drops every fact about one task's output. Two callers, both load-bearing: a task
-// is about to overwrite its own `outputs.<id>` when it is re-entered, and a task that FAILED
-// produced no output at all, so an error edge carries nothing about it.
+// Two callers, both load-bearing: a re-entered task overwrites its own `outputs.<id>`, and a
+// failed one produced none.
 func killOutput(in refs, taskID string) refs {
 	prefix := schema.JoinPath(schema.JoinPath("", "outputs"), taskID)
 	out := make(refs, len(in))
@@ -217,9 +190,8 @@ func killOutput(in refs, taskID string) refs {
 	return out
 }
 
-// computeRefinements is the dataflow half: what every task may assume on entry, given the
-// edges that reach it. It rides the same predecessor graph as the output sets, converging
-// downward from "everything" so a loop cannot admit a fact its back edge never proved.
+// computeRefinements converges downward from "everything", so a loop cannot admit a fact its
+// back edge never proved.
 func computeRefinements(tasks []*model.Task) map[string]refs {
 	n := len(tasks)
 	out := make(map[string]refs, n)
@@ -241,9 +213,8 @@ func computeRefinements(tasks []*model.Task) map[string]refs {
 				if carried == nil {
 					continue // predecessor still top; it constrains nothing yet
 				}
-				// What held on entry to the predecessor still holds, plus what the clause
-				// selecting this edge proved. Neither needs a kill for the failing task's
-				// own output: the carried set was stripped of it when it was computed.
+				// No kill for the failing task's own output: the carried set was stripped of it
+				// when it was computed.
 				proved := edgeRefs(tasks[p.idx], p.sw)
 				if p.isErr {
 					proved = ruleEdgeRefs(tasks[p.idx], p.rule)
@@ -300,9 +271,8 @@ func sameRefs(a, b refs) bool {
 	return true
 }
 
-// applyRefinements turns the symbolic facts into the narrowed types the inferrer consults.
-// This is the only place a type is touched: resolvable carries the $defs pool the lookup
-// needs, and a path this context does not have is skipped rather than invented.
+// The only place a fact touches a type. resolvable carries the $defs pool; a path this context
+// lacks is skipped, not invented.
 func applyRefinements(ctx, resolvable schema.Schema, r refs) schema.Schema {
 	if len(r) == 0 {
 		return ctx
@@ -315,9 +285,8 @@ func applyRefinements(ctx, resolvable schema.Schema, r refs) schema.Schema {
 		}
 		switch state {
 		case refNonNull:
-			// Materialized: a path landing exactly ON a `$ref` hides its null inside the
-			// target, which is every guard on a whole task output — an output is carried as
-			// a ref by construction.
+			// Materialized: a path landing ON a `$ref` hides its null inside the target, which is
+			// every guard on a whole task output.
 			stripped := declared.StripNull()
 			if stripped.IsZero() || stripped.HasNull() {
 				continue

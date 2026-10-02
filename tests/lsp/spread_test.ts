@@ -4,10 +4,8 @@ import { join } from "path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { at, Lsp, useWorkspace } from "./helpers.ts";
 
-// The structural phase in the editor. A `<<` spread fills `name`, `result_schema` and `raises`
-// from the child definition, so a server that skips resolution reports a document nobody
-// applies — `unknown field "<<"` first, then every key the spread would have supplied.
-// specs/source-resolution.md, specs/language-server.md §4.
+// The structural phase in the editor: skipped, a `<<` spread reads as `unknown field "<<"` plus
+// every key it supplies. specs/source-resolution.md, specs/language-server.md §4.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -40,9 +38,7 @@ function parent(...extra: string[]): string {
     "input_schema:",
     "  type: object",
     "  properties: { n: { type: number } }",
-    // Required, because the parent forwards `n` straight into a child that requires it: an
-    // optional property reads as nullable, and the call site's declared input_schema (spread
-    // in from the child) refuses a null where the child declares a number.
+    // Required: optional reads as nullable, and the input_schema spread from the child refuses null.
     "  required: [n]",
     "tasks:",
     "  - id: call",
@@ -98,9 +94,6 @@ test("a mistake the author DID write is still underlined through a spread", asyn
   expect(ds[0]).toContain("nope");
 });
 
-// Diagnostics are not the only answer the spread changes: `result_schema` arrives with it, so
-// the type of `self.result` — and everything a reader walks out of it — exists only once the
-// structural phase has run.
 test("hover reads a type the spread supplied", async () => {
   const doc = project(parent());
   expect(
@@ -124,9 +117,7 @@ test("completion offers the members the spread brought across", async () => {
   ).toContain("doubled");
 });
 
-// `raises` arrives with the spread too, and an `on_error` rule's `code` is a closed set the
-// server offers. It is a THIRD path: `completeAt` dispatches to `errorCodeValues` before it
-// ever reaches the expression scope, and that one reads the action out of the document.
+// A separate path: `completeAt` dispatches to `errorCodeValues` before the expression scope.
 test("completion offers a raise code the spread brought across", async () => {
   const doc = project(parent("    on_error:", "      - code: []"));
   expect(
@@ -135,14 +126,12 @@ test("completion offers a raise code the spread brought across", async () => {
   ).toContain("negative");
 });
 
-// `input_schema` is the fourth thing the spread fills, and the only one that is a COPY rather
-// than an inference — the child's author wrote it. It is what makes a child call checkable with
-// no server, which is what the input check has never been.
+// The one key the spread COPIES rather than infers, so a child call is checkable with no server.
 test("the spread brings the child's input_schema across, so a bad input is caught here", async () => {
   const misspelled = parent().replace("input: { n: '$: input.n' }", "input: { m: '$: input.n' }");
   const ds = await lsp.diagnostics(project(misspelled));
   expect(ds.length, `expected one diagnostic, got ${JSON.stringify(ds)}`).toBe(1);
-  // The KEY the child does not declare. Nothing read the child out of a database to know that.
+  // The KEY the child does not declare.
   expect(ds[0]).toContain("m");
 });
 
@@ -162,9 +151,7 @@ test("a spread that fills input_schema still leaves an explicit one alone", asyn
   expect(ds).toEqual([]);
 });
 
-// The directive itself. What a spread fills in is a structure, so this is the one hover that is
-// not a line: the mapping, as the YAML its author would have written, from the same call the
-// structural phase makes.
+// The one hover that is not a line: the mapping as YAML, from the call the structural phase makes.
 test("hover on the directive shows what the spread fills in, as YAML", async () => {
   const doc = project(parent());
   expect(await lsp.hover(at('      <<: "$process: <^./child.genroc.yaml>"', doc))).toBe(
@@ -220,9 +207,8 @@ test("a directive that does not resolve shows no structure", async () => {
   expect(md).not.toContain("```");
 });
 
-// The KEY is a different question from its value: what `<<` does. A `<<` whose value defdoc
-// merges itself (a nested mapping, an anchor) has no node in the index at all, so without an
-// answer of its own the cursor resolved to the mapping around it and hover described `action`.
+// A `<<` whose value defdoc merges itself has no index node, so without an answer of its own the
+// cursor resolves to the enclosing mapping.
 test("hover on the `<<` key says what a merge does, whatever its value", async () => {
   const explains = (md: string) => {
     expect(md).toContain("Merges a mapping into this one");

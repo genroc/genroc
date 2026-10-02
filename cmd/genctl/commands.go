@@ -86,9 +86,8 @@ func runApplyCmd(server string, args []string) {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		fatal("apply: %v", err)
 	}
-	// An apply MOVES A POINTER, so the move is what the line reports -- `saved` alone reads
-	// the same for a rollback and a no-op. `new` means a version was minted, `existing` that
-	// the content matched one already stored, which is how a revert lands.
+	// An apply MOVES A POINTER, so the line reports the move: `saved` alone reads the same for a
+	// rollback and a no-op. `existing` (content matched a stored version) is how a revert lands.
 	for _, r := range resp {
 		move := fmt.Sprintf("v%d -> v%d", r.Previous, r.Version)
 		switch {
@@ -108,9 +107,7 @@ func runApplyCmd(server string, args []string) {
 	}
 }
 
-// runTypesCmd generates the declarations a resolver's authoring layer needs, without building or
-// applying anything -- without it an author's file is red until they apply once. It contacts no
-// server, so it runs on every edit whether or not one is reachable.
+// runTypesCmd contacts no server: it runs on every edit, whether or not one is reachable.
 func runTypesCmd(args []string) {
 	fs := newFlagSet("types", args)
 	fs.String("f", "", "definition file or glob; takes several, and repeats")
@@ -155,15 +152,12 @@ func runChannelCmd(server string, args []string) {
 	sub, args := args[0], args[1:]
 	fs := newFlagSet("channel "+sub, args)
 	serverFlag := addServerFlag(fs, server)
-	// promote's own selectors. Declared here rather than in a nested flag set because the
-	// stdlib parses one set per call, and every other subcommand takes its arguments
-	// positionally.
+	// promote's selectors share this set: the stdlib parses one set per call.
 	fromFlag := fs.String("from", "", "promote: source channel")
 	toFlag := fs.String("to", "", "promote: target channel")
 	processFlag := fs.String("process", "", "promote: limit to this process and its dependency subtree")
-	// list and status are the readable subcommands, so they carry the machine form every other
-	// listing has. It must be declared HERE: the stdlib stops parsing at the first positional,
-	// so a flag placed after `<process>` is swallowed silently rather than refused.
+	// Declared HERE: the stdlib stops parsing at the first positional, so a flag placed after
+	// `<process>` is swallowed silently rather than refused.
 	jsonFlag := fs.Bool("json", false, "list, status: print the raw JSON items instead of the table")
 	fs.Parse(args)
 	rest := fs.Args()
@@ -193,9 +187,7 @@ func runChannelCmd(server string, args []string) {
 			fatal("%v", err)
 		}
 		for _, e := range resp {
-			// A pointer moved before attribution landed has no actor, and one moved by an
-			// unauthenticated caller has none either -- both print the move without a name
-			// rather than an empty "by".
+			// No actor: moved before attribution landed, or by an unauthenticated caller.
 			trail := ""
 			if e.UpdatedAt != "" {
 				trail = "   moved " + shortTime(e.UpdatedAt)
@@ -258,9 +250,7 @@ func runChannelCmd(server string, args []string) {
 	}
 }
 
-// channelStatus reports the child references a channel's members baked at a version the
-// channel no longer points at -- a coherence report, not a listing, which is why it prints
-// nothing per clean member.
+// channelStatus reports child references baked at a version the channel no longer points at.
 func channelStatus(server string, rest []string, asJSON bool) {
 	channel := "latest"
 	if len(rest) > 0 {
@@ -359,19 +349,15 @@ func runRunCmd(server string, args []string) {
 		Status  string `json:"status"`
 	}
 	if err := call(*serverFlag+"/api/instances", http.MethodPost, body, &resp); err != nil {
-		// Surface an input-schema mismatch as a clear, dedicated message instead of
-		// the generic "server: ..." wrapper.
 		if detail, ok := inputValidationError(err); ok {
 			fatal("input is not valid for %s:\n  %s", process, detail)
 		}
 		fatal("%v", err)
 	}
-	// Record the id so a follow-up command can resolve @last (or a bare-id default)
-	// without copy-pasting. Best-effort: an unwritable state dir must not fail run.
+	// Best-effort: an unwritable state dir must not fail run.
 	if err := saveLastInstance(resp.ID); err != nil {
 		fmt.Fprintf(os.Stderr, "genctl: warning: could not record last instance id: %v\n", err)
 	}
-	// -q prints just the id so it composes: id=$(genctl run NAME -q).
 	if *quietFlag {
 		fmt.Println(resp.ID)
 		return
@@ -432,8 +418,6 @@ func runSignalCmd(server string, args []string) {
 	fmt.Println(line)
 }
 
-// outcomeBody puts the payload on the channel --code selects: the error half when a code is
-// given, the result half otherwise.
 func outcomeBody(body map[string]any, payload any, code, message string) map[string]any {
 	if code == "" {
 		body["result"] = payload
@@ -450,9 +434,8 @@ func outcomeBody(body map[string]any, payload any, code, message string) map[str
 	return body
 }
 
-// instanceView decodes both single-instance endpoints. One struct because the two must agree
-// on every field they share: a name that drifts between them reads as an absent value, not as
-// an error.
+// instanceView decodes both single-instance endpoints, so a field name cannot drift between
+// them — drift reads as an absent value, not an error.
 type instanceView struct {
 	ID         string `json:"id"`
 	Process    string `json:"process"`
@@ -496,9 +479,7 @@ func runGetCmd(server string, args []string) {
 	resolveFlag := fs.Bool("resolve", false, "inline large values instead of printing their refs")
 	id := instanceIDAndFlags(fs, args)
 
-	// The status endpoint: what the instance reports OUTWARD -- its `output:` block and the
-	// error it ended on. The engine's own slots are `detail`, so the everyday read cannot
-	// hand back internals nobody asked for.
+	// The status endpoint: only what the instance reports OUTWARD. Engine slots are `detail`'s.
 	inst, raw := fetchInstance(*serverFlag, "/api/instances/"+url.PathEscape(id), *resolveFlag)
 	if *jsonFlag {
 		printIndented(raw)
@@ -511,8 +492,7 @@ func runGetCmd(server string, args []string) {
 // printReported prints the values the instance reports outward. `detail` calls it too: the
 // server moves these slots out of `state`, so skipping it there drops them from the view.
 func printReported(inst instanceView) {
-	// The payload the failing clause attached -- the machine-readable half of the error whose
-	// prose the head printed. Before the output, because on a failed instance there is none.
+	// The machine-readable half of the error the head printed.
 	if inst.ErrorData != nil {
 		fmt.Println("\nError data:")
 		fmt.Println(yamlBlock(withObjectRefs(inst.ErrorData, inst.Objects, "error_data")))
@@ -521,8 +501,7 @@ func printReported(inst instanceView) {
 		fmt.Println("\nOutput:")
 		fmt.Println(yamlBlock(withObjectRefs(inst.Output, inst.Objects, "output")))
 	}
-	// What a parked instance is ASKING for. Last because it is the live case and the two
-	// above are the settled ones; present only while the task is unanswered.
+	// What a parked instance is ASKING for; present only while the task is unanswered.
 	if inst.ExternalInput != nil {
 		fmt.Println("\nExternal input:")
 		fmt.Println(yamlBlock(withObjectRefs(inst.ExternalInput, inst.Objects, "external_input")))
@@ -538,9 +517,8 @@ func runDetailCmd(server string, args []string) {
 
 	u := "/api/instances/" + url.PathEscape(id) + "/detail"
 	if *resolveFlag {
-		// The server splices what fits and leaves the rest listed, so ask it first and then
-		// fetch whatever it could not carry: two round trips at most for the small case, and
-		// the big values still never pass through a response nobody sized.
+		// The server splices what fits and lists the rest, which fetchInstance then fetches: the
+		// big values never pass through a response nobody sized.
 		u += "?resolve=true"
 	}
 	inst, raw := fetchInstance(*serverFlag, u, *resolveFlag)
@@ -621,8 +599,6 @@ func printInstanceHead(inst instanceView, extra func(io.Writer)) {
 	fmt.Fprintf(w, "ID:\t%s\n", inst.ID)
 	fmt.Fprintf(w, "Process:\t%s@v%d\n", inst.Process, inst.Version)
 	fmt.Fprintf(w, "Status:\t%s\n", inst.Status)
-	// Where the process is, printed right under what is happening to it -- and on a
-	// settled instance, where it stopped.
 	if inst.Task != "" {
 		fmt.Fprintf(w, "Task:\t%s\n", inst.Task)
 	}
@@ -665,8 +641,6 @@ func runInstancesCmd(server string, args []string) {
 	fs.Parse(args)
 
 	if *quietFlag && *jsonFlag {
-		// Both are machine forms and they disagree about the shape; picking one silently
-		// would give a script the other one's output.
 		fatal("--json and -q are two machine-readable forms of this list; pass one")
 	}
 
@@ -719,11 +693,8 @@ func runInstancesCmd(server string, args []string) {
 		return
 	}
 
-	// -q: ids only, so `genctl pause $(genctl instances -q --status running)` passes the
-	// list straight to a lifecycle command. Nothing else may reach stdout on this path —
-	// an empty list must print NOTHING, because "no instances" would arrive at the outer
-	// command as two arguments. The cap notice stays on stderr, where it already was: a
-	// truncated list here silently pauses 20 of 50.
+	// -q: NOTHING but ids may reach stdout, not even "no instances" — it would arrive at the
+	// outer command as two arguments. The cap notice stays on stderr.
 	if *quietFlag {
 		type idRow struct {
 			ID string `json:"id"`
@@ -754,9 +725,7 @@ func runInstancesCmd(server string, args []string) {
 		UpdatedAt    string `json:"updated_at"`
 	}
 
-	// A tabwriter sizes its columns from everything written before Flush, so this one
-	// cannot stream: it buffers whichever way the rows arrive, and the header is written
-	// lazily so an empty list says so instead of printing a bare header.
+	// The header is written lazily so an empty list prints "no instances", not a bare header.
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	rows := 0
 	capped, err := fetchOrdered(u, limit, newestFirst, func(page []instanceRow) error {
@@ -769,9 +738,6 @@ func runInstancesCmd(server string, args []string) {
 			if len(errMsg) > 50 {
 				errMsg = errMsg[:47] + "..."
 			}
-			// The PARENT column appears only with --children: without it every row is a root
-			// and the column would be a wasted width, but WITH it nothing else on the row says
-			// which of the two a line is.
 			fmt.Fprintf(w, "%s\t%s\t%s@v%d%s\t%s\t%s\t%s\t%s\n",
 				r.ID, statusCol(r.Status, r.Phase), r.Process, r.Version,
 				parentCol("\t"+dashIfEmpty(r.ParentID), *childrenFlag),
@@ -790,9 +756,6 @@ func runInstancesCmd(server string, args []string) {
 	note(capped)
 }
 
-// runDefinitionsCmd lists the registry, newest-registered first like every other list.
-// --sort name gives alphabetical order instead, under which --since is a filter over
-// created_at rather than the point the walk starts from, so it does not lift the cap.
 func runDefinitionsCmd(server string, args []string) {
 	fs := newFlagSet("definitions", args)
 	serverFlag := addServerFlag(fs, server)
@@ -805,9 +768,8 @@ func runDefinitionsCmd(server string, args []string) {
 	q := url.Values{}
 	q.Set("sort", *sortFlag)
 	limit := applyWindow(q, *sinceFlag, *untilFlag, "created_at", listCap)
-	// Under --sort name the cap keeps the *first* N alphabetically, not the last, and
-	// --since still lifts it — created_at is then a filter over the window rather than
-	// the point the walk starts from, but the walk (A→Z) is finite either way.
+	// Under --sort name the cap keeps the FIRST N, and --since still lifts it: created_at is
+	// then a filter rather than a start point, but the A→Z walk is finite either way.
 	dir := newestFirst
 	shown := "the newest %d definitions"
 	if *sortFlag == "name" {
@@ -848,8 +810,7 @@ func runDefinitionsCmd(server string, args []string) {
 				fmt.Fprintln(w, "NAME\tVERSION\tREGISTERED\tBY\tRAISES")
 			}
 			rows++
-			// A dash for a version deployed before attribution landed, so an absent actor
-			// reads as "never recorded" rather than as an empty column.
+			// A dash: the version predates attribution, so the actor was never recorded.
 			fmt.Fprintf(w, "%s\tv%d\t%s\t%s\t%s\n",
 				r.Name, r.Version, shortTime(r.CreatedAt), dashIfEmpty(r.Actor),
 				strings.Join(r.Raises, ", "))
@@ -867,17 +828,14 @@ func runDefinitionsCmd(server string, args []string) {
 	note(capped)
 }
 
-// Caps for a list command that names no start point (--since/--from lifts the cap by
-// saying where to begin — one control per list). logs is larger because a trail is
-// read as a trail, not scanned as a table.
+// Caps for a list that names no start point; naming one (--since/--from) is the only way past.
 const (
 	logTailDefault = 200
 	listCap        = 20
 )
 
-// statusCol renders phase as a qualifier on the status rather than a column of its own:
-// it is empty on most rows, and it only ever refines the status beside it (a parked instance
-// is still running). Matches how the UI and `genctl get` already pair the two.
+// statusCol folds phase into the status, which it only ever refines (a parked instance is
+// still running).
 func statusCol(status, wait string) string {
 	if wait == "" {
 		return status
@@ -989,9 +947,8 @@ func runRetryCmd(server string, args []string) {
 	})
 }
 
-// parseArgs parses flags that appear ANYWHERE among the positional arguments, and returns the
-// positionals. flag.Parse stops at the first non-flag, so `--channel prod` after a positional
-// would go unparsed. Parsing one positional at a time and resuming is the way round it.
+// parseArgs parses flags ANYWHERE among the positionals and returns the positionals;
+// flag.Parse alone stops at the first non-flag.
 func parseArgs(fs *flag.FlagSet, args []string) []string {
 	var pos []string
 	for {

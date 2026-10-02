@@ -1,9 +1,5 @@
-# The row grammar §6b is written for: ONE address failing both questions, with only one of
-# them excused. It is why the phrase is a list of per-member clauses rather than the single
-# "breaking upgrade and contract" it started as — a phrase naming both members can carry only
-# one fate, and the fate here differs between them. `an-excused-break-still-exits-1.yaml` has
-# both members excused-and-not in the same report, but at different addresses, so the row it
-# asserts never has to say two things at once.
+# One address failing both questions with only one excused: the row needs per-member clauses
+# (§6b), since a single phrase carries one fate.
 apply:
   - channel: bothign_a
     definitions:

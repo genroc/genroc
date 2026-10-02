@@ -9,10 +9,8 @@ import (
 	"text/tabwriter"
 )
 
-// `genctl -h` is the MAP -- one line per command, and nothing a reader has to skip past to
-// find the command they want. `genctl <cmd> -h` is the page: the grammar, the prose that one
-// command needs, and its flags printed from its own flag set, so a flag is described where it
-// is declared and nowhere else.
+// `genctl -h` is the one-screen MAP; `genctl <cmd> -h` is the page. See cmd/genctl/CLAUDE.md
+// "Help lives in one place".
 
 type commandDoc struct {
 	summary string   // the one line in the map
@@ -263,9 +261,8 @@ Environment: $GENROC_SERVER, $GENROC_TOKEN, $TZ -- or `+"`genctl config`"+` on d
 `)
 }
 
-// newFlagSet is every command's flag set, and the reason `<cmd> -h` answers with more than a
-// list of flags. args is captured so Usage knows WHY it was called: help asked for goes to
-// stdout, help accompanying a parse error follows the error to stderr.
+// newFlagSet captures args so Usage knows WHY it was called: asked-for help goes to stdout,
+// help accompanying a parse error follows the error to stderr.
 func newFlagSet(name string, args []string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	fs.Usage = func() {
@@ -287,9 +284,8 @@ func hasHelpArg(args []string) bool {
 	return false
 }
 
-// helpFor prints what a command's own parser cannot: a subcommand dispatcher reads a
-// positional before any flag set exists, so `genctl channel -h` never reaches flag.Parse.
-// The flags then belong to the subcommand -- `genctl channel promote -h` prints those.
+// helpFor is for a subcommand dispatcher, whose `-h` never reaches flag.Parse; the flags belong
+// to the subcommand (`genctl channel promote -h`).
 func helpFor(name string) {
 	printCommandHelp(os.Stdout, name, flag.NewFlagSet(name, flag.ExitOnError))
 }
@@ -301,9 +297,8 @@ func missingSubcommand(name string) {
 	os.Exit(1)
 }
 
-// printCommandHelp renders one command: grammar, prose, then its flags as the flag set
-// declares them. The set is the only source for the flags, so a renamed flag cannot leave a
-// stale line behind in the prose.
+// printCommandHelp takes flags only from the flag set, so a renamed flag cannot leave a stale
+// line behind in the prose.
 func printCommandHelp(w io.Writer, name string, fs *flag.FlagSet) {
 	doc, ok := commandDocs[strings.Fields(name)[0]]
 	if !ok {

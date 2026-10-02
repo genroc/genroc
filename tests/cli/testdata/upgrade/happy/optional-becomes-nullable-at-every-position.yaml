@@ -1,15 +1,6 @@
-# The sweep. One upgrade is not evidence that upgrading WORKS — it is evidence that upgrading
-# from one state works. This runs the same move from every state the process passes through, so
-# a migration that is right at entry and wrong once an output exists (or vice versa) cannot hide
-# behind a well-chosen tick.
-#
-# The move itself is one that has to TRANSFORM state rather than pass it through: `note` was
-# optional and absent, and v2 requires it as a nullable. Absent and null are the same value to
-# a reader and different values to a schema, so the migration has to write the null in — and
-# `values` compares JSON, where an expected null fails against a missing key.
-#
-# Task logic is identical in both versions on purpose: the finished output must not depend on
-# WHEN the upgrade happened, which is the strongest thing a sweep can assert.
+# The same move from every state the process passes through. It must transform state: absent
+# `note` becomes a required nullable, so the migration writes null, and `values` compares JSON
+# (null is not a missing key). Task logic is identical in both versions on purpose.
 apply:
   - definitions:
       - name: nullproc
@@ -60,14 +51,8 @@ apply:
             switch: end
         output: {result: '$: outputs.fourth.q'}
 start: {process: nullproc, input: {n: 2}, advance_ms: 1000}
-# One entry per position the process passes through. Each states what the instance holds THERE —
-# ticks 0 and 1 are both `first` and are not the same state (at 0 nothing has run, at 1 the delay
-# is armed), and the outputs accumulate as it goes. The instance completes at tick 5, so 4 is the
-# last position with a live tree to move.
-#
-# What every position shares is stated once below and inherited: `note` migrates to null wherever
-# the upgrade happens, and the finished output does not depend on WHEN it happened — the
-# strongest thing a sweep can assert, and the reason both versions compute identically.
+# Ticks 0 and 1 are both `first` but different states (nothing run vs delay armed); it
+# completes at 5, so 4 is the last live position. The `after` below is shared by all.
 at:
   - {ticks: 0, resting: {task: first, phase: ""}, after: {outputs: []}}
   - {ticks: 1, resting: {task: first}, after: {outputs: []}}

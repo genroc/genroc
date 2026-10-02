@@ -3,13 +3,8 @@ import { client, startMockService, waitForInstance } from "../helpers/client.ts"
 
 // ── Static validation ─────────────────────────────────────────────────────────
 
-// A task's switch selects with "case" and its on_error selects with "code". Swapping them
-// used to be accepted silently, which turned the rule into a catch-all and then reported a
-// catch-all problem the author had not written — so the mis-keyed field is rejected by
-// name, pointing at the list it actually belongs to.
-// `case` is a legal on_error key since M2, but a CODE LIST under it is still the mistake it
-// always was — an author reaching for `code`. The rejection moved from "unknown field" to a
-// type error, and must keep naming the key they meant.
+// `case` is a legal on_error key (M2), but a CODE LIST under it is an author reaching for `code`,
+// and the rejection must name the key they meant.
 test("on_error — a code list under \"case\" is rejected by name", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {
@@ -184,10 +179,8 @@ test("only_once:true — accepts not_reached:true override for http.422", async 
   expect(error).toBeUndefined();
 });
 
-// not_reached asserts what an error *means*, which is a claim only about an error that
-// came back. A catch-all also matches the codes where nothing came back — http.timeout,
-// external.timeout, only_once.interrupted — so on an only_once task it cannot carry
-// retries however it is annotated.
+// A catch-all also matches codes where nothing came back (http.timeout, external.timeout,
+// only_once.interrupted), so not_reached cannot license its retries.
 test("only_once:true — not_reached:true does not rescue a catch-all with retries", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {
@@ -208,9 +201,7 @@ test("only_once:true — not_reached:true does not rescue a catch-all with retri
   );
 });
 
-// not_reached is an assertion about one specific error, so it cannot be made through a
-// wildcard — and the message has to say that rather than naming whichever dangerous code
-// the wildcard happened to reach.
+// The message must say not_reached cannot go through a wildcard, not name whichever code it reached.
 test("only_once:true — not_reached:true cannot be asserted through a wildcard", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {
@@ -251,9 +242,7 @@ test("only_once:true — an unknowable code cannot be retried even when named ex
   expect(error?.error).toContain("check the system of record instead");
 });
 
-// The shape the rules push an author towards: exact codes, asserted individually. This is
-// the one that must keep working — a rule set that cannot express a legitimate retry
-// policy is worse than one that is too permissive.
+// The shape the rules push authors towards, so it must keep working.
 test("only_once:true — exact codes asserted with not_reached:true are retryable", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {
@@ -422,14 +411,10 @@ test("only_once:true — connection refused triggers pre.% retries", async () =>
 });
 
 test("only_once:true — not_reached:true allows retry on http.422", async () => {
-  // First call returns 422 (trigger retry), second returns 200
   let calls = 0;
   const mock = await startMockService(0, { statusCode: 200, response: { ok: true } });
-  // We can't make the mock return different status codes per call, so instead we verify
-  // that with not_reached:true the definition is accepted and the task runs.
-  // A 200 response means not_reached:true retries would not fire (no error to trigger them).
-  // The meaningful runtime check is the static acceptance test above; here we just confirm
-  // the task executes and completes normally.
+  // The mock cannot vary status per call, so this only confirms the definition is accepted and
+  // runs; the static acceptance test above is the meaningful check.
 
   const name = `ni_rt_exec_false_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
@@ -465,8 +450,7 @@ test("only_once:true — not_reached:true allows retry on http.422", async () =>
 });
 
 test("default task (no only_once) — http.500 retries normally", async () => {
-  // Baseline: same setup without only_once:true. The http.% rule has retries:1.
-  // Total calls = 2 (original + 1 retry), then $end → completed.
+  // Baseline without only_once: original + 1 retry, then end.
   const failMock = await startMockService(0, { statusCode: 500 });
 
   const name = `default_retry_${crypto.randomUUID()}`;
@@ -494,7 +478,6 @@ test("default task (no only_once) — http.500 retries normally", async () => {
   // 1 retry = 2s delay; allow up to 15s
   expect(await waitForInstance(data!.id, 15_000)).toBe("completed");
 
-  // Original + 1 retry = 2 calls
   expect(failMock.requestCount()).toBe(2);
 
   failMock.stop();

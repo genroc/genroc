@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// What a proxied request costs beyond the proxy hop: verify the session cookie, resolve the role
-// map, sign an access token. ui-issued-tokens.md §7 left "is per-request minting too expensive?"
-// open; this is the measurement that answers it.
+// Per-request cost beyond the proxy hop: verify the session, resolve roles, sign an access token.
+// Answers ui-issued-tokens.md §7's open "is per-request minting too expensive?".
 
 func benchSigner() *signer {
 	return &signer{

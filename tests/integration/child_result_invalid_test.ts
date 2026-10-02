@@ -1,14 +1,10 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance, childrenOfTask } from "../helpers/client.ts";
 
-// A child that exports the TOP TYPE and a caller that narrows it with result_schema: the
-// registration check passes by construction (no declared output = nothing to compare), so
-// the conform at collect is the only gate. When the caller's bet loses, that is
-// `result.invalid` — catchable on the child task — not the terminal engine.collect it used
-// to be. specs/error-extensions.md §X2-c.
+// A top-type child narrowed by result_schema passes registration by construction, so the conform at
+// collect is the only gate; a lost bet is a catchable result.invalid. specs/error-extensions.md §X2-c.
 
-// forwarder echoes whatever it is given, leaving its output untyped — the generic-wrapper
-// shape the whole feature exists for.
+// Echoes its input, leaving its output untyped.
 async function putForwarder(name: string) {
   await client.PUT("/definitions", {
     body: {
@@ -38,8 +34,7 @@ test("a lost narrowing bet is result.invalid, and an on_error rule catches it", 
             input: { value: 42 },
             result_schema: { type: "object", properties: { ok: { type: "boolean" } } },
           },
-          // R5 rejected this pattern before X2-c: result.invalid is the one dotted code a
-          // child task can name.
+          // result.invalid is the one dotted code a child task can name.
           on_error: [{ code: ["result.invalid"], goto: "$fallback" }],
           switch: [{ goto: "end" }],
         },
@@ -126,8 +121,7 @@ test("only result.invalid joins the set — another engine code is still refused
   expect(JSON.stringify(error)).toContain("no child of this task can raise");
 });
 
-// The conform runs per collected child, so the split covers the fan-out shapes too: one bad
-// element takes the whole batch to result.invalid rather than engine.collect.
+// One bad entry takes the whole batch to result.invalid.
 test("a child_map entry that fails its own narrowing reports result.invalid", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `oi_map_child_${uid}`;

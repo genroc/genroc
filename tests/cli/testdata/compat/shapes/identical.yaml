@@ -1,6 +1,5 @@
-# Byte-identical content is deduplicated on apply, so the second batch reuses v1 rather
-# than minting v2 — and a process resolving to the same version on both sides has
-# nothing to compare. This is what an unchanged process looks like in every real report.
+# Byte-identical content dedupes on apply (v1 reused, no v2), so both sides resolve to the
+# same version and there is nothing to compare.
 apply:
   - channel: same_a
     definitions:

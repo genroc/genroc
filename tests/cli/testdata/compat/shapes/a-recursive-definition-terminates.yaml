@@ -1,12 +1,5 @@
-# A self-referencing `$defs`, which is the one shape that can turn §6a's rule into a hang.
-# The rule is that `$defs` is never an address: Normalize BAKES a definition into every
-# schema referencing it, so the edit reports under a path an operator can navigate. A
-# definition that references itself cannot be baked away, so the comparison has to walk a
-# cycle and stop — and nothing anywhere pinned that it does.
-#
-# The edit is one level down a chain that has no bottom. What the fixture asserts is that the
-# run terminates, addresses the break at `input`, and reaches it by a path that names
-# properties rather than the definition they came from.
+# A self-referencing `$defs` cannot be baked away (§6a), so the comparison must walk the cycle
+# and stop. Asserts it terminates and addresses the break at `input` by property path.
 apply:
   - channel: recur_a
     definitions:

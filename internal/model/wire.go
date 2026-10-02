@@ -9,20 +9,17 @@ import (
 	"genroc/internal/shape"
 )
 
-// Fault is a terminal error: a machine-readable code, a human-readable message, and an optional
-// structured payload. One type serves both `raise` and `panic`, which differ only in what they
-// do; the distinction lives in the field name at the use site. Only the CODE is a literal -- a
-// computed one would make a definition's raise set uncomputable -- while Message and Data are
-// evaluated when the clause fires. specs/child-error-handling.md R2, specs/error-extensions.md.
+// Fault is a terminal error, serving both `raise` and `panic`. Only Code is a literal -- a
+// computed one would make a definition's raise set uncomputable; Message and Data are evaluated
+// when the clause fires. specs/child-error-handling.md R2, specs/error-extensions.md.
 type Fault struct {
 	Code    string `json:"code"    validate:"required" description:"Error code, lower_snake_case with no dots. A literal — never an expression."`
 	Message string `json:"message" validate:"required" description:"Human-readable message. A template: ${ } renders when the clause fires."`
 	Data    *Shape `json:"data,omitempty" description:"Structured payload this fault carries, evaluated when the clause fires. Lands on error.data."`
 }
 
-// UnmarshalJSON rejects unknown keys, as `switch` and `on_error` do around it: a raise clause
-// is small enough that a misspelled key looks like a working one, and the whole clause is
-// authored for the moment it fires.
+// UnmarshalJSON rejects unknown keys, like `switch` and `on_error`: in a clause this small a
+// misspelled key looks like a working one.
 func (f *Fault) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownFields("raise/panic", data, faultFields); err != nil {
 		return err
@@ -31,11 +28,9 @@ func (f *Fault) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, (*alias)(f))
 }
 
-// SwitchCase is one entry in a Task's switch list: a boolean expression over the process context
-// (with this task's own output as "self") and what to do when it is true. An empty Case is the
-// catch-all and must be last. Exactly one of Goto (route), Raise (conclude as 'raised', which a
-// parent may catch) and Panic (fail as a defect nothing may catch) is set — enforced at
-// registration, not on decode, so the message can name the task and case index.
+// SwitchCase acts when Case, evaluated with this task's output as "self", is true; an empty Case
+// is the catch-all. Exactly one of Goto, Raise and Panic is set — checked at registration, not
+// decode, so the message can name the task and case index.
 type SwitchCase struct {
 	Case  string
 	Goto  string
@@ -48,14 +43,11 @@ func (c SwitchCase) Terminates() bool {
 	return c.Goto == GotoEnd || c.Raise != nil || c.Panic != nil
 }
 
-// SwitchMap is an ordered list of SwitchCase entries, marshalled as a plain JSON object
-// ({"self.paid == true": "ship", …}) so the wire format reads well. Key order is preserved on
-// unmarshal by reading tokens sequentially rather than decoding into a map.
+// SwitchMap marshals as a JSON object ({"self.paid == true": "ship"}); key order is kept by
+// reading tokens sequentially, never via a map.
 type SwitchMap []SwitchCase
 
-// switchWireCase is the JSON wire form of a SwitchCase, shared by SwitchMap's
-// MarshalJSON and UnmarshalJSON so the tags can't drift. omitempty is ignored on
-// decode, so the same type serves both directions.
+// switchWireCase serves both directions so the tags cannot drift.
 type switchWireCase struct {
 	Case  string `json:"case,omitempty"`
 	Goto  string `json:"goto,omitempty"`
@@ -104,10 +96,7 @@ func (s *SwitchMap) UnmarshalJSON(data []byte) error {
 	}
 	*s = (*s)[:0]
 	for _, item := range items {
-		// Only the *shape* of a goto is checked here. Which of goto/raise/panic a case
-		// must carry (exactly one — R3) is a registration rule, not a decoding one, so
-		// that its rejection can name the task and the case index instead of surfacing
-		// as an opaque JSON error.
+		// Only a goto's shape: R3 is checked at registration, where it can name the task.
 		if item.Goto != "" && item.Goto != GotoEnd && item.Goto != GotoNext && !strings.HasPrefix(item.Goto, "$") {
 			return fmt.Errorf("switch: goto %q must be \"end\", \"next\", or a task reference like \"$task-id\"", item.Goto)
 		}
@@ -144,16 +133,12 @@ func (SwitchMap) JSONSchemaBytes() ([]byte, error) {
 	}`), nil
 }
 
-// Shape is the templated value used by the data-shaping fields (action input, output,
-// process output). The type and all its behaviour (grammar, Infer, Eval) live in the
-// self-contained shape package; this alias keeps the model's field types spelled
-// model.Shape.
+// Shape is shape.Shape, aliased so model field types read model.Shape.
 type Shape = shape.Shape
 
-// ErrorCase is a single error-routing rule evaluated when a task's call fails, in order, first
-// match winning; an empty Code list is a catch-all. A rule may route (Goto), conclude the process
-// (Raise) or declare the error a defect (Panic) — at most one, and setting none fails the
-// instance, which is what a rule existing only to cap retries wants.
+// ErrorCase is one error-routing rule; first match wins and an empty Code is a catch-all. At most
+// one of Goto, Raise, Panic: none fails the instance once retries run out, which is what a rule
+// existing only to cap retries wants.
 type ErrorCase struct {
 	Code       []string `json:"code,omitempty"        description:"Error code patterns. '%' is the only wildcard; every other character is literal. Empty = catch-all."`
 	Case       string   `json:"case,omitempty"        description:"Extra condition on the matched error, checked alongside code. A false case falls to the next rule."`
@@ -188,18 +173,15 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(w)
 }
 
-// switch selects with "case", on_error with "code"; a dropped selector silently becomes
-// a catch-all — hence rejection plus the hints below. Strict decoding is safe over stored
-// rows: SaveDefinition persists the canonical re-marshal, which carries no unknown fields.
+// A dropped selector ("case", "code") silently becomes a catch-all, hence rejection plus
+// hints. Safe over stored rows: internal/model/CLAUDE.md, on_error §3.
 var (
 	errorCaseFields  = map[string]bool{"code": true, "case": true, "retry": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
 	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}
 	faultFields      = map[string]bool{"code": true, "message": true, "data": true}
 
-	// Advice for keys that are valid somewhere else, or used to be valid here. Only
-	// reached for a key the rule itself does not accept, so a legitimate use never sees
-	// it. `retries` is the pre-policy spelling: it would otherwise be dropped in silence,
-	// leaving a rule that still matches and still routes but never retries.
+	// Advice for keys valid elsewhere or formerly valid here, shown only for a key the rule
+	// rejects. `retries` must stay — internal/model/CLAUDE.md, retry §1.
 	ruleFieldHints = map[string]string{
 
 		"code":    `a switch case selects with "case"; "code" belongs to on_error`,
@@ -207,9 +189,8 @@ var (
 	}
 )
 
-// rejectUnknownFields reports the first key in data that the rule does not define, in
-// sorted order so the message is stable. A malformed document is left to the real decode,
-// which reports it better.
+// rejectUnknownFields sorts so the message is stable, and leaves a malformed document to the
+// real decode, which reports it better.
 func rejectUnknownFields(where string, data []byte, allowed map[string]bool) error {
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(data, &probe); err != nil {
@@ -235,9 +216,8 @@ func (e *ErrorCase) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownFields("on_error", data, errorCaseFields); err != nil {
 		return err
 	}
-	// `case` is legal here since M2, but a LIST under it is the old mistake wearing the new
-	// key: an author reaching for `code` and typing `case`. The generic decode error names
-	// only the Go type, so say what was meant instead.
+	// A LIST under `case` is an author reaching for `code`; the generic decode error names
+	// only the Go type.
 	var probe struct {
 		Case json.RawMessage `json:"case"`
 	}
@@ -266,9 +246,8 @@ func (e *ErrorCase) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Terminates reports whether the rule ends the process rather than routing onward.
-// A rule with none of goto/raise/panic also ends it — by failing — but that is the
-// engine's generic failure, not an authored terminal clause.
+// Terminates is false for a rule with none of goto/raise/panic: it ends the process by the
+// engine's generic failure, not an authored clause.
 func (e ErrorCase) Terminates() bool {
 	return e.Goto == GotoEnd || e.Raise != nil || e.Panic != nil
 }

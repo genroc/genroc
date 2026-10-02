@@ -187,9 +187,8 @@ func TestGenerate_InnerDefsPromotedToRoot(t *testing.T) {
 }
 
 func TestGenerate_InnerDefsConflictRenamed(t *testing.T) {
-	// Two distinct, same-named recursive $defs (one in input_schema, one inferred
-	// from a task output) must be uniquified into two root defs. Recursive defs
-	// survive normalization (they cannot be inlined), so they reach the conflict.
+	// Two same-named recursive $defs (input_schema, an inferred output) must become two root
+	// defs; recursive defs cannot be inlined, so they reach the conflict.
 	out := runGenerate(t, `{
   "name": "p",
   "input_schema": {
@@ -348,9 +347,7 @@ func TestGenerate_ChildMapSingleEntry_OutputAvailableInDownstreamStep(t *testing
 }
 
 func TestGenerate_Child_WithResultSchema_ExposesUnwrappedOutput(t *testing.T) {
-	// A single child exposes the child's output DIRECTLY as self.result — not keyed
-	// (child_map) and not wrapped in an array (child_list). spawn_output must therefore be
-	// the result_schema itself.
+	// A single child's output is self.result DIRECTLY — not keyed, not wrapped in an array.
 	out := runGenerate(t, `{
   "name": "p",
   "tasks": [
@@ -419,9 +416,7 @@ func TestGenerate_Child_OutputAvailableInDownstreamStep(t *testing.T) {
 }
 
 func TestGenerate_Child_WithoutResultSchema_ResultNotAccessible(t *testing.T) {
-	// A child's output is only accessible once its result_schema is declared — no permissive
-	// fallback and no untyped/transient value. Without one, self.result does not exist:
-	// referencing it anywhere (output OR switch) is a "not in schema" error.
+	// No result_schema, no self.result: reading it in an output OR a switch is "not in schema".
 	err := runGenerateErr(t, `{
   "name": "p",
   "tasks": [
@@ -601,9 +596,7 @@ func TestGenerate_ChildParallel_KeyedOutputAvailableInDownstreamStep(t *testing.
 }
 
 func TestGenerate_ChildParallel_MixedOutputSchemas_UntypedKeyOmitted(t *testing.T) {
-	// Per-key rule: a child WITHOUT result_schema is omitted from the output type entirely —
-	// its output is not accessible or exportable (no permissive fallback). Only the schema-
-	// bearing key survives.
+	// A key without result_schema is omitted from the output type; no permissive fallback.
 	out := runGenerate(t, `{
   "name": "p",
   "tasks": [

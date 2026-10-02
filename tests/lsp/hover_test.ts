@@ -1,11 +1,7 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, edit, fanout, Lsp, orders, useWorkspace } from "./helpers.ts";
 
-// What the server says about the thing under the cursor. `<^text>` puts the cursor inside
-// `text`, which stays — this is reading, not writing.
-//
-// A hover is ONE line: the type of what you are pointing at. The scope a slot carries is a
-// different question, and `genctl schema context` is where it is asked.
+// A hover is ONE line, the type under the cursor; a slot's scope is `genctl schema context`'s question.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -14,30 +10,25 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => lsp?.stop());
 
-// The reason to build hover: the type an author is otherwise guessing at.
 test("a member types as itself, not as the expression it sits in", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.<^total> - (self.result.discount ?? 0)"`)),
   ).toBe("`self.result.total` → `number`");
 });
 
-// `discount` is optional, so its own type is where the `?? 0` beside it comes from — the
-// expression's `number` never shows that.
 test("an optional member is nullable, which the whole expression's type hides", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total - (self.result.<^discount> ?? 0)"`)),
   ).toBe("`self.result.discount` → `number|null`");
 });
 
-// The path is truncated AT the segment hovered, so walking it shows each level's own type.
 test("an intermediate segment types the path up to it", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.<^result>.total - (self.result.discount ?? 0)"`)),
   ).toBe("`self.result` → `object{discount?, total}`");
 });
 
-// A `$ref` behind a null arm used to block resolution and read `unknown` — which is what a
-// looping task's `self.previous` said, being exactly the value someone hovers to find out.
+// A `$ref` behind a null arm must still resolve, not read `unknown`.
 test("a nullable object still describes what it holds", async () => {
   const looping = edit(orders, {
     '      charged: "$: self.result.total - (self.result.discount ?? 0)"':
@@ -49,16 +40,13 @@ test("a nullable object still describes what it holds", async () => {
   ).toBe("`self.previous` → `object{charged}|null`");
 });
 
-// No symbol under the cursor: the expression it sits in is the answer.
 test("on an operator, the whole expression is the answer", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total <|>- (self.result.discount ?? 0)"`)),
   ).toBe("`self.result.total - (self.result.discount ?? 0)` → `number`");
 });
 
-// A `${ }` inside a longer string types as the string it renders into, so the leaf says
-// nothing — but the interpolation being written has a type of its own, and a URL is where most
-// expressions in a definition live.
+// The leaf types as the string it renders into; the interpolation has a type of its own.
 test("an interpolation inside a url is typed on its own", async () => {
   expect(
     await lsp.hover(
@@ -67,8 +55,7 @@ test("an interpolation inside a url is typed on its own", async () => {
   ).toBe("`input.customer_id` → `string`");
 });
 
-// A block scalar is a legal way to write a long expression — `template.Parse` trims to the
-// marker either way. Its span came off the FOLDED value, whose newlines are not the source's.
+// The span must come off the source, not the FOLDED value, whose newlines differ.
 test("an expression written as a block scalar types like an inline one", async () => {
   const folded = edit(orders, {
     '      charged: "$: self.result.total - (self.result.discount ?? 0)"':
@@ -83,8 +70,7 @@ test("a slot reports its own type", async () => {
   expect(await lsp.hover(at(`    <^output>:`))).toContain("**tasks.price.output** — `object{charged}`");
 });
 
-// An expression that does not type is left to the DIAGNOSTIC: the editor puts it at the top of
-// the same popup, and hover repeating it is what a reader sees twice.
+// The editor already shows the diagnostic at the top of the same popup.
 test("an expression that does not type is left to the diagnostic", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total <|>- (self.result.discount)"`,
@@ -92,8 +78,6 @@ test("an expression that does not type is left to the diagnostic", async () => {
   ).toBe("");
 });
 
-// The symbol inside it still types, and THAT is what the diagnostic does not say — it is how a
-// reader finds out the `?? 0` was load-bearing.
 test("a symbol inside a broken expression is still typed", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total - (self.result.<^discount>)"`,
@@ -112,23 +96,18 @@ test("a word inside a string literal reports no error of its own", async () => {
   );
 });
 
-// A name the author chose means nothing to the definition language, so it is the one thing
-// with no answer.
 test("there is nothing to say about a name the author chose", async () => {
   expect(await lsp.hover(at(`    <^customer_id>: { type: string }`))).toBe("");
 });
 
 // ── keys ─────────────────────────────────────────────────────────────────────────
 
-// Hover answered NOTHING on most of a file once the scope line was dropped — every key, every
-// literal. A key means something, and the schema already carries the prose.
 test("a key says what it means", async () => {
   expect(await lsp.hover(at(`  - <^id>: price`))).toContain("Task identifier");
   expect(await lsp.hover(at(`      <^method>: get`))).toContain("HTTP method");
 });
 
-// The discriminator carries no prose of its own — `{"const": "fetch"}` says nothing. What a
-// reader is pointing at is the variant it selects.
+// The discriminator's own schema (`{"const": "fetch"}`) has no prose; the variant it selects does.
 test("an action's type describes the action it selects", async () => {
   expect(await lsp.hover(at(`      type: <^fetch>`))).toContain("HTTP call");
   const child = await lsp.hover(at(`      type: <^child>`));
@@ -136,8 +115,6 @@ test("an action's type describes the action it selects", async () => {
   expect(child).not.toContain("HTTP call");
 });
 
-// Every line of a valid definition has something to say. A hover that is silent nine times out
-// of ten reads as a hover that does not work, which is how this was reported.
 test("every written line of the fixture answers", async () => {
   const lines = orders.text.split("\n");
   const silent: string[] = [];
@@ -148,8 +125,7 @@ test("every written line of the fixture answers", async () => {
     const md = await lsp.hover({ ...orders, line: i, character, quoted: text });
     if (md === "") silent.push(`${i + 1}: ${text}`);
   }
-  // What is left is exactly the author's own vocabulary — the property names in their schemas
-  // and the status pattern they chose. Everything the definition language owns has an answer.
+  // What is left is the author's own vocabulary: their property names and status pattern.
   expect(silent).toEqual([
     "6:     customer_id: { type: string }",
     "7:     amount: { type: number }",
@@ -161,9 +137,7 @@ test("every written line of the fixture answers", async () => {
   ]);
 });
 
-// A `case` is an expression written BARE — an expression slot, not a Shape — so there is no
-// `$:` to recognise it by, and hover answered with what the `case` key means instead of what
-// the expression evaluates to.
+// A `case` is written BARE: no `$:` to recognise it by, only the slot.
 test("a switch case's expression is typed, not described as a key", async () => {
   expect(await lsp.hover(at(`      - case: "self.output.<^charged> > 1000"`))).toBe(
     "`self.output.charged` → `number`",
@@ -180,8 +154,7 @@ test("an on_error rule's case is the same kind of slot", async () => {
   );
 });
 
-// A `default` is filled in when the value is absent, so the property is always there — which
-// is what reading it already typed as. The structured summary said `?` beside it anyway.
+// A `default` means the property is always there, which is how reading it already types.
 test("a defaulted property is not marked absent, matching the type reading it gives", async () => {
   const defaulted = edit(orders, {
     "    currency: { type: string }": '    currency: { type: string, default: "EUR" }',
@@ -207,8 +180,7 @@ test("an optional property with no default is marked absent and types nullable",
 
 // ── a name the expression binds ──────────────────────────────────────────────────
 
-// A lambda parameter is in scope nowhere the SLOT can see — the expression binds it — so hover
-// fell through to the whole `map(...)` on every name inside the body. Reported from an editor.
+// The expression binds it, so no slot scope has it.
 test("a lambda parameter types as the element it is bound to", async () => {
   expect(
     await lsp.hover(at(`      over: "$: map(input.lines, (<^line>) => { order: line.sku })"`, fanout)),
@@ -222,8 +194,7 @@ test("a member of a lambda parameter types through it", async () => {
   ).toBe("`line.sku` → `string`");
 });
 
-// The map's SOURCE is written in the slot's own scope, not the lambda's. A parameter reaching
-// it would retype a position that has always answered correctly.
+// The map's SOURCE is in the slot's scope, not the lambda's.
 test("the map's source is unaffected by what the lambda binds", async () => {
   expect(
     await lsp.hover(at(`      over: "$: map(input.<^lines>, (line) => { order: line.sku })"`, fanout)),

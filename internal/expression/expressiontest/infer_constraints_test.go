@@ -2,10 +2,8 @@ package expressiontest
 
 import "testing"
 
-// Constraints ride navigation, and that is what lets the compat report see a narrowing at
-// all: `$: input.tier` carries the enum into `$defs[<id>_output]`, where IsSubset compares
-// it. Dropping them here would report every constraint narrowing below the input boundary as
-// compatible, and nothing else in the suite would say so.
+// Constraints ride navigation into `$defs[<id>_output]`, where IsSubset compares them; dropped,
+// every constraint narrowing below the input boundary reads as compatible.
 
 const constraintCtxJSON = `{
 	"type": "object",

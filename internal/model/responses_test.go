@@ -18,9 +18,7 @@ func responsesDef(t *testing.T, actionJSON string) *ProcessDefinition {
 	return &d
 }
 
-// Every refusal `responses` can produce, with the wording that tells the author what to do
-// instead. A rule that stops firing is silent — the definition is simply accepted and does
-// something other than what it says — so each case pins both the rejection and its way out.
+// Each case pins both the rejection and its way out: a rule that stops firing is silent.
 func TestValidate_Responses(t *testing.T) {
 	body := `{"type":"object","properties":{"fee":{"type":"number"}}}`
 	for _, tc := range []struct {
@@ -94,9 +92,8 @@ func TestValidate_Responses(t *testing.T) {
 	}
 }
 
-// Exact beats range, per pattern. The two keys overlap on 404 and are NOT an equal-specificity
-// collision, so both must be accepted and 404 must resolve to the exact one — a resolver that
-// took either "first" would be order-dependent over a Go map.
+// Overlapping on 404 is NOT an equal-specificity collision; a resolver taking either "first"
+// would be order-dependent over a Go map.
 func TestResponseFor_ExactBeatsRange(t *testing.T) {
 	exact := schema.Object().WithProperty("exact", schema.Type("boolean"), true)
 	wide := schema.Object().WithProperty("wide", schema.Type("boolean"), true)
@@ -144,10 +141,7 @@ func TestResponseFor_ExactBeatsRange(t *testing.T) {
 	}
 }
 
-// The request slots belong to a fetch and nothing else. Elsewhere they are read by nobody, and
-// a field nobody reads is dropped in silence — the same reason a fetch refuses `result_schema`.
-// `responses` already had this check; the rest did not, so `headers` on an external task was
-// accepted and ignored.
+// Off a fetch these slots are read by nobody, so accepting one would drop it in silence.
 func TestValidate_FetchOnlySlots(t *testing.T) {
 	for _, slot := range []string{
 		`"url":"http://x"`,

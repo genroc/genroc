@@ -1,17 +1,9 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// Config vars resolve from GENROC_<PROCESS>_<NAME>, falling back to
-// GENROC_GLOBAL_<NAME>, and are exposed to expressions under the "config"
-// namespace. These tests use the global tier (process names are random).
-// Fixtures set on the test server (see helpers/server.ts):
-//   GENROC_GLOBAL_E2E_URL   = https://config.example.test
-//   GENROC_GLOBAL_E2E_PORT  = 8080
-//   GENROC_GLOBAL_E2E_TOKEN = supersecret-token-value
+// These use the GENROC_GLOBAL_ tier (process names are random); its E2E_URL, E2E_PORT and
+// E2E_TOKEN fixtures are set in helpers/server.ts.
 
-// Resolution + coercion + default end-to-end: a string passes through, an
-// integer is coerced to a number, and an unset optional var falls back to its
-// default — all reachable in expressions as config.<NAME>.
 test("config resolves from the environment and is usable in expressions", async () => {
   const name = `config_resolve_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
@@ -53,9 +45,6 @@ test("config resolves from the environment and is usable in expressions", async 
   expect(output.region).toBe("us"); // default applied (e2e_region unset)
 });
 
-// A required config var with no corresponding environment variable is rejected
-// when the definition is registered, so the missing GENROC_<PROCESS>_<NAME> surfaces
-// up front rather than waiting until an instance is started.
 test("registering a definition fails when a required config var is unset", async () => {
   const name = `config_missing_${crypto.randomUUID()}`;
   const { data, error } = await client.PUT("/definitions", {

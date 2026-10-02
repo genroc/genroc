@@ -2,10 +2,8 @@ package expressiontest
 
 import "testing"
 
-// Numeric union contract — an all-numeric anyOf/oneOf (integer | number) must
-// be accepted by all three layers, with both integer and float runtime values.
-//
-// numericUnionSchemas and integerXSchema are defined in helpers_test.go.
+// An all-numeric union (integer | number) must pass all three layers with both integer and
+// float runtime values. Schemas are in helpers_test.go.
 
 func TestNumericUnionContract_Add(t *testing.T) {
 	testNumericUnionCase(t, "x + 1", numericUnionSchemas)

@@ -1,13 +1,6 @@
-// The whole measurement: read open-meteo, convert the WMO code, print the line. `Input` is
-// the type genroc INFERRED for what process.genroc.yaml passes; `Output` is what its result_schema
-// declares. Both are generated — run `genctl types -f script-node.genroc.yaml -f process.genroc.yaml`, or just
-// apply.
-//
-// `fetch`, `console` and the node builtins typecheck because the authoring sandbox is a
-// worker realm with node's globals; the DOM is not. See specs/script-tasks.md.
-//
-// Template literals need no escaping here: genctl doubles every `$` on splice, so `${…}` is
-// JavaScript rather than a genroc interpolation. That is the whole point of the import.
+// `Input` is what genroc INFERRED process.genroc.yaml passes, `Output` its result_schema; both come
+// from `genctl types` (or apply). The sandbox is a worker realm with node's globals and no DOM
+// (specs/script-tasks.md); genctl doubles every `$` on splice, so `${…}` here is JavaScript.
 import type { Input, Output } from "./reading.genroc";
 
 // WMO weather codes, jen ty běžné — cokoliv jiného se vypíše číslem.
@@ -66,7 +59,5 @@ export default async function (input: Input): Promise<Output> {
 
   console.log(new Date().toISOString(), summary);
 
-  // The whole history, not just the latest: process.genroc.yaml feeds the last run's array back in
-  // as `prev`, so the accumulation lives here rather than in an output map.
   return { time: current.time, condition, temperature_c, summary };
 }

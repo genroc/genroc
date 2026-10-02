@@ -17,10 +17,9 @@ import (
 	"genroc/ui/jwks"
 )
 
-// The relying-party half of OIDC: discovery, the authorization-code exchange, and verifying an ID
-// token. Under ui/ and not internal/ because the genroc SERVER verifies tokens and never obtains
-// them. It RELAYS and never issues -- no signing key here -- so a provider that cannot produce an
-// ID token needs a broker in front. specs/ui-component.md §5.1.
+// The OIDC relying party: discovery, code exchange and ID-token verification. It never issues
+// (no signing key), so a provider that cannot produce an ID token needs a broker in front.
+// specs/ui-component.md §5.1.
 
 // Provider is a discovered OIDC issuer plus the client credentials to talk to it.
 type Provider struct {
@@ -41,11 +40,9 @@ type discovery struct {
 	JWKSURI  string `json:"jwks_uri"`
 }
 
-// Config is what a deployment tells this component about its provider. Issuer is the only required
-// endpoint field; the three overrides exist for an issuer whose URL resolves differently from the
-// browser than from this process (an IdP in Docker, or split-horizon DNS), which discovery's one
-// set of URLs cannot satisfy. Issuer stays the FRONT-channel value, because that is what `iss`
-// carries and what every token is validated against.
+// Config is what a deployment tells this component about its provider. The URL overrides serve an
+// issuer this process reaches at a different address than the browser does (an IdP in Docker,
+// split-horizon DNS); Issuer stays the front-channel value every `iss` is checked against.
 type Config struct {
 	Issuer       string // pinned; what `iss` must say
 	DiscoveryURL string // where to FETCH the document; defaults to Issuer + /.well-known/...
@@ -56,10 +53,8 @@ type Config struct {
 	Scopes       []string
 }
 
-// Discover reads the issuer's well-known document, checking the `issuer` it advertises against the
-// configured one: fetched over the network, a document that renames its own issuer would quietly
-// move the value every later token is validated against. That is why DiscoveryURL is separate --
-// the document is fetched from wherever it lives and still has to name the issuer we pinned.
+// Discover reads the issuer's well-known document (from DiscoveryURL if set) and refuses one whose
+// advertised `issuer` differs from the pinned one, so the network cannot move it.
 func Discover(ctx context.Context, cfg Config) (*Provider, error) {
 	issuer, clientID, clientSecret, scopes := cfg.Issuer, cfg.ClientID, cfg.ClientSecret, cfg.Scopes
 	u := cfg.DiscoveryURL
@@ -122,19 +117,15 @@ func (p *Provider) AuthCodeURL(redirectURI, state, nonce string) string {
 	return p.AuthURL + sep + q.Encode()
 }
 
-// Tokens is what the code exchange yields. The ACCESS token is returned only because some
-// providers keep group membership outside the ID token and behind an API of their own -- it is
-// not stored, and nothing but that one call ever sees it.
+// Tokens is what the code exchange yields. Access is returned only for providers whose group
+// membership sits behind their own API; nothing stores it.
 type Tokens struct {
 	ID     string
 	Access string
 }
 
-// Exchange trades an authorization code for the ID token, and verifies it before returning.
-//
-// Verified HERE rather than trusted because it was fetched over TLS: the token is about to be
-// stored in a cookie and replayed on every later request, and a nonce that is not checked at
-// exactly this moment can never be checked at all.
+// Exchange trades an authorization code for the ID token, verifying it before returning: the
+// nonce can only be checked at this moment.
 func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string) (Tokens, error) {
 	form := url.Values{
 		"grant_type":   {"authorization_code"},
@@ -146,9 +137,7 @@ func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string
 		return Tokens{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// Client secret in the Authorization header rather than the body: a confidential client is
-	// what genroc-ui gets to be by virtue of being a server, and basic auth is the form every
-	// provider accepts.
+	// Basic auth: the form every provider accepts from a confidential client.
 	req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(p.ClientSecret))
 
 	resp, err := (&http.Client{Timeout: jwks.FetchTimeout}).Do(req)
@@ -177,18 +166,16 @@ func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string
 	return Tokens{ID: out.IDToken, Access: out.AccessToken}, nil
 }
 
-// Claims is the little genroc-ui needs from a verified token: who they are and which groups the
-// provider says they are in. That is the whole contract with an upstream provider -- everything
-// after it (groups to permissions, minting) is ours. specs/ui-issued-tokens.md §0.
+// Claims is the whole contract with an upstream provider: who someone is and their groups.
+// Everything after (permissions, minting) is ours. specs/ui-issued-tokens.md §0.
 type Claims struct {
 	Subject string
 	Groups  []string
 	Expiry  time.Time
 }
 
-// Claims verifies a token and reads the identity out of it, using the claim names this provider
-// was configured with. Defaults are `email` and `groups`: an OIDC `sub` is an opaque, provider-
-// specific id, which is the wrong thing to put in a role map or an audit trail.
+// Claims verifies a token and reads the identity using this provider's claim names. Defaults are
+// `email` and `groups`: an OIDC `sub` is opaque and wrong for a role map or an audit trail.
 func (p *Provider) Claims(ctx context.Context, raw, nonce, subjectClaim, groupsClaim string) (*Claims, error) {
 	c, err := p.verify(ctx, raw, nonce)
 	if err != nil {
@@ -238,10 +225,9 @@ type verified struct {
 	raw    jwt.MapClaims
 }
 
-// Verify checks the signature, issuer, audience and expiry of an ID token; a non-empty nonce must
-// match the claim, which binds a token to the login that requested it. genroc-ui verifies even
-// though the server will verify again: without it a tampered cookie claiming a future expiry would
-// drive the browser into a redirect loop that looks like a broken login rather than a bad cookie.
+// verify checks signature, issuer, audience, expiry and, if non-empty, nonce. Done here although
+// the server verifies again: a tampered cookie would otherwise loop the browser through
+// redirects that look like a broken login.
 func (p *Provider) verify(ctx context.Context, raw, nonce string) (*verified, error) {
 	claims := jwt.MapClaims{}
 	parser := jwt.NewParser(

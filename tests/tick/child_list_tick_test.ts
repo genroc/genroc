@@ -1,12 +1,5 @@
-/**
- * Tick-level observation of a child_list (array fan-out) task, one DB transition at
- * a time. The server runs in manual-tick mode (--poll 0, --max-concurrent 1) so each
- * tick claims exactly one instance and every state change is inspectable.
- *
- * ClaimInstances uses ORDER BY created_at ASC, and SpawnChildrenAndWait assigns each
- * child a strictly increasing created_at (element 0, 1, 2, …), so the children run in
- * input order — and the collected result array must come back in that same order.
- */
+/** A child_list fan-out, one DB transition per tick. Claims are ORDER BY created_at and children get
+ *  strictly increasing created_at, so they run in input order — and the result must keep it. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService, childrenOfTask } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -186,10 +179,8 @@ test("empty over — no children spawned, completes in a single tick with []", a
   expect(await ctx.env.status(root)).toBe("completed");
   expect((await outputOf(root)).results).toEqual([]);
 
-  // No child instance was ever created for this parent. The placeholder is derived from the
-  // child rows, so a task that spawned nothing names nothing — there is no empty array to
-  // tell apart from a task that never ran. The task's own output, [] above, is what says it
-  // ran and fanned out over nothing.
+  // The placeholder derives from child rows, so a task that spawned nothing names nothing; its
+  // [] output is what says it ran.
   expect(await childrenOfTask(root, "spread", ctx.env.client)).toBeUndefined();
 
   await ctx.env.tickUntilIdle();

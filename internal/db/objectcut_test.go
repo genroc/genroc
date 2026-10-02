@@ -126,10 +126,8 @@ func TestCut_CoarsensAndNeverNestsARefInsideAnObject(t *testing.T) {
 	}
 }
 
-// Dedup depends on two processes choosing the SAME cut for the same value, and Go's map iteration
-// is randomized, so a tie resolved by iteration order shares nothing -- quietly, since both still
-// work. TWO independent defences (sorted key order, ties broken on path) and this catches losing
-// BOTH, not either. Keep both: a single defence is one edit from silent unsharing.
+// There are TWO defences (sorted key order, path tie-break) and this catches losing BOTH, not
+// either. Keep both: one alone is one edit from silent unsharing.
 func TestCut_IsDeterministicAcrossEqualCandidates(t *testing.T) {
 	build := func() map[string]any {
 		m := map[string]any{}
@@ -174,10 +172,6 @@ func TestCut_DoesNotTakeLeavesSmallerThanTheirEntry(t *testing.T) {
 	}
 }
 
-// TestCut_DoesNotMutateTheCallerValue: encoding produces column strings and must not reach back
-// into the value the caller is still using. Cutting in place gutted a live instance context --
-// the advance carried on with the leaves removed, and what surfaced first was an audit line
-// reading "{}" where an input should have been.
 func TestCut_DoesNotMutateTheCallerValue(t *testing.T) {
 	inner := map[string]any{"code": big(50_000), "n": 1}
 	v := map[string]any{"input": inner}
@@ -195,10 +189,7 @@ func TestCut_DoesNotMutateTheCallerValue(t *testing.T) {
 	}
 }
 
-// A ref must never end up inside an object's CONTENT: content is opaque, so nothing resolves the
-// marker, and it drops out of the referenced set the next write diffs against -- releasing its
-// claim while the content still points at it. The shape below is what an accumulator reaches.
-// specs/object-store.md.
+// The shape below is what an accumulator reaches.
 func TestCutForSize_NeverBuriesAnAlreadyExternalRefInsideAnObject(t *testing.T) {
 	arr := make([]any, 0, 25)
 	for i := 0; i < 24; i++ {
@@ -274,10 +265,8 @@ func findRefMarker(v any) map[string]any {
 	return nil
 }
 
-// The search runs on node sizes, which are an ESTIMATE: removing an array element leaves a null
-// behind that no node accounts for, so a selection the arithmetic calls done can still be over.
-// The value that gets stored is the one that has to fit, so the selection is spliced and measured
-// before any ref is made — and only then hashed.
+// Removing an array element leaves a null no node size accounts for, so the estimate can call a
+// selection done while the stored value is still over.
 func TestCutForSize_TheStoredValueActuallyFitsTheTarget(t *testing.T) {
 	items := make([]any, 0, 100)
 	for i := 0; i < 100; i++ {

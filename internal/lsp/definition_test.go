@@ -7,18 +7,7 @@ import (
 	"testing"
 )
 
-//	1 name: demo
-//	2 tasks:
-//	3   - id: first
-//	4     switch: "$second"
-//	5   - id: second
-//	6     switch:
-//	7       - case: "$: true"
-//	8         goto: "$first"
-//	9       - goto: end
-//
-// 10   - id: third
-// 11     switch: next
+// Line numbers are asserted against this, so a change here moves the cases below.
 const routingDoc = `name: demo
 tasks:
   - id: first
@@ -52,8 +41,6 @@ func TestGotoInsideASwitchCaseJumpsToTheTask(t *testing.T) {
 	}
 }
 
-// `end` terminates and `next` is positional, so neither names anything to jump to. Answering
-// with a location anyway would send the reader somewhere arbitrary.
 func TestEndAndNextHaveNoDefinition(t *testing.T) {
 	if _, ok := definitionAt(routingDoc, "", 9, 17); ok {
 		t.Error("`end` terminates the instance; it names no task")
@@ -70,14 +57,9 @@ func TestAGotoNamingNoTaskResolvesToNothing(t *testing.T) {
 	}
 }
 
-// The guard that earns its place: a URL may legitimately hold a string starting with `$`, and
-// only a ROUTING slot means "the task named here". Resolving on value shape alone would jump
-// out of an unrelated field.
 func TestOnlyARoutingSlotResolvesEvenWhenTheValueLooksLikeOne(t *testing.T) {
-	//	 5   - id: second
-	//	 6     action:
-	//	 7       type: fetch
-	//	 8       url: "$second"
+	//	 8       method: post
+	//	 9       url: "$first"
 	doc := "name: demo\ntasks:\n  - id: first\n    switch: end\n  - id: second\n    action:\n" +
 		"      type: fetch\n      method: post\n      url: \"$first\"\n    switch: end\n"
 	if _, ok := definitionAt(doc, "", 8, 15); ok {
@@ -85,8 +67,6 @@ func TestOnlyARoutingSlotResolvesEvenWhenTheValueLooksLikeOne(t *testing.T) {
 	}
 }
 
-// `$` is the reference sigil. A bare name in a switch is not a reference — mid-edit it is a
-// value the decoder will refuse, and jumping from it would invent a meaning it does not have.
 func TestABareNameInASwitchIsNotAReference(t *testing.T) {
 	doc := "name: demo\ntasks:\n  - id: first\n    switch: second\n  - id: second\n    switch: end\n"
 	if _, ok := definitionAt(doc, "", 4, 14); ok {
@@ -94,7 +74,6 @@ func TestABareNameInASwitchIsNotAReference(t *testing.T) {
 	}
 }
 
-// A cursor on ordinary text is the common case, and a spurious jump is worse than none.
 func TestACursorOnSomethingElseHasNoDefinition(t *testing.T) {
 	if _, ok := definitionAt(routingDoc, "", 1, 7); ok {
 		t.Error("the process name is not a reference")
@@ -131,13 +110,6 @@ func TestDefinitionIsAdvertisedAndAnswered(t *testing.T) {
 	}
 }
 
-// 1 name: parent
-// 2 tasks:
-// 3   - id: spawn
-// 4     action:
-// 5       type: child
-// 6       name: worker
-// 7     switch: end
 const parentDoc = `name: parent
 tasks:
   - id: spawn
@@ -153,9 +125,6 @@ tasks:
     switch: end
 `
 
-// The reference that leaves the file. It resolves through the workspace rather than through
-// `.genroc`: the editor already says what is open, and `definitions:` answers a different
-// question — which files an apply deploys, not which exist. specs/language-server.md §7.
 func TestAChildActionsProcessResolvesToTheFileThatDefinesIt(t *testing.T) {
 	const parentURI = "file:///w/parent.genroc.yaml"
 	const workerURI = "file:///w/worker.genroc.yaml"
@@ -181,8 +150,6 @@ func TestAChildActionsProcessResolvesToTheFileThatDefinesIt(t *testing.T) {
 	}
 }
 
-// An open buffer is newer than the file on disk, so it is searched first — otherwise renaming a
-// process in the editor sends the reader to the name it used to have.
 func TestAProcessIsFoundOnDiskWhenNoBufferHasIt(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "worker.genroc.yaml"), []byte(workerDoc), 0o644); err != nil {
@@ -222,17 +189,12 @@ func TestAChildNamingAProcessThatDoesNotExistResolvesToNothing(t *testing.T) {
 	}
 }
 
-// `name` is a field on several things. Only a child action's is a process reference — a
-// definition's own `name` is not, and jumping from it would send the reader in a circle.
 func TestTheDefinitionsOwnNameIsNotAReference(t *testing.T) {
 	if _, ok := definitionAt(parentDoc, "", 1, 8); ok {
 		t.Error("the process's own name names itself")
 	}
 }
 
-// `name` is a common field. Only a child ACTION's is a process reference: an output that
-// happens to export a `name` is data, and jumping out of it would leave the file for a string
-// that means nothing outside it.
 func TestANameThatIsNotAChildActionsIsNotAReference(t *testing.T) {
 	//	 5     output:
 	//	 6       name: worker
@@ -252,8 +214,6 @@ func TestANameThatIsNotAChildActionsIsNotAReference(t *testing.T) {
 	}
 }
 
-// child_map carries a name per entry rather than one on the action, so the reference sits a
-// level deeper. Three action types reach one field and all three have to resolve.
 func TestAChildMapEntrysProcessResolves(t *testing.T) {
 	//	 4     action:
 	//	 5       type: child_map

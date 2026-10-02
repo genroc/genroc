@@ -127,9 +127,7 @@ func TestParseRetryDuration_AcceptsNativeGoNumbers(t *testing.T) {
 	}
 }
 
-// An empty policy is the absent key, not a present-but-blank one. It is what keeps
-// `retry: 0` — the long-standing spelling of "this rule caps retries at none" — legal, and
-// it is why D7's child-task rejection can gate on IsZero without refusing that.
+// This keeps `retry: 0` legal, and lets D7's child-task rejection gate on IsZero.
 func TestRetry_EmptyPolicyIsAbsent(t *testing.T) {
 	for _, s := range []string{`{}`, `0`, `null`} {
 		var r Retry
@@ -195,9 +193,8 @@ func TestValidateRetry_RejectsIncoherentCombinations(t *testing.T) {
 		})
 	}
 
-	// The pairing is only rejected when both slots are authored: an explicit delay above
-	// the *default* ceiling widens the ceiling instead (Retry.Ceiling), which is what keeps
-	// a lone `delay` from being silently clamped back.
+	// Only when both are authored: a delay above the DEFAULT ceiling widens it instead
+	// (Retry.Ceiling), so a lone `delay` is never clamped back.
 	ok := Retry{Retries: RetryCount(3), Delay: mustDur("1h")}
 	if err := validateRetry(ok, "call", "on_error[0]"); err != nil {
 		t.Fatalf("a delay longer than the default ceiling must be legal on its own: %v", err)

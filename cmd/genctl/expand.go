@@ -17,11 +17,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// definitionPaths is the file list a command operates on: `-f`, or `definitions:` in the nearest
-// `.genroc` when no `-f` was given. Files are never taken positionally. `-f` is LITERAL FIRST --
-// a value naming an existing file is that file, and only one naming nothing is globbed, which
-// keeps `a[1].genroc.yaml` reachable beside `a1.genroc.yaml`. `definitions:` entries are patterns
-// outright, and one matching nothing is a mistake worth reporting.
+// definitionPaths is `-f`, else `definitions:` in the nearest `.genroc` -- never positionals.
+// Rules: cmd/genctl/CLAUDE.md "Which files a command reads".
 func definitionPaths(files []string) ([]string, error) {
 	if len(files) == 0 {
 		return expandPaths(sources.DefaultDefinitionPaths("."))
@@ -46,10 +43,8 @@ func expandFileFlags(files []string) ([]string, error) {
 	return out, nil
 }
 
-// expandPaths turns every argument into files; a pattern with no metacharacters matches itself,
-// so a plain filename is the trivial case, and `**` matches any depth. A DIRECTORY is refused,
-// pointing at the pattern that would do it -- walking one hides both the depth and the filename
-// filter. Sorted, so a batch is deterministic.
+// expandPaths refuses a DIRECTORY rather than walking it (see cmd/genctl/CLAUDE.md). Sorted, so
+// a batch is deterministic.
 func expandPaths(paths []string) ([]string, error) {
 	var out []string
 	for _, p := range paths {
@@ -82,15 +77,12 @@ func expandPaths(paths []string) ([]string, error) {
 	return out, nil
 }
 
-// resolvedDefs loads, resolves every import directive, and hands back the plain documents
-// the API takes. By this point no directive remains — the server has no resolver.
+// resolvedDefs leaves no import directive behind: the server has no resolver.
 func resolvedDefs(files []string) ([]any, error) {
 	defs, _, err := resolvedDefsLocated(files)
 	return defs, err
 }
 
-// resolvedDefsLocated is resolvedDefs keeping the sources, for a caller that will report a
-// failure and can point at the line it was written on.
 func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 	docs, err := sources.LoadDocs(files)
 	if err != nil {
@@ -106,9 +98,8 @@ func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 	return out, docs, nil
 }
 
-// locate finds where a slot address was written among the loaded sources: matching on the address
-// rather than on prose means nothing has to parse a message. A missing REQUIRED field has no node
-// of its own, so the search falls back to the shortest enclosing path that does.
+// locate matches on the slot address, never on prose. A missing REQUIRED field has no node of its
+// own, so the search falls back to the enclosing path that does.
 func locate(docs []sources.Doc, address string) (string, defdoc.Span, bool) {
 	// Exactly one document may claim the address: two that both resolve it are two processes
 	// with the same task id, and pointing at either would be a guess.
@@ -132,10 +123,8 @@ func locate(docs []sources.Doc, address string) (string, defdoc.Span, bool) {
 	return "", defdoc.Span{}, false
 }
 
-// takeFileValues pulls `-f`/`--f` and every following argument up to the next flag into one list,
-// so `-f a b c` is one flag with three values -- what an unquoted `-f defs/*.yaml` expands to --
-// while `-f a b --channel prod` stops at the flag. Here rather than in a flag.Value because the
-// stdlib gives a Value exactly one argument.
+// takeFileValues gives `-f` every argument up to the next flag. Not a flag.Value: the stdlib hands
+// a Value exactly one argument.
 func takeFileValues(args []string) (files, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -168,9 +157,8 @@ func looksLikePath(s string) bool {
 	return false
 }
 
-// fatalLocated prints a rejected apply as one line per failing slot, each pointing at the
-// file and line it was written on — the payoff of the address travelling with the diagnostic.
-// A failure with no per-field detail, or a slot no source claims, falls back to the message.
+// fatalLocated prints one file:line per failing slot, falling back to the message for a failure
+// with no per-field detail or a slot no source claims.
 func fatalLocated(docs []sources.Doc, err error) {
 	var se *serverError
 	if !errors.As(err, &se) || len(se.Fields) == 0 {

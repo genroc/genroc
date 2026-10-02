@@ -12,10 +12,8 @@ import (
 	"genroc/internal/model"
 )
 
-// logEvent is the structured payload of one log line. Level and Event are
-// required; the rest are optional. It is shared by audit (console + durable DB
-// trail) and logOnly (console only), so both render identically — only persistence
-// differs.
+// logEvent is shared by audit (console + durable trail) and logOnly (console only), so both
+// render identically.
 type logEvent struct {
 	Level model.LogLevel
 	Event string
@@ -23,31 +21,23 @@ type logEvent struct {
 	Task  string
 	Msg   string // human note (rendered as note=…, since slog uses msg for the event)
 	Code  errcode.Code
-	// Data is the body (request/response/input/output/…) as a VALUE, not pre-rendered text. It
-	// is cut like any other value on the way to storage -- so a payload that repeats something
-	// the instance already externalized shares that object instead of copying it -- and rendered
-	// once for the console. specs/object-store.md.
+	// Data is a VALUE, not pre-rendered text: it is cut on the way to storage, so a repeated
+	// payload shares the instance's object. specs/object-store.md.
 	Data  any
 	Meta  map[string]any
 	Actor string // left unset for the engine's own work; audit fills in model.ActorEngine
 }
 
-// audit records an instance event to the console (slog) and the durable per-instance DB
-// trail. Best-effort on the DB write: a failure is logged and swallowed so audit logging
-// can never abort an advance.
+// audit's DB write is best-effort: a failure is logged and swallowed, never aborting an advance.
 func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	ev.ID = inst.ID
-	// The one place the engine's own attribution is applied, so no event can be written
-	// unattributed by forgetting to set it. It says only that the engine advanced: crediting
-	// the operator who started the run would put an identity on rows nobody asked for.
-	// specs/api-auth.md section 7.
+	// The one place engine attribution is applied, so nothing is written unattributed. Never
+	// the operator who started the run. specs/api-auth.md section 7.
 	if ev.Actor == "" {
 		ev.Actor = model.ActorEngine
 	}
-	// Redaction is a RECORDING concern with one sink, stdout; the durable trail and every API
-	// response carry what actually happened. Scrubbing replaces the secret VALUES, which works
-	// because expressions have no functions -- a secret always appears verbatim in anything
-	// logged. specs/object-store.md §Redaction.
+	// Redaction has one sink, stdout; the trail and the API carry what happened. Value scrubbing
+	// works because expressions have no functions. specs/object-store.md §Redaction.
 	consoleEv := ev
 	text := dataText(ev.Data)
 	if secrets := e.contextSecrets(inst); len(secrets) > 0 {
@@ -71,9 +61,7 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	}
 }
 
-// contextSecrets gathers the secret values to keep out of stdout. `secret: true` is valid only in
-// config_schema, so this is the config and nothing more -- no schema walk over the context, no
-// taint to follow. That narrowing is what removed the second, schema-driven redaction pass.
+// contextSecrets is the config and nothing more: `secret: true` is valid only in config_schema.
 // specs/object-store.md §secret: true is CONFIG-ONLY.
 func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
 	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
@@ -81,10 +69,7 @@ func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
 		return nil
 	}
 	out := def.SecretConfigValues(inst.Config)
-	// Scrub the longest value first: when one secret is a prefix/substring of another (e.g. an
-	// input array [5, 50, 500]), replacing the shorter one first consumes the shared lead and
-	// leaves the longer one's tail exposed ("***0", "***00"). Length-descending order makes each
-	// value redacted as a whole.
+	// Longest first: scrubbing a substring secret first exposes the longer one's tail ("***0").
 	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
 	return out
 }
@@ -115,18 +100,13 @@ func redactMeta(meta map[string]any, secrets []string) map[string]any {
 	return out
 }
 
-// logOnly records a console-only line (server lifecycle / operational events not in any
-// instance's durable trail). It carries no Event, so it renders free-form rather than as
-// a columnar audit row.
+// logOnly is for lines in no instance's trail; it carries no Event, so it renders free-form.
 func (e *Engine) logOnly(ev logEvent) {
 	ev.Event = "" // operational: no structured event
 	e.emit(ev)
 }
 
-// emit renders one record to the console via slog. It builds the attrs only when the
-// level is enabled, keeping audit's hot path — the DB write — cheap. A record with an
-// Event is a structured audit event (rendered in aligned columns); one without is
-// operational (free-form). Fields come from logview.Record so console and CLI match.
+// emit renders through logview.Record so console and CLI match.
 func (e *Engine) emit(ev logEvent) { e.emitWithData(ev, dataText(ev.Data)) }
 
 // dataText renders a log value for the console. Storage keeps the value; only the operator's
@@ -208,25 +188,19 @@ func statusMeta(status int) map[string]any {
 	return map[string]any{"status": status}
 }
 
-// AuditCreated records the instance_created milestone, capturing the instance's process input
-// (subject to payload-logging config), and bookends the trail with instance_completed. actor is
-// who asked for this run; a child passes none, so audit records model.ActorEngine rather than the
-// operator who started the root and never addressed that row. specs/api-auth.md section 7.
+// AuditCreated records instance_created with the process input. actor is who asked for this
+// run; a child passes "", crediting the engine rather than the root's operator.
 func (e *Engine) AuditCreated(inst *model.ProcessInstance, actor string) {
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated,
 		Actor: actor, Data: e.snippet(inst.State["input"])})
 }
 
-// outputData is the snippet of the process's final output (context_data["output"], set by
-// computeOutput) for the instance_completed event; nil when there is no output or payload
-// logging is off.
 func (e *Engine) outputData(inst *model.ProcessInstance) any {
 	return e.snippet(inst.State["output"])
 }
 
-// snippet passes v through as an audit detail, keeping the FULL payload (no truncation --
-// audit caps it for the console and cuts oversized values, so the capture is never lossy).
-// Returns nil when payload capture is off.
+// snippet keeps the FULL payload: audit caps it for the console and cuts oversized values,
+// so capture is never lossy. nil when payload capture is off.
 func (e *Engine) snippet(v any) any {
 	if !e.logCfg.Payloads {
 		return nil
@@ -234,9 +208,7 @@ func (e *Engine) snippet(v any) any {
 	return v
 }
 
-// snippetRaw returns an already-string payload (e.g. a raw error response body) in full;
-// audit caps/externalizes it like snippet. Returns "" when payload capture is off or s
-// is empty.
+// snippetRaw is snippet for a string payload; nil when capture is off or s is empty.
 func (e *Engine) snippetRaw(s string) any {
 	if !e.logCfg.Payloads || s == "" {
 		return nil

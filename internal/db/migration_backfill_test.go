@@ -8,10 +8,8 @@ import (
 	"testing"
 )
 
-// The backfill in migration 040 runs exactly once, over rows nobody can produce again, so it
-// is the one part of the change that no ordinary test exercises: every test database is
-// created empty and migrated before a row exists. This runs the migration's OWN statements --
-// read from the file, not copied -- over a tree built in the pre-migration shape.
+// Every test database is migrated while empty, so only this exercises migration 040's backfill:
+// its OWN statements, read from the file, over a tree in the pre-migration shape.
 func TestMigration040BackfillsTheTree(t *testing.T) {
 	dir := t.TempDir()
 	sqldb, err := sql.Open("sqlite3", dir+"/m.db")
@@ -76,11 +74,8 @@ func TestMigration040BackfillsTheTree(t *testing.T) {
 	}
 }
 
-// The indexes are what the tree read bought -- 23 buffers per page against 18,616 -- and losing
-// one makes no noise, since every query still returns the right rows by scanning. Migration 012
-// had to hand-recreate a partial index after SQLite's ALTER TABLE rebuilt the table, and the next
-// rebuild has the same line to remember. Asserted on the SCHEMA, not on a query plan; the columns
-// must be the SORT KEY end to end, or the page is sorted rather than read in order.
+// A lost index makes no noise: every query still answers, by scanning. A SQLite table rebuild
+// drops them (migration 012 had to recreate one), so this asserts the SCHEMA covers the sort key.
 func TestTreeIndexesCoverTheSortKey(t *testing.T) {
 	dir := t.TempDir()
 	sqldb, err := sql.Open("sqlite3", dir+"/idx.db")

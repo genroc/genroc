@@ -130,11 +130,8 @@ func TestTokens_BootstrapIgnoresNonAdminTokens(t *testing.T) {
 	}
 }
 
-// The fleet race: N replicas starting together each see an empty table and each mint an admin
-// token, N-1 of them orphaned and unrevoked. Two conditions to know -- it bites on POSTGRES ONLY
-// (SQLite's single writer serialises the two statements) and it needs the pool WARM, which in
-// practice means the whole package running: READ COMMITTED was caught in 4 of 4 full runs and 0 of
-// 1 `-run` runs. Reproduce a suspected regression with the full package, not with -run.
+// Bites on POSTGRES ONLY and needs a WARM pool: READ COMMITTED was caught in 4 of 4 full-package
+// runs and 0 of 1 `-run` runs. Reproduce a suspected regression with the full package.
 func TestTokens_BootstrapRaceMintsExactlyOne(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -211,10 +208,8 @@ func TestTokens_BootstrapUsesTheSuppliedSecret(t *testing.T) {
 	}
 }
 
-// A supplied secret is NOT symmetric with a generated one, and the asymmetry bricks a
-// deployment: LookupToken requires the prefix, so a prefix-less value is stored as a live
-// admin row that can never authenticate — while permanently satisfying the bootstrap
-// condition. No usable credential, and no second chance to mint one.
+// A prefix-less secret would be a live admin row that can never authenticate yet permanently
+// satisfies the bootstrap condition: no credential, and no second chance.
 func TestTokens_BootstrapRefusesAnUnusableSecret(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -333,10 +328,8 @@ func TestTokens_BootstrapIgnoresAnExpiredAdmin(t *testing.T) {
 	}
 }
 
-// Every path that mints names itself, so a listing answers "where did this credential come
-// from" -- §5.3's root-of-trust ranking, made readable off the row. The bootstrap pair is the
-// half worth pinning: both land in EnsureBootstrapToken and only the supplied secret tells them
-// apart, so getting it wrong attributes an auto-minted credential to the operator.
+// Both bootstrap paths land in EnsureBootstrapToken and only the supplied secret tells them
+// apart; getting it wrong attributes an auto-minted credential to the operator.
 func TestTokens_EveryMintingPathRecordsItsOwnActor(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

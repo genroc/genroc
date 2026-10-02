@@ -37,9 +37,7 @@ async function run(name: string, input: unknown) {
   expect(await waitForInstance(data!.id)).toBe("completed");
 }
 
-// The reason the slot exists. Interpolating a term into the url escapes nothing, so a value
-// carrying `&`, `=`, `#` or a space corrupts the url or injects a parameter — reachable from
-// untrusted process input, which makes it a bug class rather than an ergonomic complaint.
+// Interpolating into the url escapes nothing, and a term can come from untrusted process input.
 test("query — values are URL-encoded, so a term cannot inject a parameter", async () => {
   const { svc, name } = await defineWith({ q: "$: input.term" });
   const term = "a&admin=1 b#c=d";
@@ -85,14 +83,8 @@ test("query — appends to a url that already has a query string", async () => {
   await svc.stop();
 });
 
-// What genroc puts on the wire, character by character. The table is the contract: every
-// character that could end the value, start another parameter, or truncate the url is
-// percent-encoded, and each one decodes back to exactly what was sent.
-//
-// Space is `%20`, not the `+` that url.Values.Encode emits. Every mainstream decoder reads
-// `+` back as a space, but RFC 3986 says a query is just a string and `+` is a literal plus —
-// a server reading it that way takes the wrong value SILENTLY. `%20` is a space under both
-// readings, so it is safe where `+` is merely usually safe.
+// Space is `%20`, not url.Values' `+`: under RFC 3986 `+` is a literal plus, and a server reading
+// it that way takes the wrong value silently. `%20` is a space under both readings.
 test("query — encoding is exact for every character that could break a url", async () => {
   const { svc, name } = await defineWith({ p: "$: input.term" });
 
@@ -122,10 +114,7 @@ test("query — encoding is exact for every character that could break a url", a
   await svc.stop();
 });
 
-// An array repeats the parameter, once per element and in order — `?tag=a&tag=b`, OpenAPI's
-// default (form/explode) and what most services read. Before this, an array was refused and
-// there was no way to express a repeated parameter at all: `map` is the only builtin, so the
-// values could not even be joined into one.
+// `?tag=a&tag=b`: OpenAPI's default (form/explode).
 test("query — an array repeats the parameter, in order", async () => {
   const svc = await startMockService(0, { response: { ok: true } });
   const name = `query_arr_${crypto.randomUUID()}`;
@@ -179,14 +168,8 @@ test("query — an array repeats the parameter, in order", async () => {
   await svc.stop();
 });
 
-// Two behaviours that only show up on the wire, and that nothing else asserts.
-//
-// Parameter ORDER is by key, deterministically: Go randomises map iteration, so without the
-// sort the same definition and the same input would produce a different url on every attempt —
-// which breaks request caches and makes an audit trail impossible to compare against itself.
-//
-// A null INSIDE an array is skipped rather than sent as the text "null", the same omission the
-// scalar case makes one level up.
+// Sorted because Go randomises map iteration: unsorted, the same input gives a different url per
+// attempt, breaking request caches and audit comparison.
 test("query — parameters are ordered by key, and a null element is skipped", async () => {
   const svc = await startMockService(0, { response: { ok: true } });
   const name = `query_order_${crypto.randomUUID()}`;

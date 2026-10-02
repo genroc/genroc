@@ -174,9 +174,8 @@ func TestListLogs_CursorPagination(t *testing.T) {
 	}
 }
 
-// TestListLogs_CursorTiebreaker pages through rows that all share one timestamp, so the keyset
-// rests entirely on the tiebreaker. It must return every row exactly once, in order, on both
-// engines — the property that distinguishes keyset pagination from ORDER BY + LIMIT/OFFSET.
+// Every row shares one timestamp, so the keyset rests on the tiebreaker: each row exactly once,
+// in order, on both engines.
 func TestListLogs_CursorTiebreaker(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -229,11 +228,8 @@ func TestListLogs_CursorTiebreaker(t *testing.T) {
 	}
 }
 
-// Everything the id scheme rests on. created_at is millisecond-granular and a single advance
-// writes its whole trail inside one, so `seq` -- the minting counter stored beside the id -- is
-// what keeps the events in the order they happened. The ids deliberately do NOT sort (`2-9`
-// follows `2-10` as text), so if the sort key ever loses seq this reverses in exactly the case
-// an operator reads a trail for: what did this task do, in what order.
+// One advance writes its whole trail inside a millisecond and ids do NOT sort (`2-9` follows
+// `2-10` as text), so seq alone keeps it in order.
 func TestLogsWrittenInOneMillisecondComeBackInOrder(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -273,10 +269,8 @@ func TestLogsWrittenInOneMillisecondComeBackInOrder(t *testing.T) {
 func TestListTreeLogs_AggregatesSubtree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			// Build a real parent chain, since root_id is derived from parent_id at insert:
-			//   root → child-a → grandchild
-			//   root → child-b
-			// plus an unrelated tree (other) that must never leak in.
+			// root_id derives from parent_id at insert, so a real chain: root → child-a →
+			// grandchild, root → child-b, plus an unrelated tree (other) that must never leak in.
 			spawnInstance(t, b.db, "root", "")
 			spawnInstance(t, b.db, "child-a", "root")
 			spawnInstance(t, b.db, "child-b", "root")

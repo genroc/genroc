@@ -1,9 +1,5 @@
-# The instance is parked on a task the new version deleted. There is nowhere to resume it, so
-# the move must be refused outright — the alternative is a row pointing at a task its own
-# definition does not contain, which no later tick can recover from.
-#
-# `after` is the whole point: a refusal that had already written something would leave the row
-# on v2 while reporting failure, and only the version pins that down.
+# Parked on a task v2 deleted: refused outright, with nowhere to resume. `after` pins that the
+# refusal wrote nothing (the row stays on v1).
 apply:
   - definitions:
       - name: goneproc

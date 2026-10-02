@@ -56,9 +56,6 @@ test("GET /instances/{id} — returns instance status", async () => {
   expect(data!.id).toBe(id);
 });
 
-// status says what is happening to a process and phase says what it is waiting for;
-// neither says *where* it is. The task field does, on both the detail and the list — which
-// is what makes a stuck or failed instance diagnosable without reading the audit log.
 test("GET /instances — task reports where the instance is, and clears when it ends", async () => {
   const name = `task_field_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
@@ -93,9 +90,7 @@ test("GET /instances — task reports where the instance is, and clears when it 
   expect(listed!.task).toBe("unreachable"); // and the light projection carries it too
 });
 
-// A settled instance keeps its position rather than clearing it, which is what makes the
-// field answer "where did this end up" as well as "where is it now". Every task must carry
-// a switch and only the last may say `end`, so a process always finishes *at* a task.
+// Every task needs a switch and only the last may say `end`, so a process always finishes AT a task.
 test("GET /instances/{id} — a completed process reports the task it finished at", async () => {
   const name = `task_field_done_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {

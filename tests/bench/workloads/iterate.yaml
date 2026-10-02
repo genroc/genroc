@@ -1,17 +1,6 @@
-# Many-yield workload: ONE process that parks 20 times before it ends. Every other
-# workload here is the opposite shape — a two-task process, or a tree whose instances each
-# run once — and that shape cannot tell `terminal` from `strict`, because an instance with
-# one task write and one terminal write pays a flush either way.
-#
-# A call-less task chain collapses into a single write (advance.go: maxInlineTasks), so
-# iterations alone do not multiply writes — only tasks that YIELD do. A delay is the
-# cheapest yield there is: it parks and resumes with no HTTP server, no child instances and
-# no wall-clock cost worth measuring.
-#
+# One process parking 20 times: `strict` flushes per park and resume, `terminal` once per
+# process. Delays, because a call-less chain collapses into one write (maxInlineTasks).
 #   make bench-iterate
-#
-# At `strict` this costs a flush per park and per resume; at `terminal`, one for the whole
-# process. That ratio is the point, and it grows with the number of yields.
 
 bench:
   roots: 50              # each root parks 20 times, so this is ~2000 writes, not 50

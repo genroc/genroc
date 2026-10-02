@@ -8,9 +8,8 @@ import (
 	"genroc/internal/shape"
 )
 
-// inferOutputs types every output-map task into defs (<id>_output), demand-driven: the
-// solver orders work by exact dependency, detects recursion on contact, and fixpoints
-// each cycle (null seed, re-infer, join). No separate dependency graph to drift.
+// inferOutputs types every output into defs (<id>_output), demand-driven: the solver orders by
+// exact dependency and fixpoints each cycle, so no dependency graph can drift.
 // specs/recursive-type-inference.md.
 func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 	solver := schema.NewSolver(scopes.defs)
@@ -32,17 +31,11 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 		}
 		node := s.Output.Raw
 		label := fmt.Sprintf("task %q output", id)
-		// An untyped result (fetch/external with no result_schema) cannot be exported: the
-		// Roots hook turns a reference to the unavailable self.result into a clear message
-		// rather than an opaque navigation failure.
+		// The hook words a reference to an untyped self.result as the rule it breaks.
 		hooks := shape.CheckHooks{Roots: slotRoots(s, label, loops, typed, afterAction)}
-		// A failed output slot recovers as {}, the unknown, rather than ending the pass:
-		// inference is sequential, so returning the error here would cost every diagnostic
-		// below it. The {} is what later tasks then read, and `bag.derived` drops the reads
-		// it makes fail. specs/language-server.md §2, unknown-type.md.
-		// A declaration is the task's PUBLISHED output type, so it is what lands in the pool
-		// and what `outputs.<id>` reads downstream. It also ends the recursion for free: a
-		// declared type is concrete, so nothing below it has to be solved.
+		// A failed slot recovers as {} rather than ending the pass (specs/language-server.md §2).
+		// A declaration lands in the pool as the published type, and ends any recursion: it is
+		// concrete.
 		declaredOut := s.OutputSchema
 		if declaredOut != nil {
 			_, declaredHooks := declaredShape(node, declaredOut, label)
@@ -67,12 +60,8 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 	if err := solver.Solve(); err != nil {
 		return err
 	}
-	// A DECLARED output goes back into the pool as written, prose and all. The solver stores
-	// what it computes CANONICAL — the fixpoint compares canonical forms — and canonical means
-	// no `description`: nothing lost on an inferred type, and the one thing an imported schema
-	// was worth importing for on a declaration. The type is the same either way; only the
-	// annotation comes back. A slot whose check failed keeps its `{}`, which is what the
-	// diagnostics' poison rule expects to find there.
+	// Declared outputs go back as written: the solver stores canonical forms, which drop
+	// `description`. A failed slot keeps the `{}` the poison rule expects. See CLAUDE.md.
 	for _, s := range tasks {
 		if s.OutputSchema != nil && checked[s.ID] {
 			scopes.defs.Set(s.ID+"_output", *s.OutputSchema)

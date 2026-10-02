@@ -1,13 +1,8 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
-# The script task as a CHILD PROCESS: one place that knows the evaluator's contract, so a
-# caller writes `type: child` plus a result_schema instead of an external task plus its own
-# error handling. This is custom-tasks.md's middle tier — the parent↔child relationship IS the
-# extension point — and the engine still has no idea scripts exist.
-#
-# The output is the TOP TYPE. A forwarding process must not declare a shape that is the
-# caller's concern; the caller narrows it with result_schema, which collect conforms against
-# the real output. See specs/unknown-type.md.
+# The script task as a child process (custom-tasks.md's middle tier): a caller writes
+# `type: child` plus a result_schema, and the engine has no idea scripts exist. The output is
+# the top type; the caller narrows it with result_schema (specs/unknown-type.md).
 name: script-node
 config_schema:
   type: object
@@ -23,18 +18,16 @@ input_schema:
 tasks:
   - id: eval_node
     action:
-      # An `external` task: the engine parks and holds no worker, and an evaluator claims it
-      # off the queue. Nothing here names a URL — the worker calls genroc, not the other way
-      # round, which is what lets it live anywhere with outbound access.
+      # `external`: an evaluator claims it off the queue. No URL: the worker calls genroc, so
+      # it can live anywhere with outbound access.
       type: external
       input:
         code: "$: input.code"
         input: "$: input.input"
         timeout_ms: "$: input.timeout_ms"
       result_schema: {}
-      # The closed set of codes an evaluator may answer with: the failure kinds in
-      # eval-node/eval.ts, one arm each below. A code outside this is refused at submission,
-      # so a worker that invents one is caught rather than routed to a catch-all.
+      # The codes an evaluator may answer with (eval-node/eval.ts), one arm each below; any
+      # other code is refused at submission.
       raises:
         threw: { $ref: "#/$defs/script_error" }
         timeout: { $ref: "#/$defs/script_error" }
@@ -46,28 +39,21 @@ tasks:
       timeout: 30s
     output: "$: self.result"
     on_error:
-      # Every arm below is a code the WORKER sent, so the script demonstrably ran. There is no
-      # retry arm and no "evaluator unavailable" arm any more: a runner that faults releases its
-      # claim instead of answering, and the task simply waits on the queue for another worker.
-      # That is the queue's own retry, and it costs the definition nothing.
+      # Every arm below is a code the worker sent, so the script ran. No retry arm: a faulting
+      # runner releases its claim and the task waits on the queue for another worker.
       - code: [threw]
         raise:
           code: script_threw
           message: "script threw (${error.data.name}): ${error.message}"
-          # The refusal, recomposed rather than forwarded whole: the evaluator puts the text
-          # on error.MESSAGE and only `name`/`stack` in data, so a caller declaring
-          # {name, message} would fail the conform against a verbatim `$: error.data`.
-          # `name` is what a caller tells one throw from another by, and it cannot be a code
-          # here (R2) because this process is generic. A caller reads either only by
-          # declaring a shape under `raises`.
+          # Recomposed, not forwarded: the evaluator puts the text on error.message and only
+          # `name`/`stack` in data, so a verbatim `$: error.data` fails a {name, message} conform.
           data:
             name: "$: error.data.name"
             stack: "$: error.data.stack"
       - code: [timeout]
         goto: $timed_out
-      # A script that would not compile, returned what JSON cannot represent, or ended its own
-      # realm. One arm because they are fixed the same way — by editing the script — and none
-      # is a condition a caller could react to.
+      # Compile failure, non-JSON result, or the script ended its realm: one arm, since each is
+      # fixed by editing the script.
       - code: [compile_error, nonserializable, exited]
         panic:
           code: script_broken
@@ -77,9 +63,8 @@ tasks:
           data:
             name: "$: error.data.name"
             stack: "$: error.data.stack"
-      # The deadline passed with nothing submitted: no evaluator is running, or one died
-      # holding the task. Which of those it was is not knowable from here, so this says so
-      # rather than picking the reassuring reading.
+      # Deadline passed with nothing submitted: no evaluator running, or one died holding the
+      # task. Unknowable from here, so the message does not pick the reassuring reading.
       - code: [external.timeout]
         raise:
           code: script_unknown
@@ -100,8 +85,7 @@ tasks:
 output: "$: outputs.eval_node"
 
 $defs:
-  # What a failure carries beside its code. `kind` is gone: it IS the code now, which is the
-  # whole gain of answering on the error channel rather than through a status.
+  # What a failure carries beside its code (the failure kind is the code itself).
   script_error:
     type: object
     properties:

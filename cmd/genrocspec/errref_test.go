@@ -10,9 +10,8 @@ import (
 	"genroc/internal/errcode"
 )
 
-// errorPages generates both halves and returns the definition-language page and the two
-// concatenated. They land in different sections now, so a test reading one directory would
-// silently assert against half the vocabulary.
+// errorPages reads both sections: a test reading one directory would silently assert
+// against half the vocabulary.
 func errorPages(t *testing.T) (task string, both string) {
 	t.Helper()
 	defDir, httpDir := t.TempDir(), t.TempDir()
@@ -30,10 +29,8 @@ func errorPages(t *testing.T) (task string, both string) {
 	return task, task + read(httpDir)
 }
 
-// Every code the engine can store must reach the page. The two vocabularies are assembled from
-// separate accessors, so a code added to one and missed by the generator produces a page that
-// still looks complete — and a code nobody documents is one an author meets for the first time
-// in a failed instance.
+// The two vocabularies come from separate accessors, so a code the generator misses leaves a
+// page that still looks complete.
 func TestEveryCodeReachesAPage(t *testing.T) {
 	_, page := errorPages(t)
 

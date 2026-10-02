@@ -1,9 +1,6 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// The single "child" action runs one named child and exposes its output DIRECTLY as
-// self.result — unwrapped, unlike child_map's keyed object. This is the poller-style case:
-// a task that delegates to exactly one child and wants its result verbatim.
 test("child — result is the child's output unwrapped (not keyed)", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const leaf = `single_leaf_${uid}`;
@@ -68,8 +65,6 @@ test("child — result is the child's output unwrapped (not keyed)", async () =>
   expect((inst?.output as any)?.got).toEqual({ value: 21 });
 });
 
-// The collected output is validated against result_schema, and a child whose output
-// cannot satisfy it fails the parent on collect (surfacing the child's process name).
 test("child — output validation failure fails the parent and names the child", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const leaf = `single_bad_leaf_${uid}`;
@@ -118,8 +113,6 @@ test("child — output validation failure fails the parent and names the child",
   expect(inst?.error_message).toContain(leaf);
 });
 
-// A single child that raises is the parent's to resolve via on_error, exactly like a
-// child_map/child_list batch — the parent catches the raised code and completes.
 test("child — parent on_error catches the child's raised code", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const leaf = `single_raiser_${uid}`;

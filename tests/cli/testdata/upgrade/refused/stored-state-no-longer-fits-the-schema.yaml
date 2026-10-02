@@ -1,10 +1,5 @@
-# No task moved and nothing was deleted — the new version simply describes a state this
-# instance is not in. `n` became a string, and the instance is carrying the number it was
-# started with, which every later task reads.
-#
-# This is the half a missing-task check cannot cover: the definitions line up structurally and
-# only the VALIDATOR can tell that the state does not fit. Migrating anyway would leave a row
-# whose input violates its own input_schema, discovered later at some expression that reads it.
+# Structurally identical definitions, but `n` became a string while the instance carries the
+# number it started with: only the validator sees it, and migrating would break input_schema.
 apply:
   - definitions:
       - name: narrowproc

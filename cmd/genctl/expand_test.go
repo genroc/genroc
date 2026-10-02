@@ -9,8 +9,6 @@ import (
 	"genroc/internal/sources"
 )
 
-// A directory is refused rather than walked: implicit recursion hides both the depth and the
-// filename filter, so it would silently differ from the pattern that replaces it.
 func TestExpandPaths_DirectoryIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	_, err := expandPaths([]string{dir})
@@ -22,9 +20,7 @@ func TestExpandPaths_DirectoryIsRefused(t *testing.T) {
 	}
 }
 
-// A mistyped filename and a pattern that matched nothing are different mistakes, and the
-// message has to say which — "matched no files" reads as a broken pattern when the name is
-// simply wrong.
+// "matched no files" reads as a broken pattern when the name is simply wrong.
 func TestExpandPaths_MissingFileVersusEmptyPattern(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := expandPaths([]string{filepath.Join(dir, "typo.genroc.yaml")}); err == nil ||
@@ -37,8 +33,6 @@ func TestExpandPaths_MissingFileVersusEmptyPattern(t *testing.T) {
 	}
 }
 
-// A glob entry, for the subset a directory cannot express. `**` is deliberately unsupported:
-// a directory entry already recurses, so it would be a second way to say the same thing.
 func TestExpandPaths_Globs(t *testing.T) {
 	root := t.TempDir()
 	for _, n := range []string{"a.genroc.yaml", "b.genroc.yaml", "skip.yaml"} {
@@ -55,8 +49,6 @@ func TestExpandPaths_Globs(t *testing.T) {
 	}
 }
 
-// `**` is the case a directory entry cannot express: recurse AND filter by name. filepath.Glob
-// has no `**`, which is why this uses doublestar.
 func TestExpandPaths_DoubleStar(t *testing.T) {
 	root := t.TempDir()
 	for _, p := range []string{
@@ -105,8 +97,6 @@ func TestExpandPaths_SingleStarStillWorks(t *testing.T) {
 	}
 }
 
-// Everything is a pattern, so a plain filename is the trivial case — and a file whose NAME
-// contains glob metacharacters must still be reachable without escaping.
 func TestExpandPaths_LiteralNameWithGlobChars(t *testing.T) {
 	root := t.TempDir()
 	odd := filepath.Join(root, "order[1].genroc.yaml")
@@ -122,9 +112,6 @@ func TestExpandPaths_LiteralNameWithGlobChars(t *testing.T) {
 	}
 }
 
-// `-f` is literal FIRST: an existing path wins over any pattern reading of it. The rule earns
-// itself on a filename that looks like a pattern AND collides with a real one — globbing
-// `a[1].yaml` finds `a1.yaml`, so without literal-first the wrong file is used silently.
 func TestDefinitionPaths_LiteralBeatsAnAmbiguousPattern(t *testing.T) {
 	root := t.TempDir()
 	odd := filepath.Join(root, "a[1].genroc.yaml")
@@ -135,8 +122,7 @@ func TestDefinitionPaths_LiteralBeatsAnAmbiguousPattern(t *testing.T) {
 		}
 	}
 
-	// Read as a pattern — what `definitions:` entries get — it resolves to the DECOY. That is
-	// the trap `-f`'s literal-first rule exists to avoid.
+	// Read as a pattern, as `definitions:` entries are, it resolves to the DECOY.
 	viaPattern, err := expandPaths([]string{odd})
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +140,6 @@ func TestDefinitionPaths_LiteralBeatsAnAmbiguousPattern(t *testing.T) {
 	}
 }
 
-// Both forms compose, and neither is dropped.
 func TestDefinitionPaths_LiteralAndPatternTogether(t *testing.T) {
 	root := t.TempDir()
 	for _, n := range []string{"a.genroc.yaml", "b.genroc.yaml"} {
@@ -174,9 +159,6 @@ func TestDefinitionPaths_LiteralAndPatternTogether(t *testing.T) {
 	}
 }
 
-// `compat --from <sel>` with no -f uses the project's own definitions: the "does what I have
-// here break what is running" question. Only when no other side was named, or it would hijack
-// a stored-versus-stored comparison.
 func TestCompatDefaultsToTheProject(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".genroc"),
@@ -200,8 +182,6 @@ func TestCompatDefaultsToTheProject(t *testing.T) {
 	}
 }
 
-// ...and the same flag still globs when the value names no file, which is the only door in a
-// command whose positional arguments mean something else (compat).
 func TestDefinitionPaths_FileFlagGlobsWhenNotALiteral(t *testing.T) {
 	root := t.TempDir()
 	for _, n := range []string{"a.genroc.yaml", "b.genroc.yaml", "skip.txt"} {
@@ -218,9 +198,6 @@ func TestDefinitionPaths_FileFlagGlobsWhenNotALiteral(t *testing.T) {
 	}
 }
 
-// An unquoted `-f defs/*.yaml` expands to `-f a b c`, and compat reads the leftovers as a
-// process name — matching nothing, reporting an empty comparison, exiting 0. A quiet wrong
-// answer is the worst outcome, so a path-shaped positional is refused instead.
 func TestLooksLikePath(t *testing.T) {
 	for in, want := range map[string]bool{
 		"definitions/a.genroc.yaml": true,
@@ -237,8 +214,6 @@ func TestLooksLikePath(t *testing.T) {
 	}
 }
 
-// `-f` takes several values, stopping at the next flag — so an unquoted `-f defs/*.yaml` is one
-// flag with many values, while `-f a b --channel prod` leaves the flag to be parsed.
 func TestTakeFileValues(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

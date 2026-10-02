@@ -1,11 +1,5 @@
-# The case the whole feature exists for: a task that has NOT run yet computes something
-# different in the new version, and the value it reads was produced by the OLD one.
-#
-# Every other happy case has two versions that behave identically, so running the instance on
-# afterwards cannot tell whether the upgrade took effect — only whether it broke something.
-# Here `second` doubles in v1 and decuples in v2, so the finished output says which definition
-# actually executed, on state that predates it. An upgrade that migrated the context but left
-# the row on its old version passes every assertion up to `after` and produces 4 here.
+# `second` doubles in v1 and decuples in v2, so the output says which definition ran on state
+# that predates it: an upgrade that left the row on v1 passes up to `after` and finishes 4.
 apply:
   - definitions:
       - name: laterproc

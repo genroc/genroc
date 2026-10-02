@@ -163,9 +163,8 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 	}
 }
 
-// TestSignals_ResolveWhenArmed covers the case where the task is already parked. The outcome is
-// buffered like every other -- `delivered` reports that the instance was also UN-PARKED, so the
-// engine reaches it now rather than at the next arm. specs/external-outcome-as-signal.md.
+// Buffered like every other outcome; `delivered` reports that the instance was also UN-PARKED.
+// specs/external-outcome-as-signal.md.
 func TestSignals_ResolveWhenArmed(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -195,7 +194,6 @@ func TestSignals_ResolveWhenArmed(t *testing.T) {
 	}
 }
 
-// TestSignals_RejectsNonRunning verifies a signal to a terminal instance is refused.
 func TestSignals_RejectsNonRunning(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

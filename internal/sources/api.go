@@ -1,10 +1,7 @@
 package sources
 
-// The exported surface. Source resolution lived in `cmd/genctl` until the language server
-// needed the STRUCTURAL phase: a `<<` spread changes which keys a document has, so an editor
-// that skips it reports a document nobody applies -- `unknown field "<<"` on valid text.
-// Everything here is a name for something already spelled out unexported below; nothing is a
-// second implementation. specs/source-resolution.md, specs/language-server.md section 4.
+// The exported surface, for genctl and the language server: each a name for something spelled
+// out unexported, never a second implementation. specs/language-server.md section 4.
 
 import (
 	"strconv"
@@ -33,13 +30,9 @@ func DefaultDefinitionPaths(dir string) []string { return defaultDefinitionPaths
 // LoadDocs reads every definition in files, keeping each document's origin.
 func LoadDocs(files []string) ([]Doc, error) { return loadSourceDocs(files) }
 
-// ResolveStructuralPass resolves every structural directive in docs, MUTATING them in place,
-// and returns how many it resolved. stack is the chain of files being resolved, by which a
-// spread cycle is refused; a caller starting fresh passes nil.
-//
-// It also finalises the `$$name:` escape, because everyone who calls it from outside this
-// package stops here rather than going on to the code phase. That phase re-walks the document,
-// and a leaf unescaped before that walk is claimed by it.
+// ResolveStructuralPass resolves every structural directive in docs IN PLACE and returns how many;
+// stack is the file chain a spread cycle is refused by (nil to start). It finalises `$$name:`
+// escapes, so no directive walk may follow it. specs/source-resolution.md §Escaping on the way IN.
 func ResolveStructuralPass(docs []Doc, cfg Config, stack []string) (int, error) {
 	n, err := resolveStructuralPass(docs, cfg, stack)
 	if err != nil {
@@ -49,11 +42,9 @@ func ResolveStructuralPass(docs []Doc, cfg Config, stack []string) (int, error) 
 	return n, nil
 }
 
-// StructuralValueAt answers ONE structural directive without applying it: the value the site at
-// path would be filled or spread with, which is what an editor shows over it. structural is
-// false, with no error, where the directive at path is a code-phase one -- the editor never runs
-// that phase -- or where path holds no directive; an error is the resolution's own. doc is the
-// text as written, since a resolved document no longer holds the site, and it is not mutated.
+// StructuralValueAt returns the value the site at path would be filled or spread with, without
+// applying it; doc is the text as written and is not mutated. structural is false, with no
+// error, where path holds no directive or a code-phase one.
 func StructuralValueAt(doc Doc, cfg Config, path string) (value any, structural bool, err error) {
 	docs := []sourceDoc{doc}
 	sites, i, err := siteAt(docs, cfg, path)
@@ -123,13 +114,9 @@ func ReachableDefs(pool map[string]any, from ...any) (map[string]any, error) {
 // CollapseAliases rewrites refs to alias-only definitions, in place.
 func CollapseAliases(pool map[string]any, docs ...any) { collapseAliases(pool, docs...) }
 
-// Suffixes reports the argument suffixes a resolver accepts, and whether any entry carries the
-// name at all. An empty list with ok=true accepts anything — one entry that accepts everything
-// makes the whole name unfiltered, because matchResolver takes the first entry that fits.
-//
-// It is here for the editor, which offers a path before there is an argument to match. The
-// RESOLVER still treats the argument verbatim (findSites): this is what may be suggested, never
-// what is accepted.
+// Suffixes reports the argument suffixes a resolver accepts, and whether any entry has the name;
+// an empty list with ok=true accepts anything. For editor suggestions only, never for acceptance:
+// the resolver still takes the argument verbatim.
 func Suffixes(c Config, name string) ([]string, bool) {
 	var out []string
 	known := false

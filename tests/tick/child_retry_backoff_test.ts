@@ -1,13 +1,5 @@
-/**
- * The one §5.5 claim that only the shiftable clock can prove: a replacement's `wake_at` is
- * measured from the raised attempt's OWN conclusion, not from the moment the parent got round
- * to dispatching the round.
- *
- * The batch is the unit, so a slot can sit settled while its siblings finish — and that
- * wall-clock already served what a backoff is for. Anchoring at dispatch would charge the wait
- * twice. Here the gap is manufactured by moving the server clock between the child raising and
- * the parent resolving, which makes the two anchors land half an hour apart.
- */
+/** §5.5: a replacement's wake_at counts from the raised attempt's OWN conclusion, not from dispatch,
+ *  since sibling wait already served the backoff. The clock moves 30m between the raise and the collect. */
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 import { tick } from "../helpers/client.ts";

@@ -19,10 +19,7 @@ import (
 // starting the server, to generate static spec files.
 func Spec() []byte { return buildSpec() }
 
-// ProcessSchema returns the JSON Schema for a process definition — the same bytes
-// GET /process-schema.json serves — so the docs site can publish it as a static file. The
-// building is defschema's: the schema describes the definition language, and this package only
-// serves it.
+// ProcessSchema is the process-schema.json the server serves, for the docs site to publish.
 func ProcessSchema() []byte { return defschema.Process() }
 
 var (
@@ -40,10 +37,8 @@ func buildSpec() []byte {
 		r.Spec.Info.Description = &desc
 		r.Spec.Info.Version = "1.0.0"
 
-		// The base path belongs here, not repeated into every path key: a generated client
-		// prepends it, and the registry keeps the logical path it routes and documents by.
-		// `/healthz` is served outside it (actionDef.Root) and is therefore absent from this
-		// spec, which is correct — it is a probe, not API surface.
+		// The base path is declared once here. /healthz (actionDef.Root) is outside it and so
+		// absent from the spec, correctly: it is a probe, not API surface.
 		r.Spec.Servers = []openapi31.Server{{URL: apiPrefix}}
 
 		r.DefaultOptions = append(r.DefaultOptions, jsonschema.InterceptDefName(defschema.ShapeDefName))
@@ -70,9 +65,8 @@ func buildSpec() []byte {
 			addOperation(&r, a)
 		}
 
-		// A root-mounted action does not sit under the spec's base path, so its path item
-		// overrides `servers`. OpenAPI 3.1 has this for exactly the case; the alternative —
-		// leaving the action out of the spec — would undocument a real endpoint.
+		// A Root action's path item overrides `servers`; leaving it out of the spec would
+		// undocument a real endpoint.
 		if r.Spec.Paths != nil {
 			for _, a := range registry {
 				if !a.Root {
@@ -86,9 +80,8 @@ func buildSpec() []byte {
 		}
 
 		b, _ := r.Spec.MarshalJSON()
-		// Hand-written schemas ref model defs as #/$defs/Model*; OpenAPI 3.1 wants
-		// #/components/schemas. Rewriting the shared prefix (not each name) means a new
-		// hand-written schema resolves with no matching edit here.
+		// Rewrite the shared prefix, not each name, so a new hand-written schema needs no
+		// edit here.
 		b = bytes.ReplaceAll(b, []byte("#/$defs/Model"), []byte("#/components/schemas/Model"))
 		specBytes = b
 	})
@@ -130,9 +123,8 @@ func addOperation(r *openapi31.Reflector, a actionDef) {
 				cu.HTTPStatus = alt.Status
 			})
 		}
-		// Error responses use errorBody, the shape actually written over HTTP, and are
-		// documented per status. CodeInvalid and CodeInternal apply to every action:
-		// any body can be rejected, and any action can hit an unclassified failure.
+		// errorBody is the shape actually written over HTTP; CodeInvalid and CodeInternal
+		// apply to every action.
 		for _, status := range errorStatuses(a.Errors) {
 			op.AddRespStructure(errorBody{}, func(cu *openapi.ContentUnit) {
 				cu.HTTPStatus = status

@@ -130,9 +130,7 @@ func TestInstant_ClockWildcardsNameASubDailySchedule(t *testing.T) {
 	}
 }
 
-// A step field: "base/step" — every step-th value, counted from the base. The base is the
-// phase, which is the whole reason this spelling was taken from systemd rather than cron's
-// "*/5", where the phase has nowhere to go.
+// The base is the phase, which is why this spelling comes from systemd rather than cron's "*/5".
 func TestInstant_StepFieldsRepeatFromTheirBase(t *testing.T) {
 	loc := prague(t)
 	now := at(t, loc, instantNow) // 12:00:00 exactly
@@ -177,9 +175,8 @@ func TestParseInstant_CronStepSpellingIsRejectedByName(t *testing.T) {
 	}
 }
 
-// An omitted seconds field is :00, not a wildcard. Every pattern written before clock
-// wildcards existed relies on it — "08:00" names one instant a day, and widening it to 60
-// would silently turn every such schedule into a per-second one.
+// Widening "08:00" to 60 seconds would silently turn every existing daily schedule into a
+// per-second one.
 func TestInstant_OmittedSecondsStayZeroRatherThanWidening(t *testing.T) {
 	loc := prague(t)
 	now := at(t, loc, instantNow)

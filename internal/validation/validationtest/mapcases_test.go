@@ -9,15 +9,12 @@ import (
 	"genroc/internal/validation"
 )
 
-// Fixtures and builders for map_test.go and infer_test.go, which are both about which
-// definition SHAPE is accepted, rejected or inferred — so each test stays short enough to read
-// as "build this shape, expect this". Nothing here asserts on its own.
+// Fixtures and builders for map_test.go and infer_test.go, so each test reads as "build this
+// shape, expect this". Nothing here asserts on its own.
 
 // --- map fixtures -----------------------------------------------------------
 
-// mapRowsInput is the process input reused across the map tests: an array of
-// rows with a string code and an integer count. Reshaping it with map + an
-// object literal is the motivating use case for the feature
+// mapRowsInput: rows with a string code and an integer count, the motivating reshape
 // (specs/map-expressions.md).
 const mapRowsInput = `{
 	"type": "object",
@@ -102,9 +99,7 @@ func mapChildListEchoTask(id, childName, over string) string {
 	}`
 }
 
-// mapFanoutDef is a child_list whose `over` reshapes the process input with map.
-// Parameterised on the child name so the same definition can be pointed at
-// compatible and incompatible children.
+// mapFanoutDef: a child_list over a mapped input, pointed at the named child.
 func mapFanoutDef(childName string) string {
 	return mapRowsDef("map-fanout",
 		mapChildListTask("fanout", childName, "$: map(input.rows, r => {sku: r.code, qty: r.count + 1})"))
@@ -156,10 +151,8 @@ func mapErrMentions(t *testing.T, got, want, should string) {
 	}
 }
 
-// mapChildRefs runs the full registration pipeline — Generate (which must
-// succeed) followed by ValidateChildProcessRefs — and returns the child-ref
-// error. The child input type derived from a `map` is only observable through
-// the second phase, which subset-checks it against the child's input_schema.
+// The child input type derived from a `map` is observable only through
+// ValidateChildProcessRefs, which subset-checks it against the child's input_schema.
 func mapChildRefs(t *testing.T, defJSON string, getter validation.DefinitionGetter) error {
 	t.Helper()
 	var def model.ProcessDefinition
@@ -201,9 +194,7 @@ const (
 	inferEnd        = `"end"`
 )
 
-// inferTask describes one task of a definition under inference. Only the fields
-// a test cares about are set; the rest are omitted from the JSON, so the call
-// site shows exactly what the case is made of. All string fields are raw JSON.
+// Only the fields a test sets reach the JSON. All string fields are raw JSON.
 type inferTask struct {
 	id      string
 	fetch   bool   // give the task a fetch action against http://x

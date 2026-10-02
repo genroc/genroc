@@ -44,9 +44,8 @@ func TestRetryRead_RecoversFromABlipAndGivesUpOnAFault(t *testing.T) {
 		if !errors.Is(err, boom) {
 			t.Fatalf("err = %v, want the underlying fault so the instance fails with a reason", err)
 		}
-		// Bounded by a small number, not by the constant: a generous retry budget is the
-		// livelock this exists to avoid, and it would hold the lease and a concurrency slot
-		// while it ran.
+		// Bounded by a small number, not by the constant: a generous budget is the livelock
+		// this exists to avoid.
 		if calls > 5 {
 			t.Errorf("read %d times before giving up; a real fault must fail promptly, not be retried at length", calls)
 		}

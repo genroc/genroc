@@ -1,11 +1,6 @@
-// Package logview is the single source of truth for how an instance's audit trail is presented,
-// shared by the server console (streaming) and genctl logs (batch): same fields, same fixed-width
-// columns, so a row looks identical in either place. The CLI adds what only a whole page allows —
-// a header, a Clamp width, a chosen TimeStyle — while the console is pinned to TimeClock.
-//
-// The zone does differ by design: the console is UTC (a fleet's logs must collate), the CLI the
-// reader's local (an operator correlates against their own clock). Each surface says so — the CLI
-// on every DateBreak, the console by being invariably UTC.
+// Package logview renders an instance's audit trail for both the server console (streaming) and
+// genctl logs (batch), in the same fields and columns. The zone differs by design: the console is
+// pinned to TimeClock in UTC, the CLI follows the reader's zone and states it on every DateBreak.
 package logview
 
 import (
@@ -44,15 +39,12 @@ func ParseMode(s string) (Mode, error) {
 
 func (m Mode) IncludesData() bool { return m == ModeDetail || m == ModeJSON }
 
-// AuditKey is the slog attr that marks a record as a structured, DB-persisted audit
-// event (so the console renders it in columns). Operational logs lack it and render
-// free-form. The handler strips it from output.
+// AuditKey is the slog attr marking a DB-persisted audit event, which the console renders in
+// columns; operational logs lack it. The handler strips it from output.
 const AuditKey = "_audit"
 
-// Fixed column widths for the aligned layout (the server streams one record at a
-// time, so widths can't be computed from the batch — they're fixed). A value wider
-// than its column just pushes the rest right on that row. The time column is the one
-// exception: its width comes from the TimeStyle in play.
+// Column widths are fixed because the server streams one record at a time; a wider value just
+// pushes its row right. The time column's width comes from the TimeStyle instead.
 const (
 	colLevel = 5  // DEBUG
 	colID    = 8  // a minted instance id, in full: what a listing prints is what a command takes
@@ -60,10 +52,8 @@ const (
 	colTask  = 14 // user-defined task id; the last column before the detail fields
 )
 
-// TimeStyle selects the time column's layout. The server console is fixed at TimeClock:
-// a live tail is always on today, and the seconds matter more than a date repeated on
-// every line. The CLI offers TimeFull for a trail read days later. The zero value is
-// TimeClock, so a caller that has no opinion gets the console's layout.
+// TimeStyle selects the time column's layout: the console is fixed at TimeClock, and the CLI
+// offers TimeFull for a trail read days later. The zero value is TimeClock.
 type TimeStyle string
 
 const (
@@ -84,9 +74,8 @@ func ParseTimeStyle(s string) (TimeStyle, error) {
 // DateBreak must skip it when this is true — the date belongs in exactly one place.
 func (s TimeStyle) CarriesDate() bool { return s == TimeFull }
 
-// layout renders in the caller's zone. TimeFull states the offset (an unqualified exact
-// timestamp is only exact to whoever ran the command); use "-07:00", not "Z07:00" —
-// the latter collapses UTC to "Z" and the column stops being fixed-width.
+// layout renders in the caller's zone. Use "-07:00", not "Z07:00": the latter collapses UTC to
+// "Z" and the column stops being fixed-width.
 func (s TimeStyle) layout() string {
 	if s == TimeFull {
 		return "2006-01-02 15:04:05 -07:00"
@@ -144,10 +133,8 @@ func (r Record) Detail(mode Mode) []Field {
 	if r.Code != "" {
 		fs = append(fs, Field{"code", r.Code})
 	}
-	// "by", not "actor": this sits among msg/code in a dense one-line trail, and the events
-	// carrying it are the ones an operator scans asking who did it. model.ActorEngine is on
-	// nearly every row, so rendering it would spend a field on every line to say nothing --
-	// the storage keeps it either way, and the API answers with it.
+	// model.ActorEngine is on nearly every row, so it is not rendered; storage and the API
+	// keep it either way.
 	if r.Actor != "" && r.Actor != model.ActorEngine {
 		fs = append(fs, Field{"by", r.Actor})
 	}
@@ -160,8 +147,7 @@ func (r Record) Detail(mode Mode) []Field {
 	return fs
 }
 
-// RenderEvent renders an audit event as a fixed-width column line; the id column shows
-// only when withID (always on the server; on the CLI whenever the read is a tree):
+// RenderEvent renders an audit event as one fixed-width column line (id column only if withID):
 //
 //	15:04:05  INFO   2559a9  action_started    first         msg=fetch url=… request={…}
 func RenderEvent(style TimeStyle, t time.Time, level, id, event, task string, detail []Field, withID bool) string {
@@ -173,8 +159,7 @@ func RenderEvent(style TimeStyle, t time.Time, level, id, event, task string, de
 }
 
 // Clamp cuts line to width characters, marking the cut with an ellipsis; width <= 0 leaves it
-// whole. A trail is one event per line: a payload long enough to wrap takes the column
-// alignment of every row after it with it, so the body is cut rather than the layout.
+// whole. A wrapping payload would misalign every row after it.
 func Clamp(line string, width int) string {
 	if width <= 0 {
 		return line
@@ -186,8 +171,7 @@ func Clamp(line string, width int) string {
 	return string(r[:width-1]) + "…"
 }
 
-// RenderFree renders an operational record (no event) free-form: time, level, the message
-// as a leading msg= field, then key=value — deliberately not column-fitted.
+// RenderFree renders an operational record free-form, deliberately not column-fitted:
 //
 //	15:04:05  INFO   msg="engine started" max_concurrent=200 worker=…
 func RenderFree(t time.Time, level, message string, fields []Field) string {
@@ -233,15 +217,9 @@ func Header(style TimeStyle, withID bool) string {
 	return strings.TrimRight(columnPrefix(style, "TIME", "LEVEL", "ID", "EVENT", "TASK", withID), " ")
 }
 
-// DateBreak is the day marker the CLI prints above the first row of each calendar day under
-// TimeClock, whose column holds no date. It costs no column width, which is why it is preferred
-// to TimeFull: widening the column would desynchronize the CLI from the streaming console.
-// Callers emit the first break unconditionally and none at all under a style that CarriesDate.
-//
-// It carries the zone because it is the only place TimeClock can, and as an OFFSET, never an
-// abbreviation: "CST" is both Shanghai and Chicago, and Go emits a numeric form anyway for zones
-// tzdata gives no abbreviation. The offset comes from t, so a trail spanning a DST change reports
-// each day's own.
+// DateBreak is the CLI's marker above each calendar day's first row under TimeClock; callers emit
+// the first unconditionally and none under a style that CarriesDate. The zone is t's offset, never
+// an abbreviation ("CST" is Shanghai and Chicago), so each day across a DST change has its own.
 func DateBreak(t time.Time) string {
 	return "--- " + t.Format("2006-01-02 -07:00") + " ---"
 }
@@ -325,9 +303,8 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-// NewHandler builds the server console slog handler: in basic/detail modes AuditKey
-// records render as aligned columns and the rest free-form; json mode is one object per
-// line. Every record is stamped UTC — see Handle.
+// NewHandler builds the server console slog handler: AuditKey records render as aligned columns
+// and the rest free-form, or one JSON object per line in json mode. Times are UTC.
 func NewHandler(w io.Writer, level slog.Level, mode Mode) slog.Handler {
 	return &consoleHandler{w: w, level: level, mode: mode, mu: &sync.Mutex{}}
 }
@@ -342,11 +319,8 @@ type consoleHandler struct {
 
 func (h *consoleHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= h.level }
 
-// Handle renders one record. Times are UTC, not the host's local zone: a fleet spans
-// regions, and two workers' logs must collate into one timeline rather than interleave by
-// wall clock. It is also why no console line names its zone — UTC is a fixed property of
-// this surface, unlike the CLI's, which follows whoever is reading and so stamps the
-// offset on each DateBreak.
+// Handle stamps UTC, not the host's zone: a fleet's logs must collate into one timeline, and no
+// console line names its zone.
 func (h *consoleHandler) Handle(_ context.Context, r slog.Record) error {
 	t := r.Time.UTC()
 	isAudit := false

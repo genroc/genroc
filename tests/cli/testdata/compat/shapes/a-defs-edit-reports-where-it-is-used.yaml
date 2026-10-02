@@ -1,17 +1,6 @@
-# A shared definition is a pool, not a place: no instance sits at it and no caller is
-# pointed at it, so `$defs` is never an address and a path must never reach one (§6a). The
-# edit below moves `User.age` and is reported at `input`, under `user.age` — a path an
-# operator can navigate — because Normalize bakes the definition into every schema that
-# references it.
-#
-# Two things this holds down that nothing else does. `$defs` is deliberately absent from
-# definitionSlots, so a $defs-only edit has no slot row of its own and would vanish entirely
-# if the baking stopped; and it is the same baking that lets `documentsDiffer` see the edit
-# at all, which is what keeps a SUBMITTED document from reading `nothing changed` here.
-#
-# One property, two lines: the edit made `age` required AND took `null` off it, and neither
-# is fixed by fixing the other. Independent findings that happen to share a path are still
-# independent — the path is where they are, not what they are.
+# `$defs` is never an address (§6a): the `User.age` edit is reported where Normalize bakes it
+# in, under `input`. $defs is deliberately not in definitionSlots, so this row vanishes if the
+# baking stops. `age` gets two lines: required and non-null are independent findings.
 apply:
   - channel: defsuse_a
     definitions:

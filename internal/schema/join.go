@@ -7,10 +7,8 @@ func nodesEqual(a, b *node) bool {
 	return nodeCanonJSON(canonicalizeNode(a)) == nodeCanonJSON(canonicalizeNode(b))
 }
 
-// joinNodes returns the least upper bound of a and b. Two objects merge
-// property-by-property (a key on only one side becomes nullable, since it may be
-// absent); anything else becomes a union. Nullability is preserved. The canonical
-// result, with nodesEqual, gives the fixpoint a monotone, terminating accumulation step.
+// joinNodes is the least upper bound: objects merge per property (a one-sided key nullable),
+// anything else unions. The canonical result gives the fixpoint a monotone, terminating step.
 func joinNodes(a, b *node) *node {
 	if a == nil {
 		return canonicalizeNode(b)

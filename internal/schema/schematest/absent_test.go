@@ -323,10 +323,8 @@ func TestAbsentAsNull_RefusesWhatCannotBeClosed(t *testing.T) {
 	}
 }
 
-// A presence gap is closable exactly when the missing property's type admits null, and that
-// question is answered TWICE -- once by the relation, once by the fill -- so these pin the awkward
-// spellings against both. One case is deliberately absent: a `required` name with no declared
-// property, which the relation refuses and the fill never sees -- the harmless direction.
+// Fillability is answered TWICE -- relation and fill -- so the awkward spellings are pinned against
+// both. A `required` name with no property is absent on purpose: the harmless direction.
 func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -375,11 +373,8 @@ func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
 	}
 }
 
-// Where a gap IS closable, the value written is null even if the property declares a
-// default — and the runtime agrees: a default never reaches a REQUIRED property, because
-// the absence is rejected before one is looked for. So the migration invents nothing the
-// runtime would not have produced, which is the only reason writing null over a stated
-// default is defensible.
+// Writing null over a declared default is defensible only because the runtime agrees: a
+// default never reaches a REQUIRED property, so the migration invents nothing.
 func TestAbsentAsNull_FillWritesNullOverADeclaredDefault(t *testing.T) {
 	s := mustSchema(t, `{"type":"object","properties":{"a":{"type":"string"},
 		"b":{"type":["number","null"],"default":7}},"required":["a","b"]}`)
@@ -569,10 +564,8 @@ func TestAbsentAsNull_FillIsIdempotent(t *testing.T) {
 	}
 }
 
-// Closing a FILL gap never removes or rewrites: every key the value carried is still there,
-// unchanged. Scoped to `gaps` on purpose — the mode does remove, in the one case where a
-// stored null cannot stay and absence is valid, and conform_exact_test.go owns that half.
-// None of these fixtures holds such a null, so nothing here may lose a key.
+// Scoped to `gaps` on purpose: the mode does remove where a stored null cannot stay, and
+// conform_exact_test.go owns that half. None of these fixtures holds such a null.
 func TestAbsentAsNull_ClosingAGapRemovesNothing(t *testing.T) {
 	for _, g := range gaps {
 		t.Run(g.name, func(t *testing.T) {
@@ -641,9 +634,8 @@ func TestAbsentAsNull_FillPreservesValidity(t *testing.T) {
 	}
 }
 
-// HasNull is asked about the property at a name, and a map index that misses hands it the
-// zero Schema. It used to panic on that, which made the ordinary "is this name nullable"
-// question a crash — reachable from a schema that lists a `required` name it never declares.
+// A map index that misses hands HasNull the zero Schema — reachable from a `required` name
+// that is never declared.
 func TestAbsentAsNull_HasNullOnTheZeroSchemaIsFalse(t *testing.T) {
 	var zero schema.Schema
 	if zero.HasNull() {

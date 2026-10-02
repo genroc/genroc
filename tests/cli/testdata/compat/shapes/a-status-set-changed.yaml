@@ -1,17 +1,6 @@
-# A fetch declares its body per status but produces ONE value, so the comparison is the
-# merged union under `<task>:fetch.result` — never one row per status. Both edits here move
-# only the STATUS SET, leaving every declared schema untouched, and they must still be
-# judged, because what the remote may answer changed:
-#
-#   202 added (bodyless)   the union widens to `T | null`. Nothing narrows, so no consumer
-#                          of the result is turned away — reported as a change, not a break.
-#   200 dropped for 2xx    the same union restated over a range: the accepted set is the
-#                          same and the type is the same, so there is nothing to report but
-#                          the edit itself.
-#
-# Comparing the statuses one at a time would get both wrong — an added bodyless entry
-# carries no schema to compare, and a restatement reads as one key removed and another
-# added, which is `added` and would print a break for an edit that changed no type.
+# A fetch produces one value, so status-set edits are judged as the merged union under
+# `<task>:fetch.result`, never per status: an added bodyless 202 widens to `T | null`, and
+# 200 restated as 2xx changes nothing but the slot.
 apply:
   - channel: statusset_a
     definitions:
@@ -38,8 +27,7 @@ apply:
               responses:
                 "2xx": {type: object, properties: {fee: {type: number}}, required: [fee]}
                 202: null
-            # self.result is now `T | null`, so the projection needs the null arm handled —
-            # which is the definition-level consequence of widening the accepted set.
+            # self.result is now `T | null` (the bodyless 202), so the projection handles the null arm.
             output: {fee: "$: (self.result ?? {fee: 0}).fee"}
             switch: end
 run: [--from, statusset_a, --to, statusset_b]

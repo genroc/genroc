@@ -2,13 +2,8 @@ import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 import { waitForParked } from "../helpers/external.ts";
 
-// The RUNTIME half of a declared slot schema: the value is conformed to the declaration before
-// it leaves the slot. specs/declared-slot-schemas.md §4.
-//
-// The case the feature exists for is the null: an optional non-nullable property fed null needs
-// its key REMOVED, absence being valid there, and genroc has no filter builtin to do it by hand.
-// Registration accepts it (the relation admits exactly the gaps this conform closes), so without
-// the conform the stored value would carry a null the declaration forbids.
+// The RUNTIME half of a declared slot schema (specs/declared-slot-schemas.md §4). Registration
+// admits a null in an optional non-nullable slot; only this conform removes the key.
 
 /** A process whose only output is `discount`, taken straight from a nullable input. */
 function nullableOutput(name: string, outputSchema: Record<string, unknown>) {
@@ -68,8 +63,6 @@ test("the same slot keeps a non-null value untouched", async () => {
   expect(output).toEqual({ discount: 5 });
 });
 
-// The rule must NOT fire where the target is itself nullable: both states are valid there, so
-// removing the key would invent a canonical form the schema never named.
 test("a nullable target keeps its null", async () => {
   const name = `decl_nullable_${crypto.randomUUID().slice(0, 8)}`;
   const { status, output } = await run(
@@ -83,8 +76,6 @@ test("a nullable target keeps its null", async () => {
   expect(output).toEqual({ discount: null });
 });
 
-// A declared schema with no runtime effect must still round-trip the value unchanged — the
-// conform is an assertion, so on the ordinary path it is invisible.
 test("a declaration that matches exactly changes nothing", async () => {
   const name = `decl_noop_${crypto.randomUUID().slice(0, 8)}`;
   const { status, output } = await run(
@@ -104,8 +95,7 @@ test("a declaration that matches exactly changes nothing", async () => {
   expect(output).toEqual({ a: 1, b: "two" });
 });
 
-// Registration is where a bad declaration is caught, and the message must name the key rather
-// than report a type mismatch somewhere inside an object.
+// The message must name the key, not a type mismatch somewhere inside an object.
 test("a body that sets a key its declaration does not name is refused at registration", async () => {
   const name = `decl_reject_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
@@ -151,9 +141,6 @@ test("additionalProperties in a declared schema is refused at registration", asy
   expect(JSON.stringify(error ?? {})).toContain("additionalProperties");
 });
 
-// child_list's declaration types ONE element, so the conform runs per element — the same rule
-// `result_schema` follows there. A null in an optional non-nullable slot of an element is
-// repaired for that element alone, and its siblings are untouched.
 test("child_list conforms each element, repairing one without disturbing the others", async () => {
   const child = `decl_cl_child_${crypto.randomUUID().slice(0, 8)}`;
   const parent = `decl_cl_${crypto.randomUUID().slice(0, 8)}`;
@@ -231,14 +218,11 @@ test("child_list conforms each element, repairing one without disturbing the oth
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const got = (inst?.output as any)?.got as { seen: Record<string, unknown> }[];
   expect(got).toHaveLength(2);
-  // The first element's null was removed; the second was left exactly as it arrived.
   expect(got[0].seen).toEqual({});
   expect(got[1].seen).toEqual({ discount: 7 });
 });
 
-// The registration half of a declared child input: what the call site says it sends must fit
-// what the child accepts. This one needs a server, because it is the only check here that reads
-// the child out of the database.
+// Needs a server: the only check here that reads the child out of the database.
 test("a declaration that does not fit the child is refused, naming both sides", async () => {
   const child = `decl_fit_child_${crypto.randomUUID().slice(0, 8)}`;
   await client.PUT("/definitions", {
@@ -282,9 +266,8 @@ test("a declaration that does not fit the child is refused, naming both sides", 
   expect(JSON.stringify(error ?? {})).toContain("input_schema");
 });
 
-// Its converse, and the reason the check had to change: the raw input carries a null the
-// conform removes, so comparing the INFERRED type against the child would refuse a call that
-// works. The declaration is what the child receives.
+// The raw input carries a null the conform removes, so the check must compare the DECLARATION,
+// not the inferred type, against the child.
 test("a nullable input a declaration repairs is accepted against a child that forbids null", async () => {
   const child = `decl_rep_child_${crypto.randomUUID().slice(0, 8)}`;
   const { error: childErr } = await client.PUT("/definitions", {
@@ -344,11 +327,8 @@ test("a nullable input a declaration repairs is accepted against a child that fo
 });
 
 // ─── The conform at every OTHER slot ────────────────────────────────────────────
-//
-// The repair above is the process output's. Each slot below runs the same conform on a
-// different value, and each is observable somewhere different — which is why they are separate
-// tests rather than one: a slot wired to no conform passes every check that does not look at
-// what actually left it.
+// Separate tests on purpose: a slot wired to no conform passes every check that does not look
+// at what actually left it.
 
 test("a fetch body drops an optional null before the request is sent", async () => {
   const mock = await startMockService(0, { response: { ok: true } });
@@ -389,12 +369,8 @@ test("a fetch body drops an optional null before the request is sent", async () 
   mock.stop();
 });
 
-// The one slot where the conform can change NOTHING observable, and it is worth saying so
-// rather than leaving a test that looks like it covers something. A query value that is null
-// omits its parameter at serialisation anyway (fetch-http-surface.md §1), so the conform and
-// that rule land on the same bytes; an undeclared key never reaches runtime, because the closed
-// check refuses it at registration. What this pins is that the two rules AGREE — disabling the
-// conform does not move this assertion, by design.
+// Disabling the conform does not move this assertion, by design: a null query value is omitted
+// at serialisation anyway (fetch-http-surface.md §1). This pins only that the two rules agree.
 test("a declared query and the null-omit rule agree on what is sent", async () => {
   const mock = await startMockService(0, { response: { ok: true } });
   const name = `decl_query_rt_${crypto.randomUUID().slice(0, 8)}`;
@@ -492,8 +468,6 @@ test("a task output is conformed, and what later tasks read is the repaired valu
   expect((inst?.output as any)?.got).toEqual({ keep: 1 });
 });
 
-// The conform's OTHER half, which nothing at runtime exercised until now: a required nullable
-// the shape never sets is written in as an explicit null rather than left absent.
 test("a required nullable property the shape never sets is written in as null", async () => {
   const name = `decl_insert_${crypto.randomUUID().slice(0, 8)}`;
   const { status, output } = await run(
@@ -570,8 +544,7 @@ test("a child_map entry conforms its own input, per entry", async () => {
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const got = (inst?.output as any)?.got;
-  // The declared entry's null was removed before the child ever received it. The undeclared
-  // one is the control: the child's own conform is what shaped it, and it is untouched here.
+  // `plain` is the control: the child's own conform shaped it.
   expect(got.declared.seen).toEqual({});
   expect(got.plain.seen).toEqual({});
 });

@@ -12,28 +12,20 @@ import (
 
 type TaskSchemas struct {
 	ActionType model.ActionType `json:"action_type"`
-	// Input, Query and Children are the payloads the definition SENDS — a child's or external's
-	// input, a fetch's body under Input and its query map, a child_map's per-entry inputs keyed
-	// as the definition keys them. Each is the inferred shape, conformed to its declaration
-	// where one exists (schema.Conformed), so that "what is this slot" is computed ONCE here
-	// and the CLI, the resolver manifest and the language server all read it.
+	// Input, Query and Children are what the definition SENDS (a fetch's body is Input), each
+	// computed by `sent` and read by every consumer — see CLAUDE.md.
 	Input    schema.Schema            `json:"input,omitzero"`
 	Query    schema.Schema            `json:"query,omitzero"`
 	Children map[string]schema.Schema `json:"children,omitempty"`
-	// Result is what the action hands back, typed as `self.result` sees it: a declared
-	// result_schema on a child or external, the accepted responses on a fetch. Absent where the
-	// action types none. A contract boundary — the shape a worker implementing this task
-	// returns — so it is filled for every task, output map or not.
+	// Result is `self.result`'s type (a declared result_schema, or a fetch's responses), absent
+	// where none is declared. Filled for every task, output map or not: it is a worker's contract.
 	Result schema.Schema `json:"result,omitzero"`
-	// resultTyped is Result's "declared at all" bit, which its zero value cannot carry: an
-	// untyped child_map types as an empty object rather than as nothing. Unexported because it
-	// is scope-construction state, not part of the answer.
+	// resultTyped carries what Result's zero value cannot: an untyped child_map types as an
+	// empty object, not as nothing.
 	resultTyped bool
 	Output      schema.Schema `json:"output,omitzero"`
-	// Error is what `last_error.data` carries at this task: the payload of the failure that
-	// ROUTED here — a declared fetch response body, a child's declared raise — unioned over
-	// every path that can reach it. Not the one an `on_error` rule catches, which is per rule
-	// and belongs to that rule's context (specs/task-scopes.md §The error axis).
+	// Error is `last_error.data` here: the failure that ROUTED here, unioned over every path. Not
+	// a rule's caught error, which is that rule's context (specs/task-scopes.md §The error axis).
 	Error schema.Schema `json:"last_error,omitzero"`
 }
 
@@ -43,15 +35,12 @@ type SchemaFile struct {
 	ProcessInput  schema.Schema          `json:"process_input,omitzero"`
 	ProcessOutput schema.Schema          `json:"process_output,omitzero"`
 	Tasks         map[string]TaskSchemas `json:"tasks,omitempty"`
-	// Raises types the payload each code this process can raise carries — the error channel's
-	// ProcessOutput. Its keys are exactly ProcessDefinition.Raises(): a clause attaching
-	// nothing types as null rather than dropping out. See CLAUDE.md.
+	// Raises is the error channel's ProcessOutput, keyed by exactly ProcessDefinition.Raises(): a
+	// clause attaching nothing types as null rather than dropping out. See CLAUDE.md.
 	Raises map[string]schema.Schema `json:"raises,omitempty"`
 	Defs   schema.Defs              `json:"$defs,omitzero"`
 }
 
-// buildSchemaContext derives the shared defs, tasks, and processInput from a definition.
-// Both Generate and ValidateChildProcessRefs use it to avoid duplicating setup.
 func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks map[string]TaskSchemas, processInput schema.Schema, configSchema schema.Schema, err error) {
 	named := make(map[string]schema.Schema)
 	if def.InputSchema != nil {
@@ -65,9 +54,8 @@ func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks m
 			return
 		}
 	}
-	// Process-level $defs reach the pool through the schemas that use them (FlattenNamed
-	// hoists; MergeInto renames safely on collision, so generated names keep theirs). Unused
-	// definitions never arrive.
+	// Process-level $defs reach the pool only through the schemas that use them; MergeInto renames
+	// on collision, so generated names keep theirs.
 	tasks = make(map[string]TaskSchemas)
 	collectTaskRefs(def.Tasks, tasks)
 	if err = collectResults(def.Tasks, tasks, defs); err != nil {
@@ -80,9 +68,8 @@ func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks m
 	return
 }
 
-// buildConfigSchema types the config namespace so config.<NAME> is checked and undeclared
-// names are rejected at registration. Non-null only when guaranteed at runtime (required
-// or defaulted); the rest stay nullable so unsafe uses get flagged.
+// Non-null only when guaranteed at runtime (required or defaulted); the rest stay nullable so
+// unsafe uses get flagged.
 func buildConfigSchema(cs *schema.Schema) schema.Schema {
 	if cs == nil {
 		return schema.Schema{}
@@ -112,9 +99,8 @@ func buildConfigSchema(cs *schema.Schema) schema.Schema {
 	return out
 }
 
-// Generate normalises all schemas in def and builds the SchemaFile output, reporting the first
-// diagnostic as an error. It is the gate — "is this definition registrable" — and Check is the
-// same pass answering "what is wrong with it", which is the one an editor and a client want.
+// Generate is Check as the registration gate: it normalises def and returns the diagnostics as
+// an error.
 func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	sf, ds := Check(def)
 	if len(ds) > 0 {
@@ -123,11 +109,9 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	return sf, nil
 }
 
-// Check runs inference and returns every diagnostic it found, addressed by slot, AND the view it
-// managed to build. A slot whose own analysis failed types as {} downstream, so one broken
-// expression costs its own diagnostic and not the pass. The partial view is the point — a
-// document mid-edit is what an editor asks about — and only a definition that will not normalise
-// or a context that will not build returns an empty one. specs/language-server.md §2, §7b.
+// Check returns every diagnostic, addressed by slot, AND the partial view it built: a failed slot
+// types as {} downstream. The view is empty only when def will not normalise or its context will
+// not build. specs/language-server.md §2, §7b.
 func Check(def *model.ProcessDefinition) (SchemaFile, Diagnostics) {
 	b := newBag()
 	if err := def.Normalize(); err != nil {
@@ -172,10 +156,8 @@ func Check(def *model.ProcessDefinition) (SchemaFile, Diagnostics) {
 		result.ProcessOutput = schema.Ref(name)
 	}
 
-	// The same per-task error facts inference uses, kept so redaction can see inside a
-	// declared payload (specs/error-extensions.md §X2-c). The entry is CREATED where there is
-	// none: collectTaskRefs lists only tasks that export an output, and a handler that merely
-	// reads error.data usually exports nothing — which is exactly where a secret would hide.
+	// Kept so redaction can see inside a declared payload (specs/error-extensions.md §X2-c). The
+	// entry is CREATED where missing: a handler reading error.data usually exports nothing.
 	_, _, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
 	for _, t := range def.Tasks {
@@ -198,10 +180,8 @@ func Check(def *model.ProcessDefinition) (SchemaFile, Diagnostics) {
 	return result, b.diagnostics()
 }
 
-// inferProcessOutput types the output expression PER TERMINAL PATH and joins: the
-// collapsed context makes covering outputs merely "optional" and `a ?? b` nullable even
-// when one is always set. Per terminal, ?? resolves as at runtime; uncovered terminals
-// still contribute null. specs/path-sensitive-output.md.
+// inferProcessOutput types the output per terminal path and joins, so `a ?? b` resolves as at
+// runtime rather than against the collapsed context. specs/path-sensitive-output.md.
 func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) (schema.Schema, error) {
 	// The process output reads `error` at whichever terminal ran, so its `data` is that
 	// terminal's — one arm of the context below per ending.
@@ -229,9 +209,8 @@ func collectNamedOutputs(tasks []*model.Task, named map[string]schema.Schema) {
 	}
 }
 
-// collectResults types what each action hands back, ONCE. Every scope that shows `self.result`,
-// the switch's availability rule and `TaskSchemas.Result` read it from here: the type a slot
-// reports and the type the checker checked against cannot be two computations that agree today.
+// collectResults types each action's result ONCE: every `self.result` scope, the switch's
+// availability rule and TaskSchemas.Result read it from here.
 func collectResults(tasks []*model.Task, out map[string]TaskSchemas, defs schema.Defs) error {
 	for _, s := range tasks {
 		ts, described := out[s.ID]
@@ -267,9 +246,8 @@ func collectTaskRefs(tasks []*model.Task, out map[string]TaskSchemas) {
 	}
 }
 
-// childMapOutputSchema: one property per child that declares a result_schema; a child
-// without one is omitted entirely (not accessible, not exportable — no permissive
-// fallback). ok=false when none declared: the whole result is untyped, like a schema-less child.
+// A child with no result_schema is omitted, with no permissive fallback; ok=false when none
+// declares one.
 func childMapOutputSchema(s *model.Task, defs schema.Defs) (schema.Schema, bool, error) {
 	keys := make([]string, 0, len(s.Action.Children))
 	for key := range s.Action.Children {
@@ -293,10 +271,8 @@ func childMapOutputSchema(s *model.Task, defs schema.Defs) (schema.Schema, bool,
 	return out, typed, nil
 }
 
-// childListOutputSchema types a child_list result as an array whose element type is the
-// child's declared result_schema — one entry per element of `over`, in order. Only called
-// when a result_schema is declared; without one the result is untyped and not exportable
-// (see actionResultType), with no permissive-array fallback.
+// Only called with a result_schema declared; without one the result is untyped
+// (actionResultType), with no permissive-array fallback.
 func childListOutputSchema(s *model.Task, defs schema.Defs) (schema.Schema, error) {
 	merged, err := s.Action.ResultSchema.MergeInto(defs)
 	if err != nil {

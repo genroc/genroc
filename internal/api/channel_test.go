@@ -15,9 +15,7 @@ func batchApply(h *Handlers, channel string, defs ...any) Reply {
 	return h.Handle(Envelope{Action: "put_definitions_batch", Payload: payload, principal: anonymousAdmin()})
 }
 
-// A versioned self-reference must be stored as a dependency row, not dropped as a self-ref.
-// Go rather than e2e because it asserts baking via GetDependencyVersion, which no endpoint
-// exposes.
+// Go rather than e2e: it asserts baking via GetDependencyVersion, which no endpoint exposes.
 func TestApplyBatch_VersionedSelfRefCreatesDep(t *testing.T) {
 	h, cleanup := newTestHandlers(t)
 	defer cleanup()

@@ -1,10 +1,6 @@
-# A KNOWN FALSE ALARM, pinned so that fixing it is a deliberate flip rather than a surprise.
-# The reverse edit is refused — yet every stored input already carries the key, because
-# creation conforms the input once and persists the filled default. The comparison reads two
-# documents and never an instance, so it cannot see that. The new side cannot keep the default
-# beside `required`: the pair is refused outright now (schema.CheckDoc), since a default there
-# could never apply. internal/schema/CLAUDE.md argues the coordinated relation-and-fill change
-# that would close this.
+# KNOWN FALSE ALARM, pinned so a fix is a deliberate flip: every stored input already carries
+# the defaulted key, but compat never reads an instance. The new side drops the default
+# because CheckDoc refuses it beside `required`; internal/schema/CLAUDE.md has the fix.
 apply:
   - channel: reqtight_a
     definitions:

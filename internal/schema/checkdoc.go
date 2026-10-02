@@ -110,9 +110,8 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 			return err
 		}
 	}
-	// A type name outside the simpleTypes enum matches nothing — it used to parse cleanly and
-	// reject every value at runtime. A validity rule, NOT a decode rule: the decoder runs over
-	// stored schemas, and a legacy bad name must fail its registration, not become undecodable.
+	// A validity rule, NOT a decode rule: a legacy bad name in a stored schema must fail its
+	// registration, not become undecodable.
 	for _, t := range nd.Type {
 		if !validTypes[t] {
 			return fmt.Errorf("unsupported schema type %q", t)
@@ -134,9 +133,8 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 			return fmt.Errorf("default does not validate against its schema: %w", err)
 		}
 	}
-	// A required property's default is unreachable: conformObject judges `required` first, so
-	// an absent key is refused rather than filled. The pair is not merely redundant — it reads
-	// as "optional, falling back to x" and behaves as "mandatory".
+	// conformObject judges `required` first, so this default is unreachable — and it reads as
+	// "optional, falling back to x" while behaving as "mandatory".
 	for _, name := range nd.Required {
 		if prop, ok := nd.Properties[name]; ok && propDefault(prop, defs) != nil {
 			return AtPath("properties."+name, fmt.Errorf(
@@ -171,11 +169,8 @@ func nullChildErr(sl childSlot) error {
 	return nil
 }
 
-// errLabel names a slot when wrapping a child's error. Chained by the recursion, these
-// spell the failing node's location in the document ("$defs.Foo: rows: items: oneOf[2]"),
-// which is why a union arm carries its index: every variant must be well-formed
-// independently, so the index IS the location, and without it a bad variant reports as
-// though the parent were at fault.
+// errLabel names a slot in a chained error ("$defs.Foo: rows: items: oneOf[2]"). A union arm
+// carries its index: each variant is checked alone, so without it the parent takes the blame.
 func errLabel(sl childSlot) string {
 	switch sl.kw {
 	case "properties":
@@ -201,13 +196,9 @@ func pathLabel(sl childSlot) string {
 	return sl.kw
 }
 
-// CheckNoAdditionalProperties refuses the `additionalProperties` keyword anywhere in s,
-// locating it the way CheckDoc locates its own findings.
-//
-// Not a schema rule — the keyword is valid in a `result_schema` — but a per-slot one. A slot
-// whose value is CONFORMED to s refuses an undeclared key rather than let the conform strip it
-// silently, and an open object would make that refusal conditional on a keyword half those
-// slots cannot honour. specs/declared-slot-schemas.md §3.
+// CheckNoAdditionalProperties refuses `additionalProperties` anywhere in s, located as CheckDoc
+// locates. A per-slot rule, not a schema one: an open object would make a conformed slot's
+// refusal of undeclared keys conditional. specs/declared-slot-schemas.md §3.
 func (s Schema) CheckNoAdditionalProperties() error {
 	if s.n == nil {
 		return nil

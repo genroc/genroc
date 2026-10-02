@@ -8,10 +8,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// The output analogue of the input subset check: a child's declared process output type
-// must be a subset of the result_schema the parent declares for it. This catches a child
-// whose output shape cannot satisfy the parent's assertion at registration, instead of
-// only at runtime on collect — or never, if the child raises before producing output.
+// A child whose declared output cannot satisfy the parent's result_schema is caught at
+// registration, not at collect — or never, if the child raises first.
 
 // outputtingChild builds a child whose process output is `outputRaw`, normalised as the
 // stored definition would be.
@@ -121,9 +119,7 @@ func TestChildOutputType_MissingRequiredFieldRejected(t *testing.T) {
 		stubGetter{"partial-child": child}, "result_schema")
 }
 
-// Subset, not exact match (1): a child that returns MORE than the parent declares is
-// fine — the extra field is accepted (objects are open) and stripped at collect. The
-// parent simply reads the subset it declared.
+// Objects are open: the extra field is accepted and stripped at collect.
 func TestChildOutputType_ChildReturnsMoreAccepted(t *testing.T) {
 	child := outputtingChild(t, "rich-child",
 		map[string]any{"a": `$: "x"`, "b": `$: "y"`}, "$: outputs.compute")
@@ -131,9 +127,8 @@ func TestChildOutputType_ChildReturnsMoreAccepted(t *testing.T) {
 	assertValidateOK(t, childMapParentRS(t, "rich-child", rs), stubGetter{"rich-child": child})
 }
 
-// Subset, not exact match (2): a parent may declare an OPTIONAL field the child does not
-// produce yet — the way to prepare a parent for a child that will add it. Only a missing
-// *required* field is a real incompatibility.
+// How a parent prepares for a child that will add a field; only a missing *required* field is
+// incompatible.
 func TestChildOutputType_OptionalNotYetProducedAccepted(t *testing.T) {
 	child := outputtingChild(t, "lean-child",
 		map[string]any{"a": `$: "x"`}, "$: outputs.compute")

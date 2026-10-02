@@ -1,11 +1,5 @@
-// The process these tests read. One realistic definition, exercising every slot the language
-// server has an answer for: a typed input, a fetch whose url and headers interpolate, a typed
-// response, an output that computes from it, a switch that routes on that output, an on_error
-// with a retry policy, an external task, and a child that spawns another process — whose raise
-// is what that child task catches, one file away.
-//
-// It is VALID — `genctl apply --check-only` accepts it. A fixture that did not register would
-// make every "what can I write here" answer suspect.
+// One realistic definition exercising every slot the language server answers for. Every fixture
+// here must stay VALID (`genctl apply --check-only`), or every answer about it is suspect.
 
 export const ORDERS = `name: orders
 
@@ -83,9 +77,7 @@ tasks:
     switch: end
 `;
 
-// A third, for the one construct neither of the others has: an expression that BINDS a name.
-// A lambda parameter is in scope only inside the body, which no slot carries — so a fixture
-// without one leaves every answer about `line` below untested. It is VALID, as the others are.
+// An expression that BINDS a name: a lambda parameter is in scope only inside the body.
 export const FANOUT = `name: fanout
 input_schema:
   type: object
@@ -109,10 +101,7 @@ tasks:
     switch: end
 `;
 
-// A second definition, for the one thing ORDERS cannot show: what a GUARD proves. Every
-// nullable here is reachable — `self.result[0]` may be out of bounds, `retry_after` is
-// declared nullable — so each narrowing below is a real one rather than a vacuous check.
-// It is VALID, for the same reason ORDERS is.
+// What a GUARD proves: every nullable here is reachable, so each narrowing is real, not vacuous.
 export const GUARDED = `name: guarded
 input_schema:
   type: object

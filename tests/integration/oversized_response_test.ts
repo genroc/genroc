@@ -1,11 +1,7 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// A fetch used to decode the response body with no size limit. A worker holds leases on
-// every instance it claimed, so one endpoint streaming an unbounded body OOMs the process
-// and strands all of them until those leases expire. The cap turns that into
-// result.too_large — and because a response *did* arrive, it is an ordinary catchable
-// call error rather than a terminal engine failure.
+// The response cap turns an unbounded body (an OOM stranding every lease) into result.too_large.
 
 // Comfortably past the 8 MiB cap in internal/transport.
 const OVERSIZED = "y".repeat(9 * 1024 * 1024);
@@ -42,9 +38,7 @@ test("oversized response — the instance fails with result.too_large", async ()
 }, 40_000);
 
 test("oversized response — on_error catches result.too_large and routes on", async () => {
-  // The claim the code makes by not being in the unknowable set: a definition can handle
-  // this like any other call error. If it were reported as a terminal engine.* failure
-  // instead, the goto below would never be taken and the instance would end failed.
+  // A response did arrive, so this is catchable; as an engine.* failure the goto would never be taken.
   const mock = await startMockService(0, { response: { blob: OVERSIZED } });
   const name = `too_large_caught_${crypto.randomUUID()}`;
   try {

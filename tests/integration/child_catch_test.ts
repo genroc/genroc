@@ -1,14 +1,9 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// Phase 2/3: a parent catches a child's raised error through on_error rules on the child
-// task. The raised code is matched by the same patterns as an action task's on_error
-// (`%` is the only wildcard, so `order_%` matches `order_placed`); a matching rule routes the parent
-// (goto / raise / panic), and no matching rule degrades the raise to a defect that fails
-// the parent — carrying the child's own code and message forward (docs §5.2).
-//
-// A unique-per-test child name keeps the version-pinned parent pointed at exactly the
-// child this test registered.
+// A parent catches a child's raised code via on_error on the child task; with no matching rule the
+// raise degrades to a defect carrying the child's code and message (docs §5.2). Unique child names
+// keep each version-pinned parent on the child its own test registered.
 
 async function putChild(name: string, raiseCode: string) {
   await client.PUT("/definitions", {
@@ -30,9 +25,8 @@ async function putChild(name: string, raiseCode: string) {
   });
 }
 
-// A wildcard pattern (not just a literal code) catches the child's raised code. `%` is
-// the only wildcard, so `fourth_%` matches `fourth_failed` (the underscore is literal).
-// Registration confirms the pattern can match a raise (R5); matchOnError routes at runtime.
+// `%` is the only wildcard (`_` is literal). Registration checks the pattern can match a raise (R5);
+// matchOnError routes at runtime.
 test("catch — a wildcard pattern matches the child's raised code", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
   const child = `like_child_${suffix}`;
@@ -60,7 +54,6 @@ test("catch — a wildcard pattern matches the child's raised code", async () =>
   expect(await waitForInstance(id)).toBe("completed");
 });
 
-// A rule that routes to a task: the parent recovers and completes past the batch.
 test("catch — a matching rule routes the parent to a recovery task", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
   const child = `catch_child_${suffix}`;
@@ -95,16 +88,12 @@ test("catch — a matching rule routes the parent to a recovery task", async () 
   const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  // The recovery task read `error.code` — the routed task keeps its context and sees the
-  // raised error, mirroring what the child raised.
+  // The routed task keeps its context and sees the raised error.
   expect((data?.state?.outputs as Record<string, unknown>)?.recover).toBe(
     "declined",
   );
 });
 
-// A rule that routes to `end`: the parent *completes* — this is the playground pattern
-// (`on_error: [{code, goto: end}]`). Unlike handleCallError's end branch, resolution's
-// end branch computes the process output, so a static output is produced.
 test("catch — a rule routes to end, completing the parent (and computes output)", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
   const child = `catchend_child_${suffix}`;
@@ -114,8 +103,7 @@ test("catch — a rule routes to end, completing the parent (and computes output
   await client.PUT("/definitions", {
     body: {
       name: parent,
-      // A static output (does not read `error`, so no reachability complication): its
-      // presence in the completed instance proves resolution's goto:end ran computeOutput.
+      // Static, so its presence proves resolution's goto:end ran computeOutput.
       output: '$: "handled"',
       tasks: [
         {
@@ -141,8 +129,7 @@ test("catch — a rule routes to end, completing the parent (and computes output
   expect(data?.output).toBe("handled");
 });
 
-// A rule that panics: the parent fails uncatchably with the authored panic code. This is
-// resolveRaisedBatch's panic branch (the child_task analogue of an on_error panic).
+// resolveRaisedBatch's panic branch.
 test("catch — a rule panics, failing the parent with the authored code", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
   const child = `catchpanic_child_${suffix}`;
@@ -182,8 +169,6 @@ test("catch — a rule panics, failing the parent with the authored code", async
   expect(data?.error_message).toBe("the batch cannot be settled");
 });
 
-// A rule that raises: the parent re-raises with its own code, and `error` mirrors the
-// child underneath.
 test("catch — a rule re-raises, so the error propagates one named level up", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
   const child = `reraise_child_${suffix}`;
@@ -226,14 +211,10 @@ test("catch — a rule re-raises, so the error propagates one named level up", a
   expect(err?.child_key).toBe("a");
 });
 
-// No matching rule: the raise degrades to a defect. The parent fails, and — the point of
-// this whole change — its error mirrors the child's raised code and message, not a
-// generic engine.collect.
 test("unhandled — the parent fails mirroring the child's raised code and message", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
-  // The child can raise two codes; the parent has a rule only for the other one, so at
-  // runtime `surprise` reaches resolution unhandled. This is the runtime-surfaced gap R5
-  // deliberately allows (D3): the rule is reachable, just not the code that fired.
+  // `surprise` is raisable but has no rule, so it reaches resolution unhandled — the gap R5
+  // deliberately allows (D3).
   const child = `unhandled_child_${suffix}`;
   await client.PUT("/definitions", {
     body: {
@@ -277,17 +258,13 @@ test("unhandled — the parent fails mirroring the child's raised code and messa
     params: { path: { id } },
   });
   expect(data?.status).toBe("failed");
-  // Mirrors the child: error_code is the raised code, not engine.collect; the message
-  // carries the child's message and names the child.
   expect(data?.error_code).toBe("surprise");
   expect(data?.error_message).toContain("surprise");
   expect(data?.error_message).toContain("an unhandled surprise");
   expect(data?.error_message).not.toContain("engine.collect");
 });
 
-// A fan-out where several children raise: the first (by child_index) routes
-// deterministically, regardless of completion order (§5.2, I3). Slots 1 and 3 both raise;
-// slot 1 is the one that drives the parent.
+// Slots 1 and 3 both raise; the first by child_index routes, whatever the completion order (§5.2, I3).
 test("batch — the first raised child (by child_index) routes the parent", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
   // A child that raises based on its input, so a child_list fan-out raises on some items.

@@ -31,36 +31,27 @@ type DB struct {
 	exec    dbgen.DBTX // rewrites ?→$N on Postgres; use for hand-written SQL
 	dialect string     // "sqlite" | "postgres"
 
-	// ids mints every id this process writes, in the namespace id_counters handed it at open.
-	// One counter per KIND of row, so an instance id is not pushed along by the log rows
-	// written between two runs.
+	// One counter per KIND of row; ids from two streams can be equal.
 	ids struct{ instances, logs, signals, tokens *idgen.Minter }
 
-	// flushes counts successful Flush calls, for tests and diagnostics. In process, not
-	// read back from durability_marker: that row only moves on SQLite, so a test built on
-	// it would quietly assert nothing on Postgres.
+	// flushes counts successful Flush calls. Not read from durability_marker: that row moves
+	// only on SQLite, so a test built on it asserts nothing on Postgres.
 	flushes atomic.Int64
-	// durability is the ladder level every write is measured against
-	// (specs/durability-levels.md §5). Set once at startup via SetDurability; atomic
-	// because it is read on every write path from every worker goroutine.
+	// durability is the ladder level writes are measured against (specs/durability-levels.md §5).
 	durability atomic.Int64
-	// sqliteBaseSync is the PRAGMA synchronous level an unrelaxed write runs at, and the
-	// value a relaxed transaction restores when it hands the connection back. It is the
-	// operator's --sqlite-synchronous: durability lowers writes beneath this, never above.
+	// sqliteBaseSync is the operator's --sqlite-synchronous, restored by a relaxed transaction on
+	// hand-back: durability lowers writes beneath it, never above.
 	sqliteBaseSync string
 
-	// defCache memoises GetDefinition (the hottest read; contends with SQLite's single
-	// connection). Raw JSON keyed by (name, version), re-unmarshalled per call so callers
-	// never share Task pointers; SaveDefinition invalidates for the ON CONFLICT overwrite.
+	// defCache holds raw JSON, re-unmarshalled per call so callers never share Task pointers;
+	// SaveDefinition must invalidate it (ON CONFLICT overwrites).
 	defCache sync.Map // defKey → string
 
-	// Audit logs are best-effort, decoupled from instance state (migration 008): AppendLog
-	// buffers, logFlusher batch-inserts, and reads/prune flush first so appends stay visible.
-	// A crash drops only buffered rows — an observability gap, never state corruption.
+	// Logs are best-effort (migration 008): AppendLog buffers, logFlusher batch-inserts, and every
+	// read/prune flushes first so appends stay visible. A crash drops only buffered rows.
 	logMu sync.Mutex // guards logBuf only; never held across the insert
-	// logFlushMu spans a flush's detach *and* its insert, so a reader that flushes while
-	// another goroutine is mid-flush waits for that batch instead of finding the buffer
-	// empty and querying without it.
+	// logFlushMu spans a flush's detach *and* its insert, so a reader flushing mid-flush waits
+	// for that batch instead of finding the buffer empty and querying without it.
 	logFlushMu sync.Mutex
 	logBuf     []dbgen.InsertLogParams
 	logStop    chan struct{} // closed by Close() to stop the flusher
@@ -70,9 +61,8 @@ type DB struct {
 	// out still resolves after the data moved on. specs/object-store.md.
 	objectGraceMs atomic.Int64
 
-	// objectRetentionMs: how long a log's claim on an object survives before GC,
-	// mirroring log retention so a log referencing an object outlives the log. Set by the
-	// engine at startup; 0 = keep forever, consistent with logs-forever.
+	// objectRetentionMs: how long a log's claim on an object survives; mirrors log retention,
+	// 0 = forever.
 	objectRetentionMs atomic.Int64
 }
 
@@ -82,9 +72,8 @@ type defKey struct {
 }
 
 // OpenSQLite opens (or creates) the SQLite database at path and runs migrations. synchronous is
-// the PRAGMA synchronous level (empty = NORMAL): NORMAL fsyncs the WAL only at checkpoints,
-// FULL per commit (matching Postgres); OFF and EXTRA are also accepted. Pass WithFullFsync to
-// make FULL mean what it says on macOS.
+// OFF, NORMAL (empty; fsyncs the WAL only at checkpoints), FULL (per commit, like Postgres) or
+// EXTRA. On macOS, FULL means what it says only with WithFullFsync.
 func OpenSQLite(path, synchronous string, opts ...SQLiteOption) (*DB, error) {
 	sync, err := sqliteSynchronous(synchronous)
 	if err != nil {
@@ -114,8 +103,6 @@ func OpenSQLite(path, synchronous string, opts ...SQLiteOption) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The level a relaxed transaction restores to. Durability only ever lowers a write
-	// beneath this, so an operator who asked for NORMAL keeps NORMAL everywhere.
 	db.sqliteBaseSync = sync
 	return db, nil
 }
@@ -125,16 +112,15 @@ type sqliteConfig struct{ fullFsync bool }
 // SQLiteOption configures OpenSQLite beyond the PRAGMA synchronous level.
 type SQLiteOption func(*sqliteConfig)
 
-// WithFullFsync issues F_FULLFSYNC instead of fsync(2) on Apple platforms, where plain
-// fsync(2) returns before the drive flushes its write cache — so synchronous=FULL alone
-// is not power-loss durable there. Costs ~4ms/commit on an M1 versus ~22us for the
-// no-op, so a benchmark without it is measuring nothing. No effect off Darwin.
+// WithFullFsync issues F_FULLFSYNC instead of fsync(2) on Apple platforms, where fsync returns
+// before the drive flushes its cache, so synchronous=FULL alone is not power-loss durable.
+// Costs ~4ms/commit on an M1 (versus ~22us); no effect off Darwin.
 func WithFullFsync() SQLiteOption {
 	return func(c *sqliteConfig) { c.fullFsync = true }
 }
 
-// sqliteSynchronous whitelists the PRAGMA synchronous level placed on the DSN, so a
-// flag value can never inject extra connection parameters. Empty defaults to NORMAL.
+// sqliteSynchronous whitelists the level placed on the DSN, so a flag value can never inject
+// extra connection parameters.
 func sqliteSynchronous(mode string) (string, error) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "", "NORMAL":
@@ -150,20 +136,17 @@ func sqliteSynchronous(mode string) (string, error) {
 	}
 }
 
-// OpenPostgres opens a PostgreSQL connection and runs migrations. maxOpenConns caps
-// the pool (idle = half; <= 0 defaults to 50). It is also the group-commit batch-width
-// ceiling: only transactions in flight together can coalesce into one flush, so the pool
-// bounds how many ever do. Size a worker fleet so workers*maxOpenConns stays under the
-// server's max_connections.
+// OpenPostgres opens a PostgreSQL connection and runs migrations. maxOpenConns caps the pool
+// (idle = half; <= 0 means 50) and with it the group-commit batch width; keep
+// workers*maxOpenConns under the server's max_connections.
 func OpenPostgres(dsn string, maxOpenConns int, opts ...PostgresOption) (*DB, error) {
 	var cfg pgConfig
 	for _, o := range opts {
 		o(&cfg)
 	}
 
-	// Probed on a throwaway connection before the pool is built, so a setting this role
-	// cannot apply is one clear failure at startup rather than one per pooled connection
-	// later. It only ever gets here because someone passed the flag: the default is off.
+	// Probed before the pool is built, so a setting this role cannot apply fails once at
+	// startup rather than once per pooled connection.
 	if err := probeSessionSettings(dsn, cfg.sessionSettings()); err != nil {
 		return nil, err
 	}
@@ -220,17 +203,15 @@ func (c pgConfig) sessionSettings() []string {
 	return []string{fmt.Sprintf("SET commit_delay = %d", c.commitDelayUs)}
 }
 
-// WithCommitDelay holds each WAL flush back by us microseconds so more commits coalesce into it
-// — throughput bought with latency, never durability. Postgres applies it only while at least
-// commit_siblings transactions are open, so it disables itself on causally-sequential
-// workloads. Zero leaves it off. specs/durability-levels.md §6.
+// WithCommitDelay holds each WAL flush back by us microseconds so more commits coalesce into it:
+// throughput for latency, never durability. Postgres applies it only while commit_siblings
+// transactions are open. Zero leaves it off. specs/durability-levels.md §6.
 func WithCommitDelay(us int) PostgresOption {
 	return func(c *pgConfig) { c.commitDelayUs = us }
 }
 
-// sessionConnector applies settings to each pooled connection as it opens. A failure here
-// fails the connection rather than being swallowed: a performance setting the operator
-// asked for and did not get is worth a startup error, not a silent no-op.
+// sessionConnector applies settings to each pooled connection as it opens and fails the
+// connection on error: a setting the operator asked for must not silently no-op.
 type sessionConnector struct {
 	driver.Connector
 	settings []string
@@ -249,8 +230,7 @@ func (c sessionConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	for _, s := range c.settings {
 		if _, err := exec.ExecContext(ctx, s, nil); err != nil {
 			conn.Close()
-			// commit_delay is a superuser-context setting, which is the failure that
-			// actually happens here.
+			// commit_delay is superuser-context: the failure that actually happens here.
 			return nil, fmt.Errorf("%s: %w (a superuser-context setting: connect as a "+
 				"superuser, or set it in postgresql.conf and drop the flag)", s, err)
 		}
@@ -281,8 +261,7 @@ func open(sqldb *sql.DB, dialect string) (*DB, error) {
 		logStop:    make(chan struct{}),
 		logStopped: make(chan struct{}),
 	}
-	// The id namespace this process mints in, taken once at startup. Failing here fails the
-	// open: a process that cannot be told which ids are its own must not write any.
+	// Fails the open: a process that cannot be told which ids are its own must not write any.
 	worker, err := db.q.NextWorkerNumber(context.Background())
 	if err != nil {
 		sqldb.Close()
@@ -297,24 +276,19 @@ func open(sqldb *sql.DB, dialect string) (*DB, error) {
 	db.ids.logs = minter.Stream()
 	db.ids.signals = minter.Stream()
 	db.ids.tokens = minter.Stream()
-	// Not the zero value. Durability reads two ways and they disagree at zero: for a
-	// write's FLOOR it means "sync at every level" (safe), for the configured LEVEL it
-	// means the weakest one (not). A DB nobody called SetDurability on must be strict.
+	// Not the zero value: as a write's FLOOR zero means "sync at every level", as the configured
+	// LEVEL it means the weakest. A DB nobody called SetDurability on must be strict.
 	db.SetDurability(DurabilityStrict)
 	db.sqliteBaseSync = "FULL"
 	go db.logFlusher()
 	return db, nil
 }
 
-// pgBootstrapLockKey is the advisory-lock key that serializes bootstrapPostgres
-// across concurrently-starting workers. Any fixed int64 works (it only needs to be
-// the same for every worker); this one spells "genroc".
-const pgBootstrapLockKey int64 = 0x67656E74 // "genroc"
+// pgBootstrapLockKey serializes bootstrapPostgres across workers; any value works if all share it.
+const pgBootstrapLockKey int64 = 0x67656E74 // "gent"
 
-// bootstrapPostgres runs the post-migration Postgres-only setup (json_each helper +
-// aggressive autovacuum on process_instances). Both rewrite a system-catalog tuple, so
-// concurrent worker starts race ("tuple concurrently updated"); a transaction-scoped
-// advisory lock serializes the block and the losers re-apply it idempotently.
+// bootstrapPostgres must stay idempotent and under the advisory lock: both statements rewrite a
+// catalog tuple, so concurrent worker starts race ("tuple concurrently updated").
 func bootstrapPostgres(sqldb *sql.DB) error {
 	ctx := context.Background()
 	tx, err := sqldb.BeginTx(ctx, nil)
@@ -323,8 +297,6 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	// Held until the transaction ends (commit below), so only one worker is inside
-	// the bootstrap at a time.
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, pgBootstrapLockKey); err != nil {
 		return fmt.Errorf("acquire bootstrap lock: %w", err)
 	}
@@ -333,9 +305,7 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 		return fmt.Errorf("create json_each function: %w", err)
 	}
 
-	// High-churn queue table: completions leave dead tuples in idx_instances_runnable that
-	// every claim must skip until vacuumed. Aggressive unthrottled autovacuum reclaims them
-	// promptly (SQLite updates in place — no equivalent). See CLAUDE.md.
+	// Dead tuples in idx_instances_runnable slow every claim until vacuumed. internal/db/CLAUDE.md.
 	if _, err := tx.ExecContext(ctx,
 		`ALTER TABLE process_instances SET (
 			autovacuum_vacuum_scale_factor = 0.02,
@@ -351,9 +321,8 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 	return nil
 }
 
-// Ping verifies a connection to the database is still usable, acquiring one from the pool
-// if none is idle. It is the health endpoint's readiness check: an engine whose database is
-// unreachable can claim nothing, so a worker in that state should not be routed to.
+// Ping verifies a connection is usable, acquiring one from the pool if none is idle. It backs
+// the readiness check: a worker that cannot reach its database should not be routed to.
 func (db *DB) Ping(ctx context.Context) error { return db.sqldb.PingContext(ctx) }
 
 // NextID mints an instance id; each kind of row counts on its own stream (internal/idgen).
@@ -382,9 +351,8 @@ func (db *DB) Close() error {
 	return db.sqldb.Close()
 }
 
-// pageInfo runs the before/after counts for a page bounded by first/last (display
-// order; nil for an empty page) and assembles PageInfo. A cursor is set only for a
-// direction that has more rows, so cursor presence is the has-more signal.
+// pageInfo counts rows around a page bounded by first/last (display order; nil when empty). A
+// cursor is set only in a direction with more rows: its presence is the has-more signal.
 func (db *DB) pageInfo(b built, first, last []any) (PageInfo, error) {
 	query, args := b.countQuery(first, last)
 	var before, after int64
@@ -420,9 +388,8 @@ func (db *DB) pageInfo(b built, first, last []any) (PageInfo, error) {
 
 // All DB timestamps are unix milliseconds (BIGINT columns).
 
-// clockOffset (milliseconds) shifts this process's notion of "now" for all DB
-// reads/writes. Only ever increased, via AdvanceClock (debug /tick endpoint),
-// so tests can expire leases and retry timers without real waits.
+// clockOffset (ms) shifts "now" for every DB read and write. Only ever increased, by AdvanceClock
+// (debug /tick), so tests can expire leases and timers without real waits.
 var clockOffset atomic.Int64
 
 func nowMillis() int64 { return time.Now().UnixMilli() + clockOffset.Load() }

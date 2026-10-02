@@ -3,12 +3,9 @@ import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
 
-// The error channel on an external task: a caller submits an `error` instead of a `result`
-// — same endpoint, same token — and it is routed through on_error like any call error.
-// One submission carries one outcome. See specs/external-task-queue.md §"The error channel".
+// A worker submits `error` instead of `result` (same endpoint, same token), routed via on_error.
+// specs/external-task-queue.md §"The error channel".
 
-// waitForQueued polls the queue until this process's task is parked, and returns the entry —
-// the token is what a worker answers with, on either channel.
 async function waitForQueued(process: string, timeoutMs = 20_000): Promise<any> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -37,9 +34,7 @@ async function define(name: string, extra: Record<string, unknown> = {}) {
                 properties: { limit: { type: "number" } },
                 required: ["limit"],
               },
-              // null declares a code that carries nothing — the spelling for a failure with
-              // no payload, distinct from {} (an opaque one). It is a schema position, so
-              // "no schema" is the absence of one, not a boolean.
+              // null declares a code that carries nothing, distinct from {} (an opaque payload).
               worker_crashed: null,
             },
           },
@@ -62,8 +57,7 @@ async function define(name: string, extra: Record<string, unknown> = {}) {
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
 
-// Each terminal task projects into outputs.<task>, so which key is present is itself the
-// assertion that the intended on_error rule fired.
+// Which outputs.<task> key is present is the evidence of which on_error rule fired.
 test("a declared code routes through on_error and carries its payload as error.data", async () => {
   const name = `ext_fail_declared_${crypto.randomUUID()}`;
   await define(name);
@@ -103,9 +97,7 @@ test("a code outside raises is refused — raises is the closed set a worker may
   const { error } = await client.POST("/external-tasks/resolve", {
     body: { token: queued.token, error: { code: "limit_exceded", message: "typo", data: { limit: 1 } } },
   });
-  // The whole point of closing the set: a typo cannot quietly fall through to the catch-all
-  // rule. Nothing about a worker is knowable at registration, so this is the only place it
-  // can be caught at all.
+  // Nothing about a worker is knowable at registration, so this is the only place a typo is caught.
   expect(error, "a code outside raises must be refused").toBeTruthy();
   expect(JSON.stringify(error)).toContain("limit_exceeded"); // the message lists what is accepted
 });
@@ -151,9 +143,7 @@ test("`raises: {code: null}` accepts a failure with no payload and leaves error.
   expect(await waitForInstance(id)).toBe("completed");
   expect((await outputsOf(id)).other).toEqual({ route: "other", code: "worker_crashed" });
 
-  // Declared-as-carrying-nothing must leave the slot ABSENT, not null: absence is what the
-  // validator infers for the code, and a context richer than its type is how an expression
-  // comes to read a slot the next reader cannot.
+  // ABSENT, not null: absence is what the validator infers for the code.
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   const err = (data as any)?.state?.last_error;
   expect(err?.code).toBe("worker_crashed");
@@ -183,8 +173,7 @@ test("a payload that does not match the declared shape is refused, and the task 
   });
   expect(error, "a payload violating raises[code] must be refused at submission").toBeTruthy();
 
-  // Refusing at submission is only useful if the work is still answerable afterwards —
-  // otherwise a typo would strand the instance.
+  // The refusal must leave the work answerable, or a typo would strand the instance.
   const retry = await waitForQueued(name);
   expect(retry.token).toBe(queued.token);
   const { error: ok } = await client.POST("/external-tasks/resolve", {
@@ -225,9 +214,8 @@ test("a failure submitted while paused is delivered on resume, not discarded", a
   });
   expect(pauseErr, `pause failed: ${JSON.stringify(pauseErr)}`).toBeUndefined();
 
-  // A pause suspends execution, not delivery. Refusing here would strand work the worker
-  // has already done, and on an only_once task the external.timeout that follows can never
-  // be retried. specs/external-task-queue.md §Pause.
+  // A pause suspends execution, not delivery: refusing would strand finished work.
+  // specs/external-task-queue.md §Pause.
   const { error } = await client.POST("/external-tasks/resolve", {
     body: { token: queued.token, error: { code: "limit_exceeded", message: "over", data: { limit: 7 } } },
   });
@@ -278,10 +266,8 @@ test("on an only_once task a retry on a worker-reported code is refused at regis
           id: "work",
           action: { type: "external" as const, input: { job: "compute" }, raises: { worker_failed: null } },
           only_once: true,
-          // A worker that answered `fail` reached the work, so the code's default
-          // classification is "potentially reached" — the retry must be refused unless the
-          // author asserts otherwise. Nothing about the code being authored rather than an
-          // engine code exempts it.
+          // A worker answering `fail` reached the work, so the code defaults to "potentially
+          // reached"; being authored rather than an engine code exempts nothing.
           on_error: [{ code: ["worker_failed"], retry: { retries: 3, delay: 50 }, goto: "$gave_up" }],
           switch: [{ goto: "end" }],
         },
@@ -348,16 +334,13 @@ test("not_reached:true lets an only_once task re-arm, and the re-arming gets a f
   expect(await waitForInstance(id)).toBe("completed");
   expect((await outputsOf(id)).gave_up).toEqual({ route: "gave_up" });
 
-  // And the first arming's token is dead: it named an occurrence that has been superseded.
   const { error: stale } = await client.POST("/external-tasks/resolve", {
     body: { token: first.token, error: { code: "never_started", message: "late" } },
   });
   expect(stale, "a token from a superseded arming must be refused").toBeTruthy();
 });
 
-// The point of one outcome envelope: both addressing modes carry both channels. Before the
-// unification /instances/{id}/signal could report success and not failure, and the buffer had
-// a single `result` column that could not hold the other half at all.
+// Both addressing modes (resolve and signal) carry both channels.
 
 test("signal delivers a failure to an armed task, by instance id", async () => {
   const name = `ext_signal_fail_${crypto.randomUUID()}`;
@@ -405,7 +388,6 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
     body: { instance_id: id, task: "work", error: { code: "upstream_failed", message: "the job died", data: { why: "oom" } } },
   });
   expect(error, `signal was rejected: ${JSON.stringify(error)}`).toBeUndefined();
-  // Buffered, not delivered: the whole reason process_signals.result had to become `outcome`.
   expect((data as any)?.buffered, "an unarmed task must buffer the failure").toBe(true);
 
   expect(await waitForInstance(id, 20_000)).toBe("completed");
@@ -428,10 +410,8 @@ test("a submission carries one outcome, not both", async () => {
   expect(error, "result and error together must be refused").toBeTruthy();
 });
 
-// Validation is shared (api.buildOutcome), but the two modes reach it differently: resolve
-// validates against the instance's CURRENT task, signal against the task it NAMES, looked up
-// in the pinned definition. So signal can validate against the wrong task and resolve cannot —
-// which is what these pin, rather than re-running the shared rules.
+// Validation is shared (api.buildOutcome); these pin that signal validates against the task it
+// NAMES, where resolve uses the current one.
 
 test("signal validates the failure against the task it names, not another task's raises", async () => {
   const name = `sig_wrong_task_${crypto.randomUUID()}`;

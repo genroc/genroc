@@ -1,16 +1,6 @@
-# The playground bug, reduced. A child raises a declared code, the parent routes it to a
-# handler that READS `error.data`, and the handler concludes with a `panic` that declares no
-# `data` of its own. The instance is then failed at the handler — the state an operator
-# upgrades to ship a fix.
-#
-# The panic's message interpolates `error.data.name`, so the payload demonstrably WAS there
-# when the handler ran. What the upgrade then refused was a state the fault itself had
-# emptied: a clause carrying no data cleared the slot the handler had just read. The layer
-# says `error.data` is guaranteed at this task and the layer is right; nothing but a
-# terminal clause had any business editing the context it concluded from.
-#
-# The two versions differ only by an added optional input property, so nothing about the
-# stored state has any reason to move.
+# The playground bug, reduced: a handler reads `error.data`, then concludes with a `panic`
+# declaring no `data`. That clause must not clear the slot the handler just read, or the failed
+# state refuses the upgrade that ships the fix. Versions differ by one optional input.
 apply:
   - definitions:
       - name: raiser

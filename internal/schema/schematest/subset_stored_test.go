@@ -6,11 +6,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// IsSubsetAsStored reads both schemas as descriptions of data a conform already produced. Its one
-// extra rule -- a defaulted property is guaranteed present -- is the only relaxation in the package
-// needing no migration behind it, and the tests are organised around that claim: what the SUB side
-// guarantees is tolerated, what only the SUPER side declares is not. Getting the sides the wrong
-// way round promises an upgrade over a row that never held the value. specs/compat-command.md §2e.
+// What the SUB side guarantees (a default) is tolerated; what only SUPER declares is not.
+// Swapped, an upgrade is promised over a row that never held the value. specs/compat-command.md §2e.
 
 // ── the sub side guarantees it: tolerated, and no fill is involved ────────────
 
@@ -77,11 +74,8 @@ func TestStored_DefaultOnSuperAloneIsRefused(t *testing.T) {
 	}
 }
 
-// A default on super alone is not a REQUIREMENT on super, either. The row in hand was
-// conformed under the old schema and is carried over by a fill that writes no defaults, so
-// what the new schema demands of it is its `required` set — nothing else. The consequence of
-// adding a default is that readers see the value as non-null, and that surfaces where it is
-// read: in the inferred context, as `integer|null → integer`.
+// The row is carried by a fill that writes no defaults, so the new schema demands only its
+// `required` set; the default surfaces where it is read (`integer|null → integer`).
 func TestStored_DefaultOnSuperAloneIsNotARequirement(t *testing.T) {
 	old := mustSchema(t, `{"type":"object","properties":{"retries":{"type":"integer"}}}`)
 	new := mustSchema(t, `{"type":"object","properties":{"retries":{"type":"integer","default":3}}}`)
@@ -132,10 +126,8 @@ var _ = schema.Schema{}
 
 // ── the other direction: a stored null the new schema will not hold ───────────
 
-// IsSubsetAsStored and ConformToSchemaExactly are a pair, and the pair closes the
-// null-versus-missing gap BOTH ways. This is the direction that used to be refused for want
-// of a migration that could remove a key: sub may hold a null, super will not take one, and
-// super leaves the property optional — so the conform drops it and the row fits.
+// Super will not take sub's null but leaves the property optional, so the conform drops the
+// key and the row fits.
 func TestStored_ANullTheNewSchemaWillNotHoldIsClosable(t *testing.T) {
 	old := mustSchema(t, `{"type":"object","properties":{"note":{"type":["string","null"]}}}`)
 	new := mustSchema(t, `{"type":"object","properties":{"note":{"type":"string"}}}`)

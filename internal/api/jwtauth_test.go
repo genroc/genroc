@@ -8,9 +8,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// specs/ui-issued-tokens.md §2 — the token is a CONTRACT, so these are the tests a third-party
-// UI would be checked against. Each rejection below is a way JWT deployments are broken, and
-// `jwks_file` used to be what made them reachable; with a shared secret they are simply cheap.
+// The token is a CONTRACT (specs/ui-issued-tokens.md §2): a third-party UI is checked against
+// these tests.
 
 // mintTestToken produces what genroc-ui is specified to produce. A test that built the token any
 // other way would be testing itself.

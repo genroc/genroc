@@ -11,9 +11,7 @@ import (
 	"genroc/internal/numeric"
 )
 
-// LogQuery holds the optional filters shared by ListLogs and ListTreeLogs plus
-// the pagination request. The zero value (empty Level, zero Created, zero Page)
-// returns the first page of the newest logs.
+// LogQuery filters ListLogs/ListTreeLogs; the zero value is the first page of the newest logs.
 type LogQuery struct {
 	Level   string // a FLOOR: this level and everything above it (model.LogLevelsAtLeast)
 	Created Window // on created_at, a trail's only sort
@@ -41,20 +39,16 @@ func logCursorVals(_ string, e *model.LogEntry) []any {
 	return []any{e.CreatedAt.UnixMilli(), int64(e.Seq), e.ID}
 }
 
-// logFlushInterval is how often the background flusher drains buffered audit-log
-// rows. logBatchRows bounds a single multi-row INSERT: at 11 columns/row it stays
-// under SQLite's default 999 bind-parameter limit, and is also the buffer size that
-// triggers an immediate inline flush so a burst never grows the buffer unbounded.
+// logBatchRows bounds one multi-row INSERT's bind count, and is the buffer size that triggers an
+// inline flush, so a burst cannot grow the buffer unbounded.
 const (
 	logFlushInterval = 5 * time.Millisecond
 	logBatchRows     = 90
 )
 
-// AppendLog stamps and buffers one audit-trail row. Best-effort by contract: a failure
-// here must never abort an instance advance, and a buffered row may be lost on crash
-// (migration 008 — an observability gap, never state corruption). The row is stamped
-// here, not at flush time, so the (created_at, seq, id) sort preserves insertion order; the
-// write is batched off the hot path by logFlusher (or inline once it hits logBatchRows).
+// AppendLog stamps and buffers one audit row. Best-effort by contract: a failure must never abort
+// an advance, and a buffered row may be lost on crash (migration 008). Stamped here, not at flush,
+// so the (created_at, seq, id) sort keeps insertion order.
 func (db *DB) AppendLog(entry *model.LogEntry) error {
 	params, err := db.buildLogParams(entry)
 	if err != nil {
@@ -70,11 +64,9 @@ func (db *DB) AppendLog(entry *model.LogEntry) error {
 	return nil
 }
 
-// AppendLogValue stores one audit row whose payload is a VALUE, cutting it like any other and
-// claiming each externalized piece for the row itself. A row with objects is written
-// synchronously, row and claims in ONE transaction: a buffered row would leave a claim whose
-// owner does not exist yet, and the sweep retires exactly those. Rows without objects keep the
-// buffered path.
+// AppendLogValue stores an audit row whose payload is a VALUE, cut like any other. A row with
+// objects is written synchronously, row and claims in ONE transaction: a buffered row would leave
+// a claim with no owner yet, which the sweep retires.
 func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
 	if v == nil {
 		return db.AppendLog(entry) // no payload, no envelope: the column stays empty
@@ -106,9 +98,8 @@ func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
 	})
 }
 
-// marshalRefs / decodeRefs move an owner's objects list between its column and the value. A
-// malformed list decodes to nothing rather than failing the read: the payload is still there, and
-// an audit row is best-effort by contract.
+// decodeRefs reads a malformed list as nothing rather than failing the read: the payload is still
+// there, and an audit row is best-effort.
 func marshalRefs(refs []*model.ObjectRef) string {
 	if len(refs) == 0 {
 		return ""
@@ -170,9 +161,8 @@ func (db *DB) buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, erro
 	}, nil
 }
 
-// logFlusher drains the audit-log buffer every logFlushInterval until Close stops it,
-// then flushes once more. Errors are dropped (best-effort): a transient DB error costs
-// at most that batch, exactly the loss the schema tolerates.
+// logFlusher drops errors: a transient failure costs at most that batch, the loss the schema
+// tolerates.
 func (db *DB) logFlusher() {
 	ticker := time.NewTicker(logFlushInterval)
 	defer ticker.Stop()
@@ -188,10 +178,8 @@ func (db *DB) logFlusher() {
 	}
 }
 
-// flushLogs writes every buffered row. Safe from any goroutine: the detach is done under
-// the lock, so each buffered row is written exactly once. logFlushMu covers the detach and
-// the insert together — a reader that flushed while a concurrent flush held a detached
-// batch would otherwise see an empty buffer and query before those rows landed.
+// flushLogs is safe from any goroutine: each row is detached, so written, exactly once, and
+// logFlushMu holds a reader until a concurrent batch has landed.
 func (db *DB) flushLogs() error {
 	db.logFlushMu.Lock()
 	defer db.logFlushMu.Unlock()
@@ -212,10 +200,8 @@ func (db *DB) detachLogs() []dbgen.InsertLogParams {
 	return batch
 }
 
-// writeLogBatch inserts rows in chunks of logBatchRows, one multi-row INSERT per chunk.
-// syncStrict, not the always-sync default: the trail is best-effort by contract already -- a
-// crash drops whatever was still buffered -- so flushing each 5ms batch would buy a durability
-// the rest of the audit path does not offer, at the cost of the largest fsync source left.
+// writeLogBatch runs at syncStrict, not the always-sync default: the trail already drops buffered
+// rows on crash, so flushing each 5ms batch buys nothing and is the largest fsync source left.
 func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 	ctx := context.Background()
 	// One transaction rather than one per chunk, so a batch is also all-or-nothing.
@@ -224,19 +210,16 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 			end := min(start+logBatchRows, len(rows))
 			chunk := rows[start:end]
 			var sb strings.Builder
-			// This column list is the SECOND place a log column is spelled -- InsertLog in
-			// queries.sql is the other, used by AppendLogValue for rows carrying objects. A
-			// column added to one and not the other is written on the rare path and dropped
-			// on the common one, which reads as the feature not working at all.
+			// The SECOND spelling of a log column (InsertLog in queries.sql is the other): a
+			// column added only there is dropped on this, the common path.
 			sb.WriteString(`INSERT INTO process_logs (id, instance_id, root_id, seq, level, event, task_id, message, code, data, objects, meta, created_at, actor) VALUES `)
 			args := make([]any, 0, len(chunk)*15)
 			for i, r := range chunk {
 				if i > 0 {
 					sb.WriteByte(',')
 				}
-				// root_id is read off the instance, exactly as InsertLog does it -- the
-				// derivation is part of the column, so both spellings carry it or one path
-				// writes rows that no tree read can find.
+				// root_id is derived off the instance exactly as InsertLog does, or this path
+				// writes rows no tree read can find.
 				sb.WriteString("(?,?," +
 					"COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?), ?)," +
 					"?,?,?,?,?,?,?,?,?,?,?)")
@@ -251,9 +234,8 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 	})
 }
 
-// levelFloor is the level set a LogQuery.Level selects: that level and everything above it.
-// A level the vocabulary does not know matches only itself, i.e. nothing -- the API refuses it
-// before this (actions.go), and inventing a floor for it would WIDEN the read instead.
+// levelFloor: an unknown level matches only itself, i.e. nothing -- the API refuses it first,
+// and inventing a floor for it would WIDEN the read.
 func levelFloor(min string) []any {
 	levels := model.LogLevelsAtLeast(model.LogLevel(min))
 	if len(levels) == 0 {
@@ -282,10 +264,8 @@ func (db *DB) ListLogs(instanceID string, opts LogQuery) ([]*model.LogEntry, Pag
 	return runPage(db, b, scanLogRow, logCursorVals)
 }
 
-// LogsFor answers a trail for one id: the whole TREE when the id names a root, that instance's
-// own rows otherwise (there is no walk left to answer a subtree hanging off a child). flat asks
-// a root for its own rows alone. An id whose instance is gone reads as not-a-root, its rows
-// still addressable by their own instance_id.
+// LogsFor returns the whole TREE's trail when id names a root, that instance's own rows otherwise;
+// flat asks a root for its own rows alone. An id whose instance is gone reads as not-a-root.
 func (db *DB) LogsFor(id string, flat bool, opts LogQuery) ([]*model.LogEntry, PageInfo, error) {
 	if !flat {
 		if root, err := db.q.GetInstanceRoot(context.Background(), id); err == nil && root == id {
@@ -295,9 +275,8 @@ func (db *DB) LogsFor(id string, flat bool, opts LogQuery) ([]*model.LogEntry, P
 	return db.ListLogs(id, opts)
 }
 
-// ListTreeLogs returns a page of every log written anywhere in the tree rooted at rootID.
-// Identical to ListLogs but for the column it filters on: the tree is a stored fact on the
-// row (migration 040), so this walks nothing and pages at the cost of the page.
+// ListTreeLogs returns a page of every log in the tree rooted at rootID; root_id is stored on
+// the row (migration 040), so this walks nothing.
 func (db *DB) ListTreeLogs(rootID string, opts LogQuery) ([]*model.LogEntry, PageInfo, error) {
 	db.flushLogs() // make any buffered rows for the tree visible to the read
 	q := logPaginator.query(opts.Page).

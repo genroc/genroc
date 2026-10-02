@@ -106,9 +106,7 @@ func TestTheAlphabetSurvivesBeingReadAloud(t *testing.T) {
 	}
 }
 
-// The property hashing cannot give: distinct pairs render as distinct ids, always. Scattering
-// is modular multiplication by a coprime -- a bijection inside each width -- and widths do not
-// overlap, so the whole map is injective rather than merely unlikely to collide.
+// The property hashing cannot give: distinct pairs render as distinct ids, always.
 func TestTheRenderingIsInjective(t *testing.T) {
 	seen := map[string]uint64{}
 	for worker := range uint64(40) {
@@ -144,9 +142,8 @@ func TestScatterStaysInsideItsWidth(t *testing.T) {
 	}
 }
 
-// Consecutive mints must not look consecutive, and the check has to cover EVERY position: a
-// multiplicative scatter passed a first-characters test while leaving the whole tail frozen,
-// because consecutive pairs differ by a constant stride and a multiply carries it through.
+// EVERY position: a multiplicative scatter passed a first-characters test with the whole
+// tail frozen.
 func TestNoCharacterPositionIsFrozenAcrossARun(t *testing.T) {
 	m, _ := NewMinter(3)
 	var ids []string

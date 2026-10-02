@@ -1,10 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance, objectAt } from "../helpers/client.ts";
 
-// A 4xx declared in `responses` is typed and routed at once: it still raises http.404 and
-// still runs on_error, and the body it carried arrives at the handler as error.data. Without
-// a declaration the same body is unreachable at any type — it survives only as the trimmed
-// text in the audit trail.
+// A declared 4xx still raises http.404 and runs on_error, with its body as error.data; undeclared,
+// the body survives only as trimmed text in the audit trail.
 test("error.data — a declared 4xx body reaches the handler that catches it", async () => {
   const failing = await startMockService(0, {
     statusCode: 404,
@@ -60,10 +58,7 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
   failing.stop();
 });
 
-// The schema is enforced on the error channel too: a 404 whose body does not fit the shape
-// the definition declared raises result.invalid INSTEAD of http.404, so the rule written for
-// http.404 does not fire. Uniform with the success side, and the reason error.data can be
-// non-nullable at all.
+// Uniform with the success side, and the reason error.data can be non-nullable at all.
 test("error.data — a declared 4xx body that does not conform replaces the status code", async () => {
   const failing = await startMockService(0, {
     statusCode: 404,
@@ -115,10 +110,8 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
   failing.stop();
 });
 
-// `error` is scoped to the task its rule routed to, and the engine drops it on the next
-// ordinary transition. Inference already refuses to type it downstream; this pins the other
-// half — that the value is really gone from the stored context, rather than lingering there
-// as a stale failure a later reader could still be served.
+// Inference already refuses to type `error` downstream; this pins that it is really gone from the
+// stored context.
 test("error — dropped from the context once the handler routes onward", async () => {
   const failing = await startMockService(0, { statusCode: 500, response: { boom: true } });
 
@@ -152,10 +145,7 @@ test("error — dropped from the context once the handler routes onward", async 
   failing.stop();
 });
 
-// error.data is persisted like a task output: inline while small, externalized to the object
-// store past the cutoff, and resolved lazily on the way back. Two things to hold: the row
-// must not swell with the body — an error payload is as large as any response — and a handler
-// that reads it must still see the value, not the marker standing in for it.
+// The row must not swell with the body, and a handler must still see the value, not the marker.
 test("error.data — a large error body externalizes and is still readable", async () => {
   const detail = "x".repeat(8000); // well past the ~2 KiB inline cutoff
   const failing = await startMockService(0, { statusCode: 422, response: { detail } });
@@ -199,9 +189,8 @@ test("error.data — a large error body externalizes and is still readable", asy
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   const ctx = (data?.state ?? {}) as any;
   expect(ctx.outputs?.handler).toEqual({ readable: true });
-  // Listed rather than carried, which is what says the body went to the object store instead of
-  // swelling the instance row. The cut takes the big LEAF inside error.data, so the wrapper
-  // stays inline and the listing names the leaf.
+  // The cut takes the big LEAF inside error.data, so the wrapper stays inline and the listing
+  // names the leaf.
   const listed = (data!.objects ?? []).find(
     (o: any) => o.path[0] === "state" && o.path[1] === "last_error" && o.path[2] === "data",
   );

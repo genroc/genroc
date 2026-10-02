@@ -1,8 +1,7 @@
 package validation
 
-// The expression environment, addressable. Inference builds a context for every slot it checks
-// and then spends it on error messages; this is the same computation, keyed so a caller can ask
-// for one. specs/schema-command.md owns the address grammar, specs/task-scopes.md the phases.
+// The expression environment, addressable: the contexts inference checks against, keyed by slot.
+// specs/schema-command.md owns the address grammar, specs/task-scopes.md the phases.
 
 import (
 	"fmt"
@@ -32,8 +31,7 @@ const (
 )
 
 // SlotContexts returns the expression context at every addressable slot, keyed by canonical
-// address. The `$defs` pool every context resolves against travels with each of them, so one
-// answer can be handed on whole.
+// address. Each carries its `$defs` pool, so one answer can be handed on whole.
 func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
 	scopes, err := newTaskScopes(def)
 	if err != nil {
@@ -58,15 +56,12 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 				return nil, fmt.Errorf("task %q: %w", t.ID, err)
 			}
 			out[taskSlot(t.ID, slotSwitch)] = ctx
-			// One per CASE: the context differs per case, and an editor addressing only the
-			// switch would hover the type the negations already ruled out. The whole-switch
-			// address stays — three things name it. specs/guard-narrowing.md.
+			// One per CASE, since earlier negations narrow each; the whole-switch address stays —
+			// three things name it. specs/guard-narrowing.md.
 			for i, c := range t.Switch {
 				out[caseSlot(t.ID, i)] = scopes.switchCase(t, i, ctx)
-				// A `panic` or `raise` beside the case reads a DIFFERENT context — it fires
-				// only when the case held, so it may assume it. Addressed one level down so
-				// enclosingSlot finds it first and the `case` above keeps the scope that
-				// proves the guard rather than the one that assumes it.
+				// A `panic`/`raise` fires only when the case held, so it may assume it. One level
+				// down, so enclosingSlot finds it first and the `case` keeps the proving scope.
 				addClauseSlots(out, caseSlot(t.ID, i), c.Panic, c.Raise, nil,
 					func() schema.Schema { return scopes.switchClause(t, i, ctx) })
 			}
@@ -91,9 +86,7 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 	return out, nil
 }
 
-// addClauseSlots addresses the clauses of one switch case or on_error rule, which share a
-// scope their `case` does not: they run because it matched. Only clauses actually written get
-// an address — a listing of slots the document does not contain is noise a reader has to skip.
+// Only clauses actually written get an address: listing slots the document lacks is noise.
 func addClauseSlots(out map[string]schema.Schema, base string, panics, raise *model.Fault, retry *model.Retry, ctx func() schema.Schema) {
 	var present []string
 	if panics != nil {
@@ -152,14 +145,11 @@ func typeSlots(sf SchemaFile) map[string]schema.Schema {
 		put(schema.JoinPath(slotRaises, code), raised)
 	}
 	for id, ts := range sf.Tasks {
-		// `input` and `result` are the ACTION's and sit under it, exactly where the definition
-		// writes them; `output` and `last_error` are the task's and sit beside it. Keeping the
-		// `action` segment is what stops the two namespaces sharing one — a task-level slot
-		// added later cannot collide with an action's.
+		// `input`/`result` are the ACTION's and sit under it, `output`/`last_error` the task's.
+		// The `action` segment stops a later task-level slot colliding with an action's.
 		action := taskSlot(id, slotAction)
-		// The payload takes the name the DEFINITION gives it — `body` on a fetch, `input`
-		// everywhere else — so a pointer into it and the type of it are one address. Only fetch
-		// diverges, and a payload is `input` on every action type a resolver targets.
+		// The payload takes the name the DEFINITION gives it (`body` on a fetch), so a pointer
+		// into it and its type are one address.
 		payload := slotInput
 		if ts.ActionType == model.ActionTypeFetch {
 			payload = slotBody
@@ -181,12 +171,9 @@ func typeSlots(sf SchemaFile) map[string]schema.Schema {
 	return out
 }
 
-// SlotAt answers an address with the longest SLOT it names, then whatever path is left walked
-// INSIDE that slot's schema. The two steps are what lets one slot address be a prefix of
-// another — a `switch` and its cases, a rule and its clauses — because the nested document
-// cannot hold both: the parent's own properties and the child's name land in one object, and a
-// case index starts reading as a name in scope. Reports false where no slot matches, which is
-// the caller's cue to fall back to the document, still the map of what could be typed instead.
+// SlotAt resolves the longest SLOT an address names, then walks the rest INSIDE it: one slot
+// address may prefix another, which the nested document cannot hold. false means no slot
+// matched — fall back to the document.
 func SlotAt(slots map[string]schema.Schema, address string) (schema.Schema, bool, error) {
 	slot, rest, ok, err := SlotOf(slots, address)
 	if err != nil || !ok {
@@ -196,10 +183,8 @@ func SlotAt(slots map[string]schema.Schema, address string) (schema.Schema, bool
 	return inside, true, err
 }
 
-// SlotOf is SlotAt's first step on its own: the longest slot an address names, and the path
-// left inside it. A caller that wants to READ the parent and then ask about one member — a
-// hover on a key — needs the split without the walk, and this is the one place the prefix
-// rule lives.
+// SlotOf is SlotAt's split without the walk, for a caller that reads the parent and then asks
+// about one member. The prefix rule lives only here.
 func SlotOf(slots map[string]schema.Schema, address string) (slot string, rest []schema.Segment, ok bool, err error) {
 	segs, err := schema.ParsePath(address)
 	if err != nil {
@@ -262,9 +247,8 @@ func TypeDocument(def *model.ProcessDefinition) (schema.Schema, error) {
 	return nest(slots)
 }
 
-// nest folds addressed slots into the object they are addresses INTO. Every property is
-// required: a slot listed here exists, and an optional one would come back nullable and stop
-// navigating.
+// Every property is required: a slot listed here exists, and an optional one would come back
+// nullable and stop navigating.
 func nest(slots map[string]schema.Schema) (schema.Schema, error) {
 	root := schema.Object()
 	var defs schema.Defs
@@ -303,9 +287,8 @@ func Navigate(s schema.Schema, address string, path []schema.Segment) (schema.Sc
 	walked := ""
 	for i, seg := range path {
 		step := path[i : i+1]
-		// An index into an OBJECT reads the key spelled with that number: `on_error[0]` is the
-		// first rule, which is keyed rather than indexed because one `items` cannot type each
-		// rule differently. Nothing is conflated — indexing an object is otherwise an error.
+		// An index into an OBJECT reads the key spelled with that number (`on_error[0]`, see
+		// ruleSlot). Nothing is conflated: indexing an object is otherwise an error.
 		if seg.IsIndex {
 			if _, ok := rootProperties(s)[strconv.Itoa(seg.Index)]; ok {
 				step = []schema.Segment{{Name: strconv.Itoa(seg.Index)}}
@@ -384,14 +367,11 @@ func renderSegments(segs []schema.Segment) string {
 	return out
 }
 
-// newTaskScopes rebuilds the checker's own scope builder off a finished SchemaFile — not
-// contexts LIKE the ones it used, but the same constructors. It builds from what inference
-// MANAGED, since the document an editor asks about is usually mid-edit; a slot inference could
-// not type reads as {}. specs/schema-command.md §1.
+// newTaskScopes is the checker's own scope builder, fed what Check MANAGED — usually a document
+// mid-edit, so a slot it could not type reads as {}. specs/schema-command.md §1.
 func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
-	// Diagnostics are DISCARDED, not swallowed: this view answers "what can be read here",
-	// and Check has already recovered every slot it could not type as {}. A caller that also
-	// wants the verdict asks Check itself.
+	// Diagnostics are DISCARDED, not swallowed: this view answers "what can be read here", and
+	// a caller wanting the verdict asks Check.
 	sf, _ := Check(def)
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	return taskScopes{
@@ -403,11 +383,9 @@ func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
 	}, nil
 }
 
-// CheckSlotRoots reports whether an expression written at address may READ what it names, with
-// the message registration would give rather than inference's "field not found". The
-// availability half only, and only where the address names a SLOT: past that it has walked
-// inside one, where no expression is being written. A slot's required TYPE is never checked --
-// that is per slot, and one context serves many. specs/schema-command.md §2.
+// CheckSlotRoots refuses, with registration's message, an expression at address that reads what
+// its slot cannot. Only where address names a SLOT, and never the slot's required TYPE (one
+// context serves many). specs/schema-command.md §2.
 func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
 	segs, err := schema.ParsePath(address)
 	if err != nil {
@@ -448,17 +426,14 @@ func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
 	return slotRoots(task, address, scopes.loops(task), typedResult, sc)(refs)
 }
 
-// An address is a path in the expression language's own accessor syntax, so a task id that no
-// identifier can spell is quoted — `tasks["step.one"].output` — and the address a listing
-// prints can be pasted straight back. schema.JoinPath decides which form a name needs.
+// Accessor syntax, so an id no identifier can spell is quoted (`tasks["step.one"].output`) and a
+// printed address pastes straight back.
 func taskSlot(id, phase string) string {
 	return schema.JoinPath(schema.JoinPath(slotTasks, id), phase)
 }
 
-// ruleSlot keys a rule by its index rather than indexing an array: `items` is one schema for
-// every element, so an array could not carry a different context per rule. Dotted, not
-// JoinPath's `["0"]`, because `[0]` is a shell glob zsh refuses before genctl sees it; both
-// bracket forms still parse.
+// Keyed, not indexed: one `items` cannot type each rule differently. Dotted, not `["0"]`, because
+// zsh globs `[0]` before genctl sees it; both bracket forms still parse.
 func ruleSlot(id string, i int) string {
 	return taskSlot(id, slotOnError) + "." + strconv.Itoa(i)
 }

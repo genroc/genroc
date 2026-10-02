@@ -11,17 +11,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The one YAML rendering path, surviving the two ways YAML can lie about a value it was handed: a
-// number that comes out quoted is a string, and a string that comes out bare may be read back as
-// something else. Not yaml.Marshal, because numbers arrive as json.Number to keep large literals
-// exact and json.Number is a string type, which the default encoder quotes.
+// The one YAML rendering path. Not yaml.Marshal: numbers arrive as json.Number to stay exact, a
+// string type the default encoder quotes.
 
 // yamlBlock renders with keys sorted, which is the order they are looked up in.
 func yamlBlock(v any) string { return yamlDoc(v, nil) }
 
-// yamlDoc puts the keys named in `lead` first, in that order, and sorts the rest after them --
-// a schema reads as what it IS before what it holds, which no encoder will do for a map.
-// Applied at every level, so a nested definition reads the same way as the root.
+// yamlDoc puts `lead` keys first at every level, so a schema reads as what it IS before what it
+// holds.
 func yamlDoc(v any, lead []string) string {
 	var b bytes.Buffer
 	enc := yaml.NewEncoder(&b)

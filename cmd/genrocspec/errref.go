@@ -1,8 +1,7 @@
 package main
 
-// The error reference. Two audiences and two vocabularies that share no codes: an author writing
-// `on_error` matches what a task reports, and a client reads what a reply classifies. Putting
-// both on one page invites a reader to try `not_found` in an on_error rule.
+// The error reference: what an on_error rule matches and what a reply classifies, two
+// vocabularies sharing no code.
 
 import (
 	"fmt"
@@ -15,10 +14,8 @@ import (
 	"genroc/internal/model"
 )
 
-// writeErrorReference writes into TWO sections rather than one of its own: the codes an
-// on_error rule can name are part of the definition language, and the codes a reply carries are
-// part of the HTTP surface. They share a generator because they share nothing else -- putting
-// both on one page invites a reader to try `not_found` in an on_error rule.
+// writeErrorReference writes TWO sections, definition language and HTTP: one page would invite
+// a reader to try `not_found` in an on_error rule.
 func writeErrorReference(definitionDir, httpDir string) error {
 	for _, p := range []struct {
 		dir  string

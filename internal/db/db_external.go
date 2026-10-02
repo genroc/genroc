@@ -11,9 +11,7 @@ import (
 )
 
 // ClaimBinding is the claim half of a submitted handle: the epoch a three-part token named, or
-// Unclaimed for the two-part form. It is checked under the same row lock as the wait state and
-// task_epoch -- requireFenced/ErrLeaseLost in the API's vocabulary, refusing with a conflict
-// that names re-claim as the cause.
+// Unclaimed for the two-part form. Checked under the same row lock as the wait state.
 type ClaimBinding struct {
 	epoch int64
 	bound bool
@@ -25,11 +23,9 @@ var Unclaimed = ClaimBinding{}
 // BoundToClaim binds an answer to the grant a three-part token named.
 func BoundToClaim(epoch int64) ClaimBinding { return ClaimBinding{epoch: epoch, bound: true} }
 
-// check enforces the two directions. A bound handle must name the CURRENT grant: an expiry
-// writes nothing, so a worker that overran its lease and was never taken over still answers
-// successfully -- strictly better than discarding work already done, and how the engine treats
-// its own late writes. An unbound handle is refused only while a claim is LIVE: the queue hands
-// two-part tokens to any caller, and one must not be able to answer over a working holder.
+// check: a bound handle must name the CURRENT grant (an expiry writes nothing, so an overrun never
+// taken over still answers); an unbound one is refused only while a claim is LIVE, since the queue
+// hands two-part tokens to any caller. specs/external-task-queue.md.
 func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.NullInt64) error {
 	if c.bound {
 		if c.epoch != current {
@@ -43,15 +39,9 @@ func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.Nu
 	return nil
 }
 
-// ResolveExternalTask atomically delivers an outcome -- a result or a failure -- to an instance
-// parked on an external task, and un-parks it. The engine consumes it on the next claim; a
-// failure routes through on_error there rather than here, since that would be a write on a
-// leased row and this call holds no lease.
-//
-// Under the row lock it rejects an expired/absent wait, a live lease (the timeout wins), and an
-// epoch mismatch (an outcome against a PRIOR arming). The epoch comes off the row rather than a
-// token copied into a column, which would only be a second thing that can disagree.
-// See specs/external-task-queue.md and internal/db/CLAUDE.md.
+// ResolveExternalTask atomically buffers an outcome for an instance parked on an external task and
+// un-parks it; the engine consumes it, routing a failure through on_error, on its next claim.
+// ErrConflict if the wait is gone, a lease is live, or epoch names a PRIOR arming.
 func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, claim ClaimBinding, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
@@ -72,15 +62,13 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 			return fmt.Errorf("lock instance: %w", err)
 		}
 
-		// A pause suspends execution, not delivery: only the CLAIM side refuses a suspended
-		// tree. Refusing here would leave the deadline running, and on an only_once task the
-		// external.timeout that follows can never be retried -- losing work that already took
-		// effect. specs/external-task-queue.md §Pause.
+		// A pause suspends execution, not delivery: refusing here leaves the deadline running
+		// toward an external.timeout an only_once task can never retry.
+		// specs/external-task-queue.md §Pause.
 		if !model.Status(status).AcceptsExternalOutcome() || model.Phase(phase) != model.PhaseExternal {
 			return fmt.Errorf("task is not waiting for an external result: %w", ErrConflict)
 		}
-		// A live lease means a worker already claimed this instance (a timeout firing); the
-		// timeout wins, so reject the submit rather than racing its advance.
+		// A live lease is a timeout firing; it wins rather than racing its advance.
 		if workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis() {
 			return fmt.Errorf("external task is being processed; try again: %w", ErrConflict)
 		}
@@ -92,16 +80,12 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 			return err
 		}
 
-		// Buffer it, then un-park. The outcome never touches the instance row: the engine pops
-		// it under lease and writes it through the ordinary context encode, which is what gets
-		// it CUT, declared in `objects` and claimed -- none of which this path could do, holding
-		// only the row lock with no reference set to reconcile.
-		// specs/external-outcome-as-signal.md.
+		// The outcome never touches the instance row: only the engine's encode under lease can cut,
+		// declare and claim it. specs/external-outcome-as-signal.md.
 		if err := db.bufferOutcome(ctx, qtx, instanceID, taskID, outcome); err != nil {
 			return err
 		}
-		// The status/phase/token/lease checks above ran under the row lock, so the
-		// un-park is unconditional here.
+		// Unconditional: every check above ran under the row lock.
 		if err := qtx.UnparkExternal(ctx, dbgen.UnparkExternalParams{
 			UpdatedAt: nowMillis(),
 			ID:        instanceID,

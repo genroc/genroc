@@ -170,14 +170,8 @@ func (s Schema) WithNull() Schema {
 	return wrap(withNull(s.n), s.rootDefs())
 }
 
-// StripNull removes every null the value may take, wherever it is declared: a `$ref` is
-// followed, because whether a type is written inline or behind a name is a fact about the
-// DOCUMENT and not about the value. `HasNull` has always answered that way, and the two
-// disagreeing is what made a nullable-behind-a-ref narrow to itself in silence.
-//
-// What stays symbolic is everything the null was never behind, which is what keeps the result
-// finite — a recursive object's nullable link resolves once and the `next` inside it is still
-// a ref. specs/guard-narrowing.md.
+// StripNull removes every null the value may take, following a `$ref` only where the null is
+// behind it — so it agrees with HasNull and the result stays finite. specs/guard-narrowing.md.
 func (s Schema) StripNull() Schema {
 	return wrap(stripNullIn(s.n, s.rootDefs(), map[*node]bool{}), s.rootDefs())
 }
@@ -219,34 +213,27 @@ func (s Schema) IsSubset(super Schema) bool {
 	return isSubset(s.n, super.n)
 }
 
-// IsSubsetAbsentAsNull is IsSubset with one rule relaxed: super may require a property whose
-// type admits null without sub requiring it, since a missing key and a null one navigate
-// identically. Sound only where nothing validates the value against super — a runtime conform
-// DOES reject a missing required key. Both schemas must be normalized.
+// IsSubsetAbsentAsNull is IsSubset where super may require a nullable property sub leaves
+// optional. Sound only where nothing conforms the value against super; both must be normalized.
 func (s Schema) IsSubsetAbsentAsNull(super Schema) bool {
 	return absentAsNullSubset(s.n, super.n)
 }
 
-// IsSubsetAsStored compares two schemas as descriptions of data already conformed — an
-// instance's stored state. It is IsSubsetAbsentAsNull plus one rule: a property s declares
-// with a default is guaranteed present. Sound only where nothing conforms the value against
-// super afterwards. Both schemas must be normalized. Design: specs/compat-command.md §2e.
+// IsSubsetAsStored reads both as already-conformed data: IsSubsetAbsentAsNull, plus a property s
+// defaults is present. Sound only where nothing conforms against super afterwards; both must be
+// normalized. specs/compat-command.md §2e.
 func (s Schema) IsSubsetAsStored(super Schema) bool {
 	return storedSubset(s.n, super.n)
 }
 
-// NarrowsTo is IsSubset with unknowns admitted: every empty schema in s is accepted by
-// whatever super declares at that position, at any depth. It answers "could this be narrowed
-// to super?", so it is sound ONLY where the value is conformed against super at runtime.
-// Both schemas must be normalized.
+// NarrowsTo is IsSubset with every {} in s accepted by whatever super declares there. Sound ONLY
+// where the value is conformed against super at runtime. Both must be normalized.
 func (s Schema) NarrowsTo(super Schema) bool {
 	return narrowsTo(s.n, super.n)
 }
 
-// ExplainSubset names every place s fails to fit super, in walk order, or nothing when it
-// fits. It runs the SAME walk as IsSubset with reporting switched on, so the two can never
-// disagree. Callers word the breaks themselves (see SubsetBreakKind); this returns facts,
-// not sentences. Costs a second traversal, so call it only after IsSubset has said no.
+// ExplainSubset returns every break of s against super in walk order (nil when it fits), from the
+// same walk as IsSubset. Facts, not sentences; costs a traversal, so call it only after a no.
 func (s Schema) ExplainSubset(super Schema) []*SubsetBreak {
 	return subsetBreaks(s.n, super.n, subsetMode{})
 }
@@ -256,15 +243,9 @@ func (s Schema) ExplainSubsetAsStored(super Schema) []*SubsetBreak {
 	return subsetBreaks(s.n, super.n, storedMode())
 }
 
-// ConformsExactlyTo reports whether every value of s survives Validate(v, ConformToSchemaExactly)
-// against super UNCHANGED in its key set — the static half of a declared slot schema. It is
-// IsSubset with exactly the gaps that conform can close admitted (an absent required nullable
-// is written in, a null in an optional non-nullable has its key removed) and one rule added:
-// a key super does not declare is refused rather than left to be stripped.
-//
-// Sound only where the value IS conformed against super, and the pairing is the point — a
-// relation that tolerates more than the fill closes promises a conform that then fails.
-// specs/declared-slot-schemas.md §4. Both schemas must be normalized.
+// ConformsExactlyTo: every value of s survives Validate(v, ConformToSchemaExactly) against super
+// with its key set unchanged. Sound only where the value IS so conformed; both must be
+// normalized. specs/declared-slot-schemas.md §4.
 func (s Schema) ConformsExactlyTo(super Schema) bool {
 	return conformsExactlyTo(s.n, super.n)
 }
@@ -287,10 +268,8 @@ func (s Schema) IsSecret() bool {
 	return isSecret(s.n)
 }
 
-// ContainsSecret reports whether `secret: true` appears anywhere in the document, so registration
-// can refuse the marker outside config_schema: the log scrubber can only find config values it
-// knows verbatim, so the marker elsewhere promises a protection nothing delivers.
-// specs/object-store.md §secret: true is CONFIG-ONLY.
+// ContainsSecret reports `secret: true` anywhere, so registration can refuse it outside
+// config_schema — there it promises a scrub nothing delivers. specs/object-store.md §secret.
 func (s Schema) ContainsSecret() bool { return containsSecret(s.n, map[*node]bool{}) }
 
 func containsSecret(n *node, seen map[*node]bool) bool {

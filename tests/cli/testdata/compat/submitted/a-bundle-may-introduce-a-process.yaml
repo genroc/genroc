@@ -1,8 +1,5 @@
-# The arrival, submitted rather than stored. new-process.yaml reaches it through two
-# channels; here the from side is a channel that has never heard of `newsub_arrival` and the
-# to side is a file. Both halves of the row are unusual at once — no from version and no to
-# version — and a report that fell over on the pair, or gated on it, would turn the first
-# deploy of a process into a failing check.
+# A submitted process the from channel never had: no from version and no to version, and it
+# must neither crash nor gate, or every first deploy fails the check.
 apply:
   - channel: newsub_a
     definitions:

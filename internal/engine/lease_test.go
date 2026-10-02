@@ -19,9 +19,7 @@ import (
 	"genroc/internal/model"
 )
 
-// A clean shutdown drains in-flight work and releases leases: a released lease (worker_id
-// NULL) is reclaimed as a clean claim, so a healthy restart logs no takeover warning. Those
-// belong to hard crashes, where the lease is left held.
+// A released lease is reclaimed as a clean claim, so a healthy restart logs no takeover warning.
 func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 	database := openTestDB(t)
 
@@ -69,7 +67,6 @@ func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 	done := make(chan struct{})
 	go func() { eng.Run(ctx); close(done) }()
 
-	// Wait until the engine has claimed the instance and the task is in-flight.
 	select {
 	case <-hit:
 	case <-time.After(10 * time.Second):
@@ -84,7 +81,6 @@ func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 		t.Fatal("expected the in-flight instance to hold a lease (worker_id set)")
 	}
 
-	// Graceful shutdown: cancel and wait for Run to drain + return.
 	cancel()
 	select {
 	case <-done:
@@ -106,9 +102,8 @@ func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 	}
 }
 
-// The exact conditions that used to end the process: renewal parked, tiny lease, a task
-// blocking past it. The gate must notice the stale evidence one poll early, repair the lease
-// and decline takeovers — and it works with no clock shift, which a freeze detector needs.
+// Renewal parked, tiny lease, a task blocking past it — and no clock shift, which a freeze
+// detector would need.
 func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	database := openTestDB(t)
 
@@ -160,9 +155,8 @@ func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	}
 }
 
-// The sleeping-laptop case: shifting the DB clock reproduces wall time passing while nothing
-// in-process runs. The gate must repair before the claim, leaving the in-flight advance
-// undisturbed — one execution, one completion, no reclaim.
+// The sleeping-laptop case: shifting the DB clock is wall time passing while nothing
+// in-process runs.
 func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 	database := openTestDB(t)
 
@@ -183,10 +177,8 @@ func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 
 	id := seedInstance(t, database, "frozen", srv.URL)
 
-	// Default-ish 10s lease with the renewer an hour out, so nothing but the gate can
-	// save the lease. A 50ms poll keeps the pump parked on its ticker for all but a
-	// sliver of each cycle, so the clock jump below lands between claims, as a real
-	// suspend does.
+	// Renewer an hour out, so only the gate can save the lease. A 50ms poll parks the pump on
+	// its ticker, so the clock jump below lands between claims, as a real suspend does.
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	eng := New(database, 50*time.Millisecond, 2, true /* immediateRetries */, 10*time.Second, time.Hour, LogConfig{}, log)
 
@@ -203,9 +195,7 @@ func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 		t.Fatal("task never went in-flight")
 	}
 
-	// The host sleeps for two hours: far past the 10s lease and past any renewal that
-	// would have happened. AdvanceClock only moves forward and every DB timestamp goes
-	// through it, so this leaks nothing into later tests but a later "now".
+	// AdvanceClock only moves forward, so this leaks nothing into later tests but a later "now".
 	db.AdvanceClock(2 * time.Hour)
 
 	// Give the pump several cycles to notice and repair before letting the task finish.
@@ -284,10 +274,8 @@ func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	eng := New(database, 10*time.Millisecond, 2, true /* immediateRetries */, 100*time.Millisecond, time.Minute, LogConfig{}, log)
 
-	// No server: the pump never runs, so this worker's lease on the row is the only thing
-	// under test. seedInstance's URL is never fetched. The claim is manual, so the held
-	// set is seeded manually too — as the pump does on every claim — or the scoped
-	// renewal below would skip the row and the floor this test rests on would not hold.
+	// No server: the pump never runs. The claim is manual, so the held set is seeded manually
+	// too, or the scoped renewal below would skip the row.
 	id := seedInstance(t, database, "pinned", "http://127.0.0.1:1")
 	if claimed, err := database.ClaimInstances(eng.WorkerID(), eng.leaseDuration, 1, db.AllowTakeover()); err != nil || len(claimed) != 1 {
 		t.Fatalf("setup claim: err=%v, count=%d", err, len(claimed))

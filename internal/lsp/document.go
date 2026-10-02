@@ -1,11 +1,8 @@
 package lsp
 
-// A document as the server sees it: the text as written, indexed for positions, and -- read
-// lazily, and only through the decoded definition -- the value an apply would see. Every
-// handler starts from one of these, so this is the ONE place text becomes a document and the
-// one place structural resolution can run. Handlers that parsed for themselves saw the text as
-// written, and three were each found reporting a document nobody applies.
-// specs/source-resolution.md, specs/language-server.md §4.
+// A document: the text as written, indexed for positions, and -- lazily, only through the decoded
+// definition -- the value an apply would see. The ONE place text becomes a document and structural
+// resolution runs; a handler must not parse for itself. specs/language-server.md §4.
 
 import (
 	"encoding/json"
@@ -26,9 +23,8 @@ type document struct {
 	// file is where the text lives on disk, which a directive's relative argument resolves
 	// against. "" is a buffer with no file, and is analysed as written.
 	file string
-	// The resolved value, computed on first use so a handler that reads only shape pays
-	// nothing, and reachable only through resolve(): meaning is read from the definition it
-	// decodes to, which is the whole rule.
+	// Computed on first use, and reachable only through resolve(): meaning is read from the
+	// definition it decodes to.
 	resolved    any
 	resolveErr  error
 	resolvedYet bool
@@ -57,10 +53,8 @@ func parseRepaired(text, file string, line int) (*document, bool) {
 	if line < 1 || line > len(lines) {
 		return nil, false
 	}
-	// A half-typed key (`ur`) is not YAML either, so `: ` is one of the repairs -- the others
-	// close a string, an interpolation, or a list the author has not finished. An unclosed `[`
-	// swallows every line below it, so without `]` the whole document stops parsing while a
-	// `type: [string,` is being written.
+	// `: ` repairs a half-typed key; the rest close a string, an interpolation or a list -- an
+	// unclosed `[` swallows every line below it.
 	for _, suffix := range []string{`"`, `}"`, `"}`, `: `, `]`} {
 		patched := append([]string(nil), lines...)
 		patched[line-1] += suffix
@@ -89,10 +83,8 @@ func soleDocContaining(text, file string, line int) (*document, bool) {
 	return nil, false
 }
 
-// resolve runs the structural phase over a DEEP COPY: positions come from Doc's index and an
-// injected key has no node there, so the verdict reads the copy and every diagnostic still
-// locates against what the author wrote. The error is the verdict's to report; the value is
-// the text as written whenever there is one.
+// resolve runs the structural phase over a DEEP COPY: an injected key has no node in Doc's index,
+// so diagnostics still locate against what was written. On error the value is the text as written.
 func (d *document) resolve() (any, error) {
 	if d.resolvedYet {
 		return d.resolved, d.resolveErr

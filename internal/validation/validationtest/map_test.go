@@ -13,10 +13,8 @@ func TestGenerateMap_ChildListOverMappedInput(t *testing.T) {
 	runGenerate(t, mapFanoutDef("map-line-worker"))
 }
 
-// The per-child input derived from `over` must be the *body* type of the lambda
-// — {sku: string, qty: integer} — not the element type of the source array. If
-// map's result type leaked the source element through, this child (which knows
-// nothing of `code`/`count`) would be reported incompatible.
+// If map's result type leaked the source element, this child (which knows nothing of
+// `code`/`count`) would be reported incompatible.
 func TestGenerateMap_ChildListDerivedInputIsMappedElement(t *testing.T) {
 	getter := stubGetter{
 		"map-line-worker": childDef(t, "map-line-worker", `{
@@ -28,9 +26,7 @@ func TestGenerateMap_ChildListDerivedInputIsMappedElement(t *testing.T) {
 	assertMapChildRefsOK(t, mapFanoutDef("map-line-worker"), getter, "mapped element type")
 }
 
-// The mirror of the above: the derived element type is checked, not waved
-// through. `qty` is an integer (count + 1), so a child demanding a string must
-// be rejected — otherwise every child_list over a map would be unchecked.
+// The derived element type is checked, or every child_list over a map would go unchecked.
 func TestGenerateMap_ChildListDerivedInputMismatchRejected(t *testing.T) {
 	getter := stubGetter{
 		"map-line-worker": childDef(t, "map-line-worker", `{
@@ -43,9 +39,7 @@ func TestGenerateMap_ChildListDerivedInputMismatchRejected(t *testing.T) {
 		"qty is integer, child wants string")
 }
 
-// A map over a nullable source panics at runtime in the evaluator, so it has to
-// be a registration error rather than a production incident. `rows` is optional
-// in mapNullableRowsInput, so `input.rows` is nullable.
+// A map over a nullable source panics in the evaluator, so it must fail at registration.
 func TestGenerateMap_OverNullableSourceRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapDef("map-nullable-over", mapNullableRowsInput,
 		mapChildListTask("fanout", "map-line-worker", "$: map(input.rows, r => {sku: r.code})")),
@@ -54,9 +48,7 @@ func TestGenerateMap_OverNullableSourceRejected(t *testing.T) {
 	mapErrMentions(t, got, "??", "point at the ?? fix")
 }
 
-// `?? []` is the documented escape hatch, and it must not degrade the element
-// type: the empty-array variant is provably empty, so `sku` stays a string and
-// the lambda body still type-checks against the source element.
+// The empty-array variant is provably empty, so `?? []` must not degrade the element type.
 func TestGenerateMap_OverNullableSourceWithCoalesceOK(t *testing.T) {
 	out := runGenerate(t, mapDef("map-coalesce-over", mapNullableRowsInput,
 		mapChildListEchoTask("fanout", "map-line-worker", "$: map(input.rows ?? [], r => {sku: r.code})")))
@@ -68,9 +60,8 @@ func TestGenerateMap_OverNullableSourceWithCoalesceOK(t *testing.T) {
 	}`)
 }
 
-// A fetch body assembled from map + object literals: the generated task input
-// schema is what the UI and the external-task consumers see, so the array and
-// its element must both be typed, with every literal key required.
+// The generated input schema is what the UI and external consumers see, so the array and its
+// element must both be typed.
 func TestGenerateMap_FetchBodyFromMapAndObjectLiterals(t *testing.T) {
 	out := runGenerate(t, mapRowsFetchDef("map-body", `{
 		"type": "fetch",
@@ -103,9 +94,7 @@ func TestGenerateMap_FetchBodyFromMapAndObjectLiterals(t *testing.T) {
 	}`)
 }
 
-// Regression: resolveURL renders with %v, so an array-valued url went out as "[a b c]" —
-// checkNonNullTemplate only rejected a NULLABLE result. Not map-specific (a bare "$: input.rows"
-// took the same path); only the single-expression form escaped, and map is the easiest producer.
+// resolveURL renders with %v, so an array-valued url would go out as "[a b c]".
 func TestGenerateMap_FetchURLFromMapRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-url",
 		`{"type": "fetch", "method": "post", "url": "$: map(input.rows, r => r.code)"}`),
@@ -113,9 +102,7 @@ func TestGenerateMap_FetchURLFromMapRejected(t *testing.T) {
 	mapErrMentions(t, got, "push", "name the offending task")
 }
 
-// Regression, same root cause and same fix as the url case above: resolveMethod
-// upper-cases fmt.Sprintf("%v", val), so an array method used to produce the
-// garbage verb "[A B]" on the wire instead of being caught at registration.
+// resolveMethod upper-cases %v, so an array method would put the verb "[A B]" on the wire.
 func TestGenerateMap_FetchMethodFromMapRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-method",
 		`{"type": "fetch", "url": "http://x", "method": "$: map(input.rows, r => r.code)"}`),
@@ -148,9 +135,7 @@ func TestGenerateMap_FetchHeadersFromObjectLiteralOK(t *testing.T) {
 	}`)))
 }
 
-// Mapping self.result requires the raw result to be typed — that is what
-// result_schema is for. The exported output is the array of lambda bodies, and
-// downstream tasks type-check against exactly that.
+// The exported output is the array of lambda bodies; downstream tasks type-check against it.
 func TestGenerateMap_OutputOverSelfResult(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "map-self-result",
@@ -197,9 +182,7 @@ func TestGenerateMap_OutputOverSelfResult(t *testing.T) {
 	}`)
 }
 
-// Mapping a *preceding task's* output goes through outputs.<id>, which is a
-// $ref into $defs — map has to resolve it to read `items`, so this covers the
-// look-inside path rather than the structural one.
+// outputs.<id> is a $ref, so map must resolve it to read `items`.
 func TestGenerateMap_OutputOverOtherTaskOutput(t *testing.T) {
 	out := runGenerate(t, mapRowsDef("map-other-output", `
 		{
@@ -237,9 +220,7 @@ func TestGenerateMap_ProcessOutput(t *testing.T) {
 	}`)
 }
 
-// A child_map entry's input is built with map + object literals. The subset
-// check against the child's input_schema is the only place this is verified, so
-// a compatible reshape must pass...
+// The subset check against the child's input_schema is the only place this is verified.
 func TestGenerateMap_ChildMapInputFromMap(t *testing.T) {
 	getter := stubGetter{
 		"map-batch-worker": childDef(t, "map-batch-worker", `{
@@ -289,9 +270,7 @@ func TestGenerateMap_ChildMapInputFromMapMismatchRejected(t *testing.T) {
 	assertMapChildRefsIncompatible(t, def, getter, "mapped element is missing qty")
 }
 
-// A switch case decides routing, so it must be boolean. A map yields an array,
-// which is neither true nor false — accepting it would make the branch taken at
-// runtime undefined. Switch cases are bare expressions, not {{ }} templates.
+// An array is neither true nor false, so accepting it would leave the branch undefined.
 func TestGenerateMap_SwitchCaseFromMapRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsDef("map-switch", `
 		{
@@ -307,10 +286,8 @@ func TestGenerateMap_SwitchCaseFromMapRejected(t *testing.T) {
 	mapErrMentions(t, got, `task "route"`, "name the offending task")
 }
 
-// A typo (or a field that exists on the process input but not on the element)
-// inside a lambda body is a static error: `count` lives on the row, `total`
-// does not. Without the element type bound, this would surface as a runtime
-// null buried in a request body.
+// Without the element type bound, a typo in a lambda body would surface as a runtime null in a
+// request body.
 func TestGenerateMap_UnknownFieldInLambdaBodyRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-bad-field", `{
 		"type": "fetch",
@@ -322,9 +299,8 @@ func TestGenerateMap_UnknownFieldInLambdaBodyRejected(t *testing.T) {
 	mapErrMentions(t, got, `task "push" body`, "attribute the failure to the task and the body position")
 }
 
-// The next three cover error attribution across structurally different failure positions: an
-// error that does not name the task is unusable. Each definition starts with a healthy
-// "prepare" task, so a message naming the SECOND task is the only acceptable one.
+// An error that does not name the task is unusable. Each definition starts with a healthy
+// "prepare" task, so only a message naming the SECOND task passes.
 
 func TestGenerateMap_ErrorNamesTask_OverPosition(t *testing.T) {
 	got := mapGenerateErr(t, mapDef("map-attr-over", mapNullableRowsInput,
@@ -350,9 +326,8 @@ func TestGenerateMap_ErrorNamesTask_SwitchPosition(t *testing.T) {
 	mapErrMentions(t, got, `task "route" switch case`, "name the task and the switch position")
 }
 
-// Regression (not map-specific): every other expression position gets its task id from
-// buildInputs, but an output map is inferred in phase 1 by inferOutputs, which used the bare
-// label "output" — so every output-map task in a definition produced the identical prefix.
+// An output map is inferred in phase 1 (inferOutputs), not buildInputs, so it must label its
+// own errors with the task id.
 func TestGenerateMap_OutputMapErrorNamesTask(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsDef("map-attr-output",
 		mapPrepareTask+`,

@@ -1,12 +1,8 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// `end` and `next` are not reserved task ids, and never needed to be: a routing slot tells a
-// task from a keyword by the `$` sigil, which is the whole reason the sigil is there. So
-// `goto: $end` reaches a task named `end` and `goto: end` terminates — in the same definition.
-//
-// Validation used to refuse the id outright. This runs the process, because a rule can be
-// dropped from the validator and still be baked into how the engine resolves a target.
+// The `$` sigil tells a task from a keyword. Run end to end: a rule dropped from the validator can
+// still be baked into how the engine resolves a target.
 
 test("a task may be named `end`, and `$end` routes to it while `end` terminates", async () => {
   const name = `reserved_end_${crypto.randomUUID().replace(/-/g, "")}`;

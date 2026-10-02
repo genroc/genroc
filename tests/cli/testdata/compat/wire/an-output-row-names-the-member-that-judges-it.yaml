@@ -1,9 +1,5 @@
-# An output means different things at the two levels, and `affects` must say which. A task's
-# output is read by the tasks after it, so it bears on the upgrade; the process's is read by
-# callers, so it bears on the contract compareOutput judges. Both `output_schema`s are judged
-# too — a declaration is the published type — so neither may render `(not judged)`.
-#
-# The member is invisible in the text rendering (`(ok)` either way), so only the wire holds it.
+# A task's output bears on the upgrade (later tasks read it), the process's on the contract
+# (callers read it). Both `output_schema`s are judged too. The member shows only on the wire.
 apply:
   - channel: outrow_a
     definitions:

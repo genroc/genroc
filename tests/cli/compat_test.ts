@@ -9,19 +9,9 @@ import {
   type CompatCase,
 } from "../helpers/compat-fixtures.ts";
 
-// The compat report, asserted as the whole rendered output. What an operator reads IS the
-// deliverable here — the verdict is blind to meaning, so a report they cannot act on is not
-// a feature — and comparing the whole thing covers layout, wording, ordering and exit code
-// at once.
-//
-// The one row no case here can produce is `unanalysable`: reaching it needs a stored version
-// that fails its own inference, which nothing can apply. It lives in
-// internal/validation/unanalysable_test.go, §5's rule that it cannot be excused included.
-//
-// One case per file in testdata/compat/<group>/, each with its expected block at the end.
-// Adding one is a new file plus `UPDATE_COMPAT=1 vitest run cli/compat_test.ts`. Read the
-// resulting block before committing it: a regenerated expectation records whatever the code
-// does, including a bug.
+// The compat report, asserted whole; `unanalysable` lives in internal/validation/unanalysable_test.go.
+// New case: a file in testdata/compat/<group>/, then `UPDATE_COMPAT=1 vitest run cli/compat_test.ts`.
+// Read the regenerated block before committing: it records whatever the code does, bugs included.
 
 const GROUPS = ["shapes", "children", "resolution", "submitted", "wire"];
 const UPDATING = process.env.UPDATE_COMPAT === "1";
@@ -31,17 +21,12 @@ beforeAll(() => {
   bin = buildGenctlBinary();
 }, 60_000);
 
-/**
- * Apply the case's definitions, run its compat command, and return what the operator would
- * see. stderr and the exit code are part of it — a refusal that stopped failing the build
- * would otherwise pass silently.
- */
+/** stderr and the exit code are part of the report: a refusal that stopped failing would pass. */
 function runCase(c: CompatCase): string {
   for (const step of c.apply) {
     const applied = runCli(bin, ["apply", "-f", writeDefs(step.definitions), "--channel", step.channel]);
     if (!applied.ok) {
-      // A fixture that fails to apply would otherwise have its expected block recorded
-      // from an equally broken run.
+      // Else UPDATE_COMPAT would record the expected block from a broken run.
       throw new Error(`apply failed for ${c.id}: ${applied.stderr || applied.stdout}`);
     }
   }
@@ -73,12 +58,7 @@ for (const group of GROUPS) {
   });
 }
 
-/**
- * The instance-id form. Both sides of the comparison are already on the row — its process, at
- * the version it is on — so the operator names only the target: `compat <id> --to N` is the
- * question `upgrade <id> --to N` answers by moving. Not a fixture case: these need a live
- * instance, which the golden harness has no way to create.
- */
+/** `compat <id> --to N`, the row being the from side. Not fixtures: they need a live instance. */
 describe("instance id", () => {
   const held = (name: string, tag: boolean) => ({
     name,
@@ -109,8 +89,6 @@ describe("instance id", () => {
     expect(byVersion.ok, byVersion.stderr).toBe(true);
     expect(byVersion.stdout).toContain(`${mine}  v1 → v2`);
 
-    // A channel carries every process on it. The row names one, so that is what is compared:
-    // a report covering the whole channel would answer a question nobody asked.
     const byChannel = runCli(bin, ["compat", id, "--to", "compatid_next"]);
     expect(byChannel.ok, byChannel.stderr).toBe(true);
     expect(byChannel.stdout).toContain(`${mine}  v1 → v2`);

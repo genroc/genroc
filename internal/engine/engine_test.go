@@ -73,9 +73,8 @@ func TestEvaluator_EvalBool_WithSelf(t *testing.T) {
 	}
 }
 
-// Both non-single arities are unreachable through registration, so they are tested here
-// directly. They stay reachable via the decoder, which runs over stored rows that never
-// re-validate — and both would otherwise degrade silently rather than fail.
+// Unreachable through registration, but the decoder runs over stored rows that never
+// re-validate.
 func TestDelayArity(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -124,8 +123,7 @@ func TestDelayMillis(t *testing.T) {
 		{"float64", float64(3000), 3000, false},
 		{"json.Number", json.Number("250"), 250, false},
 		{"negative passes through", int64(-5), -5, false},
-		// A numeric string was the old `ms` spelling. It is now a literal handled by the
-		// delayspec grammar (which rejects it as unitless), so it must not coerce here.
+		// A literal for the delayspec grammar, which rejects it as unitless; never coerced here.
 		{"numeric string", "30000", 0, true},
 		{"non-numeric string", "abc", 0, true},
 		{"fractional json.Number", json.Number("1.5"), 0, true},

@@ -6,10 +6,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// A refinement proved on the edge that routed here reaches the inferrer as a seeded guard,
-// so a task can read what the `switch` case before it proved. Same mechanism the expression
-// narrowing uses, keyed by the same rendered path — which is what keeps an element path
-// narrowing that element and no other. specs/guard-narrowing.md.
+// Seeded guards are keyed by the same rendered path as expression narrowing, which keeps an
+// element path narrowing that element and no other. specs/guard-narrowing.md.
 func TestInferWithGuards(t *testing.T) {
 	ctx := mustSchema(t, `{
 		"properties": {
@@ -62,10 +60,8 @@ func TestInferWithGuards(t *testing.T) {
 	})
 }
 
-// The guards ride on the CONTEXT value, so every caller that already threads a context
-// inherits them — `shape.Shape.CheckWith`, the template checker, the LSP. A guarded context
-// that is copied, re-anchored to a defs pool, or handed down a shape tree must keep them, or
-// the refinement silently stops applying somewhere between the edge and the expression.
+// A copied, re-anchored or shape-tree-passed context must keep its guards, or the refinement
+// silently stops applying between the edge and the expression.
 func TestWithGuards_RidesOnTheContext(t *testing.T) {
 	// A context WITH $defs, so the re-anchoring below actually rebuilds rather than
 	// short-circuiting on an empty pool — which is how this silently passed at first.

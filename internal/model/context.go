@@ -2,11 +2,9 @@ package model
 
 import "fmt"
 
-// Context reads an instance's decoded context by PATH, loading externalized values only where a
-// walk has to step through one: a walk ending ABOVE a marker returns the subtree with the marker
-// intact, which is what lets an untouched value reach the next write as the reference it already
-// was. Context NEVER writes a loaded value back into the data -- that would destroy exactly the
-// markers the write path needs. specs/lazy-context.md.
+// Context reads an instance's context by PATH, loading externalized values only where a walk
+// steps through one. It NEVER writes a loaded value back: the write path needs the markers to
+// pass an untouched value on as the reference it was. specs/lazy-context.md.
 type Context struct {
 	data map[string]any
 	load func(hash string) (any, error)
@@ -46,9 +44,8 @@ func (c *Context) At(path ...any) (any, error) {
 	return cur, nil
 }
 
-// Materialize returns v with every marker under it replaced by its value, for a consumer that
-// cannot follow a reference. It COPIES: the argument may be part of the live context, whose
-// markers the write path still needs.
+// Materialize replaces every marker under v with its value. It COPIES: v may be part of the
+// live context, whose markers the write path still needs.
 func (c *Context) Materialize(v any) (any, error) {
 	switch t := v.(type) {
 	case *ObjectRef:

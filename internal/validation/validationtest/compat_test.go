@@ -8,9 +8,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// What is left here is what is NOT a case: the resolution semantics CompareSet owns, which have
-// no rendered form. Every comparison CASE lives in tests/cli/testdata/compat/*.yaml, asserted
-// as the report an operator reads — because that report is the deliverable.
+// Only what has no rendered form lives here; every comparison CASE is in
+// tests/cli/testdata/compat/*.yaml, asserted as the report an operator reads.
 
 func defFrom(t *testing.T, src string) *model.ProcessDefinition {
 	t.Helper()
@@ -48,9 +47,8 @@ func TestCompareSet_NameOnOneSideOnlyIsReportedNeverDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompareSet: %v", err)
 	}
-	// The caller reconciles before calling — a child the target side does not name is
-	// normally carried over at its current version. Reaching here uncarried, it still gets
-	// a row saying there was nothing to compare it against, rather than vanishing.
+	// The caller normally carries such a child over; uncarried, it still gets a row rather than
+	// vanishing.
 	var child *validation.Report
 	for i := range r.Processes {
 		if r.Processes[i].Name == "child" {
@@ -63,9 +61,8 @@ func TestCompareSet_NameOnOneSideOnlyIsReportedNeverDropped(t *testing.T) {
 	if child.Status != validation.StatusNothingToCompare {
 		t.Fatalf("got status %q, want %q", child.Status, validation.StatusNothingToCompare)
 	}
-	// It cannot break anything, so it must not drag the roll-up down: otherwise almost
-	// every real comparison reports false, since a deployed channel always carries
-	// processes a bundle does not.
+	// A deployed channel always carries processes a bundle does not; counting them would fail
+	// almost every real comparison.
 	if !r.Compatible {
 		t.Fatal("a process with nothing to compare must not make the whole report incompatible")
 	}

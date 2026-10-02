@@ -1,22 +1,6 @@
-# A union losing a variant, in both spellings, because the message is the deliverable and a
-# union is where it historically stopped being one: §2e records an explainer that could only
-# render type names coming out as `object → object`, about an edit that really did break.
-# a-constraint-narrowing-names-the-constraint.yaml pins the same requirement for a keyword;
-# nothing pinned it for a composition.
-#
-#   scalar  a `type` list — the narrowing an author writes by hand most often
-#   variant a `oneOf` of two object shapes, one dropped. Both variants render as `object`, so
-#           this is the case where naming only the type says nothing at all
-#
-# Neither input is read by a task, so the only compared schema is `input` itself and the two
-# breaks cannot be confused with a context finding derived from them.
-#
-# Both sides of a variants break are DESCRIBED rather than named: the arm that stopped
-# fitting is `object {failed_code}` and what remains is `any of [object {sent_at}]`. Naming
-# the type alone reported `object → any of 1 variant` — every variant of a union of objects
-# renders as `object`, so the message counted the alternatives instead of saying which one
-# went, which is §2e's `object → object` with an extra step. The property list is what tells
-# them apart, and it is capped for the same reason an enum is: a break is one line.
+# A union losing a variant must name it (§2e), not print `object → object`: scalar drops from
+# a `type` list, variant from a `oneOf` of objects, described by property list. Neither input
+# is read by a task, so no context finding can be confused with these.
 apply:
   - channel: union_a
     definitions:

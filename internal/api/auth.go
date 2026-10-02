@@ -9,11 +9,8 @@ import (
 	"genroc/internal/db"
 )
 
-// Authorization. specs/api-auth.md — §0 for why genroc owns this rather than delegating it to
-// an ingress, §3 for the permission set, §9 for the scoped grants this shape must not foreclose.
-//
-// Identity is NOT here: a Principal arrives already established, by whatever mode the
-// deployment configured, and nothing below may ask which mode produced it.
+// Authorization: specs/api-auth.md §0, §3, §9. Identity is NOT here — nothing below may ask
+// which mode established a Principal.
 
 // Perm is a coarse capability over the API surface. Five, deliberately: a set small enough that
 // a reviewer can hold it, and the axis a scoped grant later narrows rather than replaces.
@@ -33,10 +30,9 @@ const (
 	PermAdmin Perm = "admin"
 )
 
-// Grant is a permission a principal holds, with room for the constraint that narrows it to a
-// subset of resources. Constraint is unused in v1 and the field exists anyway: a bare Perm
-// cannot express "resolve tasks in `approval`", and adding the field later means revisiting
-// every call site. specs/api-auth.md §3, §9.
+// Grant is a permission plus the constraint narrowing it to some resources. Constraint is
+// unused in v1 but present, since adding it later means revisiting every call site.
+// specs/api-auth.md §3, §9.
 type Grant struct {
 	Perm Perm
 	// Constraint, when set, limits this grant to matching resources. The vocabulary is meant
@@ -52,20 +48,16 @@ type GrantConstraint struct {
 	Task    string
 }
 
-// Principal is who is asking, resolved to what they may do. Every identity mode produces one
-// and nothing downstream can tell them apart — which is what lets a deployment run several at
-// once. specs/api-auth.md §2.
+// Principal is who is asking and what they may do. Nothing downstream can tell which mode made
+// it, which lets several run at once. specs/api-auth.md §2.
 type Principal struct {
 	Subject string  // who, for the audit trail
 	Grants  []Grant // RESOLVED — the only thing an authorization decision reads
 	Source  string  // which mode admitted it; for the trail, never for a decision
 }
 
-// Actor renders this principal for an audit trail, as `source:subject` -- `token:ci`,
-// `jwt:ada@example.com`, `no-auth:anonymous`. The source is IN the string because a subject
-// alone cannot say whether genroc authenticated it or wrote down what a proxy asserted. Nil
-// yields "", so an Open action reaching a write path records no actor rather than panicking.
-// specs/api-auth.md section 7.
+// Actor renders the principal as `source:subject` (`token:ci`) for the audit trail. Nil yields
+// "", so an Open action reaching a write path records no actor. specs/api-auth.md section 7.
 func (p *Principal) Actor() string {
 	if p == nil {
 		return ""
@@ -73,16 +65,14 @@ func (p *Principal) Actor() string {
 	return p.Source + ":" + p.Subject
 }
 
-// anonymousAdmin is the principal `mode: none` produces -- the pre-auth behaviour written down
-// rather than a special case in the check. The source is `no-auth`, not `none`: beside
-// `startup:` and `cli:` on a token row, `none:` reads as a missing value.
+// anonymousAdmin is what `mode: none` produces. Source `no-auth`, not `none`: beside `startup:`
+// and `cli:` on a token row, `none:` reads as a missing value.
 func anonymousAdmin() *Principal {
 	return &Principal{Subject: "anonymous", Grants: []Grant{{Perm: PermAdmin}}, Source: "no-auth"}
 }
 
-// Allows reports whether this principal may take an action admitted by any of `allow`. An EMPTY
-// allow list means admin-only -- the fail-closed default, so an endpoint added to the registry
-// without a permission is closed rather than open. A nil Principal is refused.
+// Allows: an EMPTY allow list means admin-only, the fail-closed default. A nil Principal is
+// refused.
 func (p *Principal) Allows(allow []Perm) bool {
 	if p == nil {
 		return false
@@ -100,10 +90,8 @@ func (p *Principal) Allows(allow []Perm) bool {
 	return false
 }
 
-// authorize is the ONE gate every transport passes through, so a mode wired into HTTP cannot
-// leave TCP and UDS open. It answers the coarse half of §3's two-phase check — "does this
-// principal hold the permission at all" — and a scoped grant's resource half runs later, inside
-// the handler that loaded the target.
+// authorize is the ONE gate every transport passes through. It is §3's coarse half; a scoped
+// grant's resource half runs later, in the handler that loaded the target.
 func authorize(a actionDef, p *Principal) *Error {
 	if a.Open {
 		return nil
@@ -135,19 +123,14 @@ func describeAllow(allow []Perm) string {
 
 // ── identity ─────────────────────────────────────────────────────────────────────
 
-// Authenticator turns a presented credential into a Principal; a nil one on the Server is
-// `mode: none`. (nil, nil) means "not authenticated" and is not an error, which authorize turns
-// into 401. An error is reserved for a failure to DECIDE — answering "unauthenticated" to a
-// caller who presented a valid token would be a lie the operator never sees.
+// Authenticator turns a credential into a Principal; a nil one on the Server is `mode: none`.
+// (nil, nil) means "not mine" (401 if nobody claims it); an error means it could not DECIDE.
 type Authenticator interface {
 	Authenticate(ctx context.Context, credential string) (*Principal, error)
 }
 
-// chainAuth tries each authenticator in order and takes the first that recognises the
-// credential: a browser's JWT and a CI job's `genroc_sk_*` both arrive in `Authorization`, and
-// only one mode can answer for either. An error from any link stops the chain rather than
-// falling through -- a mode that cannot DECIDE must not be downgraded to "not authenticated",
-// which turns an outage into a 401 storm. specs/api-auth.md §2.
+// chainAuth takes the first authenticator that recognises the credential. An error stops the
+// chain: falling through would turn an outage into a 401 storm. specs/api-auth.md §2.
 type chainAuth []Authenticator
 
 // Chain combines identity modes that all read the same bearer credential. One authenticator is
@@ -179,9 +162,8 @@ type TokenLookup interface {
 	TouchToken(ctx context.Context, id string, at int64) error
 }
 
-// touchInterval throttles the last-used write. It is a write on the READ path, so it is
-// deliberately coarse: knowing a token was used within the last minute is worth as much as
-// knowing the exact second, and costs one write per token per minute instead of one per request.
+// touchInterval throttles the last-used write, which sits on the READ path: one write per
+// token per minute rather than per request.
 const touchInterval = time.Minute
 
 // TokenAuth is `mode: token` — genroc's own credentials, hashed in the database. §5.
@@ -239,9 +221,8 @@ func (a *TokenAuth) touch(ctx context.Context, id string) {
 	_ = a.store.TouchToken(ctx, id, now.UnixMilli())
 }
 
-// bearerToken extracts a credential from an Authorization header, accepting only the Bearer
-// scheme. A header genroc does not understand is treated as absent rather than rejected, so a
-// proxy adding its own scheme cannot lock a caller out of a mode that does not read it.
+// bearerToken treats a non-Bearer header as absent, not rejected, so a proxy adding its own
+// scheme cannot lock a caller out.
 func bearerToken(header string) string {
 	const scheme = "Bearer "
 	if len(header) < len(scheme) || !strings.EqualFold(header[:len(scheme)], scheme) {

@@ -1,9 +1,5 @@
-# Parent: one billing run. Two fan-outs, chosen for two different shapes of work.
-#
-#   rates     child_map  — a FIXED set of named branches, known when you write the
-#                          definition. The result is an object keyed by those names.
-#   send_all  child_list — one child per element of a runtime array. The result is an
-#                          array in `over` order, regardless of completion order.
+# Parent: one billing run. `rates` is a child_map (a FIXED set of named branches, result keyed
+# by name); `send_all` is a child_list (one child per runtime element, result in `over` order).
 name: invoice-run
 input_schema:
   type: object

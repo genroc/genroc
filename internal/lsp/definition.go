@@ -1,8 +1,7 @@
 package lsp
 
-// Go-to-definition. Two references in a definition point somewhere: a `goto` naming a task, and
-// a child action naming a process. The first is in this document and is answered here; the
-// second needs the project's file set, which lives behind `.genroc` (specs/source-resolution.md).
+// Go-to-definition: a `goto` names a task in this document, a child action a process elsewhere
+// in the workspace (Server.findProcess), and a `$<resolver>:` directive a file.
 
 import (
 	"strings"
@@ -81,9 +80,7 @@ func definitionAt(text, file string, line, col int) (defdoc.Range, bool) {
 	return span.Value, true
 }
 
-// gotoTarget reads a task reference and returns the path of the task it names. `$task-id` is
-// the only routing spelling that points anywhere: `end` terminates and `next` is positional,
-// so neither has a definition to jump to.
+// gotoTarget returns the path of the task a `$task-id` names; `end` and `next` point nowhere.
 func gotoTarget(doc *defdoc.Doc, path string) (string, bool) {
 	if !isRoutingSlot(path) {
 		return "", false
@@ -100,9 +97,7 @@ func gotoTarget(doc *defdoc.Doc, path string) (string, bool) {
 	if !ok || id == "" {
 		return "", false
 	}
-	// `tasks.<id>` is the address the index registered the task under, which is exactly what
-	// makes a task addressable by name — the same spelling a diagnostic carries. Whether it
-	// exists is the caller's lookup: a goto to no task simply has nowhere to go.
+	// `tasks.<id>` is the index's address for the task; whether it exists is the caller's lookup.
 	return "tasks." + id, true
 }
 

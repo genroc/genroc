@@ -17,15 +17,13 @@ import (
 // hoverAt returns the markdown for a cursor, and the range it describes. An empty string means
 // there is nothing to say, which is the common answer and must not become a popup.
 func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
-	// A comment is the author's own prose, not a slot. The cursor resolves to the mapping it
-	// sits in, so answering here describes the line above it -- reported from an editor as
-	// `action`'s description over a note about a delay.
+	// A comment is not a slot: the cursor would resolve to the mapping around it and describe
+	// the line above.
 	if at := commentColumn(lineAt(text, line)); at >= 0 && col > at {
 		return "", defdoc.Range{}, false
 	}
-	// Off the raw line, before the index: a `<<` whose value defdoc merges (an anchor, a nested
-	// mapping) has no node of its own, so the cursor would resolve to the mapping around it and
-	// answer with THAT key's prose -- reported from an editor as `action`'s description.
+	// Off the raw line, before the index: a `<<` defdoc merges has no node of its own, so the
+	// cursor would resolve to the mapping around it.
 	if r, ok := mergeKeyUnder(lineAt(text, line), line, col); ok {
 		return mergeKeyHover, r, true
 	}
@@ -55,9 +53,8 @@ func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
 	return "", defdoc.Range{}, false
 }
 
-// describe answers with ONE line: the type of the thing under the cursor. A hover is read at a
-// glance, and the scope a slot carries is a different question — `genctl schema context` is
-// where that one is asked.
+// describe answers with ONE line: the type of the thing under the cursor. A slot's scope is
+// `genctl schema context`'s question, not hover's.
 func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, src string, line, col int) string {
 	contexts, err := validation.SlotContexts(def)
 	if err != nil {
@@ -65,8 +62,7 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, src string, l
 	}
 	types, _ := validation.TypeSlots(def)
 
-	// A cursor on a KEY inside a shape is asking what that key HOLDS, not what the expression
-	// beside it evaluates to — and the answer is the type view's, so it cannot differ from the CLI's.
+	// A cursor on a KEY inside a shape asks what the key HOLDS, not what its expression evaluates to.
 	if md := shapeKeyHover(doc, types, path, line, col); md != "" {
 		return md
 	}
@@ -78,18 +74,15 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, src string, l
 
 	expr, ok := expressionAt(doc, path)
 	if !ok {
-		// A `${ }` inside a longer string types as the string it renders into, so the whole
-		// leaf says nothing — but the interpolation the cursor is IN has a type of its own,
-		// and that is the one being written.
+		// A `${ }` inside a longer string types as that string; the interpolation the cursor is
+		// IN has a type of its own.
 		expr, ok = interpolationUnder(src, col)
 	}
 	if !ok {
 		return firstOf(typeOnly(types, path), describeKey(doc, path))
 	}
-	// The symbol the cursor is actually on, when it is a member path and not the whole
-	// expression: pointing at `count` in `(self.previous.count ?? 0) + 1` asks about
-	// `self.previous.count`. Only when it types -- the scan cannot tell a member path from a
-	// word inside a string literal, and an error would replace the answer the reader came for.
+	// The member path under the cursor (`count` in `self.previous.count ?? 0` asks about
+	// `self.previous.count`), only when it types: the scan also picks up words inside strings.
 	if symbol, found := symbolUnder(src, col); found && symbol != expr {
 		// A lambda parameter is bound by the EXPRESSION, not by the slot, so the scope for
 		// this one lookup carries what `map` binds. The whole expression binds its own.
@@ -114,9 +107,8 @@ func typeOnly(types map[string]schema.Schema, path string) string {
 	return "**" + path + "** — " + mdType(summary)
 }
 
-// mdType renders a type for a popup. A summary is not markdown: `array<string>` reaches the
-// renderer as `array` followed by an unknown HTML tag, which is dropped — reported from an
-// editor. A code span is literal, so nothing inside one is read as markup.
+// mdType puts a type in a code span: as markdown, `array<string>` holds an unknown HTML tag the
+// renderer drops.
 func mdType(summary string) string { return "`" + summary + "`" }
 
 // enclosingSlot walks up from a path to the slot whose context governs it: an expression in
@@ -159,9 +151,8 @@ func expressionAt(doc *defdoc.Doc, path string) (string, bool) {
 	return "", false
 }
 
-// interpolationUnder returns the `${ … }` body the column sits inside, from the raw source
-// line. The line is used rather than the decoded scalar because a column is what the protocol
-// hands over, and mapping it back through YAML's own escaping would be a second grammar.
+// interpolationUnder returns the `${ … }` body the column sits inside, read off the RAW line:
+// mapping a column through YAML's escaping would be a second grammar to keep true.
 func interpolationUnder(line string, col int) (string, bool) {
 	i := col - 1
 	if i < 0 || i > len(line) {
@@ -203,7 +194,6 @@ func mergeKeyUnder(src string, line, col int) (defdoc.Range, bool) {
 	return defdoc.Range{Line: line, Col: start + 1, EndLine: line, EndCol: end + 1}, true
 }
 
-// lineAt returns one 1-based line of text, or "" past the end.
 // commentColumn is where a comment opens on line, or -1. A `#` inside a quoted scalar is not
 // one -- a URL fragment would lose its hover -- and neither is one without a space in front,
 // which is YAML's own rule: `a#b` is a plain scalar.
@@ -227,6 +217,7 @@ func commentColumn(line string) int {
 	return -1
 }
 
+// lineAt returns one 1-based line of text, or "" past the end.
 func lineAt(text string, line int) string {
 	lines := strings.Split(text, "\n")
 	if line < 1 || line > len(lines) {
@@ -235,9 +226,8 @@ func lineAt(text string, line int) string {
 	return lines[line-1]
 }
 
-// typed answers with the expression's type, and with NOTHING when it has none: the editor
-// already shows the diagnostic for that position at the top of the same popup, and saying it
-// twice is what a reader sees.
+// typed answers with the expression's type, and NOTHING when it has none: the diagnostic for
+// that position already heads the same popup.
 func typed(ctx schema.Schema, expr string) string {
 	t, err := ctx.Infer(expr)
 	if err != nil {
@@ -246,11 +236,9 @@ func typed(ctx schema.Schema, expr string) string {
 	return "`" + expr + "` → " + mdType(t.Summary())
 }
 
-// symbolUnder returns the member path the cursor is on, truncated AT the segment it is in:
-// `previous` in `self.previous.count` answers `self.previous`, so walking a path shows each
-// level's own type. The scan is over raw text because the expression AST carries no offsets
-// (specs/language-server.md §6) — an indexed path like `a[0].b` is not spelled here and falls
-// back to the whole expression.
+// symbolUnder returns the member path the cursor is on, truncated AT its segment. It scans raw
+// text because the expression AST carries no offsets (specs/language-server.md §6), so an
+// indexed path like `a[0].b` falls back to the whole expression.
 func symbolUnder(line string, col int) (string, bool) {
 	i := col - 1
 	if i < 0 || i > len(line) {
@@ -281,9 +269,7 @@ func isNameStart(c byte) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
-// firstOf is the answer order: a type where there is one, else what the key means. Without the
-// second, hover was silent on most of a file — every key, every literal — because dropping the
-// scope line took the only thing it had to say there.
+// firstOf is the answer order: a type where there is one, else what the key means.
 func firstOf(answers ...string) string {
 	for _, a := range answers {
 		if a != "" {

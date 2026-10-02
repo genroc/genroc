@@ -45,9 +45,8 @@ func resolveStructuralPass(docs []sourceDoc, cfg projectConfig, stack []string) 
 	return len(sites), nil
 }
 
-// structuralValues answers every site, parallel to sites. The built-in runs in process, one
-// site at a time; a registered resolver runs ONCE with every site that named it, as the code
-// phase does -- N directives must not mean N processes.
+// structuralValues answers every site, parallel to sites. A registered resolver runs ONCE with
+// every site that named it -- N directives must not mean N processes.
 func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack []string) ([]any, error) {
 	out := make([]any, len(sites))
 	byResolver := map[int][]site{}
@@ -95,15 +94,9 @@ func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack [
 	return out, nil
 }
 
-// unescapeDocs collapses `$$name: …` to `$name: …` in every string leaf of every document. It is
-// the other half of the escape `defdoc.Directive` only half performs, and without it a user
-// schema can hold NEITHER spelling: the bare one is claimed as a directive and refused by name,
-// the escaped one is stored with its doubling. The template layer does this for a Shape and a
-// user schema is not one, which is why the doubling survived there and nowhere else.
-//
-// **It runs LAST, after every walk that looks for a directive** -- the code phase re-walks the
-// document after phase 1, and a leaf unescaped before that walk is claimed by it, which is the
-// escape failing at the one job it has. Hence a caller finalises rather than the pass.
+// unescapeDocs collapses `$$name: …` to `$name: …` in every string leaf. It must run LAST, after
+// every walk that looks for a directive, which is why callers finalise rather than the pass.
+// specs/source-resolution.md §Escaping on the way IN.
 func unescapeDocs(docs []sourceDoc) {
 	for i := range docs {
 		docs[i].Value = unescapeDirectives(docs[i].Value)
@@ -198,18 +191,14 @@ func containerOf(docs []sourceDoc, s site) (map[string]any, error) {
 }
 
 // resolveProcessDirective answers `$process: <path>` with the call-site pre-fill for a child of
-// that definition: name, input_schema, result_schema and raises. Three of the four are inferred
-// rather than read -- a definition's output type is a Shape and `raises` is a scan over its raise
-// clauses -- which is why this is built in and no external binary can produce it. `input_schema`
-// is the one COPY, and the one the caller can be checked against later.
+// that definition. specs/source-resolution.md §`$process`.
 func resolveProcessDirective(fromFile, argument string, stack []string) (map[string]any, error) {
 	target, err := filepath.Abs(filepath.Join(filepath.Dir(fromFile), argument))
 	if err != nil {
 		return nil, err
 	}
-	// The spread graph must be acyclic even though the CALL graph need not be: a recursive
-	// child is ordinary, but it cannot type itself by reference. specs/source-resolution.md
-	// §Ordering, and the recursion it cannot type.
+	// The spread graph must be acyclic though the CALL graph need not be.
+	// specs/source-resolution.md §Ordering, and the recursion it cannot type.
 	for i, f := range stack {
 		if f == target {
 			return nil, fmt.Errorf("spread cycle: %s", strings.Join(append(append([]string{}, stack[i:]...), target), " -> "))
@@ -244,9 +233,8 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 	}
 
 	out := map[string]any{"name": sf.Process}
-	// The input side is a COPY, not an inference: a definition's input_schema is written by its
-	// author, so the spread reproduces it. That makes the registration check against the child a
-	// check that the copy is still current, and it is what lets an editor check the call offline.
+	// The input side is a COPY of the authored schema, not an inference: the registration check
+	// against the child then checks that the copy is current.
 	if def.InputSchema != nil {
 		in, err := selfContainedSchema(*def.InputSchema, sf.Defs, false)
 		if err != nil {
@@ -277,12 +265,9 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 	return out, nil
 }
 
-// selfContainedSchema renders one schema out of a definition's pool so it can stand alone in a
-// slot: carrying only the `$defs` its refs reach, and unwrapped where the whole answer is a ref
-// to a non-recursive definition. A nil answer means the definition types nothing there, which
-// is a different fact from typing it as empty. An INFERRED schema is canonicalized on the way;
-// the authored copy is not, because Canonicalize drops `description`, and the prose is what an
-// imported schema is worth having for.
+// selfContainedSchema renders one schema to stand alone in a slot, with only the `$defs` its refs
+// reach. nil means nothing is typed there, not empty. Only an INFERRED schema is canonicalized:
+// Canonicalize drops `description`, which the authored copy is kept for.
 func selfContainedSchema(s schema.Schema, pool schema.Defs, inferred bool) (any, error) {
 	if s.IsZero() {
 		return nil, nil
@@ -305,10 +290,8 @@ func selfContainedSchema(s schema.Schema, pool schema.Defs, inferred bool) (any,
 	return unwrapRootRef(contained)
 }
 
-// unwrapRootRef replaces a document that is nothing but `$ref` with the definition it names,
-// where that definition does not reach itself. The indirection is inference's -- every process
-// output is stored as a ref (validation.Generate) -- and carrying it into a `result_schema`
-// would make every spread read as a pointer to a type instead of as the type.
+// unwrapRootRef replaces a document that is only a `$ref` with the non-recursive definition it
+// names: every process output is stored as a ref, and a spread should read as the type itself.
 func unwrapRootRef(doc map[string]any) (map[string]any, error) {
 	ref, ok := doc["$ref"].(string)
 	if !ok || len(doc) > 2 {

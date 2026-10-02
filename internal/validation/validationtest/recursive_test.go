@@ -6,14 +6,11 @@ import (
 	"testing"
 )
 
-// A self-referential output types by fixpoint: the task's own previous output is in scope while its
-// type is still being solved, so the estimate has to converge. Each case is a whole PROCESS run
-// through Generate, and the recursion is what a loop back to the task creates -- which is what
-// makes `?? <default>` the base case and its absence a refusal. specs/recursive-type-inference.md.
+// A self-referential output types by fixpoint, each case a whole process through Generate: a loop
+// back creates the recursion, `?? <default>` the base case. specs/recursive-type-inference.md.
 
-// loopingDef builds a process whose task `id` outputs exprs and routes back to itself. A sibling
-// runs first when one is given, so `outputs.<sibling>` is available and required where the task's
-// own output is not.
+// loopingDef: task `id` outputs exprs and loops to itself. A sibling, if given, runs first, so its
+// output is required where the task's own is not.
 func loopingDef(id string, exprs map[string]string, sibling string) string {
 	tasks := []any{}
 	if sibling != "" {
@@ -113,11 +110,8 @@ func TestRecursiveOutputTypesByFixpoint(t *testing.T) {
 	}
 }
 
-// The base case is what a `??` provides, and its absence is refused — as a NULLABILITY error,
-// which is what an author actually meets: the task's own previous output is optional, so reading
-// it without a default fails before the fixpoint is even attempted. The solver's own productivity
-// refusal ("no base case") is a different failure, pinned in schematest/solver_test.go, and the
-// structural collapse of a bare `$: self.previous` in recursive_structural_test.go.
+// Refused as a NULLABILITY error, before the fixpoint runs — what an author meets. The solver's
+// own "no base case" refusal is pinned in schematest/solver_test.go.
 func TestRecursiveOutputWithNoBaseCaseIsRefused(t *testing.T) {
 	err := runGenerateErr(t, loopingDef("c", map[string]string{"n": "$: outputs.c.n + 1"}, ""))
 	if err == nil {

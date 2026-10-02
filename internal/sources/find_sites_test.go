@@ -2,10 +2,7 @@ package sources
 
 import "testing"
 
-// Anything open in an editor is analysed as it is typed, so a document whose root is not a
-// mapping -- a task list pasted on its own -- reaches findSites like any other. Reading its
-// `name` used to assert the root WAS a mapping, and the language server died on the file
-// instead of answering nothing for it.
+// An editor analyses whatever is open, so a non-mapping root reaches findSites; it must not panic.
 func TestFindSites_RootIsNotAMapping(t *testing.T) {
 	for _, tc := range []struct {
 		name string

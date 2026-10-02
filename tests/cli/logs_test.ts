@@ -13,11 +13,6 @@ import {
   uid,
 } from "../helpers/genctl.ts";
 
-// The log entity: `genctl logs`. One command, but the widest flag surface in the CLI —
-// three output modes, two time columns, a level filter, a subtree switch, payload
-// resolution and the shared windowing flags. Each is pinned here, along with the columns
-// and separators the rendering commits to.
-
 let bin: string;
 beforeAll(() => {
   bin = buildGenctlBinary();
@@ -34,11 +29,7 @@ async function ran(def: object & { name: string }, want = "completed"): Promise<
   return id;
 }
 
-/**
- * Log rows as the server's JSON objects, in the order genctl prints them. --json
- * forwards each row verbatim, so the field names are LogEntryResp's — `instance`, not the
- * `id` the column layout abbreviates it to.
- */
+/** --json forwards rows verbatim, so the field names are LogEntryResp's, not the column headers. */
 function jsonRows(id: string, extra: string[] = [], env: Record<string, string> = {}) {
   return runCli(bin, ["logs", id, "--json", ...extra], env)
     .stdout.trim()
@@ -99,8 +90,7 @@ test("logs — detail carries the data body, basic drops it, --json is one objec
   expect(bad.ok).toBe(false);
   expect(bad.stderr).toContain("invalid --mode");
 
-  // --mode names the table's density only; the machine form is --json, as on every other
-  // list command, so json is not one of the densities.
+  // The machine form is --json, as on every list command, so json is not a --mode.
   const asMode = runCli(bin, ["logs", id, "--mode", "json"]);
   expect(asMode.ok).toBe(false);
   expect(asMode.stderr).toContain("want basic or detail");
@@ -159,8 +149,7 @@ test("logs — an operator's attribution prints, the engine's own does not", asy
 test("logs — a long payload is cut to the line width, never wrapped", async () => {
   const name = uid("wide");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
-  // Under the 2 KiB object-store cutoff, so the payload stays in the row rather than
-  // becoming a ref -- a long line is the thing under test.
+  // Under the 2 KiB object-store cutoff, so the payload stays in the row rather than a ref.
   const blob = "W".repeat(400);
   const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob }), "-q"]).stdout.trim();
   expect(await waitForInstance(id)).toBe("completed");
@@ -193,8 +182,7 @@ test("logs --time clock — a day separator carries the date and zone offset", a
   const lines = runCli(bin, ["logs", id]).stdout.trim().split("\n");
 
   const breaks = lines.filter((l) => l.startsWith("--- "));
-  // One run finishes within a day, so exactly one break — emitted even though every row
-  // is from today, since the clock column carries no date of its own.
+  // Emitted even though every row is from today: the clock column carries no date of its own.
   expect(breaks.length).toBe(1);
   expect(breaks[0]).toMatch(new RegExp(`^--- ${localDate()} [+-]\\d{2}:\\d{2} ---$`));
   expect(lines[1]).toBe(breaks[0]); // directly under the header
@@ -225,8 +213,7 @@ test("logs — $TZ moves the rendered times and the window flags together", asyn
   const utc = runCli(bin, ["logs", id, "--time", "full"], { TZ: "UTC" }).stdout.trim().split("\n");
   expect(utc[1]).toMatch(/ \+00:00 {2}/);
 
-  // The round trip that matters: a timestamp read off a row, passed back as --since under
-  // the same TZ, still selects that row.
+  // A timestamp read off a row, passed back as --since under the same TZ, still selects it.
   const stamp = utc[1].slice(0, 16);
   const back = runCli(bin, ["logs", id, "--time", "full", "--since", stamp], { TZ: "UTC" });
   expect(back.stdout).toContain(utc[1]);
@@ -258,8 +245,7 @@ test("logs --level — is a floor, keeping every level above it", async () => {
   expect(levels(["--level", "error"]).every((l) => l === "error")).toBe(true);
   expect(levels(["--level", "warn"]).every((l) => l === "warn" || l === "error")).toBe(true);
 
-  // A level outside the vocabulary has no set above it, so it is refused rather than
-  // filtered to nothing -- an empty trail reads as "nothing happened".
+  // Refused rather than filtered to nothing: an empty trail reads as "nothing happened".
   const unknown = runCli(bin, ["logs", id, "--level", "critical"]);
   expect(unknown.ok).toBe(false);
   expect(unknown.stderr).toContain("invalid --level");
@@ -289,8 +275,6 @@ test("logs — a root's trail is its whole tree, and --flat is its own rows", as
   expect(header.split(/\s+/)).toEqual(["TIME", "LEVEL", "ID", "EVENT", "TASK"]);
 }, 15_000);
 
-// A tree is addressed by its ROOT, as it is for pause/resume/retry/upgrade -- so a child id
-// is a question about that child, and answers with its own rows rather than its siblings'.
 test("logs — a child id answers with that child's own rows", async () => {
   const child = uid("child");
   const parent = uid("parent");
@@ -316,8 +300,7 @@ test("logs — a child id answers with that child's own rows", async () => {
 
 test("logs --since / --until — bound the trail, half-open, and reject a bare integer", async () => {
   const id = await ran(switchDef(uid("window")));
-  // The whole trail, level floor out of the way: this is about the window, and a partition
-  // needs more rows than the default view of a two-event process has.
+  // Debug floor: a partition needs more rows than a two-event process shows at info.
   const times = (extra: string[], env: Record<string, string> = {}) =>
     jsonRows(id, ["--level", "debug", ...extra], env).map((r) => new Date(r.created_at).getTime());
 
@@ -358,10 +341,7 @@ test("logs — the cap is a fixed default, not a flag; --since is the way past i
 // ── payloads ────────────────────────────────────────────────────────────────────
 
 test("logs — an externalized payload shows its ref, and `object` fetches it", async () => {
-  // Past the inline threshold the payload lives in the object store, so the trail carries a
-  // handle rather than the bytes. `logs` never resolves: a trail is scanned, not read, and these
-  // payloads are large by definition — printing the ref and fetching the one that matters is
-  // the whole point of the split. specs/object-store.md.
+  // Past the inline threshold the trail carries a ref, and `logs` never resolves it. specs/object-store.md.
   const name = uid("biglogs");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
   const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob: BIG_BLOB }), "-q"])
@@ -371,8 +351,7 @@ test("logs — an externalized payload shows its ref, and `object` fetches it", 
   // A wide budget: the ref is the point of this row, and the default width would cut it.
   const plain = runCli(bin, ["logs", id], { COLUMNS: "500" });
   expect(plain.ok).toBe(true);
-  // The handle sits where the value was cut from, inside the payload's own shape -- the entry
-  // is not replaced by a ref, only the leaf that was too big to carry.
+  // Only the leaf too big to carry becomes a ref, inside the payload's own shape.
   expect(plain.stdout).toMatch(/input=\{"blob":\{"ref":"[0-9a-f]{32}","size":\d+\}\}/);
   expect(plain.stdout).not.toContain("BBBBBBBBBB");
 
@@ -386,9 +365,7 @@ test("logs — an externalized payload shows its ref, and `object` fetches it", 
 // ── missing instance ────────────────────────────────────────────────────────────
 
 test("logs — an id that does not exist is silently empty, unlike every other verb", () => {
-  // Documenting a real gap: the listing filters on instance_id and finds nothing, so a
-  // typo'd id is indistinguishable from an instance with no trail yet. get/pause/resume/
-  // retry all 404 on the same id.
+  // A real gap, pinned: a typo'd id is indistinguishable from an instance with no trail yet.
   const r = runCli(bin, ["logs", missingID]);
   expect(r.exitCode).toBe(0);
   expect(r.stdout).toBe("");

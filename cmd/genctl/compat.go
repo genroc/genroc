@@ -102,9 +102,7 @@ func runCompatCmd(server string, args []string) {
 	pos := leadingArgs(fs, rest)
 
 	for _, p := range pos {
-		// compat's positions are SELECTORS, so a path here is a mistake with a quiet failure
-		// mode: it would be taken as a process name, match nothing, and report an empty
-		// comparison with exit 0. An unquoted `-f defs/*.yaml` expands to exactly this.
+		// Read as a process name, a path matches nothing and reports an empty comparison, exit 0.
 		if looksLikePath(p) {
 			fatal("%s looks like a file, and compat's positional arguments are selectors.\n"+
 				"Pass files with -f (repeatable), or one quoted pattern: -f 'definitions/*.genroc.yaml'", p)
@@ -117,9 +115,8 @@ func runCompatCmd(server string, args []string) {
 		}
 	}
 
-	// `compat --from latest` with nothing else: the local project IS the target side. This is
-	// the question worth asking before an apply -- does what I have here break what is running?
-	// Only when no other side was named, so it cannot hijack a stored-versus-stored comparison.
+	// With only --from named, the local project is the target side — only then, so it cannot
+	// hijack a stored-versus-stored comparison.
 	if len(files) == 0 && len(fromFlag) > 0 && len(toFlag) == 0 && len(pos) == 0 {
 		expanded, err := expandPaths(sources.DefaultDefinitionPaths("."))
 		if err != nil {
@@ -146,9 +143,8 @@ func runCompatCmd(server string, args []string) {
 		if len(fromFlag) == 0 {
 			fatal("--from is required with -f: naming only one side hides which two documents were compared")
 		}
-		// Resolved, exactly as apply resolves: an unresolved `$import:` leaf is a literal
-		// string next to the code a stored version holds, so every site that has one compares
-		// changed and the row can never read `unchanged`.
+		// Resolved as apply resolves: an unresolved `$import:` leaf compares changed against the
+		// stored code, so the row could never read `unchanged`.
 		defs, err := resolvedDefs(files)
 		if err != nil {
 			fatal("%v", err)
@@ -161,18 +157,14 @@ func runCompatCmd(server string, args []string) {
 				"       genctl compat <instance-id> --to <version|channel>")
 		}
 		from, to = parseSelector("from", fromFlag), parseSelector("to", toFlag)
-		// The one positional form left is an instance id, so a name here is the dropped
-		// `compat <process> <from> <to>` sugar -- which read a selector off a position and so
-		// could not be told from an unquoted glob's leftovers.
+		// A name here is the dropped `compat <process> <from> <to>` form; see cmd/genctl/CLAUDE.md.
 		if len(pos) > 0 {
 			fatal("%s: compat's only positional is an instance id. Name a process with "+
 				"--process %s, and its versions with --from %s@N --to %s@M",
 				pos[0], pos[0], pos[0], pos[0])
 		}
 	}
-	// --process narrows any form. It replaced a trailing positional, which collided with an
-	// unquoted `-f defs/*.yaml`: the leftover files were read as a process name, matched
-	// nothing, and reported an empty comparison with exit 0.
+	// --process narrows any form, the instance one included.
 	if *processFlag != "" {
 		process = *processFlag
 	}
@@ -269,9 +261,8 @@ func versionLabel(v int) string {
 	return fmt.Sprintf("v%d", v)
 }
 
-// Verdict words. Two questions, and a word each: whether the rows this deployment owns can
-// continue, and whether the process still honours what the outside world was written
-// against. Folding them into one word was the defect this replaced.
+// Verdict words: one per question (can this deployment's rows continue; does the process still
+// honour what the outside world was written against). Never fold them into one word.
 const (
 	verdictUpgradable = "upgradable"
 	verdictCompatible = "compatible"
@@ -279,9 +270,7 @@ const (
 	verdictBreaking   = "breaking"
 	verdictIgnored    = "ignored"
 	verdictNew        = "new"
-	// A version that failed its own inference was compared against nothing, so it is
-	// breaking-by-default: an answer indistinguishable from "checked, and fine" is worse
-	// than no report.
+	// Compared against nothing, so breaking-by-default: never let it read as "checked, and fine".
 	verdictUnanalysable = "unanalysable"
 )
 
@@ -455,10 +444,8 @@ func rowsFor(p compatProcess) []row {
 	return out
 }
 
-// breakPhrase names every member that broke at this address, in the grammar the process line
-// uses. Unlike that line, a row claims nothing beyond its own address, so a member that broke
-// elsewhere is simply absent (§6b) — and one reads `ignored` only where EVERY finding under
-// it is excused, which keeps a gating break visible under a finer selection.
+// breakPhrase claims nothing beyond its address: a member that broke elsewhere is absent (§6b),
+// and `ignored` needs EVERY finding under it excused, so a gating break stays visible.
 func breakPhrase(p compatProcess, address string) string {
 	var breaking, ignored []string
 	for _, member := range []string{"upgrade", "contract"} {
@@ -481,9 +468,8 @@ func breakPhrase(p compatProcess, address string) string {
 	return "(" + fates(breaking, ignored, nil) + ")"
 }
 
-// changedPhrase distinguishes the two things a clean change can mean, which is the only
-// reason slot categories are carried at all: `ok` says a check looked and passed, `not
-// judged` that none covers it. `ok` is scoped to its own address and claims nothing wider.
+// `ok` means a check looked and passed, `not judged` that none covers the slot — the only reason
+// slot categories are carried. `ok` claims nothing beyond its own address.
 func changedPhrase(s compatSlot) string {
 	if len(s.Affects) == 0 {
 		return "(not judged)"
@@ -497,9 +483,8 @@ func detailLines(p compatProcess) []string {
 	}
 	rows := rowsFor(p)
 
-	// The address column is padded here rather than by a tabwriter: the finding lines
-	// between two addresses carry no columns, and a tabwriter ends its alignment block at
-	// every one of them — so each address would size itself and none would line up.
+	// Padded by hand, not by a tabwriter: the column-less finding lines between addresses would
+	// end its alignment block at each one, so no two addresses would line up.
 	width := 0
 	for _, r := range rows {
 		width = max(width, utf8.RuneCountInString(r.address))

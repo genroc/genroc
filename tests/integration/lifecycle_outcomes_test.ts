@@ -2,11 +2,8 @@ import { expect, test } from "vitest";
 import { client, startInstance, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// pause and resume are ASSERTIONS — "make this tree paused", "make this tree advance" —
-// so an assertion that already holds is a success that changed nothing, not a 409. The
-// status line carries which of the three it was, because two of the three transports
-// (TCP, UDS) have no status line and read the same fact off Reply.outcome.
-// specs/id-list-commands.md.
+// pause/resume are assertions: one that already holds succeeds having changed nothing. TCP/UDS have
+// no status line and read the same fact off Reply.outcome. specs/id-list-commands.md.
 
 const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -57,9 +54,8 @@ function instantDef(name: string) {
 test("pause — 200/202 when it acts, 204 unchanged once the tree has come to rest", async () => {
   const id = await startInstance(await apply(parkedDef(`out_pause_${crypto.randomUUID().slice(0, 8)}`)));
 
-  // 202 rather than 200 when a worker holds the task: whether it does is a race against
-  // the poll loop, so both are accepted here and the distinction is pinned deterministically
-  // in TestPauseProcess_OutcomeAcceptedWhileDraining.
+  // Whether a worker holds the task (202) races the poll loop, so both are accepted; the split is
+  // pinned in TestPauseProcess_OutcomeAcceptedWhileDraining.
   const first = await post(`/instances/${id}/pause`);
   expect([200, 202]).toContain(first.status);
   expect(first.body!.outcome === "applied" || first.body!.outcome === "accepted").toBe(true);

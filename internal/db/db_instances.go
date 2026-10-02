@@ -12,9 +12,8 @@ import (
 	"genroc/internal/model"
 )
 
-// Pagination for ListInstances over the summary columns (never the context blob). Sorts:
-// created (immutable, so cursor walks stay stable under engine writes; the default) and
-// updated (the CLI's recent-activity view). A new sort key needs a matching index.
+// Summary columns only, never the context blob. `created` is the default because it is immutable,
+// so cursor walks stay stable under engine writes. A new sort key needs a matching index.
 var instancePaginator = paginator{
 	table:   "process_instances",
 	columns: instanceSummaryColumns,
@@ -51,9 +50,8 @@ func instanceSummaryCursorVals(sort string, s *model.InstanceSummary) []any {
 	}
 }
 
-// instanceColumns is the full process_instances column list, in the order
-// scanInstance reads them. Shared by the hand-written ClaimInstances and
-// RetryProcess queries so adding a column touches one place.
+// instanceColumns is in scanInstance's order; a new column must also go into
+// scanInstanceWithPrevHolder (internal/db/CLAUDE.md, "three lists").
 const instanceColumns = `id, process_name, process_version, parent_id,
 	call_stack, retry_count, wake_at, status, error_message,
 	created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
@@ -62,9 +60,8 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
 	next_replayable, error_data, root_id, external_input, external_lost`
 
-// Lightweight ListInstances projection — no context/call-stack blobs; order matches
-// scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
-// is scanned for when something has gone wrong.
+// No context/call-stack blobs; order matches scanInstanceSummary. error_code stays: it is short,
+// and what a list is scanned for when something has gone wrong.
 const instanceSummaryColumns = `id, parent_id, process_name, process_version, retry_count,
 	status, phase, task, error_message, error_code, created_at, updated_at`
 
@@ -106,25 +103,21 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 	return r, err
 }
 
-// stateCols holds the decomposed state columns as serialized JSON, ready to drop into an
-// Insert/Update params struct. The value columns hold values; Objects lists every externalized
-// piece with the path it was cut from, rooted at the CONTEXT -- one place to read what this
-// instance references, in the shape the API puts on the wire. specs/object-store.md.
+// stateCols holds the decomposed state columns as JSON. Objects lists every externalized piece
+// with the path it was cut from, rooted at the CONTEXT. specs/object-store.md.
 type stateCols struct {
 	InputData, OutputsData, OutputData, ErrorInternal, ErrorData, ExternalInput, EngineState, Objects string
 	// ExternalLost is a marker, not a value slot: it carries no references and is never cut.
 	ExternalLost bool
 }
 
-// outputsColumn is the on-disk shape of outputs_data: the completion order plus the
-// per-task output envelopes, each independently inline-or-externalized.
+// outputsColumn is outputs_data on disk: each task's output envelope, cut independently.
 type outputsColumn struct {
 	Items map[string]json.RawMessage `json:"items,omitempty"`
 }
 
-// CurrentTask resolves an instance's current task object from its (immutable,
-// version-pinned) definition, or nil when there is no current task (Task == "";
-// completed or drained). Successors are implied by task order, so no queue is materialised.
+// CurrentTask resolves inst's current task from its version-pinned definition, or nil when there
+// is none (completed or drained).
 func (db *DB) CurrentTask(inst *model.ProcessInstance) (*model.Task, error) {
 	if inst.Task == "" {
 		return nil, nil
@@ -149,11 +142,8 @@ func joinPath(root []any, rest []any) []any {
 	return append(out, rest...)
 }
 
-// encodeState splits inst.State into the value columns plus ONE objects list, collecting the
-// content to write (pending) and the hashes the context still references (referenced) so the
-// write transaction can claim new objects and release dropped ones. Every reference is rooted
-// at the CONTEXT -- ["outputs","x","code"], not ["code"] beside a column -- so there is one
-// place to read what this instance references. specs/object-store.md.
+// encodeState splits inst.State into the value columns plus ONE objects list rooted at the
+// CONTEXT, collecting content to write and the hashes still referenced. specs/object-store.md.
 func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendingObject, referenced map[string]struct{}, err error) {
 	referenced = map[string]struct{}{}
 	var refs []*model.ObjectRef
@@ -204,8 +194,7 @@ func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendin
 		}
 	}
 	if v, ok := cd[model.StateLastError]; ok {
-		// An ordinary slot. `last_error.code` staying cheap to read is the ACCESSOR's job now
-		// (model.Context walks to the path and loads nothing else), not the column's.
+		// An ordinary slot; it must not regain a special shape (internal/db/CLAUDE.md).
 		if cols.ErrorInternal, err = cut(v, model.StateLastError); err != nil {
 			return
 		}
@@ -235,8 +224,6 @@ func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendin
 	return
 }
 
-// encodeEngineState serialises the spawn/children bookkeeping into engine_state.
-// Returns "" when none is present.
 func encodeEngineState(cd map[string]any) (string, error) {
 	es := map[string]any{}
 	for ctxKey, col := range engineStateKeys {
@@ -251,22 +238,17 @@ func encodeEngineState(cd map[string]any) (string, error) {
 	return string(b), err
 }
 
-// engineStateKeys maps the engine-internal context keys to their engine_state field
-// names (and back, in decodeState).
-// It is a WHITELIST: a key missing from it is dropped on write with nothing reporting it,
-// which reads at runtime as the value having never been set.
+// engineStateKeys is a WHITELIST walked by encode and decode: a key missing from it is dropped in
+// silence and reads back as never set.
 var engineStateKeys = map[string]string{
 	"_spawn_child_key": "spawn_child_key",
 	"_spawn_index":     "spawn_index",
-	// How many times this slot has been re-spawned. Load-bearing for termination: read back
-	// as zero, every retry round admits again and the batch never settles.
-	// specs/child-error-handling.md s5.5.
+	// Re-spawn count. Read back as zero, every retry round admits again and the batch never
+	// settles. specs/child-error-handling.md s5.5.
 	"_spawn_attempt": "spawn_attempt",
-	// One-shot: the operator's `retry` grants the parent's raised slots one attempt past
-	// their budget. It is a MARKER rather than a re-spawn done here, because the replacement's
-	// input must be re-evaluated against the parent's current definition -- which is how an
-	// upgraded fix reaches the child -- and this layer cannot evaluate expressions.
-	// specs/child-error-handling.md s12.
+	// One-shot attempt past budget from the operator's `retry`. A MARKER, not a re-spawn here: the
+	// replacement's input must be re-evaluated against the current definition, and this layer
+	// cannot evaluate expressions. specs/child-error-handling.md s12.
 	"_retry_override": "retry_override",
 }
 
@@ -286,9 +268,8 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
-// persistState encodes inst's state, writes/dereferences the implied objects via
-// qtx (inside the caller's transaction), and returns the column strings for the
-// caller's Insert/Update params.
+// persistState encodes inst's state and claims/releases the implied objects inside the caller's
+// transaction, returning the columns for its Insert/Update.
 func (db *DB) persistState(ctx context.Context, qtx *dbgen.Queries, inst *model.ProcessInstance, now int64) (stateCols, error) {
 	cols, pending, referenced, err := encodeState(inst)
 	if err != nil {
@@ -362,9 +343,8 @@ func boolToInt(b bool) int64 {
 	return 0
 }
 
-// fenceWorker is the worker half of the lease fence. The empty string stands for an
-// unheld row, matching the COALESCE in the fenced UPDATEs, so a lease-less caller binding
-// what it read under its row lock compares equal. specs/lease-fencing.md.
+// fenceWorker returns "" for an unheld row, as the fenced UPDATEs' COALESCE does, so a lease-less
+// caller binding what it read under its row lock compares equal.
 func fenceWorker(inst *model.ProcessInstance) string {
 	if inst.WorkerID == nil {
 		return ""
@@ -372,9 +352,8 @@ func fenceWorker(inst *model.ProcessInstance) string {
 	return *inst.WorkerID
 }
 
-// requireFenced converts a fenced write's rows-affected into the fence verdict: zero
-// rows means the grant this write was made under is gone, and the caller's transaction
-// rolls back with ErrLeaseLost.
+// requireFenced maps a fenced write's zero rows to ErrLeaseLost, rolling back the caller's
+// transaction.
 func requireFenced(n int64, err error) error {
 	if err != nil {
 		return err
@@ -385,9 +364,7 @@ func requireFenced(n int64, err error) error {
 	return nil
 }
 
-// insertInstanceParams builds InsertInstance params from inst + already-encoded
-// columns. status and the created/updated timestamps are passed explicitly so callers
-// can override them (e.g. spawned children inherit the parent's status).
+// status and timestamps are explicit: a spawned child takes its parent's status, not inst's.
 func insertInstanceParams(inst *model.ProcessInstance, cols stateCols, status string, createdAt, updatedAt int64) (dbgen.InsertInstanceParams, error) {
 	callStack, err := json.Marshal(inst.CallStack)
 	if err != nil {
@@ -452,16 +429,13 @@ func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 	})
 }
 
-// UpdateInstanceProgress writes the mutable task state without overwriting status or error, so
-// a concurrent FailAncestors result survives to the next tick. It does land a pending pause
-// ('pausing' → 'paused'), which must happen on this write: a checkpoint may park the instance
-// outside the claim predicate, after which no later claim could settle it. phase IS
-// written -- a stale 'collecting' would make the next spawn task skip phase 1.
+// UpdateInstanceProgress writes the mutable task state but not status or error, so a concurrent
+// FailAncestors survives. It lands a pending pause ('pausing' → 'paused') — a checkpoint may park
+// the row outside the claim predicate — and writes phase, or the next spawn task skips phase 1.
 func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 	ctx := context.Background()
 	now := nowMillis()
-	// A checkpoint means "still running", so this write is never the terminal one: it is
-	// the ordinary mid-process write the ladder exists to stop flushing.
+	// Never the terminal write: the ordinary mid-process write the ladder exists to stop flushing.
 	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
 		cols, err := db.persistState(ctx, qtx, inst, now)
 		if err != nil {
@@ -491,9 +465,8 @@ func anySlice(ss []string) []any {
 	return out
 }
 
-// InstanceQuery is ListInstances' filter set. Every zero value is "unfiltered", so the empty
-// struct lists everything; Created and Updated stay separate so the caller pairs its bound with
-// the sort it ordered by rather than this function guessing.
+// InstanceQuery is ListInstances' filter set; every zero value is "unfiltered". Created and
+// Updated stay separate so the caller pairs its bound with the sort it ordered by.
 type InstanceQuery struct {
 	Statuses  []string // any of these statuses; empty = unfiltered
 	Phase     string   // exact wait state: what a running instance is parked on, "" = unfiltered
@@ -527,8 +500,6 @@ func (db *DB) ListInstances(opts InstanceQuery) ([]*model.InstanceSummary, PageI
 	return runPage(db, b, scanInstanceSummary, instanceSummaryCursorVals)
 }
 
-// queryInstancePage runs a built instance-listing query and returns the scanned page
-// plus its PageInfo. Shared by the full-instance list paths (same columns and keys).
 func (db *DB) queryInstancePage(b built) ([]*model.ProcessInstance, PageInfo, error) {
 	return runPage(db, b, func(s rowScanner) (*model.ProcessInstance, error) {
 		r, err := scanInstance(s)
@@ -539,9 +510,8 @@ func (db *DB) queryInstancePage(b built) ([]*model.ProcessInstance, PageInfo, er
 	}, instanceCursorVals)
 }
 
-// ChildrenForTask returns ONE batch: the children spawned under parentTaskEpoch. The pair
-// (parentID, spawnTaskID) repeats every time a loop re-enters the task, so the epoch is what
-// separates this batch from the ones before it.
+// ChildrenForTask returns ONE batch: (parentID, spawnTaskID) repeats each time a loop re-enters
+// the task, so parentTaskEpoch is what separates batches.
 func (db *DB) ChildrenForTask(ctx context.Context, parentID, spawnTaskID string, parentTaskEpoch int64) ([]*model.ProcessInstance, error) {
 	rows, err := db.q.GetChildrenForTask(ctx, dbgen.GetChildrenForTaskParams{
 		ParentID:        parentID,
@@ -605,10 +575,8 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 	return inst, nil
 }
 
-// decodeState reassembles the six context columns into the in-memory State map.
-// Externalized parts become *model.ObjectRef markers at the path they were cut from (resolved
-// lazily through model.Context); loaded is the set of referenced hashes, which the next write
-// diffs against to release the ones the value no longer points at.
+// decodeState reassembles the context columns; externalized parts become *model.ObjectRef markers
+// where they were cut, and loaded is the hash set the next write diffs against.
 func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, error) {
 	cd := map[string]any{}
 
@@ -651,8 +619,7 @@ func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, 
 		if err := numeric.Decode([]byte(r.OutputsData), &oc); err != nil {
 			return nil, nil, fmt.Errorf("decode outputs_data: %w", err)
 		}
-		// The one wrapper that stays: each task output is cut against its own budget, and the
-		// completion order rides along.
+		// The one wrapper that stays: each task output is cut against its own budget.
 		items := make(map[string]any, len(oc.Items))
 		for k, raw := range oc.Items {
 			v, err := value(string(raw), "output "+k)
@@ -684,9 +651,8 @@ func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, 
 		}
 	}
 
-	// Every reference back where it was cut from, from the ONE list, before anything reads the
-	// context. loaded is that list -- the next write diffs against it to release what the value
-	// no longer points at, so a ref missing here is a claim nothing can ever drop.
+	// Placed from the ONE list before anything reads the context; a ref missing from loaded is a
+	// claim nothing can ever drop.
 	loaded := map[string]struct{}{}
 	if r.Objects != "" {
 		var refs []*model.ObjectRef
@@ -725,10 +691,8 @@ type ChildSpawn struct {
 	Superseded bool
 }
 
-// ChildrenOfInstance rebuilds the spawn placeholder from the child rows. It is derived, not
-// stored: the parent's own row would otherwise carry a copy of a relation the children already
-// state, and a copy is a second source to keep in step. The discriminants live on the CHILD
-// (engine_state), which is why they come back with it.
+// ChildrenOfInstance rebuilds the spawn placeholder from the child rows: derived, never stored on
+// the parent. The discriminants live in the CHILD's engine_state.
 func (db *DB) ChildrenOfInstance(id string) ([]ChildSpawn, error) {
 	rows, err := db.q.ChildrenOfInstance(context.Background(), id)
 	if err != nil {

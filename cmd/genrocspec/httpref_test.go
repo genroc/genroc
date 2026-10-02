@@ -10,9 +10,8 @@ import (
 	"genroc/internal/api"
 )
 
-// Every registered action must reach a page. The generator joins two reads of the registry —
-// the OpenAPI document and api.Reference() — on method and path, and a join that silently
-// matches nothing produces a shorter reference rather than an error.
+// The generator joins two registry reads on method and path; a join matching nothing yields
+// a shorter reference, not an error.
 func TestEveryActionReachesAPage(t *testing.T) {
 	dir := t.TempDir()
 	if err := writeHTTPReference(dir); err != nil {

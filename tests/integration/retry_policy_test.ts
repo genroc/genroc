@@ -1,10 +1,5 @@
-/**
- * Registration-time rules for an on_error rule's `retry` policy.
- *
- * Every rejection here exists because the alternative is silent: a policy that decodes to
- * something the author did not write still matches errors and still routes, so the only
- * symptom is a retry that never happens or a wait that is nothing like the one requested.
- */
+/** Registration rules for an on_error `retry` policy: a misdecoded policy still matches and routes,
+ *  so its only symptom would be a retry that never happens or a wrong wait. */
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
@@ -113,10 +108,7 @@ test("retry — a duration that overflows the nanosecond counter is rejected", a
 });
 
 // ── Expression-valued slots ───────────────────────────────────────────────────
-//
-// Every slot of a policy also accepts a $: expression, so the curve can come from config
-// and be tuned per environment (a k8s cold start is minutes; a laptop is seconds). The
-// value does not exist at registration, which is what the checks below are about.
+// Every policy slot also accepts $: (e.g. from config); its value does not exist at registration.
 
 const WHO = {
   input_schema: {
@@ -157,9 +149,6 @@ test("retry — a $: policy is accepted", async () => {
   expect(error).toBeUndefined();
 });
 
-// The one that matters: the attempt count actually comes from the environment. The schema
-// default is 0, so any retry at all proves the env var reached the curve rather than the
-// slot decoding to a number nobody wrote.
 test("retry — the environment drives how many attempts are made", async () => {
   const name = `retry_from_env_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {

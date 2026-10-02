@@ -5,9 +5,8 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// What `genctl init` writes has to APPLY, and nothing checked that — a scaffold is the first
-// genroc anyone reads, and it rots silently because it is embedded rather than exercised.
-// Every assertion here runs with no server: the scaffold is meant to typecheck on a laptop.
+// What `genctl init` writes must APPLY: it is embedded rather than exercised, so it rots silently.
+// No server anywhere here: the scaffold must typecheck on a laptop.
 
 let bin: string;
 beforeAll(() => {
@@ -52,26 +51,22 @@ test("the eval-node scaffold typechecks with no server, spread and all", () => {
     OFFLINE,
   );
   expect(r.stderr).toBe("");
-  // The narrowed type, which is two claims at once: the `$process` spread resolved (or the
-  // definition would not type at all), and the explicit `result_schema` beat what it supplied —
-  // script-node forwards the top type, so without that this would be `unknown`.
+  // Two claims: the `$process` spread resolved, and the explicit `result_schema` beat what it
+  // supplied (script-node forwards the top type, which would be `unknown`).
   expect(resolved(JSON.parse(r.stdout))).toMatchObject({
     properties: { greeting: { type: "string" } },
   });
 });
 
-// The `.genroc` binds the generated TypeScript types to slot ADDRESSES, so a scaffold that
-// typechecks can still generate `Input = unknown` — which is what shipped for a moment. The
-// addresses are part of the scaffold and have to resolve to something a script can be written
-// against.
+// `.genroc` binds the generated types to these addresses, so a scaffold that typechecks can still
+// generate `Input = unknown`.
 test("the addresses the resolver generates types from resolve to real types", () => {
   const dir = scaffold("--eval-node");
   const f = join(dir, "definitions/hello.genroc.yaml");
   const ask = (address: string) =>
     resolved(JSON.parse(runCli(bin, ["schema", "type", "hello", address, "--json", "-f", f], OFFLINE).stdout));
 
-  // `Input`: what the script is CALLED with, which is what this caller wrote — not what
-  // script-node would accept, which is the top type and would generate `unknown`.
+  // `Input`: what this caller wrote, not what script-node accepts (the top type).
   expect(ask("tasks.greet.action.input.input")).toMatchObject({
     properties: { who: { type: "string" } },
   });
@@ -104,10 +99,6 @@ test("the spread's input_schema catches a typo in the input, with no server", ()
   expect(r.stderr, "the check must not need a server").not.toMatch(/connection refused|dial tcp/i);
 });
 
-// The `$schema` comment is the degraded path for an editor with no genroc extension, and it is
-// LOOSER than the server on exactly the mistakes people make — it accepts `on_eror:` and answers
-// a fetch typo with nine errors demanding keys the action does not take. A scaffold should not
-// open with the worse of the two analyses.
 test("the addresses asserted above are the ones the scaffold actually binds", () => {
   const dir = scaffold("--eval-node");
   const cfg = readFileSync(join(dir, ".genroc"), "utf8");
@@ -116,6 +107,7 @@ test("the addresses asserted above are the ones the scaffold actually binds", ()
   expect(cfg).toContain("Output: task.action.result");
 });
 
+// The `$schema` comment is looser than the server on the typos people make (`on_eror:`).
 test("no scaffolded definition points at the published JSON Schema", () => {
   for (const flags of [[], ["--eval-node"]]) {
     const dir = scaffold(...flags);
@@ -128,9 +120,8 @@ test("no scaffolded definition points at the published JSON Schema", () => {
   }
 });
 
-// The script imports its types from a file that exists only once the resolver has written it,
-// so the scaffold cannot typecheck on its own: this runs the real resolver over it, then `tsc`
-// under the scaffold's own tsconfig, which is what the author's editor reads.
+// The script's types exist only once the resolver writes them: run it, then `tsc` under the
+// scaffold's own tsconfig, which is what the author's editor reads.
 test("the eval-node scaffold's script typechecks against the declarations it generates", () => {
   const dir = scaffold("--eval-node");
   const cfg = join(dir, ".genroc");

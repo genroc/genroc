@@ -1,10 +1,5 @@
-# Upgrading a tree. The operator names only the ROOT; which version its live child moves to is
-# read from the parent's TARGET definition, where it was pinned at registration.
-#
-# The child's v2 is what differs, and only in a task it has not reached yet, so the finished
-# output names the version that actually executed: 20 if the child moved with its parent, 4 if
-# it was left behind on the version it was spawned from. Nothing shallower can tell those apart
-# — the tree looks identical either way while the child is still parked.
+# Only the root is named; the live child's version comes from the parent's TARGET definition.
+# The child's v2 differs in a task not yet reached: 20 if it moved, 4 if left behind.
 apply:
   - definitions:
       - name: leaf
@@ -58,18 +53,9 @@ apply:
             output: {v: '$: self.result'}
             switch: end
         output: {got: '$: outputs.call.v'}
-# Three live positions, and they are the three states the in-flight reasoning distinguishes:
-# nothing spawned yet, a child RUNNING, and a child that has COMPLETED but not been collected.
-# The finished output says which leaf version actually ran, so each position asserts its own —
-# and the third differs, which is the whole point of sweeping this case:
-#
-#   tick 0  nothing spawned   the parent spawns leaf v2 after the move       -> 20
-#   tick 1  child running     it moves with its parent and finishes on v2    -> 20
-#   tick 2  child completed   terminal descendants STAY PUT, so its v1 output
-#                             is what the parent collects                    -> 4
-#
-# That last line is the behaviour worth pinning end to end: an upgrade does not rewrite history,
-# and a result already produced belongs to the version that produced it.
+# tick 0: nothing spawned, leaf v2 is spawned after the move (20). tick 1: the running child
+# moves (20). tick 2: the completed child stays put and its v1 output is collected (4): an
+# upgrade does not rewrite history.
 start: {process: root, input: {n: 2}, advance_ms: 0}
 at:
   - {ticks: 0, resting: {task: call, phase: ""},           finish: {status: completed, output: {got: 20}}}

@@ -17,14 +17,11 @@ import (
 	"time"
 )
 
-// JWKS handling: fetch an issuer's public keys and serve them by `kid`. The ONE thing the genroc
-// server and genroc-ui share -- the server verifies a caller's JWT, genroc-ui the one in a session
-// cookie. Parsed with the standard library rather than a second dependency: turning a JWK into a
-// *rsa.PublicKey is base64 and big.Int, not cryptography. specs/api-auth.md §2.1, §2.4.
+// JWKS handling: fetch an issuer's public keys and serve them by `kid` (specs/api-auth.md §2.1,
+// §2.4). Parsed with the standard library: a JWK to a public key is base64 and big.Int.
 
-// jwk is the subset of RFC 7517 a verifier needs. `alg` is deliberately NOT read: the accepted
-// algorithms come from configuration (§2.4), so a key that names its own would let the token's
-// own metadata widen what is accepted.
+// jwk deliberately does NOT read `alg`: accepted algorithms come from configuration (§2.4), and
+// a key naming its own would widen them.
 type jwk struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`
@@ -116,10 +113,8 @@ func b64uint(s string) (*big.Int, error) {
 	return new(big.Int).SetBytes(b), nil
 }
 
-// keySet serves verification keys by `kid`, from a file or a URL. A file is re-read on every miss
-// and a URL re-fetched at most once per refreshInterval, which is what makes rotation work without
-// a restart: an unseen `kid` is the signal to look again, and rate-limiting it stops a stream of
-// garbage `kid`s becoming a stream of outbound requests.
+// KeySet serves keys by `kid` from a file, re-read on every miss, or a URL, re-fetched at most
+// once per refreshInterval: rotation needs no restart, and bogus `kid`s cannot flood requests.
 type KeySet struct {
 	url    string
 	file   string
@@ -150,10 +145,7 @@ func NewKeySet(url, file string) *KeySet {
 }
 
 // KeyFor returns the verification key for a kid, refreshing at most once per refreshInterval.
-//
-// An empty kid is accepted only when the set holds exactly one key: a JWKS with several keys and
-// a token that names none is ambiguous, and picking one arbitrarily would mean a token verified
-// against a key the issuer did not sign it with, or not, depending on map iteration order.
+// An empty kid matches only a single-key set: with several, any pick would depend on map order.
 func (k *KeySet) KeyFor(ctx context.Context, kid string) (crypto.PublicKey, error) {
 	if key, ok := k.lookup(kid); ok {
 		return key, nil

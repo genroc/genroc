@@ -4,22 +4,9 @@ import type { AddressInfo } from "net";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
-// Deterministic object-store GC test (SQLite, single server, no chaos).
-//
-// This test used to assert the OPPOSITE: that releasing a context slot deleted its object in
-// that same write, so a replaced value never lingered. specs/object-store.md §Collection gave
-// that up deliberately — reading now hands out references and fetching them is a second call,
-// so deleting at release means a client 404s on a reference the server gave it moments earlier.
-// A release leaves the object unclaimed; the sweep marks it and collects past the window.
-//
-// So what it covers now is the RELEASE half of the lifecycle: every released object stays
-// carried (by its release mark) rather than vanishing, and every claim resolves. The store
-// growing one object per round is expected here, not a leak — the window is the bound, and
-// bounding it is what --object-grace is for.
-//
-// A single task loops with a REST action — so each round persists and reclaims — and recomputes
-// a large output whose content changes every round (the input blob plus a monotonic counter from
-// the mock).
+// The RELEASE half of the object lifecycle (SQLite, no chaos): a released object stays, unclaimed,
+// until the sweep collects it past its window (specs/object-store.md §Collection). The store
+// growing one object per round is expected; --object-grace bounds it.
 
 const BLOB = "B".repeat(12 * 1024); // over the 2 KiB externalization threshold
 const ROUNDS = 8;
@@ -29,9 +16,7 @@ let server: GenrocProcess | undefined;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// A mock whose /gen returns a monotonic counter and flips `done` after ROUNDS calls, so
-// the loop terminates deterministically. Driving the loop from the action result keeps
-// the test independent of self.previous resolution.
+// Driven by the action result rather than self.previous, so the loop ends deterministically.
 function startCountingMock(rounds: number) {
   let calls = 0;
   const server = createServer((req, res) => {
@@ -85,8 +70,7 @@ test("a released context object is carried by its release mark, and every claim 
                 required: ["i", "done"],
               } },
             },
-            // A large output that differs every round (distinct hash), so each round
-            // dereferences the previous round's object. Not logged ⇒ deleted at once.
+            // Differs every round (distinct hash), so each round releases the previous one's object.
             output: { blob: "${ input.blob }-${ self.result.i }" },
             switch: [
               { case: "self.result.done == true", goto: "end" },
@@ -115,19 +99,13 @@ test("a released context object is carried by its release mark, and every claim 
     expect(status).toBe("completed");
     expect(mock.calls()).toBe(ROUNDS); // one action call per round
 
-    // Quiesce, then wait for the server process to EXIT before touching the file. AWAITING
-    // stop() is the load-bearing part -- it resolves on real process exit. Polling the HTTP port
-    // until it refuses connections is not the same thing and was the bug here: genroc closes the
-    // listener first, then drains the engine, flushes buffered logs and closes the DB, so a read
-    // in that window finds the file still locked. The sqlite3 CLI has no busy timeout by
-    // default, so it fails on the spot rather than waiting the way the engine's connection does.
+    // Await stop(), which resolves on process exit: genroc closes its listener before the DB, so a
+    // closed port does not mean an unlocked file.
     await sleep(300);
     await server.stop();
     server = undefined;
 
-    // Read the store directly through the sqlite3 CLI (-json): there is no SQLite driver among
-    // the test dependencies. Every object, and every claim on it — content is global now, so
-    // this cannot be scoped to one instance the way the old per-instance table was.
+    // Via the sqlite3 CLI: the test deps have no SQLite driver.
     const sql = <T>(q: string): T[] => {
       // .timeout mirrors the engine's own _busy_timeout=5000: wait for a lock, never fail on one.
       const r = spawnSync("sqlite3", ["-cmd", ".timeout 5000", "-json", dbPath, q], {
@@ -145,13 +123,8 @@ test("a released context object is carried by its release mark, and every claim 
     );
     void id;
 
-    // 1. Nothing is OVERDUE. An unclaimed object is not a leak: the sweep marks it when it
-    //    notices, and collects it a window later. Unmarked simply means the janitor (once a
-    //    minute) has not visited since the release — this run quiesces for 300ms, so most
-    //    releases are still pending, which is the ±minute the mark design accepts.
-    //
-    //    What would be a leak is an object whose window has long since passed and which is still
-    //    here, so that is what this asserts.
+    // 1. Nothing OVERDUE: unclaimed is not a leak until its window has long passed (the janitor
+    //    runs once a minute, so most releases here are still pending).
     const claimed = new Set(refs.map((r) => r.hash));
     const overdue = objs.filter(
       (o) => !claimed.has(o.hash) && o.releasedAt !== null && Date.now() - o.releasedAt > 10 * 60_000,
@@ -169,9 +142,8 @@ test("a released context object is carried by its release mark, and every claim 
       `${dangling.length} claim(s) point at content that is gone — the release path deleted something someone still held`,
     ).toBe(0);
 
-    // 3. Only a live context slot claims anything: the latest output. Every earlier round's
-    //    output has handed its instance claim back and survives unclaimed — content is retained
-    //    by the store, not by the releaser, which is the behaviour this file exists to assert.
+    // 3. Only live slots claim anything; earlier rounds' outputs survive unclaimed, retained by
+    //    the store rather than the releaser.
     const instanceClaims = refs.filter((r) => r.ownerKind === "instance");
     const released = objs.filter((o) => !claimed.has(o.hash));
     expect(

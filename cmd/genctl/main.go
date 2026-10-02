@@ -1,16 +1,5 @@
-// genctl is a command-line gateway to a running genroc server. It reads process definition files
-// (YAML or JSON, multi-document via ---) and forwards them in a single API call.
-//
-// THE USER-FACING SURFACE IS help.go: every command's grammar and prose live in `commandDocs`, so
-// a usage line repeated here would be a second copy to keep true. Conventions and the deliberate
-// exceptions: cmd/genctl/CLAUDE.md.
-//
-// Two notes about the CODE: --since/--until are CLI-side helpers that resolve to unix millis and
-// go out as created_after/updated_after with order=asc, and a *duration* resolves against this
-// machine's clock rather than the server's (see parseWhen). compat's two columns are UPGRADE
-// (could a running instance continue) and CONTRACT (does the newer still produce what consumers
-// expect), both shape checks, so the per-slot detail under the table is the deliverable.
-//
+// genctl is a command-line gateway to a running genroc server. Usage lives only in help.go's
+// `commandDocs`; conventions and their exceptions in cmd/genctl/CLAUDE.md.
 // Environment: GENROC_SERVER (default http://localhost:8448), GENROC_TOKEN, TZ.
 package main
 
@@ -24,9 +13,8 @@ import (
 	"genroc/internal/model"
 )
 
-// Set at build time: -ldflags "-X main.version=0.1.0 -X main.commit=abc1234". A binary that
-// cannot say what it is makes every bug report start with a guess -- and on a rolling channel
-// the version alone is not enough, because "edge" names a moving target.
+// Set at build time: -ldflags "-X main.version=0.1.0 -X main.commit=abc1234". The commit is not
+// optional on a rolling channel: "edge" names a moving target.
 var (
 	version = "dev"
 	commit  = ""
@@ -46,8 +34,7 @@ func main() {
 	if server == "" {
 		server = "http://localhost:8448"
 	}
-	// Set before dispatch, so every request carries it without threading a parameter through
-	// each command. Env wins over the config file, the same precedence `server` uses.
+	// Set before dispatch; env wins over the config file, as for `server`.
 	authToken = os.Getenv("GENROC_TOKEN")
 	if authToken == "" {
 		authToken = cfg.Token
@@ -56,8 +43,7 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
-	// Asking for help is not an error: it goes to stdout and exits 0, so `genctl -h | less`
-	// works and a script checking the status does not see a failure.
+	// Asked-for help goes to stdout and exits 0, so `genctl -h | less` works.
 	switch cmd {
 	case "-h", "--help", "help":
 		usageTo(os.Stdout)
@@ -127,17 +113,12 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-// addServerFlag registers the shared --server flag ($GENROC_SERVER) on fs,
-// defaulting to def. Every subcommand talks to the server, so this keeps the flag
-// name and help text defined in one place.
 func addServerFlag(fs *flag.FlagSet, def string) *string {
 	return fs.String("server", def, "genroc server base URL ($GENROC_SERVER)")
 }
 
-// instanceIDAndFlags parses an instance subcommand that reads ONE instance (`get <id>
-// --json`, `logs --server X <id>`). A second positional is refused rather than dropped:
-// the assertion commands next door take id lists, so `get a b` is a thing people type,
-// and an id silently discarded reads as if it had been shown.
+// instanceIDAndFlags is for a command that reads ONE instance. A second positional is refused,
+// not dropped: the assertion commands take id lists, so `get a b` is a thing people type.
 func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
 	ids := instanceIDsAndFlags(fs, args)
 	if len(ids) > 1 {
@@ -146,18 +127,15 @@ func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
 	return ids[0]
 }
 
-// instanceIDsAndFlags is the same parse for pause/resume/cancel/retry, which act on every id
-// named. Ids may sit before or after the flags and each resolves on its own, so `@last`
-// may appear among them (see resolveInstanceID).
+// instanceIDsAndFlags is the parse for pause/resume/cancel/retry. Ids may sit either side of the
+// flags and each resolves on its own, so `@last` may appear among them.
 func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
 	pos := leadingArgs(fs, args)
 	if len(pos) == 0 {
 		pos = []string{""} // resolveInstanceID carries the message naming what is missing
 	}
-	// EVERY positional is shape-checked before the first call goes out: a list that is not
-	// id-shaped is a malformed command, not a job that half applies. The case this exists for
-	// is a table pasted in where ids were meant, which otherwise pauses whichever cell happens
-	// to parse as an id while reporting "not found" for every other word on the screen.
+	// EVERY positional is shape-checked before the first call: a table pasted in where ids were
+	// meant would otherwise pause whichever cell happens to parse as an id.
 	var bad []string
 	for _, ref := range pos {
 		if ref != "" && !isInstanceRef(ref) {
@@ -179,8 +157,6 @@ func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
 	return ids
 }
 
-// quoteSome renders at most n of the arguments, so a whole mistyped table reports as one
-// line rather than one line per cell.
 func quoteSome(args []string, n int) string {
 	shown := args
 	if len(shown) > n {
@@ -197,9 +173,8 @@ func quoteSome(args []string, n int) string {
 	return out
 }
 
-// listHint points at the one mistake that produces a screenful of non-ids: a list command
-// substituted in without -q, so the table's headers and cells arrive as arguments. Offered
-// only for several bad arguments — one is a typo, and guessing at a typo is noise.
+// listHint is offered only for several bad arguments — a list substituted in without -q. One
+// is a typo, and guessing at a typo is noise.
 func listHint(bad int) string {
 	if bad < 2 {
 		return ""
@@ -207,10 +182,8 @@ func listHint(bad int) string {
 	return "\n  if you substituted a list in, `genctl instances -q` prints ids and nothing else"
 }
 
-// eachInstance runs one lifecycle assertion per id and reports each answer under its own
-// id. Only a refusal fails the command: an id already in the asserted state is reported
-// and forgiven, which is what lets a partially applied line converge when it is run again.
-// specs/id-list-commands.md.
+// eachInstance fails the command only on a refusal: an id already in the asserted state is
+// forgiven, so a half-applied line converges when re-run. specs/id-list-commands.md.
 func eachInstance(ids []string, done string, do func(id string) (model.Outcome, error)) {
 	var applied, already, refused int
 	for _, id := range ids {
@@ -224,8 +197,7 @@ func eachInstance(ids []string, done string, do func(id string) (model.Outcome, 
 			fmt.Printf("already: %s\n", id)
 		case outcome == model.OutcomeAccepted:
 			applied++
-			// Asked, not stopped: a task already in flight runs to its next boundary, so
-			// saying "paused" here would claim the tree had come to rest.
+			// Asked, not stopped: a task in flight runs to its next boundary.
 			fmt.Printf("%s: %s  (draining a task already in flight)\n", done, id)
 		default:
 			applied++

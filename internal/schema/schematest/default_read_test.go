@@ -8,11 +8,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// A `default` says how the object CONTAINING a property is conformed — absent, fill this. By the
-// time the value is READ the fill has happened, so the keyword is spent and is not part of what
-// the read yields. Carrying it made the inferred type an invalid schema DOCUMENT, which is how
-// this was found: a `$process` spread wrote an inferred `raises` payload whose property was both
-// required and defaulted, and `CheckDoc` refuses that pair.
+// By the time a value is READ the fill has happened, so the `default` is spent; carrying it made
+// an inferred `raises` payload required-and-defaulted, which CheckDoc refuses.
 
 func TestReadingADefaultedPropertyDropsTheDefault(t *testing.T) {
 	s := mustSchema(t, `{"type":"object","properties":{"ms":{"type":"integer","default":5000}}}`)

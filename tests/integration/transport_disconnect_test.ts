@@ -2,13 +2,8 @@ import { expect, test } from "vitest";
 import { createServer, type AddressInfo, type Socket } from "node:net";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// A remote that takes delivery of a call and then destroys the connection without
-// answering. This is what a keep-alive connection dying mid-flight looks like from the
-// client, and it is the failure a client cannot tell apart from "the remote acted and then
-// died answering" — which is why it may not be reported as pre.*.
-//
-// `delivered` counts calls whose bytes the remote actually received. On an only_once task
-// that count IS the contract: nothing genroc does may increase it.
+// Takes delivery, then resets without answering — indistinguishable from "acted, then died
+// answering", so never pre.*. On only_once, `delivered` IS the contract: nothing may increase it.
 async function startVanishingRemote() {
   let delivered = 0;
   const open = new Set<Socket>();
@@ -65,9 +60,8 @@ test("transport — a remote that vanishes mid-call reports http.disconnected, n
   }
 });
 
-// The whole point of the classification, stated as behaviour: a pre.%-only retry is the one
-// retry an only_once task is allowed to declare, and it must not fire for a call the remote
-// received. Before http.disconnected existed this rule matched and re-sent the charge.
+// A pre.%-only retry is the one an only_once task may declare, so it must not fire for a call the
+// remote received.
 test("transport — only_once does not re-send a call the remote received", async () => {
   const remote = await startVanishingRemote();
   try {

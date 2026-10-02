@@ -1,18 +1,6 @@
-# A process that spawns ITSELF, moved to a version that is NOT the latest.
-#
-# Which version a child runs is normally pinned at the parent's registration, but a
-# self-reference records no dependency at all — there is nothing to pin, because the answer has
-# to be "whatever version the parent is on". It therefore inherits the version the parent is
-# moving TO; a recursion resolved any other way forks into two definitions running in the same
-# tree.
-#
-# THREE versions is what makes that observable. With only two, "inherit the parent's target" and
-# "use the latest" give the same answer and a case cannot tell them apart. Here the tree moves
-# 1 → 2 while v3 exists, so the deepest instance returns 10 if it inherited and 100 if it
-# reached for the latest.
-#
-# Only the BASE case's arithmetic differs between versions, and only the deepest instance runs
-# it, so the number coming back up reports which definition ran at the bottom.
+# A self-reference pins no version, so the child inherits the version the parent moves TO.
+# Three versions make that observable: moved 1 → 2 while v3 exists, and only the base case
+# differs, so the bottom returns 10 if it inherited and 100 if it took the latest.
 apply:
   - definitions:
       - name: rec

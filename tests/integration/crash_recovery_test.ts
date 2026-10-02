@@ -49,8 +49,7 @@ afterAll(() => {
 test("crash recovery — new worker re-executes an unconfirmed task after the previous worker crashes", async () => {
   const db = crashPgDSN ? "" : join(tmpdir(), `genroc_crash_${Date.now()}.db`);
 
-  // firstRequestDelayMs: Infinity keeps the connection open so the task
-  // stays in-flight when we crash the worker.
+  // Infinity holds the connection open, so the task is in flight at the crash.
   const mock = await startMockService(0, {
     response: { done: true },
     firstRequestDelayMs: Infinity,
@@ -101,9 +100,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
     // Manual-tick mode (--poll 0): /tick is only available when the continuous
     // pump is off, and it lets us drive reclaim deterministically.
     const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
-    // The engine lease is 10 s. Instead of waiting it out, shift genroc2's
-    // clock forward so genroc1's lease is already expired from its view,
-    // and tick immediately so it reclaims the instance.
+    // The engine lease is 10 s: advancing genroc2's clock 12 s expires genroc1's lease.
     await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
     try {
       const finalStatus = await waitForInstance(
@@ -112,7 +109,6 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
         genroc2.client,
       );
 
-      // genroc2 must have re-executed the task and completed the instance.
       expect(finalStatus).toBe("completed");
       // Once by genroc1 (abandoned at crash), once by genroc2 (confirmed).
       expect(mock.requestCount()).toBe(2);
@@ -149,8 +145,6 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
               url: `http://localhost:${mock.port}/action`,
               timeout: 120_000,
             },
-            // only_once: the engine must not re-run this on a lease takeover, since
-            // the call may already have happened on the crashed worker.
             only_once: true,
             switch: [{ goto: "end" }],
           },
@@ -163,7 +157,6 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
     });
     const instanceId = startData!.id;
 
-    // Wait until genroc1 has claimed the instance and the task is in-flight.
     await Promise.race([
       mock.firstRequestReceived,
       new Promise<never>((_, reject) =>
@@ -185,7 +178,6 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
         genroc2.client,
       );
 
-      // genroc2 detected the takeover and refused to re-execute the only_once task.
       expect(finalStatus).toBe("failed");
       const { data } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
@@ -202,14 +194,8 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
   }
 }, 60_000);
 
-// The one path that only a crash can reach.
-//
-// A pause normally lands in SQL: the worker holding the instance writes its finished
-// task and the CASE in UpdateInstance turns 'pausing' into 'paused'. If that worker
-// dies first, the row is stranded leased-but-dead in 'pausing', and only a reclaiming
-// worker can settle it — which is the entire reason 'pausing' stays in the claim
-// predicate. This drives that deterministically: hold the task open, pause, SIGKILL,
-// then let a second worker reclaim.
+// Only a crash strands a row in 'pausing' (leased by a dead worker); only a reclaimer can settle
+// it, which is why 'pausing' stays in the claim predicate.
 async function pauseThenCrash(
   processName: string,
   db: string,
@@ -260,8 +246,7 @@ test("a pausing instance whose worker crashes is settled to paused by the reclai
     // Wait until the task is genuinely in flight, so the row is leased.
     await mock.firstRequestReceived;
 
-    // Leased, so the pause can only be recorded as a request: the worker is
-    // mid-task and cannot be stopped.
+    // Leased, so the pause can only be recorded as a request.
     await genroc1.client.POST("/instances/{id}/pause", {
       params: { path: { id: instanceId } },
     });
@@ -281,14 +266,12 @@ test("a pausing instance whose worker crashes is settled to paused by the reclai
       const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
-      // Settled, not advanced: the pause the operator asked for is honoured, and
-      // the abandoned task is NOT re-executed on the way.
+      // Settled, not advanced: the abandoned task is NOT re-executed on the way.
       expect(after!.status).toBe("paused");
       expect(mock.requestCount()).toBe(1);
 
-      // This is the one case where the deferred landing is audited, because it
-      // went through the engine rather than a worker's own write. Audit rows are
-      // buffered and flushed on a 5ms ticker, so poll rather than read once.
+      // Audited only because this landing went through the engine, not a worker's own write.
+      // Audit rows flush on a 5ms ticker, so poll rather than read once.
       let events: string[] = [];
       for (let i = 0; i < 40 && !events.includes("inst_paused"); i++) {
         const { data: logs } = await genroc2.client.GET("/instances/{id}/logs", {
@@ -314,14 +297,8 @@ test("a pausing instance whose worker crashes is settled to paused by the reclai
   }
 }, 60_000);
 
-// The pausing counterpart of the routing tests at the end of this file, and the one case
-// where the two halves of the rule are visible separately: the interruption is decided
-// immediately (its evidence does not survive the write that settles a pause), while the
-// handler itself runs only when the operator resumes.
-//
-// Asserted twice over, because the two say different things: `task` reports where the
-// instance was parked, and resuming proves that position is the one that runs — if it had
-// parked on the interrupted task instead, the resume would re-run the charge.
+// The interruption is decided at reclaim, since its evidence does not survive the write that
+// settles the pause; the handler itself waits for resume.
 test("a pausing only_once instance with a handler pauses at the handler and runs it on resume", async () => {
   const db = crashPgDSN ? "" : join(tmpdir(), `genroc_pause_route_${Date.now()}.db`);
   const charge = await startMockService(0, {
@@ -357,8 +334,6 @@ test("a pausing only_once instance with a handler pauses at the handler and runs
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
-      // Decided, then suspended: the routing happened, and the pause the operator
-      // asked for still landed on the write that carried it.
       const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
@@ -367,8 +342,6 @@ test("a pausing only_once instance with a handler pauses at the handler and runs
       expect(charge.requestCount()).toBe(1);
       expect(verify.requestCount()).toBe(0); // the handler has NOT run yet
 
-      // Resuming runs the handler — not the interrupted charge, which is what
-      // parking on the right task means.
       await genroc2.client.POST("/instances/{id}/resume", {
         params: { path: { id: instanceId } },
       });
@@ -407,10 +380,7 @@ test("a pausing only_once instance whose worker crashes fails instead of pausing
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
-      // The interrupted call may already have happened on the dead worker, so
-      // pausing here would launder an at-most-once violation into a silent
-      // re-execution on resume. The instance fails instead — and stays failed,
-      // because a failure is an outcome and a pause is not.
+      // Pausing would launder a possible at-most-once violation into a silent re-run on resume.
       const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
@@ -426,9 +396,7 @@ test("a pausing only_once instance whose worker crashes fails instead of pausing
   }
 }, 60_000);
 
-// The cancel counterparts of the two pausing-crash tests above. They are the ONLY thing that
-// reaches settleCancelling: a live cancel lands in SQL on the owner's own write, so the engine
-// path exists purely for the row whose worker died holding it.
+// The only path to settleCancelling: a live cancel lands in SQL on the owner's own write.
 test("a cancelling instance whose worker crashes is settled to cancelled by the reclaimer", async () => {
   const db = crashPgDSN ? "" : join(tmpdir(), `genroc_cancel_crash_${Date.now()}.db`);
   const mock = await startMockService(0, {
@@ -464,8 +432,7 @@ test("a cancelling instance whose worker crashes is settled to cancelled by the 
       expect(after!.status).toBe("cancelled");
       expect(mock.requestCount()).toBe(1);
 
-      // Audited for the same reason the pause counterpart is: this landing went through the
-      // engine rather than a worker's own write, so it is the one that can be seen.
+      // Audited and polled for the same reasons as the pause counterpart.
       let events: string[] = [];
       for (let i = 0; i < 40 && !events.includes("inst_cancelled"); i++) {
         const { data: logs } = await genroc2.client.GET("/instances/{id}/logs", {
@@ -492,12 +459,8 @@ test("a cancelling instance whose worker crashes is settled to cancelled by the 
   }
 }, 60_000);
 
-// The divergence from pause, and the reason settleCancelling is its own function. The same
-// crash on a PAUSING only_once instance fails it (the interrupted call may already have taken
-// effect, and pausing would launder that into a silent re-execution on resume). Cancelling has
-// no resume to launder into: the tree is being stopped, so the interruption is recorded and
-// the instance settles as the operator asked. A handler is attached to make the point sharper
-// -- pause routes to it, cancel must not, because routing is carrying on.
+// Unlike pause, cancel has no resume to launder a re-run into, so it settles; the handler is
+// attached so that routing (which cancel must not do) would show.
 test("a cancelling only_once instance whose worker crashes cancels rather than routing", async () => {
   const db = crashPgDSN ? "" : join(tmpdir(), `genroc_cancel_once_${Date.now()}.db`);
   const mock = await startMockService(0, {
@@ -532,11 +495,8 @@ test("a cancelling only_once instance whose worker crashes cancels rather than r
         params: { path: { id: instanceId } },
       });
       expect(after!.status, "an operator's stop outranks the only_once route").toBe("cancelled");
-      // `task` is what actually separates the two implementations, and requestCount is not:
-      // routing to the handler would ALSO end at 'cancelled' with the handler unrun, because
-      // the landing CASE catches it on the way. Where the instance stopped is the evidence --
-      // 'work' means it settled, 'check' means it routed first. The pause counterpart above
-      // proves its own claim the same way.
+      // `task` is the evidence, not requestCount: routing would also end 'cancelled' with the
+      // handler unrun, because the landing CASE catches it ('check' would mean it routed first).
       expect(after!.task, "cancel must settle where it stood, not route into on_error").toBe("work");
       expect(verify.requestCount(), "the handler must not run").toBe(0);
       expect(mock.requestCount()).toBe(1);
@@ -550,14 +510,6 @@ test("a cancelling only_once instance whose worker crashes cancels rather than r
   }
 }, 60_000);
 
-// An interrupted only_once task is not simply refused: the engine hands the situation to
-// the definition as only_once.interrupted, which on_error can catch. The point of catching
-// it is that the definition can ask the system of record what actually happened —
-// something the engine can never know — and then carry on.
-//
-// This is the same crash as the test above, with a handler added. The action endpoint must
-// still be hit exactly once (genroc1's abandoned attempt); the verify endpoint is what the
-// recovery costs.
 test("crash recovery — an interrupted only_once task routes to its on_error handler", async () => {
   const db = crashPgDSN ? "" : join(tmpdir(), `genroc_crash_route_${Date.now()}.db`);
 
@@ -643,9 +595,6 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
   }
 }, 60_000);
 
-// The other half of the contract: having checked and found that the call did NOT happen,
-// a definition may route back into the interrupted task and re-run it. The engine refuses
-// to repeat the call on its own; the definition may, once it has established it is safe.
 test("crash recovery — a handler may deliberately re-run the interrupted task", async () => {
   const db = crashPgDSN ? "" : join(tmpdir(), `genroc_crash_rerun_${Date.now()}.db`);
 
@@ -681,8 +630,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
               type: "fetch" as const,
               method: "post",
               url: `http://localhost:${verify.port}/charges`,
-              // Declared so the switch below can read the answer: self.result is
-              // the action's raw result, and it has to be typed to be navigated.
+              // Declared because self.result must be typed for the switch to navigate it.
               responses: { 200: {
                 type: "object",
                 properties: { exists: { type: "boolean" } },
@@ -742,12 +690,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
   }
 }, 60_000);
 
-// The remaining routing shapes, driven through the same real crash. A rule that matches
-// only_once.interrupted is an ordinary on_error rule, so everything on_error offers has to
-// work here — matching by wildcard, terminal clauses, and completion — and the only way to
-// know is to run each one.
-//
-// They share a port pair, sequentially: the pause tests above already reuse theirs.
+// only_once.interrupted is an ordinary on_error code, so each on_error shape gets a real crash.
 async function interruptedRecovery(
   db: string,
   tasks: unknown[],
@@ -905,8 +848,7 @@ test("crash recovery — a handler may end the process, and its output is still 
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
       expect(await waitForInstance(instanceId, 15_000, genroc2.client)).toBe("completed");
 
-      // goto: end goes through completeViaErrorHandler, which computes the process
-      // output like any other end — an anticipated interruption is a normal finish.
+      // goto: end runs completeViaErrorHandler, which computes output like any other end.
       const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });

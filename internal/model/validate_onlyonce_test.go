@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// Each row asserts the message as well as the verdict: a rejection that does not name the
-// way forward is a defect even when the verdict is right. The accepting rows matter as
-// much — a false positive here means a legitimate retry policy cannot be expressed.
+// Each row asserts the message too: a rejection that does not name the way forward is a
+// defect even when the verdict is right.
 func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 	yes := true
 	def := func(onlyOnce bool, actionType ActionType, ec ErrorCase) ProcessDefinition {
@@ -35,10 +34,7 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		ec   ErrorCase
 		// action is the kind of task the row's codes belong to; a rule naming a code the
 		// task cannot report is refused for THAT before any tier is consulted.
-		action ActionType
-		// plain runs the same rule on a task without only_once, which must always
-		// accept: none of these tiers exist for an idempotent task, and reachability
-		// asks the same question with or without the flag.
+		action   ActionType
 		wantErr  string
 		wantHint string // an additional substring the message must carry
 	}{
@@ -125,9 +121,7 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		},
 
 		// ── tier 3: the unknowable codes, named exactly ──────────────────────
-		// Reported for what they are rather than as a tier-1 or tier-2 problem,
-		// because the advice those give ("add not_reached", "name exact codes")
-		// leads nowhere here.
+		// Reported as hopeless, not with tier-1/2 advice that leads nowhere.
 		{
 			name:     "http.timeout named with not_reached",
 			ec:       ErrorCase{Code: []string{"http.timeout"}, NotReached: &yes, Retry: Retries(2)},
@@ -190,10 +184,8 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 	}
 }
 
-// Reachability: the fetch/external counterpart of R5. The set is errcode's, the editor offers
-// exactly it, and a pattern outside it names a failure the task cannot produce — so the rule
-// reads as handled and never runs. Each rejection must name the vocabulary that IS available,
-// because "wrong code" without the right list is a guessing game.
+// Reachability, the fetch/external counterpart of R5. A rejection must name the vocabulary that
+// IS available, or "wrong code" is a guessing game.
 func TestValidateOnError_CodeMustBeReachable(t *testing.T) {
 	yes := true
 	def := func(a *Action, onlyOnce bool, codes ...string) ProcessDefinition {
@@ -266,10 +258,8 @@ func TestValidateOnError_CodeMustBeReachable(t *testing.T) {
 	}
 }
 
-// `only_once` validates the same wherever it sits, including on a task with no action. The
-// flag is inert there — OnlyOnceAction needs both halves — but refusing it would make the
-// declaration's legality depend on context, and an author mid-edit (action removed, about to
-// be replaced) would have to delete the flag and put it back.
+// Inert on a task with no action, yet legal: an author mid-edit should not have to delete the
+// flag and put it back. internal/model/CLAUDE.md §2.
 func TestValidateOnlyOnce_IsContextIndependent(t *testing.T) {
 	yes := true
 	for _, tt := range []struct {

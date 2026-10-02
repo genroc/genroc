@@ -59,10 +59,8 @@ func TestIsSubset_arrays(t *testing.T) {
 			`{"type":"array","items":{"type":"string"}}`,
 			true,
 		},
-		// minItems/maxItems bound which values are valid exactly as minLength/minimum do,
-		// and were once missing from the relation entirely — every case below answered
-		// true, so a schema change adding maxItems read as compatible and then rejected
-		// stored data at conform time.
+		// Once missing from the relation: adding maxItems read as compatible, then
+		// rejected stored data at conform time.
 		{
 			"sub unbounded, super caps maxItems",
 			`{"type":"array","items":{"type":"string"}}`,

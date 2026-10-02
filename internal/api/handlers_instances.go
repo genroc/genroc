@@ -138,10 +138,8 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	return okReply(PageResp[InstanceSummaryResp]{Items: resp, Page: info})
 }
 
-// maxInlineResolveBytes bounds what ?resolve=true will splice into one response. Per OBJECT, not
-// per response: an object under it is materialized, one over it stays listed for the caller to
-// fetch. That answers the objection resolve=true was removed for -- an unbounded response behind
-// one query parameter -- while degrading rather than failing, so the answer is always usable.
+// maxInlineResolveBytes is per OBJECT, not per response: a larger object stays listed for the
+// caller to fetch, so ?resolve=true stays bounded and degrades rather than fails.
 const maxInlineResolveBytes = 1 << 20
 
 func (h *Handlers) getInstance(id string) Reply {
@@ -155,9 +153,8 @@ func (h *Handlers) getInstance(id string) Reply {
 	return okReply(instanceToResp(inst))
 }
 
-// reportedPayload is error_data as the wire carries it: externalized pieces lifted out into the
-// listing, rooted at the field they belong to on THIS response. Without this the raw marker
-// ships inline, naming a state slot the response does not have.
+// reportedPayload roots externalized pieces at THIS response's field; without it the raw
+// marker ships inline, naming a slot the response does not have.
 func reportedPayload(inst *model.ProcessInstance) (any, []ObjectEntry) {
 	raw, ok := inst.State[model.StateErrorData]
 	if !ok {
@@ -167,9 +164,8 @@ func reportedPayload(inst *model.ProcessInstance) (any, []ObjectEntry) {
 	return extractObjects(raw, []any{"error_data"}, &objects), objects
 }
 
-// getInstanceDetail returns the row as stored. Unlike getInstance it hides nothing: the state
-// it returns is the object an upgrade validates and a migration rewrites, so an operator
-// diagnosing a refusal is looking at what was actually checked.
+// getInstanceDetail hides nothing: its state is what an upgrade validates and a migration
+// rewrites.
 func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
@@ -178,12 +174,9 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// No redaction here: `secret: true` keeps a value out of stdout, where an operator reads it
-	// without asking; an API response is someone asking. specs/object-store.md §Redaction.
-	//
-	// A slot that has a field of its own is cut out of `state` and rooted at that field, so every
-	// value appears ONCE and its path names the only place it is. Splitting here rather than
-	// copying afterwards is what keeps the objects list free of duplicate entries for one ref.
+	// No redaction: `secret: true` guards stdout, not someone asking (specs/object-store.md
+	// §Redaction). A slot with a field of its own is cut from `state` here, not copied
+	// afterwards, so each ref is listed once.
 	var objects []ObjectEntry
 	state := map[string]any{}
 	flat := map[string]any{}
@@ -232,9 +225,8 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// What shape a batch was spawned in is the PARENT definition's to say. Reading it from a
-	// discriminant on the child would be reading a copy, and a copy is what an upgrade leaves
-	// stale when the parent's task changes shape.
+	// Spawn shape is the PARENT definition's to say; a discriminant on the child is a copy
+	// an upgrade leaves stale.
 	spawnShape := map[string]model.ActionType{}
 	if def, err := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion); err == nil {
 		for _, t := range def.Tasks {
@@ -380,9 +372,8 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 	if raw, ok := inst.State["output"]; ok {
 		output = extractObjects(raw, []any{"output"}, &objects)
 	}
-	// Rooted at the response field, which the slot is now spelled the same as: the paths address
-	// THIS shape, the same rule output follows. The slot is gone once the answer is consumed,
-	// so absence here is "not parked" and needs no phase check.
+	// Rooted at the response field, as output is. The slot is gone once the answer is consumed,
+	// so absence means "not parked" and needs no phase check.
 	var externalInput any
 	if raw, ok := inst.State[model.StateExternalInput]; ok {
 		externalInput = extractObjects(raw, []any{"external_input"}, &objects)
@@ -406,9 +397,8 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 	}
 }
 
-// detailMirrors maps a state slot to the flat field on InstanceDetailResp that carries it. A slot
-// listed here is MOVED out of `state` rather than copied: the field is the one place the value
-// appears, which is what lets its objects path name a single location.
+// detailMirrors slots are MOVED out of `state`, not copied, so each objects path names one
+// location.
 var detailMirrors = map[string]string{
 	"output":                 "output",
 	model.StateErrorData:     "error_data",
@@ -432,11 +422,9 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 	}
 }
 
-// spawnPlaceholder shapes the child rows the way the spawning action does: a bare id for a
-// single child, an object keyed by entry for a child_map, an array in spawn order for a
-// child_list -- so a reader branches on the action type, never on what the value looks like.
-// RETIRED ATTEMPTS ARE SKIPPED, or a child_list comes out longer than its fan-out; they stay
-// discoverable through the instance listing.
+// spawnPlaceholder shapes child rows as the spawning action does, so a reader branches on the
+// action type, never the value. RETIRED ATTEMPTS ARE SKIPPED, or a child_list comes out longer
+// than its fan-out.
 func spawnPlaceholder(kids []db.ChildSpawn, shape map[string]model.ActionType) map[string]any {
 	if len(kids) == 0 {
 		return nil

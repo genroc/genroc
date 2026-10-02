@@ -2,40 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
-// Multi-worker collision stress. Several independent `genroc` processes — each its
-// own OS process and its own connection pool/handle — poll the same database
-// while a chaos loop randomly pauses, resumes and retries roots. Unlike the in-process
-// Go engine stress tests (engines as goroutines sharing one *db.DB), this is the
-// real shape of a worker fleet: correctness rests on the claim/lease/child-finish
-// locks holding across separate processes.
-//
-// Workload: a recursive child_map process. With ttl=D every instance spawns
-// two children with ttl=D-1 until ttl hits 0, so each root grows a binary tree of
-// exactly 2^(D+1)-1 instances, and the root's aggregated `output.processes`
-// re-counts that subtree bottom-up — a built-in exactly-once checksum.
-//
-// Note pause is not an outcome and not terminal: a paused tree just stops being
-// advanced, keeping its phase/wake_at/retry_count/context, and only a resume
-// starts it moving again. So the chaos loop always pairs a pause with a resume, and
-// a final sweep resumes anything still paused — otherwise the settle wait below
-// would block forever on a tree nobody is advancing.
-//
-// Collision signals asserted after the chaos settles:
-//   1. every instance is terminal — no instance left stuck running/waiting/
-//      collecting by a lost update or a pause racing a spawn;
-//   2. every root reaches completed once the chaos stops (driven green by resumes
-//      and forced retries) — no tree wedged by cross-worker contention;
-//   3. each completed root's output.processes == subtree size — no worker
-//      double-spawned a child or double-counted an output.
-//
-// Postgres only. A worker fleet is a Postgres-only deployment: separate processes
-// rely on FOR UPDATE SKIP LOCKED claims and per-row FOR UPDATE child-finish locks.
-// SQLite is single-writer/single-process — running several genroc processes against
-// one file wedges under chaos (a pause-cascade transaction lost to
-// SQLITE_BUSY_SNAPSHOT strands a pausing|waiting parent, which then never reaches
-// paused and so never takes a resume). The SQLite *supported* multi-worker model is
-// multiple engines in ONE process; the equivalent lifecycle-vs-lifecycle contention
-// is covered in-process by the Go stress suite (internal/db/dbtest/stress_test.go).
+// A worker fleet (separate genroc processes, one Postgres) under pause/resume/retry chaos. Each root
+// is a recursive tree of 2^(D+1)-1 instances whose `output.processes` re-counts it: exactly once.
+// Not SQLite: processes sharing a file wedge; internal/db/dbtest/stress_test.go covers it in-process.
 
 const DSN = process.env.POSTGRES_DSN;
 
@@ -55,8 +24,6 @@ interface Backend {
   env?: Record<string, string>;
 }
 
-// Each worker is an independent process, all opening the same DSN with a small
-// pool each (so WORKER_COUNT pools stay well under Postgres' max_connections).
 const backends: Backend[] = [
   {
     name: "postgres",
@@ -64,15 +31,13 @@ const backends: Backend[] = [
     pollMs: 5,
     db: "",
     pgDSN: DSN,
-    // Small pool per worker (passed to genroc as --pg-max-open-conns) so
-    // WORKER_COUNT pools stay well under Postgres' max_connections.
+    // Small pools, so WORKER_COUNT of them stay under Postgres' max_connections.
     env: { GENROC_PG_MAX_OPEN_CONNS: "8" },
   },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// `paused`/`pausing` are deliberately absent: a pause is not an outcome, only a
-// tree that has stopped being advanced, so it never counts as settled.
+// Not `paused`/`pausing`: a pause is not an outcome.
 const isTerminal = (s?: string) => s === "completed" || s === "failed";
 
 for (const backend of backends) {
@@ -81,8 +46,7 @@ for (const backend of backends) {
 
     beforeAll(async () => {
       for (const [k, v] of Object.entries(backend.env ?? {})) process.env[k] = v;
-      // Spawn sequentially: the first process runs migrations before any other
-      // opens the DB, avoiding a concurrent-migration race on the same file.
+      // Sequential: the first process runs migrations before any other opens the DB.
       for (let i = 0; i < WORKER_COUNT; i++) {
         workers.push(
           await startGenroc({
@@ -169,16 +133,10 @@ for (const backend of backends) {
         }
         const randomRoot = () => rootIds[Math.floor(Math.random() * rootIds.length)];
 
-        // Chaos window: hammer random roots with pauses, resumes and retries while
-        // the workers race to advance, pause, and re-spawn the same trees. All
-        // errors (pause of a completed root, resume of a running one, retry of a
-        // non-failed one) are expected and ignored — they are part of the contention.
+        // Errors (pausing a completed root, retrying a non-failed one) are contention; ignored.
         let chaosOn = true;
-        // Each pauser tick pauses a root and resumes it again a beat later: a paused
-        // tree is not advanced by anyone, so leaving one behind would strand the
-        // settle loop. The gap is what races the workers mid-task (running → pausing
-        // → paused → running). Losing a resume to a lost update is still possible;
-        // the sweep after the window is the backstop.
+        // Every pause is resumed a beat later; the gap races the workers mid-task. A resume lost
+        // to a lost update is caught by the sweep after the window.
         const pauser = (async () => {
           while (chaosOn) {
             const id = randomRoot();
@@ -207,18 +165,14 @@ for (const backend of backends) {
         chaosOn = false;
         await Promise.all([pauser, retrier]);
 
-        // Resume sweep: nothing advances a paused tree, so before waiting for
-        // settlement every root gets an unconditional resume (a no-op error on the
-        // ones that are already running or terminal).
+        // Nothing advances a paused tree, so resume every root before waiting to settle.
         for (const id of rootIds) {
           await api
             .POST("/instances/{id}/resume", { params: { path: { id } } })
             .catch(() => {});
         }
 
-        // Settlement: service is calm now; resume any root the chaos left paused and
-        // force-retry any failed one until every tree is completed and nothing is
-        // left mid-flight.
+        // Settle: resume paused roots and force-retry failed ones until every tree completes.
         const byProcess = (i: { process?: string }) => i.process === processName;
         const deadline = Date.now() + SETTLE_MS;
         let allDone = false;
@@ -253,8 +207,7 @@ for (const backend of backends) {
         }
         expect(allDone, "all roots completed and every instance terminal").toBe(true);
 
-        // Final state: no instance stuck, every root green, every surviving tree
-        // aggregated to its exact size (exactly-once under contention).
+        // Exactly-once under contention: every tree aggregated to its exact size.
         const finalInsts = (await listAllInstances(api)).filter(byProcess);
         expect(finalInsts.every((i) => isTerminal(i.status))).toBe(true);
 

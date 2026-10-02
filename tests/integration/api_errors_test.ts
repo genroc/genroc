@@ -2,10 +2,8 @@ import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// Every API failure used to answer 400 with a prose string and nothing else. These
-// tests pin the two things that replaced it: the status now distinguishes the kinds
-// of failure, and every error body carries a machine-readable `code` — the same value
-// TCP/UDS clients get on the Reply, since they have no status line to read.
+// The status distinguishes the kind of failure, and every body carries a machine-readable `code` —
+// what TCP/UDS clients get on the Reply, having no status line.
 
 const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -52,8 +50,7 @@ test("api errors — a missing required field is 400 invalid", async () => {
 });
 
 test("api errors — an unrecognised field is rejected rather than silently dropped", async () => {
-  // Bodies used to be decoded leniently, so a misspelled field became the zero value
-  // and the request succeeded with a meaning the caller never asked for.
+  // Decoded leniently, a misspelled field would become a zero value the caller never asked for.
   const { status, body } = await errorOf(`/instances`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -140,8 +137,7 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
 type Field = { field: string; rule: string; param?: string; message: string };
 
 test("api errors — a definition validation failure reports the offending field", async () => {
-  // The per-field detail the validator already produced used to be joined into one
-  // string; `fields` keeps it addressable so a client need not parse English.
+  // `fields` keeps per-field detail addressable, so a client need not parse English.
   const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -156,9 +152,7 @@ test("api errors — a definition validation failure reports the offending field
 });
 
 test("api errors — a nested validation failure carries the indexed path to the field", async () => {
-  // The path is what makes `fields` worth having. The message for a nested failure
-  // names only the leaf ("id is required"), so with three tasks it cannot say which
-  // one is at fault; tasks[1].id can.
+  // A nested message names only the leaf ("id is required"); the path says which task.
   const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -239,8 +233,7 @@ test("api errors — a bad external-task token is 400, a stale one is 409", asyn
   expect(malformed.status).toBe(400);
   expect(malformed.body.code).toBe("invalid");
 
-  // The suffix is the arming's task_epoch, so a non-numeric one is malformed rather than
-  // merely unknown — the format is tighter than the nonce it replaced.
+  // The suffix is the arming's task_epoch, so a non-numeric one is malformed, not merely unknown.
   const badEpoch = await errorOf(`/external-tasks/resolve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -259,9 +252,7 @@ test("api errors — a bad external-task token is 400, a stale one is 409", asyn
 });
 
 test("api errors — an inference failure reports its slot address, not just prose", async () => {
-  // Struct-tag failures have carried `fields` all along; a type failure carried none, so a
-  // client submitting a definition got prose it could not attribute to a field.
-  // specs/language-server.md §2.
+  // A type failure carries `fields` too, so a client can attribute it. specs/language-server.md §2.
   const name = `infer_${crypto.randomUUID()}`;
   const { status, body } = await errorOf(`/definitions/validate`, {
     method: "POST",
@@ -278,8 +269,7 @@ test("api errors — an inference failure reports its slot address, not just pro
   });
   expect(status).toBe(400);
   const fields = body.fields as Field[];
-  // Both, not just the first: inference used to stop at the failure it found. And the field
-  // is the one that is wrong — `…action.url`, not the action block it sits in (§7b).
+  // Every failure, not just the first, each at the wrong field itself, not its block (§7b).
   expect(fields.map((f) => f.field)).toEqual([
     "tasks.a.action.url",
     "tasks.b.action.url",

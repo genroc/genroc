@@ -5,11 +5,9 @@ import (
 	"fmt"
 )
 
-// Timeout is a task's execution deadline, written as a scalar ("30s", the `for` grammar in UTC)
-// or an object ({until: "fri 17:00", tz: …}). The scalar desugars to `for` at decode, so
-// everything downstream sees one shape. Absent means no deadline of its own — a fetch falls back
-// to the engine default, an external waits indefinitely — and 0 does NOT spell forever: a zero or
-// past deadline is refused on a fetch and clamps to "due now" on an external.
+// Timeout is a task's deadline: a scalar ("30s", desugared to `for` at decode) or an object
+// ({until, tz}). Absent means no deadline of its own (a fetch takes the engine default, an
+// external waits); 0 does NOT mean forever — internal/model/CLAUDE.md.
 type Timeout struct {
 	DelaySpec
 }
@@ -42,9 +40,8 @@ func (t *Timeout) UnmarshalJSON(data []byte) error {
 		*t = Timeout{DelaySpec{For: v}}
 		return nil
 	}
-	// A typo'd key is the failure this rejection exists for: `untill` or the removed
-	// `timeout_ms` would decode to an empty object, and an empty timeout is silently no
-	// timeout at all — the deadline the author wrote would simply never apply.
+	// A typo'd key (`untill`) would decode to an empty timeout, which is silently no
+	// timeout at all.
 	if err := rejectUnknownFields("timeout", data, timeoutFields); err != nil {
 		return err
 	}

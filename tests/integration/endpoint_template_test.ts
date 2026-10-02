@@ -2,9 +2,6 @@ import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 import { startGenroc } from "../helpers/server.ts";
 
-// Regression: a rest endpoint may contain {{ }} expressions (e.g. a base URL from
-// config or input). Previously the endpoint was passed verbatim to the transport,
-// so the request hit the literal template string and failed.
 test("rest endpoint is evaluated as a template", async () => {
   const mock = await startMockService(0, { response: { slept: 1 } });
 
@@ -55,10 +52,8 @@ test("rest endpoint is evaluated as a template", async () => {
   mock.stop();
 });
 
-// Regression for the playground: a config value used as the base URL in a rest
-// endpoint. config.endpoint_url resolves from GENROC_GLOBAL_ENDPOINT_URL, which is read at
-// server START — so this test owns a server, with the mock's port baked into its env,
-// rather than pinning a port on the shared one.
+// GENROC_GLOBAL_ENDPOINT_URL is read at server START, so this test owns a server with the mock's
+// port in its env rather than pinning a port on the shared one.
 test("a config value can build a rest endpoint URL", async () => {
   const mock = await startMockService(0, { response: { slept: 2 } });
   const own = await startGenroc({ env: { GENROC_GLOBAL_ENDPOINT_URL: `http://localhost:${mock.port}` } });

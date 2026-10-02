@@ -1,10 +1,6 @@
-# The same declaration, a different shape underneath it: the handler still reads the field, so
-# the break lands on what it reads rather than on the slot that was edited — and it reaches the
-# CONTRACT too, because this handler projects the value into the process output.
-#
-# The kid's payload is OPAQUE (it forwards an untyped input) so that both declarations register:
-# registration checks a caller's `raises` against what the child actually raises, and a typed
-# payload would refuse the retyped side before compat ever ran.
+# The break lands on what the handler reads, not the edited slot, and reaches the contract
+# because the handler projects it into the output. The kid's payload is opaque so both
+# `raises` register: a typed one would refuse the retyped side before compat ran.
 apply:
   - channel: retyped_a
     definitions:

@@ -162,10 +162,6 @@ func TestTheExtensionShipsTheIconItDeclares(t *testing.T) {
 	}
 }
 
-// `.genroc` is YAML, and the extension says so -- with the YAML extension present, that is also
-// what attaches the schema packaging generates. Three things are silent when broken: an
-// association on the wrong language id, a `yamlValidation` url naming a file packaging does not
-// write, and a `.vscodeignore` that drops it from the .vsix.
 func TestTheExtensionAssociatesTheProjectFileWithYAMLAndItsSchema(t *testing.T) {
 	raw, err := os.ReadFile("../../editors/vscode/package.json")
 	if err != nil {
@@ -206,8 +202,6 @@ func TestTheExtensionAssociatesTheProjectFileWithYAMLAndItsSchema(t *testing.T) 
 	if url == "" {
 		t.Fatal("no yamlValidation entry matches /.genroc")
 	}
-	// vsce runs `vscode:prepublish` before packaging, whoever invokes it -- release.yml packages
-	// without the Makefile, and a build from there shipped the manifest and not the file.
 	var scripts struct {
 		Scripts map[string]string `json:"scripts"`
 	}

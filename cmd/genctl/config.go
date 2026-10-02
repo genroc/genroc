@@ -15,11 +15,8 @@ type genrocConfig struct {
 	Token string `yaml:"token,omitempty"`
 }
 
-// configDir is $XDG_CONFIG_HOME/genroc, or ~/.config/genroc.
-//
-// NOT os.UserConfigDir: on macOS that returns ~/Library/Application Support, the GUI-app
-// location, and it ignores XDG_CONFIG_HOME entirely. A CLI's config belongs where every other
-// CLI keeps it and where an override works -- the surprise cost a config file once already.
+// configDir is $XDG_CONFIG_HOME/genroc, or ~/.config/genroc. NOT os.UserConfigDir: on macOS
+// that is ~/Library/Application Support, and it ignores XDG_CONFIG_HOME.
 func configDir() (string, error) {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "genroc"), nil
@@ -39,9 +36,8 @@ func configFilePath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-// legacyConfigFilePath is where releases before this change wrote. Read-only: a config found
-// there is used until the next `config set` rewrites it in the new location, so nobody loses a
-// token to an upgrade.
+// legacyConfigFilePath is read-only: a config there is used until the next `config set`
+// rewrites it in the new location.
 func legacyConfigFilePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -94,7 +90,6 @@ func saveConfig(cfg genrocConfig) error {
 
 // ── last-instance state (genctl run → @last) ───────────────────────────────────
 
-// lastInstanceFilePath is where `run` records the last started instance id for `@last`.
 func lastInstanceFilePath() (string, error) {
 	dir, err := configDir()
 	if err != nil {
@@ -133,9 +128,8 @@ func resolveInstanceID(arg string) string {
 		fatal("an instance id is required — pass one explicitly, or @last for the most recently started instance")
 	}
 	if !isInstanceRef(arg) {
-		// Checked here rather than left to the server: an id has a fixed shape (internal/idgen),
-		// so anything else cannot name a row and the round trip can only come back "not found",
-		// which reads as "it is gone" rather than "that was never an id".
+		// Checked here, not left to the server, whose "not found" reads as "it is gone" rather
+		// than "that was never an id".
 		fatal("not an instance id: %q — an id is an opaque digit-led token, or @last", arg)
 	}
 	if arg != "@last" {
@@ -168,9 +162,7 @@ func runConfigCmd(args []string) {
 			fmt.Println("(not set)")
 			return
 		}
-		// A credential is never printed back. `get` is what someone runs to check a setting,
-		// often with a colleague watching or a terminal being recorded, and the value is
-		// recoverable from the file by whoever owns it anyway.
+		// A credential is never printed back: whoever owns the file can read it there.
 		if key == "token" {
 			fmt.Printf("(set: %s)\n", maskToken(val))
 			return

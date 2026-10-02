@@ -1,16 +1,7 @@
 package lsp
 
-// Key completion inside a shape whose slot carries a DECLARED schema.
-// specs/declared-slot-schemas.md §7.
-//
-// This is a second source beside `processSchema`, not a repair of it. The generated schema
-// describes the definition LANGUAGE, and "this mapping's keys come from the value of a sibling
-// key, possibly via a file" is not expressible as a JSON Schema. The keys here are the author's
-// own type in a key position, which is the one thing key completion has never had.
-//
-// It is `legalKeys`'s item shape fed from `membersOf`'s source: the required-first sortText,
-// the colon the item writes and the drop-what-is-already-written rule all belong to the key
-// position, while the type summary and MayBeAbsent all belong to a schema.Schema.
+// Key completion inside a shape whose slot carries a DECLARED schema: a second source beside
+// `processSchema`, not a repair of it. specs/declared-slot-schemas.md §7.
 
 import (
 	"strconv"
@@ -23,11 +14,8 @@ import (
 )
 
 // declaredKeys returns the keys the declaration governing this mapping allows, minus the ones
-// already written, or false where no declaration reaches here.
-//
-// The declaration is read from the RESOLVED definition and never off `Doc`: a `$process` spread
-// supplies one with no node in the document's index, and reading a declaration off the text as
-// written is how three handlers were each found answering about a document nobody applies.
+// already written. The declaration comes from definition(), never off `Doc`: a `$process`
+// spread supplies one with no node in the index.
 func declaredKeys(d *document, path string) ([]completionItem, bool) {
 	def, ok := d.definition()
 	if !ok {
@@ -104,15 +92,8 @@ func declaredKeySuffix(s schema.Schema) string {
 	return ": "
 }
 
-// declaredSlotAt finds the declaration governing a DOCUMENT path, and the remainder of that
-// path inside it. The roots are the six slots that take one; everything below a root navigates
-// the declared schema, which is `SlotAt`'s longest-prefix-then-navigate pattern and not a new
-// one.
-//
-// A sequence element is addressed by its `id` where it has one (`tasks.call.action.body`) and by
-// its index otherwise, and `defdoc` registers a physical spelling (`tasks[0]`) beside the
-// logical one. All three reach the same task, so all three resolve here — matching only the
-// index is how this landed offering nothing at all.
+// declaredSlotAt finds the declaration governing a DOCUMENT path and the path's remainder in it.
+// A task is spelled by `id`, by index, or physically (`tasks[0]`), and all three must resolve.
 func declaredSlotAt(def *model.ProcessDefinition, path string) (*schema.Schema, string, bool) {
 	if rest, ok := under(path, "output"); ok {
 		return def.OutputSchema, rest, true
@@ -211,19 +192,9 @@ func under(path, head string) (string, bool) {
 	return "", false
 }
 
-// shapeKeyHover answers for a cursor on a KEY inside a shape: what that key holds, read from the
-// TYPE VIEW and nowhere else. specs/declared-slot-schemas.md §6.
-//
-// It fires on the key span only. Inside the value the question is what the EXPRESSION there
-// evaluates to, which the rest of `describe` answers — and on a key that is the wrong answer,
-// because a key is not its own expression.
-//
-// There is no rule about declarations here, and that is the point. `validation` computes one
-// type per slot — the inferred shape, conformed to its declaration where it has one
-// (`schema.Conformed`) — and the CLI, the resolver manifest and this hover all read that. They
-// did not agree before: the type view published the inferred side while this answered from the
-// declaration, so `genctl schema type` said `number|null` where hover said `number` for one key.
-// Two answers to one question is the drift this server exists to prevent.
+// shapeKeyHover answers for a cursor on a KEY span inside a shape, from the TYPE VIEW only —
+// what the CLI reads too. Consulting the declaration here makes the two disagree
+// (TestKeyHoverIsTheCLIsOwnAnswer). specs/declared-slot-schemas.md §6.
 func shapeKeyHover(doc *defdoc.Doc, types map[string]schema.Schema, path string, line, col int) string {
 	span, ok := doc.Span(path)
 	if !ok || !span.Key.Contains(line, col) {
@@ -233,8 +204,7 @@ func shapeKeyHover(doc *defdoc.Doc, types map[string]schema.Schema, path string,
 	if err != nil || !ok || len(rest) == 0 {
 		return ""
 	}
-	// The PARENT is navigated and the member read off it, never the member itself: `At` reads an
-	// optional property as nullable — right for an expression, wrong for describing a key — and
+	// Navigate to the PARENT, never the member: `At` reads an optional property as nullable, and
 	// only the parent knows whether the key may be absent.
 	parent, err := validation.Navigate(types[slot], path, rest[:len(rest)-1])
 	if err != nil {
@@ -249,8 +219,7 @@ func shapeKeyHover(doc *defdoc.Doc, types map[string]schema.Schema, path string,
 	if !found {
 		return ""
 	}
-	// `?` is the mark `Summary` already uses for an optional member, so a reader meets one
-	// spelling in both places.
+	// `?` is `Summary`'s mark for an optional member; keep the two spellings one.
 	label := labelOf(rest)
 	if parent.MayBeAbsent(last.Name) {
 		label += "?"
@@ -278,13 +247,9 @@ func labelOf(segs []schema.Segment) string {
 	return b.String()
 }
 
-// declaredNodeAt walks a dotted path through a DECLARATION, and reports whether the last step
-// may be absent.
-//
-// It does not use `Schema.At`, and that is the point: `At` reads a path the way an EXPRESSION
-// would, so an optional property comes back nullable because a missing key reads as null. A
-// declaration is not being read — it is being described — and answering `string|null` for a
-// property the author declared `string` is the editor contradicting the document.
+// declaredNodeAt walks a dotted path through a DECLARATION and reports whether the last step may
+// be absent. Not `Schema.At`: that reads an optional property as nullable, contradicting the
+// author's declared type.
 func declaredNodeAt(s schema.Schema, path string) (schema.Schema, bool, bool) {
 	node := unwrap(s)
 	absent := false

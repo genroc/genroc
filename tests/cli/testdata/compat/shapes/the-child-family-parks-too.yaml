@@ -1,23 +1,6 @@
-# a-parked-task-carries-its-result-schema.yaml makes the parking argument with an
-# `external`. The other three that park are the child family, and they reach the same rule
-# by a different route — `parksMidTask` reads `Holds().Result` — so each is pinned here:
-# collect conforms every child's output against the parent's result schema as it currently
-# stands, and a narrowing strands a parent already waiting.
-#
-#   one   child       one schema on the action
-#   many  child_map   one schema PER KEY, and the address carries the key: `many:child_map.a.result`
-#   each  child_list  one schema for every element
-#
-# The narrowing validates against the child, which is what makes this a compat question at
-# all: `parkfam_kid` guarantees `x`, so the new schema requiring it is a legal document —
-# registration refuses only a parent that no longer FITS its child
-# (submitted/parent-no-longer-fits-its-stored-child.yaml). It is the parents already parked
-# that this reports.
-#
-# Note what is NOT here: no leftover row about `many`'s children. A child_map's slots are
-# decomposed per key, so the slot that changed carries the same address as the break under
-# it and §6b suppresses it — one row for the whole map would print `(not judged)` beside a
-# break that came out of the very edit it is describing.
+# The parking rule for the child family (`parksMidTask` reads `Holds().Result`): child,
+# child_map (per key: `many:child_map.a.result`) and child_list. No leftover changed-slot row
+# for `many`: it shares the break's address and §6b suppresses it.
 apply:
   - channel: parkfam_a
     definitions:

@@ -3,8 +3,7 @@ import { client, fetchObject, objectAt, spliceObjects, waitForInstance } from ".
 
 const proc = `big_values_${crypto.randomUUID()}`;
 
-// A value larger than the externalization threshold (2 KiB) so it is stored in the
-// object store rather than inline on the instance row.
+// Past the 2 KiB externalization threshold, so it lands in the object store.
 const BLOB = "B".repeat(20 * 1024);
 
 async function defineProc() {
@@ -16,16 +15,13 @@ async function defineProc() {
         properties: { blob: { type: "string" } },
         required: ["blob"],
       },
-      // The output reads the (externalized) input, exercising lazy resolution through
-      // the engine's output projection.
+      // Reads the externalized input, exercising lazy resolution through the output projection.
       output: { echo: "$: input.blob" },
       tasks: [{ id: "work", switch: [{ goto: "end" }] }],
     },
   });
 }
 
-// By default a large input/output slot is NOT pulled out of the object store: the
-// detail view returns a lightweight {ref, size} reference instead of the value.
 test("big values are returned as references by default", async () => {
   await defineProc();
   const { data: started } = await client.POST("/instances", {
@@ -38,11 +34,8 @@ test("big values are returned as references by default", async () => {
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  // The big input and the big computed output are LISTED, and absent from the data — nothing
-  // in the context can be mistaken for a reference, because no marker is left behind.
-  // The LEAF is cut, not the whole slot: what is over the target is `blob`, and its wrapper
-  // stays inline. Cutting the slot would fold any sibling in with it, which is what stopped
-  // three runs of one script from sharing the script.
+  // The LEAF is cut, not the slot: cutting the slot would fold siblings in with it and stop
+  // identical values sharing one object.
   expect((data!.state as any).input.blob).toBeUndefined();
   expect((data!.output as any).echo).toBeUndefined();
   const input = objectAt(data, ["state", "input", "blob"]);
@@ -72,10 +65,8 @@ test("big values are spliced back by the recipient, not by the server", async ()
   expect((data!.output as any).echo).toBe(BLOB);
 });
 
-// A log payload is cut exactly like a context slot: the oversized LEAF moves out, the shell
-// stays inline, and the entry lists where it went. Same shape, and therefore the same object --
-// a payload repeating a value the instance already externalized shares it instead of storing a
-// second copy, which is what made three runs of one script cost three copies of the script.
+// A log payload is cut per leaf like a context slot, so a value the instance already externalized
+// shares that object instead of storing a second copy.
 test("large log payloads are cut per-leaf and share the instance's object", async () => {
   await defineProc();
   const { data: started } = await client.POST("/instances", {
@@ -109,8 +100,6 @@ test("large log payloads are cut per-leaf and share the instance's object", asyn
   expect((completed as { data?: unknown }).data).toEqual({ echo: BLOB });
 });
 
-// Within one instance, only the slots that exceed the threshold are externalized: a
-// small slot stays an inline value even when a sibling slot is a reference.
 test("only oversized slots become references; small ones stay inline", async () => {
   const name = `mixed_slots_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
@@ -136,16 +125,12 @@ test("only oversized slots become references; small ones stay inline", async () 
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  // Big input → listed and absent; small output → carried inline, and NOT listed.
   expect((data!.state as any).input.blob).toBeUndefined();
   expect(objectAt(data, ["state", "input", "blob"])).toBeDefined();
   expect((data!.output as any)).toEqual({ ok: "done" });
   expect(objectAt(data, ["output"])).toBeUndefined();
 });
 
-// A secret inside a LARGE (externalized) value. The slot is listed rather than carried, so a
-// detail read leaks nothing whatever it holds — and fetching the object returns it in full,
-// which is the documented consequence of redaction being a recording concern.
 test("an externalized value is listed, and comes back whole when fetched", async () => {
   const name = `secret_big_ctx_${crypto.randomUUID()}`;
   const secret = "S".repeat(20 * 1024); // > threshold → the leaf is externalized
@@ -163,7 +148,6 @@ test("an externalized value is listed, and comes back whole when fetched", async
   await waitForInstance(started!.id);
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  // Listed, not carried: a detail read stays small whatever the slot holds.
   expect((data!.state as any).input.token).toBeUndefined();
   expect(objectAt(data, ["state", "input", "token"])).toBeDefined();
   expect(JSON.stringify(data)).not.toContain("SSSSSSSSSS");
@@ -174,9 +158,6 @@ test("an externalized value is listed, and comes back whole when fetched", async
   expect((data!.state as any).input.token).toBe(secret);
 });
 
-// A subtree log's externalized payload was written by a child, not the queried root. That used
-// to matter -- the fetch was scoped to the owning instance -- and no longer does: an object is
-// addressed by its content hash, so a child's payload is listed and fetched like any other.
 test("a subtree log lists a child instance's externalized payload", async () => {
   const child = `recos_child_${crypto.randomUUID()}`;
   const parent = `recos_parent_${crypto.randomUUID()}`;
@@ -221,9 +202,7 @@ test("a subtree log lists a child instance's externalized payload", async () => 
   const id = started!.id;
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
-  // The child's inst_created log carries the big (externalized) input it received. The whole
-  // response is kept, not just the entry: the objects section is a sibling of items, so finding
-  // an entry's payload means knowing its index in the page.
+  // The objects section is a sibling of items, so the whole response is kept, not just the entry.
   const childCreated = async () => {
     const { data: body } = await client.GET("/instances/{id}/logs", {
       params: { path: { id }, query: { limit: 200, recursive: true } },
@@ -242,10 +221,6 @@ test("a subtree log lists a child instance's externalized payload", async () => 
   expect(await fetchObject(childListed!.ref)).toBe(JSON.stringify(BLOB));
 });
 
-// A big value passed into a child's input and returned in the child's output flows all
-// the way back: the parent collects the child's (externalized) output, re-externalizes
-// it into its own context, and exposes it as a reference by default / the full value
-// under resolve. Exercises the collect path (child output → parent) with a large value.
 test("a big value round-trips through a child's input and output back to the parent", async () => {
   const child = `bv_rt_child_${crypto.randomUUID()}`;
   const parent = `bv_rt_parent_${crypto.randomUUID()}`;
@@ -345,10 +320,8 @@ test("objects — absent when nothing is externalized, and a 404 for a ref that 
   expect(error, "an unknown ref must be refused").toBeTruthy();
 });
 
-// A value the process only COPIES is never loaded: the marker travels through the expression
-// into the next slot, and the write re-emits the reference it already was. Before this, reading
-// a slot materialized every leaf under it, so a copy cost a load, a re-marshal and a re-hash to
-// arrive at the hash it came off disk with. specs/lazy-context.md.
+// The marker travels through the expression and the write re-emits the same reference, so a copy
+// costs no load or re-hash. specs/lazy-context.md.
 test("a copied slot keeps its reference rather than being loaded and rewritten", async () => {
   const name = `bv_copy_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
@@ -379,7 +352,6 @@ test("a copied slot keeps its reference rather than being loaded and rewritten",
   expect(copied, "and the copy carries a reference at the same place, not an inlined value").toBeDefined();
   expect(copied!.ref, "the copy must SHARE the object, not write a second one").toBe(source!.ref);
 
-  // And it is still the value it started as.
   await spliceObjects(data);
   expect((data!.output as any).final.kept).toBe(BLOB);
 });

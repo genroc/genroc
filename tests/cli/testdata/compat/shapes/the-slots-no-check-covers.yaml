@@ -1,17 +1,6 @@
-# Every remaining slot no verdict covers, edited at once. `changedslots_test.go` proves each
-# model field lands in SOME slot list, but not what it is addressed as, and not that it stays
-# unjudged: a slot that wrongly claimed an `affects` entry would render `(ok)` — asserting a
-# check covered it when none did — and every test would still pass. That is the permissive
-# direction, so it is the one that needs a fixture.
-#
-# Elsewhere only `url`, `only_once`, `switch`, `on_error`, `name` and `action.type` are pinned
-# this way. Here: the rest of the fetch request — method, headers, query, body,
-# accepted_status (§3a — a service's tolerance is unknowable, which is why judging it is
-# refused), the call's `timeout`, a delay's calendar slots, an
-# `external.input` (§8 records that this one is still open), and the child slots §2c argues
-# are unjudged — `over`, because a child_list's array is consumed at spawn and every child
-# carries its `_spawn_index`, and the pinned `version`, because when the child itself moves
-# the child's own row reports it.
+# Every remaining slot no verdict covers, edited at once: a slot wrongly claiming an `affects`
+# entry would render `(ok)` and pass every other test. compat-command.md §2c, §3a and §8
+# argue why each is unjudged.
 apply:
   - channel: slots_a
     definitions:

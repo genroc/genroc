@@ -8,24 +8,7 @@ import (
 	"genroc/internal/errcode"
 )
 
-//	1 name: demo
-//	2 input_schema:
-//	3   type: object
-//	4   properties: { amount: { type: number }, currency: { type: string } }
-//	5   required: [amount, currency]
-//	6 tasks:
-//	7   - id: price
-//	8     action:
-//	9       type: fetch
-//
-// 10       method: post
-//
-// 11       url: "https://x/p?a=${ input. }"
-// 12       responses:
-// 13         "200": { type: object, properties: { total: { type: number } }, required: [total] }
-// 14     output:
-// 15       grand: "$: self.result."
-// 16     switch: end
+// Line numbers are asserted against this, so a change here moves the cases below.
 const completionDoc = `name: demo
 input_schema:
   type: object
@@ -78,8 +61,6 @@ func TestCompletingIntoAnActionResultUsesItsDeclaredShape(t *testing.T) {
 	}
 }
 
-// A bare `$: ` offers the roots of the scope — and which roots depend on the slot, which is
-// the whole reason completion consults the context view rather than the schema.
 func TestABareExpressionOffersTheScopeRoots(t *testing.T) {
 	got := completed(t, completionDoc, 15, 18)
 	if !slices.Contains(got, "self") || !slices.Contains(got, "input") {
@@ -95,8 +76,6 @@ func TestTheActionScopeHasNoSelf(t *testing.T) {
 	}
 }
 
-// The case the repair exists for: this is what the buffer holds WHILE someone types, and it is
-// not valid YAML. Refusing until the quote is closed refuses exactly when help is wanted.
 func TestCompletionWorksOnTextThatDoesNotParse(t *testing.T) {
 	midTyping := strings.Replace(completionDoc, `      grand: "$: self.result."`, `      grand: "$: self.result.`, 1)
 	got := completed(t, midTyping, 15, 30)
@@ -115,8 +94,6 @@ func TestCompletionWorksInsideAnUnclosedInterpolation(t *testing.T) {
 
 // ── keys: the schema, discriminated ──────────────────────────────────────────────
 
-// What yaml-language-server cannot do: `discriminator` is an OpenAPI keyword it ignores, so it
-// offers the union of six action shapes. We read the `type` and descend into one.
 func TestAFetchActionOffersFetchKeysOnly(t *testing.T) {
 	got := completed(t, completionDoc, 12, 7) // on `responses:`, so the action is the mapping
 	if slices.Contains(got, "process") || slices.Contains(got, "children") {
@@ -136,8 +113,6 @@ func TestAChildActionOffersChildKeys(t *testing.T) {
 	}
 }
 
-// A key already written is not a suggestion. This is the half that silently did nothing while
-// only scalars carried a value in the index.
 func TestKeysAlreadyWrittenAreNotOffered(t *testing.T) {
 	got := completed(t, completionDoc, 16, 5) // on `switch:`, so the task is the mapping
 	for _, written := range []string{"id", "action", "switch"} {
@@ -157,8 +132,6 @@ func TestTheDocumentRootOffersDefinitionKeys(t *testing.T) {
 	}
 }
 
-// A description is what makes a completion list readable rather than a guessing game, and the
-// schema already carries the prose from the struct tags.
 func TestKeyCompletionsCarryTheirDocumentation(t *testing.T) {
 	for _, it := range completeAt(completionDoc, "", 16, 5) {
 		if it.Label == "on_error" {
@@ -171,10 +144,7 @@ func TestKeyCompletionsCarryTheirDocumentation(t *testing.T) {
 	t.Fatal("on_error was not offered")
 }
 
-// The vocabulary belongs to errcode, which is where a code is declared and described: adding
-// one there must reach the editor with no edit here, so this asserts the whole set rather than
-// a member of it. A list of CODES kept in this package would be the drift it is written
-// against; the patterns beside them are spellings, and errcode stores none of them.
+// The whole set, not a member: a code added to errcode must reach the editor with no edit here.
 func TestTheOfferedCodesAreErrcodesOwn(t *testing.T) {
 	doc := strings.Replace(completionDoc, "    switch: end\n", "    on_error:\n      - code: []\n        goto: end\n    switch: end\n", 1)
 	line := 1 + strings.Count(doc[:strings.Index(doc, "- code: []")], "\n")
@@ -212,9 +182,6 @@ func TestCompletionIsAdvertisedAndAnswered(t *testing.T) {
 		!slices.Contains(res.Capabilities.CompletionProvider.TriggerCharacters, ".") {
 		t.Error("a member list is wanted after `.`, so the editor has to be asked to re-request there")
 	}
-	// Every directory step of a path is a fresh question. Without this the client filters the
-	// list it already holds, which after `./` matches nothing — an empty popup where the
-	// directory listing should be, and nothing in the server's own answers can show it.
 	if res.Capabilities.CompletionProvider == nil ||
 		!slices.Contains(res.Capabilities.CompletionProvider.TriggerCharacters, "/") {
 		t.Error("a directive's path re-lists at every `/`, so the editor has to re-request there")

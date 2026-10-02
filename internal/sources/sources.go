@@ -1,8 +1,7 @@
 package sources
 
-// Source resolution: a definition source file is not a definition. A `$<resolver>: <path>`
-// leaf is replaced by a string a registered binary produces. See
-// specs/source-resolution.md for the phase rule and the manifest contract.
+// Source resolution: a `$<resolver>: <argument>` leaf is replaced by what a registered resolver
+// produces. specs/source-resolution.md has the phase rule and the manifest contract.
 
 import (
 	"bytes"
@@ -43,10 +42,8 @@ const (
 // builtinProcess spreads another definition's name/result_schema/raises into a child task.
 const builtinProcess = "process"
 
-// builtins are appended after everything a .genroc registers, so first-match already means a
-// local entry of the same name wins and there is no shadowing rule to write. They carry no
-// Command because genctl answers them itself -- the answer is its own inferred view, which no
-// external binary can produce without re-entering genctl.
+// builtins are appended after everything a .genroc registers, so a local entry of the same name
+// wins by first-match. No Command: genctl answers them itself.
 func builtins() []resolverConfig {
 	return []resolverConfig{{
 		Name:  builtinProcess,
@@ -55,9 +52,8 @@ func builtins() []resolverConfig {
 	}}
 }
 
-// The `json` tags exist for defschema.Config, which reflects this struct into the schema an
-// editor validates `.genroc` against; yaml.v3 ignores them. A name must be spelled the same in
-// both or the editor and the reader disagree about a key -- TestConfigTagsAgree holds them to it.
+// The `json` tags feed defschema.Config, the editor's `.genroc` schema; yaml.v3 ignores them.
+// Both must spell a key the same -- TestConfigTagsAgree.
 type resolverConfig struct {
 	Name string `yaml:"name" json:"name" description:"What a directive names: \"$<name>: <argument>\"."`
 	// Phase is "code" or "structural" -- what the resolver MAY do, never what it contains.
@@ -69,28 +65,23 @@ type resolverConfig struct {
 	// Command is absent exactly for a built-in, which runs inside genctl. A file entry
 	// without one is refused when the config is read.
 	Command []string `yaml:"command" json:"command" description:"The resolver binary and its arguments, run from this file's directory with the manifest on stdin."`
-	// Types is what this resolver wants typed, as name → address, and it is the whole reason
-	// genctl no longer decides: a toolchain knows which slot its runtime binds, genroc does
-	// not. Addresses are `genctl schema type`'s, RELATIVE to the task the directive sits in —
-	// `input.input` is the argument an evaluator binds out of the action's input. Absent means
-	// the resolver wants none.
+	// Types is what this resolver wants typed: name → frame-prefixed `genctl schema type`
+	// address. Absent means none. specs/source-resolution.md §The project config.
 	Types map[string]string `yaml:"types" json:"types,omitempty" description:"Declarations the resolver wants generated, as name to address: a genctl schema type address, relative to the task the directive sits in, e.g. task.action.input.input."`
 }
 
 type projectConfig struct {
 	Root string `yaml:"-" json:"-"`
-	// Definitions is what `genctl apply|validate|types` reads when given no paths. Entries are
-	// files, directories (walked) or globs, resolved against the config's own directory -- so
-	// the command works the same from anywhere in the project.
+	// Definitions is what a bare `genctl apply|validate|types` reads: files, directories or
+	// globs, resolved against the config's own directory.
 	Definitions []string `yaml:"definitions" json:"definitions,omitempty" description:"What genctl apply, types and schema read when given no -f: files or globs (** matches any depth), resolved against this file."`
 	// Resolvers is ORDERED and taken first-match on (name, suffix) -- which is what makes
 	// overriding a built-in need no rule of its own, since builtins() is appended last.
 	Resolvers []resolverConfig `yaml:"resolvers" json:"resolvers,omitempty" description:"Source resolvers, tried in order and taken first-match on name and suffix; the built-in \"process\" is appended last, so listing one under that name overrides it."`
 }
 
-// matchResolver returns the first entry accepting this name and argument. nameKnown separates
-// the two failures a caller must word differently: no entry carries the name at all, or some do
-// and none accept the suffix.
+// matchResolver returns the first entry accepting this name and argument. nameKnown separates the
+// two failures a caller words differently: an unknown name, or no entry accepting the suffix.
 func (c projectConfig) matchResolver(name, argument string) (idx int, nameKnown, ok bool) {
 	lower := strings.ToLower(argument)
 	for i, r := range c.Resolvers {
@@ -125,9 +116,8 @@ func (c projectConfig) acceptedBy(name string) string {
 	return strings.Join(slices.Compact(slices.Sorted(slices.Values(out))), ", ")
 }
 
-// defaultDefinitionPaths is what a bare `genctl apply` operates on: the `definitions` entries
-// from the nearest .genroc, made absolute. Empty when there is no config or no entries, which
-// the caller reports as "-f is required" rather than as a project error.
+// defaultDefinitionPaths is the nearest .genroc's `definitions`, made absolute. Empty when there
+// are none, which the caller reports as "-f is required" rather than as a project error.
 func defaultDefinitionPaths(dir string) []string {
 	cfg, err := findProjectConfig(dir)
 	if err != nil || len(cfg.Definitions) == 0 {
@@ -149,19 +139,16 @@ func defaultDefinitionPaths(dir string) []string {
 type sourceDoc struct {
 	Value any
 	File  string
-	// index is where each part of doc was written, kept so a diagnostic the server reports by
-	// slot address becomes a line in this file. Nil for a .json source, which keeps its own
-	// decode. specs/language-server.md §3.
+	// Index turns a diagnostic the server reports by slot address into a line in this file.
+	// Nil for a .json source. specs/language-server.md §3.
 	Index *defdoc.Doc
 }
 
 // site is one directive occurrence. The exported fields are the manifest's; loc is how
 // splice finds the slot again, and is why nothing re-walks the document to apply the result.
 type site struct {
-	// Resolver groups the sites; it is not on the wire, because the manifest goes to exactly
-	// that resolver and a binary being told its own name learns nothing. Process is the same
-	// kind of field: the manifest nests sites UNDER their process, so it is not on the wire
-	// either — but the pass needs it to know which types to resolve against.
+	// Off the wire: the manifest goes only to that resolver and nests sites under their
+	// process. The pass still needs both, to group sites and pick their types.
 	Resolver string `json:"-"`
 	Process  string `json:"-"`
 	// resolverIdx is the ENTRY that matched, not just its name: one name may carry several
@@ -171,19 +158,14 @@ type site struct {
 	// resolver that must know where it landed does not parse the pointer for it.
 	Level string `json:"level"`
 	Task  string `json:"task,omitempty"`
-	// What the site IS, which a resolver would otherwise read the definition for. Facts, not
-	// steps in its address — and set only AT action level: a switch case is not in the action,
-	// so naming its type would describe the wrong thing.
+	// Facts about the site, not steps in its address, set only AT action level: a switch case
+	// is not in the action, so naming its type would describe the wrong thing.
 	Action string `json:"action,omitempty"`
 	Child  string `json:"child,omitempty"`
-	// Pointer is where the directive sits, shaped like the definition: keys and indices rather
-	// than an RFC 6901 string, because a recipient would otherwise unescape `~0`/`~1`, and a
-	// string cannot tell the object key "0" from index 0 (specs/object-store.md made the same
-	// choice for the same reason).
+	// Pointer is keys and indices, not an RFC 6901 string: no `~0`/`~1` to unescape, and key
+	// "0" stays distinct from index 0.
 	Pointer []any `json:"pointer"`
-	// Argument is everything after `$<resolver>:`, verbatim. genctl does not interpret it —
-	// a resolver that takes a file joins it to its process's `dir`, one that takes a URL or a
-	// package name reads it as that.
+	// Argument is everything after `$<resolver>:`, verbatim; genctl does not interpret it.
 	Argument string `json:"argument"`
 	// Types are the fragments this resolver asked for, keyed by the name it chose.
 	Types map[string]any `json:"types,omitempty"`
@@ -202,9 +184,8 @@ type manifest struct {
 	Processes []manifestProcess `json:"processes"`
 }
 
-// manifestProcess is one definition's sites, and the definitions they need. `$defs` is narrowed
-// to what the fragments below it actually reach — a `$ref` survives because a task output may
-// reference itself, but nothing unreferenced travels.
+// manifestProcess is one definition's sites, with `$defs` narrowed to what their fragments reach;
+// a `$ref` survives because a task output may reference itself.
 type manifestProcess struct {
 	Name string `json:"name"`
 	// Dir and File are the definition's own location, split because a relative argument is
@@ -237,8 +218,6 @@ type structuralReply struct {
 
 // ── project config ─────────────────────────────────────────────────────────────
 
-// findProjectConfig walks up from dir for .genroc. Absent is not an error: a project
-// with no resolvers registered is the normal case, and a directive then fails by name.
 // readProjectConfig returns the first config present in dir, current name before legacy.
 func readProjectConfig(dir string) (string, []byte, bool) {
 	for _, name := range []string{projectConfigName, legacyProjectConfigName} {
@@ -302,16 +281,12 @@ func findProjectConfig(dir string) (projectConfig, error) {
 
 // ── finding sites ──────────────────────────────────────────────────────────────
 
-// findSites walks every document for directive leaves. What follows the resolver's name is
-// passed on VERBATIM: genctl does not know that an argument is a path, let alone that it is a
-// file, so it neither resolves nor stats it. The resolver joins it to the definition's own
-// directory, which the manifest carries beside it.
+// findSites walks every document for directive leaves. The argument passes on VERBATIM: genctl
+// neither resolves nor stats it.
 func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	var out []site
 	for i, sd := range docs {
-		// Two assertions, not one chained: a document whose root is a sequence or a scalar is
-		// not a definition but it still reaches here -- from an editor, where anything open is
-		// analysed as it is typed -- and asserting the root in one step panicked on it.
+		// Not one chained assertion: an editor sends a sequence or scalar root too.
 		root, _ := sd.Value.(map[string]any)
 		name, _ := root["name"].(string)
 		var walk func(node any, loc []any) error
@@ -334,9 +309,8 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 				if !isDirective {
 					return nil
 				}
-				// `ext` is a suffix assertion on the ARGUMENT, not a claim that it names a
-				// file: it is what makes a `.py` handed to the TypeScript toolchain fail here
-				// with a sentence rather than inside `tsc` with a stack.
+				// `ext` asserts a suffix on the ARGUMENT, so a `.py` handed to the TypeScript
+				// toolchain fails here with a sentence rather than inside `tsc`.
 				idx, nameKnown, ok := cfg.matchResolver(resolver, argument)
 				if !nameKnown {
 					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s",
@@ -374,8 +348,6 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	return out, nil
 }
 
-// enclosingTaskID reports the id of the task a site sits under. What that task RETURNS is not
-// read here: it is `TaskSchemas.Result`, which inference already computed (taskResult).
 func enclosingTaskID(doc any, loc []any) string {
 	task := enclosingTask(doc, loc)
 	if task == nil {
@@ -414,8 +386,6 @@ const (
 	levelAction  = "action"
 )
 
-// levelOf reads the level off the document path: a directive under a task's `action` key is in
-// the action, one elsewhere under a task is the task's, and anything else is the definition's.
 func levelOf(loc []any) string {
 	if len(loc) < 2 || loc[0] != "tasks" {
 		return levelProcess
@@ -426,10 +396,8 @@ func levelOf(loc []any) string {
 	return levelTask
 }
 
-// slotPointer is where a directive sits, shaped like the definition: the task by ID rather than
-// by index, and then the document's own keys, `action` included. What KIND of action it is, and
-// which process a child calls, are facts about the site rather than steps in a path — they are
-// fields beside it. specs/source-resolution.md.
+// slotPointer addresses the task by ID rather than index, then the document's own keys. The
+// action's kind and a child's process are fields beside it, not path steps.
 func slotPointer(doc any, loc []any) []any {
 	if len(loc) < 2 || loc[0] != "tasks" {
 		return append([]any(nil), loc...)
@@ -501,15 +469,12 @@ func splice(docs []sourceDoc, s site, value any) error {
 	return fmt.Errorf("%s: empty pointer", docs[s.docIdx].File)
 }
 
-// escapeDollars doubles every `$`. Every string leaf is read as a template
-// (internal/shape → template.Get), and scanTemplate collapses `$$` to a literal `$`
-// unconditionally — so doubling round-trips ANY byte sequence, where escaping only `${`
-// would corrupt a script that contains a literal `$$`.
+// escapeDollars doubles every `$`: the template layer collapses `$$` unconditionally, so this
+// round-trips ANY bytes, where escaping only `${` would corrupt a literal `$$`.
 func escapeDollars(s string) string { return strings.ReplaceAll(s, "$", "$$") }
 
 // ── running a resolver ─────────────────────────────────────────────────────────
 
-// execResolver runs one resolver over a manifest and returns its stdout.
 func execResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]byte, error) {
 	body, err := json.Marshal(m)
 	if err != nil {
@@ -670,9 +635,8 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	return len(sites), nil
 }
 
-// inferSchemas types the definitions that carry a directive. genctl computes the types and
-// the server decides validity, which is why neither the strict decode, nor Validate, nor the
-// child-reference check the endpoint ran is reproduced here. specs/source-resolution.md.
+// inferSchemas types the definitions that carry a directive. genctl computes types and the server
+// decides validity, so no strict decode or Validate here. specs/source-resolution.md.
 func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaFile, error) {
 	needed := make(map[string]bool, len(sites))
 	for _, s := range sites {
@@ -680,11 +644,8 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 	}
 	out := make(map[string]validation.SchemaFile, len(needed))
 	for _, sd := range docs {
-		// Keyed off the raw document, like the sites this answers. A definition with no
-		// directive is never typed: one broken file must not stop a project-wide `types`.
-		// Two assertions, not one chained: a document whose root is a sequence or a scalar is
-		// not a definition but it still reaches here -- from an editor, where anything open is
-		// analysed as it is typed -- and asserting the root in one step panicked on it.
+		// A definition with no directive is never typed: one broken file must not stop a
+		// project-wide `types`. Not one chained assertion, as in findSites.
 		root, _ := sd.Value.(map[string]any)
 		name, _ := root["name"].(string)
 		if !needed[name] {
@@ -706,9 +667,6 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 	return out, nil
 }
 
-// taskInput is the inferred type of the task's action input, which validation already
-// computed (validation.buildInputs). It may be a $ref into that process's own $defs pool.
-// A zero schema returns nil so the manifest omits the key rather than carrying `null`.
 // decodeDefinition reads one source document as a definition. Non-strict and without
 // Validate: genctl computes the types, the server decides validity (§inferSchemas).
 func decodeDefinition(sd sourceDoc) (*model.ProcessDefinition, error) {
@@ -723,17 +681,15 @@ func decodeDefinition(sd sourceDoc) (*model.ProcessDefinition, error) {
 	return &def, nil
 }
 
-// Frames. An address in `types` names the one it is relative to, because a site can be inside a
-// task or not and `input` would otherwise mean the action's here and the process's there —
-// silently, since both frames have one. specs/source-resolution.md.
+// An address in `types` names its frame, since both a task and the process carry an `input`.
+// specs/source-resolution.md §The project config.
 const (
 	frameTask    = "task"
 	frameProcess = "process"
 )
 
-// framed turns a request into a path into the type document. A `task.` address at a site that is
-// in no task returns nil, nil: the answer is null, which is the honest one — a task-relative
-// request has nothing to resolve against there.
+// framed turns a `types` address into a type-document path. A `task.` address at a site in no
+// task returns nil, nil: the answer there is null.
 func framed(address, task string) ([]schema.Segment, error) {
 	segs, err := schema.ParsePath(address)
 	if err != nil {
@@ -752,9 +708,8 @@ func framed(address, task string) ([]schema.Segment, error) {
 		"sits in) or %q (the definition)", address, frameTask, frameProcess)
 }
 
-// byProcess nests the group's sites under the definition they are in, in the order the files
-// were read, and gives each the definitions its own fragments reach — never the whole pool, and
-// never another process's: a `$ref` inside a fragment points into the pool printed beside it.
+// byProcess nests the group's sites under their definition in file order, each with only the
+// `$defs` its own fragments reach: a fragment's `$ref` points into the pool printed beside it.
 func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group []site) ([]manifestProcess, error) {
 	var order []string
 	sites := map[string][]site{}
@@ -816,10 +771,8 @@ func poolOf(sf validation.SchemaFile) (map[string]any, error) {
 	return pool, nil
 }
 
-// siteTypes answers the resolver's request at one site: each address is resolved against the
-// TYPE view of that site's process, relative to the task the directive sits in. The schemas come
-// back as inference wrote them — a `$ref` into that process's own pool, which the manifest ships
-// beside them.
+// siteTypes resolves each requested address against the TYPE view of the site's process. Schemas
+// come back as inference wrote them: `$ref`s into the pool the manifest ships beside them.
 func siteTypes(schemas map[string]validation.SchemaFile, want map[string]string, s site) (map[string]any, error) {
 	if len(want) == 0 {
 		return nil, nil
@@ -844,11 +797,8 @@ func siteTypes(schemas map[string]validation.SchemaFile, want map[string]string,
 		}
 		at, err := validation.Navigate(doc, want[name], path)
 		if err != nil {
-			// Null, not absent, and not fatal. Null because the key was ASKED for and there is
-			// nothing at it — the same reason a `raise` attaching nothing types as null rather
-			// than dropping out: absent would mean "not requested", which is a different fact.
-			// Not fatal because what a site can answer varies legitimately (a script taking no
-			// argument has no `input.input`), and whether that matters is the resolver's to say.
+			// Null, not absent (it was asked for), and not fatal: whether a missing answer
+			// matters is the resolver's to say. specs/source-resolution.md §The project config.
 			out[name] = nil
 			continue
 		}

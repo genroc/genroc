@@ -3,12 +3,8 @@ import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { waitForInstance } from "../helpers/client.ts";
 import { missingID, switchDef, uid } from "../helpers/genctl.ts";
 
-// How genctl fails. Every command routes its failures through fatal(), so the contract is
-// narrow and worth pinning: a "genctl: " prefix on stderr, nothing on stdout, and a
-// non-zero exit — which is what makes the CLI usable in a script rather than only by eye.
-//
-// The exceptions are as interesting as the rule, so they are asserted too: an empty list
-// is a success, and flag parsing exits 2 through Go's own flag package rather than 1.
+// Every command fails through fatal(): a "genctl: " prefix on stderr, nothing on stdout, exit 1.
+// The exceptions: an empty list succeeds, and flag parsing exits 2 through Go's flag package.
 
 let bin: string;
 beforeAll(() => {
@@ -21,8 +17,6 @@ test("errors — stderr carries a genctl: prefix, stdout stays clean, exit is no
   const r = runCli(bin, ["get", missingID]);
   expect(r.exitCode).toBe(1);
   expect(r.stderr.startsWith("genctl: ")).toBe(true);
-  // Nothing on stdout: a caller piping this into jq or a variable gets emptiness, not a
-  // half-written record followed by an error.
   expect(r.stdout).toBe("");
 });
 
@@ -36,7 +30,6 @@ test("an unknown command prints the usage and exits 1", () => {
   expect(r.stderr).toContain("genctl <command> -h");
 });
 
-// The map is one screen; the page is where the detail moved. Neither is useful as the other.
 test("-h — the map is short, and a command's own -h is the long form", () => {
   const map = runCli(bin, ["-h"]);
   expect(map.exitCode).toBe(0);
@@ -78,9 +71,7 @@ test("instance verbs reject an id that does not exist", () => {
 });
 
 test("logs on a missing id is silently empty, unlike every other instance verb", () => {
-  // Documenting a real gap rather than endorsing it: the logs listing filters on
-  // instance_id and finds nothing, so a typo'd id is indistinguishable from an instance
-  // that simply has no trail yet. get/pause/resume/retry all 404 on the same id.
+  // A real gap, pinned: a typo'd id is indistinguishable from an instance with no trail yet.
   const r = runCli(bin, ["logs", missingID]);
   expect(r.exitCode).toBe(0);
   expect(r.stdout).toBe("");
@@ -149,8 +140,7 @@ test("--server overrides $GENROC_SERVER, and only after the subcommand", () => {
   expect(first.ok).toBe(false);
   expect(first.stderr).toContain(`unknown command "--server"`);
 
-  // In the right position it wins over the environment, which is what makes a one-off
-  // command against another server possible.
+  // After the verb it wins over the environment.
   const after = runCli(bin, ["instances", "--server", "http://127.0.0.1:1"]);
   expect(after.ok).toBe(false);
   expect(after.stderr).toContain("connect to server");
@@ -176,8 +166,7 @@ test("a server validation message survives to stderr intact", () => {
     ]),
   ]);
 
-  // The server's own words, not a generic "bad request" — the field it objected to is
-  // the only thing that tells the user what to change.
+  // The server's own words: the field it objected to is what tells the user what to change.
   const r = runCli(bin, ["run", name, "--set", "count=not-a-number"]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("count");

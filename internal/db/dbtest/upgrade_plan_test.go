@@ -14,11 +14,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// upgradeTree is the composition the operation's owner performs: PLAN which versions the
-// tree moves to (db reads), MIGRATE each state to the definition it is moving to
-// (validation), then WRITE them together (db). It lives here rather than in internal/db
-// because deciding what the new state IS is not that package's question -- db reads rows
-// and writes rows.
+// upgradeTree composes what the operation's owner does: PLAN (db), MIGRATE (validation), WRITE
+// (db). It lives here because what the new state IS is not internal/db's question.
 func upgradeTree(t *testing.T, db *dbpkg.DB, rootID string, from, to int) error {
 	t.Helper()
 	root, err := db.GetInstance(rootID)

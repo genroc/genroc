@@ -10,10 +10,8 @@ import (
 	"strings"
 )
 
-// pageCountCap bounds how far the before/after counts scan: each is counted up to
-// pageCountCap+1 rows, so the work per count is bounded regardless of table size. A
-// reported count of pageCountCap+1 therefore means "more than pageCountCap" (the UI
-// renders it as e.g. "1000+").
+// pageCountCap bounds each before/after count to pageCountCap+1 rows; a reported
+// pageCountCap+1 means "more than pageCountCap" (the UI shows "1000+").
 const pageCountCap = 1000
 
 // Bidirectional keyset pagination shared by every list endpoint (sqlc cannot express a
@@ -64,10 +62,9 @@ func (pg paginator) allowsFilter(col string) bool {
 	return false
 }
 
-// PageReq is the decoded pagination input from the API layer. After/Before are
-// opaque cursors from a previous page; Before pages backward. At most one should
-// be set (Before wins if both are). A nil Desc uses the paginator's default
-// direction; an empty Sort selects the default sort.
+// PageReq is the decoded pagination input. After/Before are opaque cursors from a
+// previous page (Before wins if both are set). A nil Desc or empty Sort takes the
+// paginator's default.
 type PageReq struct {
 	Sort   string
 	Desc   *bool
@@ -76,10 +73,8 @@ type PageReq struct {
 	Before string
 }
 
-// Window bounds a list on one timestamp column, in unix millis; either end may be zero for
-// unbounded. The range is half-open — After <= t < Before — so a caller walking window by
-// window does not double-count a row on a boundary. The names read as the query params they
-// come from, so "after" is "at or after". A list with two timestamps takes two Windows.
+// Window bounds a list on one timestamp column, in unix millis; a zero end is unbounded.
+// Half-open (After <= t < Before), so walking window by window never double-counts a row.
 type Window struct {
 	After  int64
 	Before int64
@@ -91,11 +86,9 @@ func (w Window) apply(q *listQuery, col string) *listQuery {
 	return q.GteIf(col, w.After, w.After > 0).LtIf(col, w.Before, w.Before > 0)
 }
 
-// PageInfo is the navigation metadata returned alongside a page of items. Sort and Order echo
-// what the defaults resolved to. ItemsBefore/ItemsAfter count rows outside the page in display
-// order, up to pageCountCap+1, where that value means "more than that". After/Before are the
-// cursors to pass back, each set only in a direction that has more rows — so cursor presence is
-// itself the has-more signal.
+// PageInfo is a page's navigation metadata. ItemsBefore/ItemsAfter count rows outside the page up
+// to pageCountCap+1 ("more than that"). After/Before are set only in a direction with more rows,
+// so cursor presence is the has-more signal.
 type PageInfo struct {
 	Size        int    `json:"size"`
 	ItemsBefore int64  `json:"items_before"`
@@ -106,10 +99,9 @@ type PageInfo struct {
 	Before      string `json:"before,omitempty"`
 }
 
-// built is the assembled, ready-to-run plan for one request: the page statement
-// plus the scaffolding countQuery needs to assemble the two capped before/after
-// counts (once the page's boundary rows are known) and the context orient needs to
-// flip a backward page.
+// built is one request's ready-to-run plan: the page statement, the scaffolding
+// countQuery needs once the boundary rows are known, and what orient needs to flip
+// a backward page.
 type built struct {
 	pageSQL  string
 	pageArgs []any
@@ -128,9 +120,8 @@ type built struct {
 	backward bool
 }
 
-// listQuery accumulates the dynamic filters of one request. Build it with
-// paginator.query(req); add filters with Eq/EqIf/Gte/GteIf; finish with build. A filter on an
-// undeclared column is a programming error surfaced as a build error.
+// listQuery accumulates one request's filters (paginator.query, then Eq/EqIf/..., then build).
+// A filter on an undeclared column surfaces as a build error.
 type listQuery struct {
 	pg    paginator
 	req   PageReq
@@ -298,10 +289,8 @@ func (q *listQuery) build() (built, error) {
 	}, nil
 }
 
-// countQuery assembles the before/after counts as two bounded subqueries (rows strictly
-// before first / after last in display order, each capped at pageCountCap+1 by LIMIT),
-// as one statement yielding (before, after). A nil boundary (empty page) makes that side
-// a literal 0.
+// countQuery counts rows strictly before first / after last (display order), each capped at
+// pageCountCap+1, in one statement; a nil boundary (empty page) makes that side a literal 0.
 func (b built) countQuery(first, last []any) (string, []any) {
 	// "before the first row" / "after the last row" in display order.
 	beforeCmp, afterCmp := "<", ">"
@@ -355,9 +344,7 @@ func orient[T any](b built, rows []T, valsOf func(sort string, row T) []any) (it
 // it so a single helper works for both the list-page loop and single-row reads.
 type rowScanner = interface{ Scan(dest ...any) error }
 
-// runPage executes a built page query, scans each row via scanRow, restores display
-// order, and returns the page with its navigation metadata — the query → scan → orient →
-// pageInfo tail shared by every list endpoint. Callers supply scanRow and cursorVals.
+// runPage is the query → scan → orient → pageInfo tail shared by every list endpoint.
 func runPage[T any](db *DB, b built, scanRow func(rowScanner) (T, error), cursorVals func(sort string, row T) []any) ([]T, PageInfo, error) {
 	rows, err := db.exec.QueryContext(context.Background(), b.pageSQL, b.pageArgs...)
 	if err != nil {
@@ -383,10 +370,9 @@ func runPage[T any](db *DB, b built, scanRow func(rowScanner) (T, error), cursor
 	return items, info, nil
 }
 
-// keysetPredicate builds the lexicographic OR-chain selecting rows strictly after the
-// cursor under cmp (> ascending, < descending) — e.g. for (a,b,c): (a cmp ?) OR (a = ?
-// AND b cmp ?) OR (a = ? AND b = ? AND c cmp ?). Spelled out (not row-value syntax) so
-// it runs identically on SQLite and Postgres.
+// keysetPredicate builds the OR-chain selecting rows strictly after the cursor under cmp:
+// (a cmp ?) OR (a = ? AND b cmp ?) OR ... -- spelled out, not row-value syntax, so it runs
+// identically on SQLite and Postgres.
 func keysetPredicate(mode sortMode, cmp string, vals []any) (string, []any) {
 	ors := make([]string, 0, len(mode))
 	args := make([]any, 0, len(mode)*(len(mode)+1)/2)
@@ -403,10 +389,8 @@ func keysetPredicate(mode sortMode, cmp string, vals []any) (string, []any) {
 	return "(" + strings.Join(ors, " OR ") + ")", args
 }
 
-// cursorToken is the opaque, URL-safe-base64-encoded JSON payload of a cursor. It
-// carries the sort key and direction it was minted under, so a token is rejected
-// if reused under a different sort. It does NOT encode the filters — like all
-// keyset pagination it assumes stable filters across pages.
+// cursorToken carries the sort key and direction it was minted under, so reuse under
+// another sort is rejected. It does NOT encode filters: keyset paging assumes they hold.
 type cursorToken struct {
 	K string `json:"k"` // sort-mode key
 	D bool   `json:"d"` // desc

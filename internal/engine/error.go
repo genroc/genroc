@@ -35,12 +35,9 @@ func interruptedOnlyOnce(task *model.Task) bool {
 // no lease to reason about.
 const interruptedMessage = "its previous attempt was interrupted; the engine will not re-run it"
 
-// matchOnErrorWith returns the first ErrorCase matching errCode, or the catch-all (empty Code
-// list), or nil — serving action tasks (engine codes) and child tasks (a child's raised code)
-// through one matcher. M2's predicate: a rule carrying a `case` applies only when the code
-// matches AND the case is true, and a false case falls THROUGH to the next rule. eval is nil
-// only where no case can appear, and a rule with a case is then skipped; a case that fails to
-// evaluate is an error, never a non-match. specs/child-error-handling.md M2.
+// matchOnErrorWith: a false `case` falls THROUGH to the next rule, and one that fails to
+// evaluate is an error, never a non-match. With eval nil, a rule with a case is skipped.
+// specs/child-error-handling.md M2.
 func matchOnErrorWith(task *model.Task, errCode errcode.Code, eval func(string) (bool, error)) (*model.ErrorCase, error) {
 	for i := range task.OnError {
 		c := &task.OnError[i]
@@ -71,23 +68,17 @@ func matchOnErrorWith(task *model.Task, errCode errcode.Code, eval func(string) 
 	return nil, nil
 }
 
-// handleCallError evaluates on_error rules, retries if allowed, injects `error`, and routes
-// to the matching goto or fails the instance, returning the outcome for runAdvance to
-// write. A pending pause needs no case here: the write that persists the outcome lands it
-// (the CASE in UpdateInstance), so a paused instance keeps the attempt it was granted.
+// handleCallError needs no pause case: the CASE in UpdateInstance lands it on the write,
+// so a paused instance keeps the attempt it was granted.
 func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code) advanceOutcome {
 	return e.handleCallErrorWith(inst, task, errMsg, errCode, nil)
 }
 
-// handleCallErrorWith is handleCallError plus fields merged into `error` beyond
-// task/message/code — today only `data`: the body of an unaccepted response whose status a
-// `responses` key declared, or the payload a worker submitted for a code an external task
-// declared under `raises`. A nil map leaves `error` exactly as it was; a map holding a nil
-// `data` is NOT the same thing, because key presence is what says the shape was described.
+// handleCallErrorWith merges extra into `error`. A nil map is NOT a map holding a nil `data`:
+// key presence is what says the shape was described.
 func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code, extra map[string]any) advanceOutcome {
-	// The `error` an M2 case reads is the one this call is about to report, built here rather
-	// than at the write below: matching needs it, and the retry branch returns before any
-	// write, so a rule that declines — or a retry that is granted — leaves nothing behind.
+	// Built here, not at the write below: matching needs it, and a declined rule or a granted
+	// retry must leave nothing behind.
 	caseErr := map[string]any{"task": task.ID, "message": errMsg, "code": string(errCode)}
 	for k, v := range extra {
 		caseErr[k] = v
@@ -97,10 +88,8 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q: %v", task.ID, matchErr))
 	}
 
-	// Any slot of a policy may be a "$:" expression, so it is resolved before it is
-	// consulted. A resolution failure fails the instance rather than falling through: a
-	// policy that quietly became "no retries" is the attempt budget an author wrote
-	// vanishing with nothing reporting it.
+	// A resolution failure fails the instance: a policy that quietly became "no retries" is an
+	// author's budget vanishing with nothing reporting it.
 	var policy model.ResolvedRetry
 	if matched != nil && !matched.Retry.IsZero() {
 		resolved, err := e.resolveRetry(inst, matched.Retry, caseErr)
@@ -112,10 +101,8 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 
 	if inst.RetryCount < policy.Retries && isRetryAllowed(task, errCode, matched) {
 		inst.RetryCount++
-		// A retry re-attempts the task without transitioning, so nothing else moves the
-		// epoch here -- and the next attempt is a new OCCURRENCE, which is what an external
-		// task's token has to be unique per (see runExternal). Making the epoch count
-		// attempts rather than only entries is what lets the token be derived from it.
+		// A retry is a new OCCURRENCE without a transition, and an external token is derived from
+		// the epoch (see runExternal).
 		inst.TaskEpoch++
 		next := db.Now().Add(e.retryDelay(inst.RetryCount, policy))
 		inst.WakeAt = &next
@@ -132,20 +119,16 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	for k, v := range extra {
 		errCtx[k] = v
 	}
-	// Bound for the clause about to be evaluated, and written for whoever reads the instance
-	// after it — the task a goto routes to, or an operator looking at where it stopped. The
-	// write is deferred because until this rule is done, `last_error` is still the failure that
-	// routed control INTO this task, which a rule may name beside the one it caught.
-	// specs/task-scopes.md.
+	// The write is deferred: until this rule is done, `last_error` is still the failure that
+	// routed INTO this task, which a rule may name beside the one it caught. specs/task-scopes.md.
 	release := bindCaught(inst, errCtx)
 	defer func() {
 		release()
 		inst.State[model.StateLastError] = errCtx
 	}()
 
-	// An authored terminal clause outranks routing. Both keep the engine's own code in
-	// `last_error` (above) so the underlying cause stays visible on the instance detail, while
-	// error_code becomes the authored one -- the code an operator filters and alerts on.
+	// `last_error` keeps the engine's code so the cause stays visible; error_code becomes the
+	// authored one.
 	if matched != nil && matched.Raise != nil {
 		return e.raiseInstance(inst, task, matched.Raise, e.selfBeforeOutput(inst))
 	}
@@ -170,10 +153,8 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	return e.failInstance(inst, errCode, fmt.Sprintf("task %q: %s: %s", task.ID, errCode, errMsg))
 }
 
-// completeViaErrorHandler finalizes an on_error → end route; the action path and the batch
-// path both come through here so they cannot drift — the process output is computed
-// exactly as on a normal end (a fork of this once silently dropped it). msg/code are the
-// caught error's, recorded on EventErrorCompleted.
+// completeViaErrorHandler is shared by the action and batch paths so they cannot drift: a
+// fork once silently dropped the process output.
 func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *model.Task, msg string, code errcode.Code) advanceOutcome {
 	inst.Status = model.StatusCompleted
 	inst.RetryCount = 0
@@ -185,18 +166,13 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// faultMessage renders a fault's message against the scope its clause fires in: a switch case
-// passes `self`, an on_error or collect rule passes nil and reads the `error` already in the
-// context. The CODE is never rendered — it stays a literal so the raise set stays computable.
-// A render failure falls back to the source text: the instance is already concluding, so there
-// is nowhere to report a second error to.
+// faultMessage never renders the CODE: a literal keeps the raise set computable. A render
+// failure falls back to the source text, since the instance is already concluding.
 func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self any) string {
 	rendered, err := e.evalShape(inst, shape.Shape{Raw: f.Message}, self)
 	if err != nil {
-		// Degrading is right -- escalating would trade the outcome the author asked for
-		// against a cosmetic failure -- but it must not be SILENT. `${ }` is also legal
-		// literal text (that is what `$${` escapes), so an unrendered template is
-		// indistinguishable from an intended one to whoever reads the message.
+		// Degrade, but not SILENTLY: `${ }` is legal literal text (`$${` escapes it), so an
+		// unrendered template reads as intended.
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
 			Msg: fmt.Sprintf("fault message did not render, emitting its source text: %v", err)})
 		return f.Message
@@ -204,9 +180,8 @@ func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self 
 	if s, ok := rendered.(string); ok {
 		return s
 	}
-	// Registration type-checks a message to a non-null string, so arriving here means that
-	// guarantee did not hold at runtime. Show the value rather than the template: it is the
-	// evidence, and the template is what the reader already has.
+	// Registration guaranteed a string. Show the value: it is the evidence, and the reader
+	// already has the template.
 	e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
 		Msg: fmt.Sprintf("fault message rendered to %T, not a string", rendered)})
 	return fmt.Sprint(rendered)
@@ -244,10 +219,9 @@ func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f 
 	return out
 }
 
-// evalFaultData evaluates a clause's `data` in the scope its message renders in. It must run
-// BEFORE the clause concludes, since the scope includes the `error` this instance is handling.
-// Unlike a message, a failed evaluation is not degraded: the payload is a contract, and
-// dropping it would report the loss at the caller's conform. specs/error-extensions.md §X2-c.
+// evalFaultData must run BEFORE the clause concludes: its scope includes the `error` being
+// handled. Never degraded like a message: the payload is a contract.
+// specs/error-extensions.md §X2-c.
 func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self any) (any, error) {
 	if !f.Data.Present() {
 		return nil, nil
@@ -255,10 +229,8 @@ func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self
 	return e.evalShape(inst, *f.Data, self)
 }
 
-// setErrorData lands the clause's payload in its own slot, ABSENT where the clause carried
-// nothing -- which is what tells a parent's collect there is no payload to conform. It must
-// not touch `error`, the error this instance CAUGHT: that is part of its state at this task,
-// which an upgrade validates against.
+// setErrorData leaves the slot ABSENT for no payload, which is what tells a parent's collect
+// there is nothing to conform. Never touch `error`: an upgrade validates what was CAUGHT.
 func setErrorData(inst *model.ProcessInstance, data any) {
 	if data == nil {
 		delete(inst.State, model.StateErrorData)
@@ -291,15 +263,11 @@ func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settleCancelling lands 'cancelling' in the terminal 'cancelled'; reached only when a worker
-// died holding the instance. Unlike settlePausing it does NOT resolve an interrupted only_once
-// first: that resolution exists to route only_once.interrupted into on_error so the process
-// carries on, which is what the operator just forbade. specs/only-once-interrupted.md.
+// settleCancelling is reached only when a worker died holding the instance. No interrupted
+// only_once resolution first: routing it into on_error carries on what the operator forbade.
 func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
-	// Status only, like settlePausing and unlike settleFailing: a cancel abandons a wait
-	// rather than ending one, so phase and wake_at stay as the record of what this
-	// instance was doing when it was stopped. It is also what ReleaseExternalClaim finds a
-	// claim by, and a cancelled worker is told to release.
+	// Status only: phase and wake_at record what the instance was doing, and
+	// ReleaseExternalClaim finds a claim by them.
 	inst.Status = model.StatusCancelled
 	// The other half of inst_cancelled: CancelProcess logs the rows it settled itself, this
 	// covers the leased one it could only mark 'cancelling'.

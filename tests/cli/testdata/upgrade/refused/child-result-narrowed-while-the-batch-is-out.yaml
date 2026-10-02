@@ -1,15 +1,6 @@
-# The same in-flight question, asked of a child task instead of an external one — and it is the
-# same question, because the parent conforms whatever its children produce against ITS OWN
-# result_schema at collect time, using the version it is on THEN.
-#
-# The parent is parked with its batch out. Its stored state migrates cleanly; what does not is
-# the promise it made about the result. A child that already completed stays on the version it
-# ran (terminal descendants do not move), so its output was produced under the old contract and
-# would be conformed under the new one.
-#
-# Safety here is transitive rather than direct: registration guarantees a child's output fits
-# the parent's result_schema, so `old ⊆ new` on that schema carries the guarantee across the
-# move. Refusing when it does not is what keeps the chain intact.
+# The parent conforms its children's output against its own result_schema at collect, on the
+# version it is on then, and a completed child stays on its old version. Registration plus
+# old ⊆ new is what keeps that chain intact, so a narrowing is refused.
 apply:
   - definitions:
       - name: kid
@@ -67,16 +58,9 @@ apply:
                 required: [v]
             output: {r: '$: self.result'}
             switch: end
-# All three positions, and they say where the gate's boundary falls for a child batch:
-#
-#   tick 0  nothing spawned    no promise made, so the narrowing is free
-#   tick 1  child RUNNING      refused — and knowingly over-refused: this child moves to the
-#                              version the parent's target names, which registration already
-#                              checked, so nothing it can produce would break. §5.8 of
-#                              specs/version-compatibility.md keeps the coarse relation anyway.
-#   tick 2  child COMPLETED    refused, and here it is earned: a terminal descendant stays on
-#                              the version that ran it, so its stored output would be conformed
-#                              under a schema that never promised to accept it.
+# tick 0: nothing spawned, free. tick 1: child running, knowingly over-refused (it moves to a
+# registration-checked version; version-compatibility.md §5.8 keeps the coarse relation).
+# tick 2: child completed and stays on v1, so the refusal is earned.
 start: {process: boss, input: {n: 1}}
 at:
   - ticks: 0

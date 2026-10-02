@@ -1,8 +1,5 @@
-# A caller declares the shape of a child's raised payload; narrowing that declaration breaks
-# both members, as narrowing a result does. The upgrade break also lands where the payload is
-# read — the task the rule routes to — because `raises` types `last_error.data` there, and an
-# instance parked in the child call resumes into a definition that demands more of the payload
-# than the one it was spawned under.
+# Narrowing a child's declared raise payload breaks both members, as narrowing a result does. The
+# upgrade break also lands at the handler, where `raises` types `last_error.data`.
 apply:
   - channel: declined_a
     definitions:

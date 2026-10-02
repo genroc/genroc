@@ -125,10 +125,8 @@ test("child — on_error against a child that raises nothing is rejected at regi
     },
   });
 
-  // Any on_error pattern on the parent's child task is therefore unreachable: a failed
-  // child is never catchable (it poisons its ancestors), only a raised code is — and this
-  // child raises none. This is the mechanism that replaces the old special-cased
-  // "child.failed cannot be caught" rule.
+  // A failed child is never catchable (it poisons its ancestors), only a raised code is — and
+  // this child raises none, so any pattern here is unreachable.
   const { error } = await client.PUT("/definitions", {
     body: {
       name: parentName,
@@ -363,10 +361,7 @@ test("child_map — recursive spawn completes with correct aggregated output", a
   expect((data?.output as any)?.processes).toBe(7);
 });
 
-// Regression: a parent with TWO sequential child tasks must spawn both batches.
-// Before phase was persisted by UpdateInstanceProgress, the stale
-// 'collecting' left over from the first task's collect made the engine treat
-// the second spawn task as already-collected and skip it silently.
+// Regression: a stale 'collecting' phase left by the first collect made the engine skip the second spawn.
 test("child — two sequential child tasks both spawn and collect", async () => {
   const uid = crypto.randomUUID();
   const leafName = `seq_leaf_${uid}`;

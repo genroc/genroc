@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-// The code-phase resolver: manifest on stdin, `{"code": [...]}` on stdout, non-zero exit
-// with the diagnostic on stderr. genctl never parses TypeScript and this never parses YAML
-// — the manifest is the whole contract. See specs/source-resolution.md.
-//
-// Two modes, one binary: "types" writes the declarations an editor needs and returns no
-// code; "build" typechecks and bundles. A separate types hook would mean a second `tsc`
-// over the same project.
+// The code-phase resolver: manifest on stdin, `{"code": [...]}` on stdout, diagnostic on stderr
+// with a non-zero exit (specs/source-resolution.md). Two modes share one `tsc` pass: "types"
+// writes declarations only, "build" typechecks and bundles.
 
 import { existsSync } from "node:fs";
 import { access, writeFile } from "node:fs/promises";
@@ -194,9 +190,8 @@ function typesPathFor(scriptPath: string): string {
 
 // ── typecheck ──────────────────────────────────────────────────────────────────
 
-/** The nearest tsconfig above the script — the one the author's editor already reads. Two
- *  different configs mean a red editor over a clean apply, or the reverse. The walk stops at
- *  the project root: above it is not this project. */
+/** The tsconfig the author's editor reads, so editor and apply agree. Stops at the project
+ *  root. */
 async function nearestTsconfig(
   from: string,
   root: string,
@@ -233,9 +228,8 @@ async function typecheck(sites: Located[]): Promise<void> {
         // `lib` DESCRIBES the realm and is written after `extends` so a base cannot widen it:
         // a worker thread has no document, whatever an author's config claims.
         lib: ["esnext", "webworker"],
-        // `types` is the author's, and it is how a script opts into the node globals —
-        // the worker realm has them, so refusing the declarations would only lie. With no
-        // base config there is nothing to opt in with, so the default stays none.
+        // `types` is the author's opt-in to node globals, which the realm has. With no base
+        // config there is nothing to opt in with, so it stays none.
         ...(base ? {} : { types: [] }),
       },
       files: group.flatMap((s) => [s.file, typesPathFor(s.file)]),
@@ -243,9 +237,8 @@ async function typecheck(sites: Located[]): Promise<void> {
       // drag the author's whole tree in, to be checked under the worker lib.
       include: [],
     };
-    // Never written: the name only anchors `@types` lookup at the root. It must not be
-    // `tsconfig.json`: that is the base the config `extends` whenever the author keeps one at
-    // the root, and tsc refuses a config that extends its own path as circular.
+    // Never written; anchors `@types` lookup at the root. Not `tsconfig.json`: that is often the
+    // base it extends, and tsc refuses a circular extends.
     const parsed = ts.parseJsonConfigFileContent(
       config,
       ts.sys,
@@ -303,11 +296,9 @@ const BUILTIN = new Set([
   ...builtinModules.map((m) => `node:${m}`),
 ]);
 
-/** Resolves imports through TYPESCRIPT, using the same config the typecheck ran under, so a
- *  `paths` alias that compiles also bundles. Reimplementing `paths` here would be a second
- *  resolver to keep in agreement with tsc; this one cannot disagree.
- *  A package resolving to a `.d.ts` is declined — that is a type, not the implementation —
- *  which leaves node_modules to nodeResolve. */
+/** Resolves through TYPESCRIPT under the typecheck's config, so a `paths` alias that compiles
+ *  also bundles. A `.d.ts` resolution is declined (a type, not code), leaving node_modules to
+ *  nodeResolve. */
 function tsResolve(configPath: string | null): Plugin {
   let options: ts.CompilerOptions = {};
   if (configPath) {
@@ -337,14 +328,12 @@ function tsResolve(configPath: string | null): Plugin {
   };
 }
 
-/** Bundles to a self-contained ES module, which is what the evaluator imports: the default
- *  export it calls is the author's own, so nothing wraps or rewrites the code between the two.
- *  Bundling is entirely the importer's job, so a definition version pins its code forever. */
+/** A self-contained ES module whose default export is the author's own, unwrapped. Bundling here
+ *  means a definition version pins its code forever. */
 async function bundle(at: Located): Promise<string> {
   const site = at.site;
-  // Builtins are EXTERNALISED as imports the realm resolves natively. Anything else
-  // unresolved is a REFUSAL, not an external: rollup's default is to leave it as an import
-  // of a module that will not be there, which bundles clean and fails at runtime.
+  // Builtins are externalised; anything else unresolved is a REFUSAL, since rollup's default
+  // leaves an import that bundles clean and fails at runtime.
   const built = await rollup({
     input: at.file,
     external: (id) => BUILTIN.has(id),
@@ -352,8 +341,7 @@ async function bundle(at: Located): Promise<string> {
       tsResolve(await nearestTsconfig(dirname(at.file), root)),
       nodeResolve({ extensions: [".ts", ".tsx", ".mjs", ".js", ".json"] }),
       commonjs(),
-      // A `.json` import is a data file inlined at build time, which the previous bundler
-      // did natively; without it rollup hands the JSON to the JS parser.
+      // Inlines `.json` imports; without it rollup hands JSON to the JS parser.
       json(),
       transpile,
     ],
@@ -396,10 +384,8 @@ const root = process.cwd();
 if (!manifest || !Array.isArray(manifest.processes))
   die("stdin is not a genroc resolver manifest");
 
-/** Every site with the process it sits in and the file its argument names, in the manifest's own
- *  order — which is the order `code` must answer in. genctl passes the argument verbatim, so
- *  joining it to the definition's directory is this resolver's business: only it knows the
- *  argument is a path at all. */
+/** Sites in manifest order, the order `code` must answer in. The argument is joined to the
+ *  definition's directory here: only this resolver knows it is a path. */
 type Located = { site: Site; where: ManifestProcess; file: string };
 
 /** A pointer as the address it is, so a generated comment or an error can be pasted into
@@ -422,15 +408,10 @@ const located: Located[] = manifest.processes.flatMap((where) =>
   })),
 );
 
-// genctl is agnostic about what a script is for; the contract that an evaluation request carries
-// its module in `code` is THIS resolver's, so it is the one that checks a directive landed there.
-// `child` is the shape the scaffold uses — a call to a process that forwards to the evaluator —
-// and `external` is the same request made directly.
+// The `code`-field contract is this resolver's, not genctl's, so it checks the directive landed
+// there: in a child call (the scaffold's shape) or an external task's input.
 for (const at of located) {
-  // Two halves, from the two places that carry them: the action's KIND is a field, and WHERE in
-  // it the directive sits is the pointer. A child call is the shape the scaffold generates — to a
-  // process that forwards to the evaluator — and an external task is the same request made
-  // directly.
+  // The action's kind is a field; where in it the directive sits is the pointer.
   const kind = at.site.level === "action" ? (at.site.action ?? "") : "";
   const slot = at.site.pointer.slice(-2).join(".");
   if ((kind !== "child" && kind !== "external") || slot !== "input.code") {
@@ -442,8 +423,7 @@ for (const at of located) {
   }
 }
 
-// genctl no longer stats the argument — it does not know it is a file — so the resolver that
-// does is the one that must say when it is not there.
+// genctl does not know the argument is a file, so this resolver reports a missing one.
 for (const at of located) {
   if (!existsSync(at.file)) {
     die(

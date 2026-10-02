@@ -4,9 +4,8 @@ import type { AddressInfo } from "net";
 import type { components, paths } from "../generated/api.ts";
 import { BASE_URL } from "./constants.ts";
 
-// The spec declares the API prefix in `servers`; openapi-fetch does not read that, so the
-// base URL carries it. `/healthz` is mounted at the ROOT (actionDef.Root) and is the one
-// path this client cannot reach — rootClient is for those.
+// openapi-fetch ignores the spec's `servers` prefix, so the base URL carries it. Root-mounted
+// paths (`/healthz`, actionDef.Root) need rootClient.
 export const API_BASE = `${BASE_URL}/api`;
 export const client = createClient<paths>({ baseUrl: API_BASE });
 export const rootClient = createClient<paths>({ baseUrl: BASE_URL });
@@ -18,14 +17,7 @@ type PostClient = Pick<typeof client, "POST">;
 
 type InstanceQuery = NonNullable<paths["/instances"]["get"]["parameters"]["query"]>;
 
-// listAllInstances pages forward through GET /instances, following page.after
-// until it is absent, and returns every matching instance. List endpoints now cap
-// a page (default/cap 1000), so callers that need the whole set must page rather
-// than read a single response.
-/**
- * Every instance, CHILDREN INCLUDED — the endpoint lists roots only by default (one row
- * per tree), so enumerating a tree from the outside has to ask for them.
- */
+/** Every instance, CHILDREN INCLUDED (the endpoint lists roots only by default), across pages. */
 export async function listAllInstances(
   apiClient: ApiClient = client,
   query: Pick<InstanceQuery, "status"> = {},
@@ -44,13 +36,8 @@ export async function listAllInstances(
 }
 
 /**
- * The instance's STATE: everything stored on it, bookkeeping slots included. `context` on the
- * status response carries only what a definition's author reads (input/outputs/output/error);
- * the engine's own slots -- external_input, _spawn_*, _error_data -- live
- * here, because they are state and not context.
- *
- * detail MOVES three slots to fields of their own so nothing on that response is said twice;
- * this puts them back, because a caller asking for the state wants the whole of it.
+ * The instance's whole STATE, bookkeeping slots (external_input, _spawn_*, _error_data) included.
+ * detail moves three slots to fields of their own; this puts them back.
  */
 export async function instanceState(
   id: string,
@@ -72,11 +59,6 @@ export async function instanceState(
   return state;
 }
 
-/**
- * The children a spawn task made, keyed the way its action type keys them. Derived by the
- * server from the child rows, not read off a slot on the parent — so a `child_list` that
- * spawned nothing names no task at all.
- */
 /** A finished instance's `outputs`, keyed by task id. Throws where the instance cannot be read. */
 export async function outputsOf(
   id: string,
@@ -107,6 +89,10 @@ export async function runToEnd(process: string, input?: unknown, timeoutMs = 20_
   return { id, status, data };
 }
 
+/**
+ * A spawn task's children, keyed as its action type keys them. Derived from the child rows, so a
+ * `child_list` that spawned nothing names no task at all.
+ */
 export async function childrenOfTask(
   id: string,
   taskID: string,
@@ -131,19 +117,13 @@ export async function waitForInstance(
     });
     if (error) throw new Error(`get_instance failed: ${JSON.stringify(error)}`);
     const status = data?.status;
-    // paused is deliberately absent: it is not an outcome, just work that is not
-    // being advanced, so waiting for a terminal state must not stop on it.
-    // raised is present: a `raise` clause is a settled conclusion like the other two.
-    // cancelled likewise -- it is settled, and leaving it out makes every test that stops an
-    // instance wait out its whole timeout before failing on a state that had already arrived.
+    // Not paused: it is not an outcome, only work not being advanced.
     if (status === "completed" || status === "failed" || status === "raised" || status === "cancelled")
       return status!;
     await new Promise((r) => setTimeout(r, 100));
   }
-  // The state at the deadline, in the message: a timeout says only that the instance did not
-  // settle, and the three answers to WHY are distinguishable from the row. `phase:external`
-  // means an answer never un-parked it; a moving `updated_at` means the engine is advancing it
-  // and something else is slow; a still one means it was never claimed.
+  // The row says why: `phase:external` was never un-parked, a moving `updated_at` is slow
+  // advancing, a still one was never claimed.
   const { data } = await apiClient.GET("/instances/{id}/detail", { params: { path: { id } } });
   const at = data as { status?: string; phase?: string; task?: string; updated_at?: string };
   throw new Error(
@@ -153,10 +133,8 @@ export async function waitForInstance(
   );
 }
 
-// Trigger one engine poll cycle. Returns the number of instances processed.
-// Only useful when the server was started with --poll 0 (manual tick mode).
-// advanceMs shifts the server clock forward (milliseconds) before the tick,
-// expiring leases and retry timers without real waits.
+// One engine cycle on a --poll 0 server, returning the instances processed. `advanceMs` moves the
+// server clock first, expiring leases and retry timers without real waits.
 export async function tick(
   apiClient: PostClient = client,
   advanceMs?: number,
@@ -173,9 +151,7 @@ interface MockServiceOptions {
   response?: Record<string, unknown>;
   // HTTP status code to return. Defaults to 200.
   statusCode?: number;
-  // How long to delay the very first request before responding.
-  // 0 (default) = respond immediately.
-  // Infinity     = never respond; use this to simulate a worker hanging mid-task.
+  // Delay before answering the first request; Infinity holds it until release().
   firstRequestDelayMs?: number;
 }
 
@@ -184,18 +160,14 @@ export async function startMockService(port: number, options: MockServiceOptions
   const body = JSON.stringify(response);
 
   let count = 0;
-  // The request line as the server received it, so a test can assert what was actually sent
-  // — query encoding is only observable here.
+  // The request line as received: query encoding is only observable here.
   const urls: string[] = [];
-  // The request BODY as received, for the same reason: what a declared body_schema conformed
-  // away is only observable on this side of the wire.
+  // The body as received: what a declared body_schema conformed away is only observable here.
   const bodies: string[] = [];
   let resolveFirst!: () => void;
   const firstRequestReceived = new Promise<void>((r) => {
     resolveFirst = r;
   });
-  // pendingSend is set when firstRequestDelayMs === Infinity so the caller
-  // can unblock the held HTTP response by calling release().
   let pendingSend: (() => void) | undefined;
 
   const server = createServer((req, res) => {
@@ -257,14 +229,8 @@ export async function fetchObject(ref: string, apiClient: PostClient | typeof cl
 }
 
 /**
- * spliceObjects is what every recipient of the objects protocol owes it: fetch each listed value
- * and put it back at the path it named. The server no longer does this — `?resolve=true`
- * materialized every slot behind one query parameter, which is an unbounded response nobody
- * asked the size of. Paths are arrays of keys, so walking one needs no parser and no unescaping.
- *
- * A section belongs to whatever object owns its values, so this splices the body's OWN section
- * and then each entry's, recursing into `items`. That is what makes a path stable in a list:
- * it is rooted at the entry, so accumulating pages or reversing rows cannot invalidate it.
+ * Fetches each listed object and puts it back at its path. A section is rooted at its owner (the
+ * body, then each of `items`), so a path survives accumulating pages or reversing rows.
  */
 export async function spliceObjects<T>(body: T, apiClient: typeof client = client): Promise<T> {
   const owner = body as { objects?: ObjectEntry[]; items?: unknown[] };

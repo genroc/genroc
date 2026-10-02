@@ -1,9 +1,7 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// map reshapes an array inside an expression, so a child_list can fan out over a
-// shape the caller never sent. Before map, `over` could only pass an input array
-// through unchanged, and Shape cannot build an array structurally at all.
+// Without map, `over` can only pass an input array through: a Shape cannot build an array.
 test("map — child_list fans out over a reshaped array", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const leaf = `map_leaf_${uid}`;
@@ -86,9 +84,6 @@ test("map — child_list fans out over a reshaped array", async () => {
   expect((data?.output as any)?.lines).toEqual(["AAAx2", "BBBx5"]);
 });
 
-// The registration-time type check is the point of a statically inferred map: a
-// body that reads a field the element does not have must be rejected on upload,
-// not produce nulls at runtime.
 test("map — a bad field in the lambda body is rejected at registration", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const res = await client.PUT("/definitions", {
@@ -115,8 +110,6 @@ test("map — a bad field in the lambda body is rejected at registration", async
   expect(res.response.status).toBe(400);
 });
 
-// A nullable source would fail at runtime, so it is a registration error with a
-// hint; adding the ?? default makes the same definition register.
 test("map — a nullable source is rejected, and ?? [] fixes it", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const inputSchema = {

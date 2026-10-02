@@ -1,13 +1,5 @@
-# the-child-family-parks-too.yaml makes this argument for `result_schema`; the error channel is
-# the same promise and reaches the rule by the same route. A child that RAISES carries a payload
-# its parent conforms against raises[code] as that declaration currently stands, so narrowing it
-# strands a parent already waiting — exactly as narrowing the result does.
-#
-#   one   child       one map of codes on the action
-#   many  child_map   one PER KEY, and the address carries the key: `many:child_map.a.raises`
-#   each  child_list  one map for every element
-#
-# Both members, as for the result: the child is the submitter the narrowing binds.
+# As the-child-family-parks-too.yaml, for `raises`: a raised payload is conformed against
+# raises[code] as it now stands, so narrowing strands a waiting parent. Both members break.
 apply:
   - channel: raisefam_a
     definitions:

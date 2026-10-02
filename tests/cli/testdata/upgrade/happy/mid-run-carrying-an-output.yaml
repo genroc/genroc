@@ -1,10 +1,5 @@
-# One task has produced an output and the instance is sitting at the next. This is the first
-# state that is genuinely the ENGINE's: outputs.first exists because a task ran and projected
-# it, not because anything created it that way.
-#
-# A definition-level check cannot tell this state from "at entry" — both are the same two
-# versions — which is the whole reason these cases drive a real instance rather than
-# comparing documents.
+# The first state that is the engine's own: `first` ran and projected an output. A document
+# comparison cannot tell it from at-entry, hence a real instance.
 apply:
   - definitions:
       - name: midproc
@@ -41,6 +36,5 @@ start: {process: midproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
 resting: {task: second, status: running, outputs: [first], state_keys: [input, outputs]}
 after: {task: second, status: running, outputs: [first], state_keys: [input, outputs]}
 run: [midproc, --from, "1", --to, "2"]
-# `first` ran on v1 and its output is what the process returns, so a migration that dropped or
-# reshaped the outputs map shows up here as a hole rather than as a state that merely looked right.
+# `first`'s v1 output is the process result, so a migration that dropped it shows a hole here.
 finish: {status: completed, output: {carried: 2}}

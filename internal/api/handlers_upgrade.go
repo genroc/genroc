@@ -1,9 +1,7 @@
 package api
 
-// Moving a process tree to another version of its definition. This handler owns the
-// composition: PLAN which versions the tree moves to (db), MIGRATE each state to the
-// definition it is moving to (validation), then WRITE them together (db). Neither of those
-// packages knows about the other, which is why the operation lives here.
+// Moving a process tree to another definition version: PLAN (db), MIGRATE each state
+// (validation), WRITE together (db). Neither package knows the other, so it lives here.
 // specs/version-compatibility.md s4.
 
 import (
@@ -52,10 +50,8 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 	if err != nil {
 		return errReply(err)
 	}
-	// The unit of upgrade is a tree, and a child is not one. Moving it alone would leave its
-	// parent collecting a version its own definition does not name -- the drift s3c exists to
-	// prevent -- and the parent is not in this plan to be moved with it. Refused here rather
-	// than in the CLI because it is an invariant of the operation, not a convenience.
+	// A child alone would leave its parent collecting a version its definition does not name
+	// (s3c). An invariant of the operation, so refused here, not in the CLI.
 	if root.ParentID != "" {
 		return conflict("instance %q has a parent (%s); upgrade its root instead, which moves the whole tree",
 			id, root.ParentID).reply()
@@ -68,9 +64,8 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 
 	plan, err := h.db.PlanUpgrade(ctx, id, req.ToVersion)
 	if err != nil {
-		// A tree the plan cannot form is a refusal, not a failure to answer: it names the child
-		// and the reason, which is what the caller wants, and reads the same as every other
-		// refusal rather than as an internal error.
+		// An unformable tree is a refusal naming the child and reason, like every other
+		// refusal, not an internal error.
 		if errors.Is(err, db.ErrUpgradeBlocked) {
 			return okReply(UpgradeResp{Moves: []UpgradeMove{{
 				ID: root.ID, Process: root.ProcessName, Task: root.Task,
@@ -94,10 +89,8 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 			resp.Moves = append(resp.Moves, move)
 			continue
 		}
-		// Checked here as well as in the write's SQL predicate, so the refusal names the
-		// instance and the reason rather than surfacing as a row count that did not match.
-		// paused and failed are the settled states: a running instance can be claimed and
-		// advanced between this plan and the write, and failing/pausing are draining.
+		// Also in the write's SQL predicate; checked here so the refusal names the reason. A
+		// running instance can advance between plan and write; failing/pausing are draining.
 		if !movableStatus(m.Instance.Status) {
 			move.Reason = fmt.Sprintf("status is %s; only paused or failed instances can be moved", m.Instance.Status)
 			resp.Moves = append(resp.Moves, move)
@@ -117,11 +110,8 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 			resp.Moves = append(resp.Moves, move)
 			return okReply(resp)
 		}
-		// The state is only half of it. An instance PARKED mid-task also has a result on its
-		// way back: a worker was handed the old version's contract and will answer against it,
-		// and no layer describes a value that is not on the row yet. So the new version has to
-		// accept what the old one promised, or the work already in flight lands on a schema
-		// that refuses it.
+		// A PARKED instance also has a result in flight against the old contract, so the new
+		// version must accept what the old one promised.
 		if reason := h.inFlightBreak(m.Instance, def, m.ToVersion); reason != "" {
 			move.Reason = reason
 			resp.Moves = append(resp.Moves, move)
@@ -139,9 +129,8 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 	return okReply(resp)
 }
 
-// auditUpgrades records each move on its own instance's trail. Best-effort, like every
-// other audit write: the upgrade already committed, and losing the entry costs the story,
-// not the state.
+// auditUpgrades is best-effort: the upgrade already committed, so a lost entry costs the
+// story, not the state.
 func (h *Handlers) auditUpgrades(ups []db.InstanceUpgrade, actor string) {
 	for _, up := range ups {
 		h.db.AppendLog(&model.LogEntry{
@@ -163,14 +152,9 @@ func movableStatus(s model.Status) bool {
 	return s == model.StatusPaused || s == model.StatusFailed
 }
 
-// inFlightBreak reports why an instance HELD in its task cannot move, or "" when it can: the task
-// changed action type under it, or it holds an outstanding RESULT the new version would refuse.
-// Scoped to a held instance: a task that merely COULD hold one is registration's concern.
-//
-// It compares SCHEMAS and deliberately OVER-REFUSES on a child task, where conforming the
-// actual output would answer precisely. Kept because refusing leaves a tree paused and an
-// operator informed, while allowing wedges the parent at collect with a result nothing can
-// accept. Refining it needs materialisation, so it belongs here rather than in validation.
+// inFlightBreak says why a HELD instance cannot move ("" if it can): its task changed type, or the
+// new version would refuse the result it waits for. Over-refuses on a child task on purpose —
+// refusing leaves an operator informed; allowing wedges the parent at collect.
 func (h *Handlers) inFlightBreak(inst *model.ProcessInstance, to *model.ProcessDefinition, toVersion int) string {
 	// A delay holds its instance with no phase, only a wake_at.
 	if inst.Phase == model.PhaseNone && inst.WakeAt == nil {

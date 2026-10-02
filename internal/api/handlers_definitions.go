@@ -19,11 +19,8 @@ func (h *Handlers) putDefinition(raw json.RawMessage, actor string) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// Everything Validate judges is the submitted document, so every failure it reports is
-	// invalid — including the hand-written rules (an unknown goto, a duplicate task id), which
-	// return PLAIN errors and classified as internal until this wrap: a client saw a 500 for a
-	// definition it had written wrong. The *model.ValidationError struct-tag failures stay
-	// walkable through it, so errReply still expands them into per-field detail.
+	// Every Validate failure is the document's, so all are invalid: the hand-written rules return
+	// plain errors that would classify as 500. %w keeps the per-field detail walkable.
 	if err := req.Validate(); err != nil {
 		return errReply(invalid("%w", err))
 	}
@@ -35,9 +32,8 @@ func (h *Handlers) putDefinition(raw json.RawMessage, actor string) Reply {
 	if err := validation.ValidateChildProcessRefs(&req.ProcessDefinition, version, h.db); err != nil {
 		return invalid("%w", err).reply()
 	}
-	// Reject registration if a required config var has no value in the server
-	// environment, the same rule ResolveConfig enforces at instance start — so a
-	// missing GENROC_<PROCESS>_<NAME> surfaces here rather than on first start.
+	// ResolveConfig's instance-start rule, applied now so a missing GENROC_<PROCESS>_<NAME>
+	// surfaces at registration.
 	if _, err := req.ResolveConfig(os.LookupEnv); err != nil {
 		return errReply(err)
 	}
@@ -118,18 +114,16 @@ func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
 	return okReply(results)
 }
 
-// applyBatch validates every definition first (against its batch siblings' versions),
-// then commits the lot in one transaction. Nothing in planning may write, nothing in the
-// commit may judge — interleaving once left an apply half-landed. See CLAUDE.md.
+// applyBatch plans, then commits in one transaction: nothing in planning may write, nothing
+// in the commit may judge (CLAUDE.md).
 func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor string) ([]BatchApplyResult, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
 	}
 
-	// Ahead of topoSort, which walks tasks: a document that fails Validate need not be
-	// shaped like one — a null entry in `tasks` decodes to a nil *Task, and every walk
-	// from here down dereferences it. Every failure judges the submitted document.
+	// Before topoSort: a null `tasks` entry decodes to a nil *Task, which every walk below
+	// dereferences.
 	for _, def := range ptrs {
 		if err := def.Validate(); err != nil {
 			return nil, invalid("%s: %w", def.Name, err)
@@ -141,9 +135,8 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		return nil, invalid("%w", err)
 	}
 
-	// batchVersions tracks the resolved version for each process in this batch. It is
-	// filled during planning, so a sibling validating against it sees the version the
-	// commit will write rather than what the DB currently holds.
+	// batchVersions is filled during planning, so a sibling validates against the version
+	// the commit will write.
 	batchVersions := make(map[string]int, len(sorted))
 
 	var (
@@ -175,9 +168,8 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		rawNew, _ := json.Marshal(def)
 		hash := contentHash(rawNew, newDeps)
 		if v, err := h.db.FindVersionByHash(def.Name, hash); err == nil {
-			// Actor, even though no definition row is written: ApplyDefinitions upserts the
-			// channel pointer for this branch too, stamping updated_at. Leaving it unset would
-			// make the row read "moved just now" by whoever set it LAST time.
+			// Actor even with no definition row: ApplyDefinitions still upserts the pointer
+			// (CLAUDE.md).
 			plan = append(plan, db.DefinitionWrite{
 				Name: def.Name, Version: v, Channels: h.channelsFor(def.Name, channel), Actor: actor,
 			})
@@ -189,9 +181,8 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		// Build a validation copy with baked-in versions for validation.
 		defForValidation := applyDepsToDefCopy(def, newDeps)
 		getter := &batchGetter{batch: sorted, versions: batchVersions, db: h.db}
-		// Everything in this block judges the submitted document, so it is invalid,
-		// not internal. ResolveConfig below is deliberately left unclassified: an
-		// unset GENROC_* var is the server's environment, not the client's request.
+		// Invalid, not internal. ResolveConfig below stays unclassified: an unset GENROC_*
+		// var is the server's environment, not the request.
 		if _, err := validation.Generate(defForValidation); err != nil {
 			return nil, invalid("%s: %w", def.Name, err)
 		}
@@ -220,9 +211,8 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 	return results, nil
 }
 
-// channelsFor lists the channel pointers an entry must set: the requested one, plus
-// `latest` when the process lacks it. Decided during planning — asked mid-commit it
-// would read rows the same transaction is writing.
+// channelsFor adds `latest` when the process lacks it. Decided during planning: asked
+// mid-commit it would read the transaction's own writes.
 func (h *Handlers) channelsFor(name, channel string) []string {
 	channels := []string{channel}
 	if channel != defaultChannel {
@@ -233,9 +223,8 @@ func (h *Handlers) channelsFor(name, channel string) []string {
 	return channels
 }
 
-// buildResolvedDeps returns dependency rows for a def's child/child_map/child_list tasks,
-// resolving version=0 refs via batchVersions or the channel. Self-refs are excluded
-// (the engine runs them at the caller's version) and def is not mutated.
+// buildResolvedDeps excludes self-refs (the engine runs them at the caller's version) and
+// does not mutate def.
 func (h *Handlers) buildResolvedDeps(def *model.ProcessDefinition, selfVersion int, channel string, batchVersions map[string]int) ([]db.DependencyRow, error) {
 	var deps []db.DependencyRow
 	for _, task := range def.Tasks {
@@ -295,9 +284,8 @@ func (h *Handlers) resolveChildVersion(childName string, childVersion int, taskI
 		if childKey != "" {
 			label = fmt.Sprintf("%s[%q]", childName, childKey)
 		}
-		// Classified invalid rather than letting the wrapped ErrNotFound surface as 404:
-		// the submitted parent names a child the channel does not carry, so the fault is
-		// in the document, not in a resource the caller asked to read.
+		// Invalid, not 404: the fault is in the document, not a resource the caller asked
+		// to read.
 		return 0, invalid("task %q child %s: not on channel %q (%w)", taskID, label, channel, err)
 	}
 	return v, nil
@@ -373,9 +361,8 @@ type taskChildKey struct {
 	childKey string
 }
 
-// applyDepsToDefCopy returns a deep copy of def with resolved child versions baked in, as
-// a validation copy for genrocschema (the stored def is unchanged). Self-refs keep
-// version=0 — the engine resolves them via inst.ProcessVersion.
+// applyDepsToDefCopy bakes resolved child versions into a validation copy. Self-refs keep
+// version=0: the engine resolves them via inst.ProcessVersion.
 func applyDepsToDefCopy(def *model.ProcessDefinition, deps []db.DependencyRow) *model.ProcessDefinition {
 	data, _ := json.Marshal(def)
 	var copy model.ProcessDefinition
@@ -487,19 +474,15 @@ func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
 	return okReply(schemas)
 }
 
-// validateSubmitted runs the checks a submitted document must pass before it means
-// anything; every caller that takes user documents runs it first ("unanalysable" is a
-// worse answer than validate's). All failures are invalid; %w keeps ValidationError detail.
+// validateSubmitted must run before any analysis of user documents. Every failure is
+// invalid; %w keeps ValidationError detail.
 func (h *Handlers) validateSubmitted(defs []model.ProcessDefinition) ([]validation.SchemaFile, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
 	}
-	// The version each member WOULD be assigned. Without it a child that exists only in the
-	// batch resolves through the DB and is reported missing, so a batch applyBatch accepts
-	// could not be validated — and `genctl apply` now validates first to infer types.
-	// Hypothetical is sound here: validate writes nothing, and GetDefinition answers from
-	// the batch at exactly these versions.
+	// The version each member WOULD get, so a child that exists only in the batch resolves.
+	// Sound because validate writes nothing and the getter answers from the batch at these.
 	versions := make(map[string]int, len(ptrs))
 	for _, d := range ptrs {
 		latest, _ := h.db.LatestVersion(d.Name)

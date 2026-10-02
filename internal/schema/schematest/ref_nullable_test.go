@@ -7,11 +7,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// A `$ref` pointing AT a nullable puts the null INSIDE the target, where StripNull cannot see
-// it — refs ride through untouched on purpose, because leaving them symbolic is what keeps
-// recursive types finite. So `HasNull` says true and `StripNull` is a no-op, and any caller
-// that NARROWS rather than describes must materialize. Every guard on a whole task output hits
-// this, since an output is carried as a ref. specs/guard-narrowing.md.
+// A `$ref` pointing AT a nullable puts the null INSIDE the target. Every guard on a whole task
+// output has this shape, since an output is carried as a ref. specs/guard-narrowing.md.
 const refToNullable = `{
  "$defs": {"N": {"oneOf": [{"type":"null"}, {"type":"integer"}]}},
  "properties": {"x": {"$ref": "#/$defs/N"}, "y": {"type": ["integer","null"]}},
@@ -36,10 +33,8 @@ func TestNarrowingThroughARefToNullable(t *testing.T) {
 	}
 }
 
-// Everything that reads THROUGH a nullable needs the null actually gone, not just the ones
-// that narrow. A ref pointing at a nullable object described itself as `unknown` and offered
-// no members — the same symptom `Summary` was written to cure for `anyOf[$ref, null]`, one
-// level deeper.
+// Reading THROUGH a nullable needs the null gone too, not just narrowing: a ref to a nullable
+// object described itself as `unknown` and offered no members.
 func TestReadingThroughARefToNullable(t *testing.T) {
 	ctx := mustSchema(t, `{
 	 "$defs": {"N": {"oneOf": [{"type":"null"}, {"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}]}},
@@ -59,9 +54,8 @@ func TestReadingThroughARefToNullable(t *testing.T) {
 	}
 }
 
-// A value that is exactly null must describe itself. Stripping the null leaves the empty
-// node, which reads as `unknown` — so `null` used to summarise as `unknown|null`, which is
-// what a hover showed wherever a guard proved a value null.
+// Stripping the null leaves the empty node, which reads as `unknown`; a hover showed
+// `unknown|null` wherever a guard proved a value null.
 func TestSummaryOfExactlyNull(t *testing.T) {
 	if got := schema.Type("null").Summary(); got != "null" {
 		t.Errorf("Summary of an exactly-null schema = %q, want %q", got, "null")
@@ -137,13 +131,8 @@ func TestUnionArmHoldingARefToNullable(t *testing.T) {
 	}
 }
 
-// Following references has to stop somewhere, and the bound is the CYCLE rather than a hop
-// count: A holds B, B holds A or null, and every link is visited once on the way down.
-//
-// `CheckDoc` refuses this shape — a `$defs` cycle with no structural progress — so nothing a
-// definition can register reaches it, and what it RENDERS as is deliberately not asserted. The
-// claim is termination: a guard removed here costs a hung language server rather than a wrong
-// answer, and nothing else in the suite would notice.
+// The bound is the CYCLE, not a hop count. CheckDoc refuses this shape, so only termination is
+// asserted: a missing guard hangs the language server and nothing else would notice.
 func TestStripNullThroughAReferenceCycle(t *testing.T) {
 	const cyclic = `{
 	 "$defs": {"A": {"anyOf": [{"$ref": "#/$defs/B"}, {"type":"integer"}]},

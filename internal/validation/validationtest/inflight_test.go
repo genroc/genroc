@@ -22,10 +22,8 @@ func externalTask(rs *schema.Schema) *model.Task {
 	return &model.Task{ID: "hold", Action: &model.Action{Type: model.ActionTypeExternal, ResultSchema: rs}}
 }
 
-// A result in flight is judged by CONTRACT optics, not storage optics. Stored state gets the
-// tolerant relation because MigrateState can repair the gap; nobody does that to a worker's
-// submission, which is conformed once at the boundary and refused if a key is absent. The case
-// below is where the two relations disagree.
+// MigrateState repairs stored state; a worker's submission is conformed once at the boundary and
+// refused if a key is absent. Below is where the two relations disagree.
 func TestInFlightResultBreaks_JudgesByContractNotByStorage(t *testing.T) {
 	// `a` optional becomes required-and-nullable.
 	from := schemaOf(t, `{"type":"object","properties":{"a":{"type":"string"}}}`)
@@ -70,9 +68,8 @@ func externalRaising(codes model.Raises) *model.Task {
 	}}
 }
 
-// The error channel carries the same kind of promise as the result, and is judged the same way:
-// per code, `old ⊆ new`, strictly. A worker answering a failure was handed the old declaration
-// and its payload is conformed against whichever one the instance is on when it lands.
+// A worker answering a failure was handed the old declaration; its payload is conformed against
+// whichever one the instance is on when it lands.
 func TestInFlightResultBreaks_JudgesTheErrorChannelToo(t *testing.T) {
 	optional := schemaOf(t, `{"type":"object","properties":{"why":{"type":"string"}}}`)
 	required := schemaOf(t, `{"type":"object","properties":{"why":{"type":"string"}},"required":["why"]}`)

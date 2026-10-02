@@ -1,15 +1,6 @@
-# Child: sends one invoice. One instance per element of the parent's `over` array.
-#
-# This child shows the two different things a fan-out child can do when something goes
-# wrong, and they are not interchangeable:
-#
-#   a per-invoice problem  → COMPLETE with { ok: false, reason }. It is a RESULT. Every
-#                            sibling still runs and the parent collects all of them.
-#   a run-wide problem     → RAISE. It is CONTROL FLOW. The parent's on_error routes on
-#                            the first raise in slot order and the batch is abandoned.
-#
-# Getting this backwards is the common mistake: a child that raises on a bad invoice
-# throws away the other 49 results to report something the parent could have read.
+# Child: sends one invoice, one instance per element of the parent's `over`. A per-invoice
+# problem COMPLETES with { ok: false, reason } (a result; siblings run on); a run-wide one
+# RAISES (control flow; the batch is abandoned). Raising on one bad invoice discards 49 results.
 name: send-invoice
 input_schema:
   type: object
@@ -68,11 +59,8 @@ tasks:
       reason: "$: last_error.code"
     switch: end
 
-# Exactly one of `send` / `unsendable` ran, so each slot reads both. These infer as
-# non-null: the two tasks are the process's only terminals, so between them they cover
-# every way of ending, and the inferencer types the output per terminal rather than
-# against one collapsed context. Add a third terminal that sets neither and they go back
-# to nullable, correctly. See specs/path-sensitive-output.md.
+# Each slot reads both terminals. They infer non-null because the output is typed per terminal
+# and `send`/`unsendable` cover every ending (specs/path-sensitive-output.md).
 output:
   invoice_id: "$: input.invoice_id"
   ok: "$: outputs.send.ok ?? outputs.unsendable.ok"

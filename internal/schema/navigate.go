@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// ErrUnknownValue marks every refusal to read THROUGH the top type ({}). A caller that put
-// the {} there itself — inference recovering from a task whose output failed — uses this to
-// tell its own consequence apart from a real error, rather than matching on prose.
+// ErrUnknownValue marks every refusal to read THROUGH the top type ({}), so a caller that put
+// the {} there itself can tell its own consequence from a real error without matching prose.
 // specs/language-server.md §2.
 var ErrUnknownValue = errors.New("the value is unknown (its schema is {})")
 
@@ -22,14 +21,11 @@ type stepKind uint8
 const (
 	stepProp  stepKind = iota // a named property: .name or ["name"]
 	stepIndex                 // a literal array index: [0]
-	// stepKey is a computed key, a[expr]. It names no single position, so it
-	// navigates to the type every key shares — the array element or the map value.
-	// key holds the key expression when that is itself a static path, which is what
-	// lets two reads of a[k] share a narrowing guard.
+	// stepKey is a computed key, a[expr]: the type every key shares. key holds the key
+	// expression when it is a static path, which is what lets two reads of a[k] share a guard.
 	stepKey
 )
 
-// pathStep is one segment of a navigation path.
 type pathStep struct {
 	kind  stepKind
 	prop  string
@@ -138,10 +134,8 @@ func lookupProperty(s *node, name string, defs map[string]*node) (*node, error) 
 	return lookupPropertyGuard(s, name, defs, nil)
 }
 
-// lookupPropertyGuard is lookupProperty with a union-walk cycle guard: visiting holds
-// union nodes already being walked at this value position, so a reference cycle through
-// union variants fails that variant (a miss) instead of recursing forever. Recursion
-// through properties/items starts fresh — that is productive structure, not a cycle.
+// lookupPropertyGuard: visiting holds the union nodes walked at this value position, so a cycle
+// through variants misses instead of recursing. Properties/items start fresh — that is progress.
 func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting map[*node]bool) (*node, error) {
 	resolved, err := deref(s, defs)
 	if err != nil {
@@ -155,11 +149,8 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 		return &node{Type: SchemaType{"null"}}, nil
 	}
 
-	// `type: ["object","null"]` is the inline spelling of the union the oneOf branch below
-	// walks, and must answer the same: the null member has no properties, so the read yields
-	// the object member's type OR null. Reading the properties map directly instead would drop
-	// that arm and type the result non-nullable, which is a promise the evaluator breaks the
-	// first time the value is null.
+	// Must answer as the oneOf branch below does: reading the properties map directly would
+	// drop the null arm and type the read non-nullable, which the evaluator then breaks.
 	if resolved.Type.Contains("null") {
 		bare := stripNull(resolved)
 		prop, err := lookupPropertyGuard(bare, name, defs, visiting)
@@ -194,10 +185,8 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 			if v == nil {
 				return nil, fmt.Errorf("cannot access .%s: %s[%d] is nil", name, kw.name, i)
 			}
-			// Accessing a property *inside* a union variant is a look-inside
-			// operation: resolve a $ref variant first, so a reference to a
-			// null seed (mid-solve estimate) counts as the null arm rather
-			// than a missing field.
+			// Resolve a $ref variant first, so a ref to a mid-solve null seed counts
+			// as the null arm rather than a missing field.
 			rv, verr := deref(v, defs)
 			if verr != nil {
 				return nil, verr
@@ -206,11 +195,8 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 				hadNull = true
 				continue
 			}
-			// An unknown variant makes the whole access undecidable, so it is refused rather
-			// than folded in as another null arm. A miss elsewhere means "this variant does
-			// not have that field" — an answer; the top type means "nothing here is
-			// declared", which is not one. Reading through it would be reading INTO unknown
-			// data, which is the one thing {} exists to prevent.
+			// Refused, not folded in as a null arm: a miss is an answer, but an unknown
+			// variant makes the access undecidable, and reading INTO {} is what it prevents.
 			if isEmptyNode(rv) {
 				return nil, fmt.Errorf("cannot access .%s: one variant of %w, "+
 					"so nothing can be read through it — declare that variant's shape, or read the whole value", name, ErrUnknownValue)
@@ -249,16 +235,12 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 
 	prop, ok := resolved.Properties[name]
 	if !ok {
-		// Undeclared key. On an open map (additionalProperties set) it takes the
-		// additionalProperties type, wrapped nullable since the key may be absent;
-		// on a closed object it's an access error.
+		// Nullable: an open map's key may be absent.
 		if resolved.AdditionalProperties != nil {
 			return withNull(resolved.AdditionalProperties), nil
 		}
 		if resolved.Properties == nil {
-			// The top type ({}) is the one "no properties" case with an actionable fix,
-			// and the one an author reaches deliberately, so it gets its own message —
-			// the more so because the empty schema does not announce its own intent.
+			// Its own message: an author reaches {} deliberately, and it does not say so.
 			if isEmptyNode(resolved) {
 				return nil, fmt.Errorf("cannot access .%s: %w", name, ErrUnknownValue)
 			}
@@ -266,12 +248,8 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 		}
 		return nil, fmt.Errorf("field %q not found in schema", name)
 	}
-	// Returned as declared — a $ref stays a $ref, its taint riding the ref node. Non-nullable
-	// iff guaranteed present after validation: required, or defaulted (conformObject fills an
-	// absent optional's default). Only optional-without-default comes back nullable.
-	//
-	// The default is read BEFORE it is dropped: it decides presence here, and dropping it first
-	// would make every defaulted property read back nullable.
+	// A $ref stays a $ref (its taint rides the ref node). Read the default BEFORE dropping it:
+	// it decides presence, and dropping first makes every defaulted property read nullable.
 	nullable := !isRequired(resolved, name) && propDefault(prop, defs) == nil
 	prop = withoutDefault(prop)
 	if nullable {
@@ -280,18 +258,8 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 	return prop, nil
 }
 
-// withoutDefault is n with its `default` dropped, or n itself when it carries none.
-//
-// A default says how the object CONTAINING a property is conformed — absent, fill this — so by
-// the time the value is read the fill has happened and the keyword is spent. It is not part of
-// what the read yields. Carrying it makes the inferred type an invalid schema DOCUMENT the
-// moment anything requires the property holding it, since `checkDoc` refuses `required` beside
-// a `default`: presence would have two spellings and that pair is neither. A `$process` spread
-// writing an inferred `raises` payload is where that surfaced.
-//
-// A default behind a `$ref` is left alone. Removing it means materializing the reference, which
-// costs the name and does not terminate on a recursive one — so the narrow case is the one
-// worth closing, and `propDefault` still sees through the ref for the presence question above.
+// withoutDefault leaves a default behind a `$ref` alone: removing it means materializing the
+// reference, which does not terminate on a recursive one.
 func withoutDefault(n *node) *node {
 	if n == nil || n.Default == nil {
 		return n
@@ -477,10 +445,8 @@ func secretThroughRefs(n *node, defs map[string]*node, visiting map[*node]bool) 
 	return false
 }
 
-// SecretString renders a secret value as it appears in logs so the substring scrub
-// matches it. Strings pass through raw (they appear unquoted, and as a substring of
-// their quoted JSON form). Everything else uses its JSON encoding — notably a number is
-// "1000000" as json.Marshal writes it, not fmt's "1e+06", which would never match.
+// SecretString renders v as it appears in logs, so the substring scrub matches it: a string
+// raw, anything else as JSON (a number is "1000000", never fmt's "1e+06").
 func SecretString(v any) string {
 	if s, ok := v.(string); ok {
 		return s
@@ -517,10 +483,8 @@ func hasNullType(s *node) bool {
 	return false
 }
 
-// IsType reports whether s resolves to uniformly type typ: a non-empty type list all
-// equal to typ, or a oneOf/anyOf whose variants all resolve to typ. $refs are followed,
-// so a reference to a boolean definition is a boolean. Used, e.g., to require a switch
-// expression to be boolean.
+// IsType reports whether s resolves uniformly to typ — every type-list entry, or every
+// oneOf/anyOf variant — following $refs.
 func (s Schema) IsType(typ string) bool { return nodeIsType(s.n, s.rootDefs(), typ) }
 
 func nodeIsType(s *node, defs map[string]*node, typ string) bool {
@@ -550,22 +514,16 @@ func nodeIsType(s *node, defs map[string]*node, typ string) bool {
 	return false
 }
 
-// hasNullResolved reports whether null is a possible runtime value for s, following
-// $refs (top-level and one union level, matching hasNullType's depth) so nullability
-// declared inside a referenced definition is seen. Resolution failures degrade to the
-// structural answer.
+// hasNullResolved follows $refs so a null declared inside a definition is seen; a resolution
+// failure degrades to the structural answer.
 func hasNullResolved(s *node, defs map[string]*node) bool {
 	return hasNullGuard(s, defs, nil)
 }
 
-// hasNullGuard recurses through nested unions: a null inside oneOf[oneOf[…, null], …]
-// is still a null the value may take, and a one-level scan under-reports it — which
-// would let a caller treat a nullable type as non-null. visiting holds union nodes
-// already on the walk so a reference cycle terminates instead of recursing forever.
+// hasNullGuard recurses through nested unions — a one-level scan under-reports the null and
+// lets a caller treat a nullable as non-null. visiting terminates a reference cycle.
 func hasNullGuard(s *node, defs map[string]*node, visiting map[*node]bool) bool {
-	// A nil node is the zero Schema — no declared type, so nothing that admits null. It
-	// reaches here from any map index that missed, which is an ordinary way to ask "is the
-	// property at this name nullable"; panicking on it would make every such caller guard.
+	// Any map index that missed lands here; answering beats making every caller guard.
 	if s == nil {
 		return false
 	}
@@ -648,7 +606,6 @@ func withNull(s *node) *node {
 			return s
 		}
 	}
-	// Simple type without properties — widen type array to include null.
 	if len(s.Type) >= 1 && s.Properties == nil {
 		n := *s
 		n.Type = make(SchemaType, len(s.Type)+1)
@@ -663,11 +620,9 @@ func withNull(s *node) *node {
 // has already resolved, or one that must not (the estimate rule in stripNullIn's doc).
 func stripNull(s *node) *node { return stripNullIn(s, nil, nil) }
 
-// stripNullIn is that walk with references FOLLOWED, which is what the exported StripNull runs:
-// `defs` is what turns it on, and `seen` holds the ref nodes on the current path so a cycle
-// stops instead of inlining forever. A reference is resolved only where the null it is chasing
-// lives inside the target, so everything the null was never behind stays symbolic and the result
-// is finite. specs/guard-narrowing.md.
+// stripNullIn follows references when `defs` is set; `seen` holds the refs on the current path.
+// A ref resolves only where the null lives inside it, which keeps the result finite.
+// specs/guard-narrowing.md.
 func stripNullIn(s *node, defs map[string]*node, seen map[*node]bool) *node {
 	if s == nil || !hasNullResolved(s, defs) {
 		return s
@@ -754,14 +709,8 @@ func resolvesToNull(s *node, defs map[string]*node) bool {
 	return err == nil && isNullType(target)
 }
 
-// refTargetPending reports whether a `$ref` chain ends on a definition whose read would serve a
-// running ESTIMATE rather than a type. That estimate is nullable on purpose — it is the seed
-// that makes `x ?? 0` take its default arm on the first pass and the fixpoint converge — so
-// stripping its null is stripping the seed, and the one walk that follows references has to
-// stop there. It is the ONLY thing about a `$ref` that changes an answer, and it is not about
-// naming: the type does not exist yet. A definition merely undemanded is resolved as usual.
-//
-// It reads the defs map directly rather than through `deref`, which would resolve the very
+// refTargetPending: a `$ref` onto a definition mid-solve serves a nullable ESTIMATE, the seed the
+// fixpoint needs, so stripping stops there. Reads defs directly — `deref` would resolve the very
 // thing being asked about.
 func refTargetPending(s *node, defs map[string]*node) bool {
 	seen := map[*node]bool{}
@@ -788,10 +737,8 @@ func refTargetPending(s *node, defs map[string]*node) bool {
 // but declared, while this constrains nothing at all.
 func (s Schema) IsUnknown() bool { return isEmptyNode(s.n) }
 
-// isEmptyNode: does s constrain nothing — the top type {}, i.e. unknown? Root $defs are
-// ignored (navigation sub-schemas carry them as context only), and so is Description:
-// {"description": …} is still top, the recommended spelling for deliberate opacity.
-// Secret/Default being treated as top predates the unknown work; left as-is.
+// isEmptyNode: is s the top type {}? Root $defs and Description are ignored, so
+// {"description": …} is still top. Secret/Default counting as top predates unknown, not a design.
 func isEmptyNode(s *node) bool {
 	return s == nil || (len(s.Type) == 0 && s.Properties == nil && s.Required == nil &&
 		s.AdditionalProperties == nil &&

@@ -16,18 +16,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// `genctl init` — a project skeleton.
-//
-// Templates are EMBEDDED rather than fetched. A scaffolder that downloads its templates
-// produces skew: genctl v0.3 writing a project written for v0.1. Embedding makes the skeleton
-// a property of the binary that wrote it.
+// `genctl init` — a project skeleton. Templates are EMBEDDED, never fetched: a downloaded
+// skeleton skews against the binary that writes it.
 
 //go:embed all:templates
 var templates embed.FS
 
 func runInitCmd(args []string) {
-	// A subcommand rather than a top-level verb: it belongs to what `init` set up, and the
-	// password it replaces is the one `init` printed.
+	// Under init, not top-level: the password it replaces is the one `init` printed.
 	if len(args) > 0 && args[0] == "password" {
 		runPasswordCmd(args[1:])
 		return
@@ -38,8 +34,7 @@ func runInitCmd(args []string) {
 	}
 	choices, tag, assumeYes := parseInitArgs(args)
 
-	// Prompt only when someone is there to answer. A pipe, a CI job or `| head` gets the
-	// defaults instead of hanging on a read nobody will satisfy.
+	// Prompt only when someone can answer: a pipe or CI job gets the defaults, not a hang.
 	if !assumeYes && interactive() {
 		choices = choices.prompt(prompter{in: bufio.NewReader(os.Stdin), out: os.Stderr})
 	}
@@ -110,9 +105,8 @@ func runInitCmd(args []string) {
 		}
 		written = append(written, secrets...)
 	}
-	// Unconditional: ./data holds the database whether or not there is a login, and a Postgres
-	// cluster or a SQLite file in `git status` is the same mistake as a committed signing key.
-	// Appended rather than written, because every template set already ships a .gitignore.
+	// Unconditional: ./data holds the database even without a login. Appended, not rendered:
+	// every template set already ships a .gitignore.
 	if err := ignoreData(filepath.Join(dir, ".gitignore")); err != nil {
 		fatal("init: %v", err)
 	}
@@ -120,8 +114,7 @@ func runInitCmd(args []string) {
 	for _, w := range written {
 		fmt.Println("created", w)
 	}
-	// The steps, credentials included. The password used to be printed above this list, which
-	// put the one thing that cannot be recovered in the place people scroll past.
+	// Credentials go in the steps, not above the file list, where they get scrolled past.
 	const indent = "       "
 	fmt.Println()
 	fmt.Print("next:  ")
@@ -133,9 +126,8 @@ func runInitCmd(args []string) {
 		fmt.Println(indent + "npm install")
 	}
 	if login != nil {
-		// genctl needs a credential of its own: a browser session is a cookie, and genroc
-		// accepts only `Authorization`. Minting one is an admin action, which this password
-		// grants -- so the sign-in and the token belong to one step, not two.
+		// genctl needs its own token (genroc accepts only `Authorization`, not the session
+		// cookie), and minting one takes this password -- so one step, not two.
 		fmt.Println(indent + "open http://localhost:8448 and sign in")
 		fmt.Printf("%s    email     %s\n", indent, login.email)
 		fmt.Printf("%s    password  %s\n", indent, login.password)
@@ -145,9 +137,7 @@ func runInitCmd(args []string) {
 	fmt.Println(indent + "genctl apply")
 	fmt.Println(indent + "genctl run hello --set who=you")
 	if auth {
-		// Stored only as a bcrypt hash, so the line above is the only time it exists in
-		// readable form -- which is why the replacement command is named here rather than
-		// left to be searched for.
+		// Stored only as a bcrypt hash, so the replacement command is named here.
 		fmt.Println("\nThe password is shown once; `genctl init password` mints a replacement.\n" +
 			"`config set` keeps the token in ~/.config/genroc/config.yaml (0600) rather than in " +
 			"the\nenvironment, where it is inherited by every process you start and shows up in " +
@@ -166,20 +156,17 @@ func runInitCmd(args []string) {
 	}
 }
 
-// parseInitArgs turns the command line into the decisions init makes, so the flag surface --
-// six flags with interactions -- is testable without writing a project.
+// parseInitArgs is split out so the flag surface is testable without writing a project.
 func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	evalNode, postgres := false, false
-	// No login by default: this scaffolds a laptop, where signing in and minting a token stand
-	// between `up -d` and the first `apply`. `--auth` adds it, and anything anyone else can
-	// reach needs it -- `PUT /definitions` stores code the engine runs.
+	// No login by default: this scaffolds a laptop. prompt's default must agree.
 	auth := false
 	var setEvalNode, setPostgres, setAuth bool
 	dir, tag := ".", ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		// A flag answers ITS OWN question and no others. Making one imply -y meant
-		// `--no-auth` chose the folder, the database and the script tasks too, silently.
+		// A flag answers ITS OWN question only: implying -y would let `--no-auth` silently pick
+		// the folder and database too.
 		switch {
 		case a == "--eval-node":
 			evalNode, setEvalNode = true, true
@@ -216,11 +203,9 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	}, tag, assumeYes
 }
 
-// releaseTag names what a generated project pulls: the image tag AND the npm dist-tag, published
-// under the same names by release.yml -- one rule, because two let them disagree. EXACT for a
-// release, not a range: genctl and the resolver speak a manifest protocol, so a caret would let
-// npm pick a newer resolver than the binary invoking it. A plain `go build` takes `latest`, and
-// `--version edge` is how someone developing genroc gets main. Pinned by TestReleaseTag.
+// releaseTag is both the image tag and the npm dist-tag (release.yml publishes both). EXACT for
+// a release, never a caret: genctl and the resolver speak a manifest protocol, so npm must not
+// pick a newer resolver than this binary. Pinned by TestReleaseTag.
 func releaseTag() string {
 	switch {
 	case isSemver(version):
@@ -250,21 +235,18 @@ func isSemver(v string) bool {
 	return digits == 3
 }
 
-// options is what init decides before it writes anything. Separated from the writing so the
-// answers can be tested without a terminal -- a pty harness proved unreliable, and the wiring
-// from an answer to a generated file is the part worth pinning.
+// options is decided before anything is written, so answers are testable without a terminal
+// (a pty harness proved unreliable).
 type options struct {
 	dir, email               string
 	evalNode, postgres, auth bool
-	// set* records which answers came from the command line, so the prompt does not ask a
-	// question already answered -- and cannot then override it with its own default, which is
-	// how `--postgres` used to come back as SQLite.
+	// set* marks command-line answers, which the prompt must neither re-ask nor override with its
+	// own default.
 	setEvalNode, setPostgres, setAuth bool
 }
 
 func (o options) prompt(p prompter) options {
-	// A DIRECTORY, said so plainly. The earlier wording ("project name") implied the answer
-	// became something inside the files; it is the folder this writes into.
+	// A folder, not a "project name": the answer is where this writes, not something in the files.
 	if o.dir == "." {
 		o.dir = p.ask("folder to create (. for the current directory)", "genroc-app")
 	}
@@ -286,9 +268,8 @@ func (o options) prompt(p prompter) options {
 
 const defaultEmail = "admin@localhost"
 
-// login is the one account `--ui` creates. A GENERATED password rather than a fixed one: a
-// scaffold that ships a known credential is a scaffold whose every user shares it, and this one
-// reaches the port the UI publishes.
+// login's password is GENERATED, never fixed: every scaffold would share a known credential, and
+// this one reaches the port the UI publishes.
 type login struct{ email, password, hash string }
 
 func newLogin(email string) (*login, error) {
@@ -324,10 +305,8 @@ func randomPassword() (string, error) {
 	return string(out), nil
 }
 
-// writeSecrets generates what the stack cannot commit -- the whole reason `--ui` is a mode rather
-// than one more template. 0644, so the images can read them as whatever uid they run as: a
-// development default, stated as one in init's output, since the alternative is a root container
-// or a uid pinned into a committed compose file.
+// writeSecrets writes 0644 so the images can read them as any uid: a development default, stated
+// as one in init's output. The alternative is a root container or a uid pinned in compose.
 func writeSecrets(dir string, evalNode bool) ([]string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -337,18 +316,15 @@ func writeSecrets(dir string, evalNode bool) ([]string, error) {
 		return nil, err
 	}
 	files := []struct{ name, content string }{{"jwt-secret", key}}
-	// No operator token is generated. A person signs in with the password below and mints their
-	// own in the UI, which is one credential rather than two and leaves no standing admin secret
-	// in a file. The server agrees: in jwt mode it skips its bootstrap token for the same reason.
+	// No operator token: a person mints their own in the UI, leaving no standing admin secret in
+	// a file (the server's jwt mode skips its bootstrap token likewise).
 	if evalNode {
 		worker, err := randomToken()
 		if err != nil {
 			return nil, err
 		}
-		// A worker cannot log in, so its credential has to exist before it starts. One secret in
-		// two shapes, because two programs read it differently: genroc wants
-		// `label=perms=secret`, the worker wants the bare token. Written together so they
-		// cannot disagree.
+		// One secret in two shapes (genroc reads `label=perms=secret`, the worker the bare token),
+		// written together so they cannot disagree.
 		files = append(files,
 			struct{ name, content string }{"worker-token", worker},
 			struct{ name, content string }{"seed-tokens", "evaluator=worker=" + worker})
@@ -478,11 +454,8 @@ func (p prompter) askYesNo(label string, def bool) bool {
 	}
 }
 
-// `genctl password` — a new login for genroc-ui's `login.passwords`.
-//
-// It exists because the one `init` prints is shown once and stored only as a hash, so a lost
-// password has no other way back in. It is also how a second person is added, and it replaces
-// ui.yaml's `htpasswd` instruction, which needs a tool the person may not have.
+// `genctl init password` — a new entry for genroc-ui's `login.passwords`: the only way back from
+// a lost password (init's is stored as a hash), and how a second person is added.
 func runPasswordCmd(args []string) {
 	email := ""
 	for _, a := range args {

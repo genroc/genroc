@@ -478,10 +478,8 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	t.Logf("ran %d iterations: %d ok, %d deadlock", iterations, successCount, deadlockCount)
 }
 
-// Cancel racing pause on ONE tree. Both take the same rows in the same order under FOR UPDATE, and
-// either serial order ends cancelled: pause first leaves 'paused', which cancel's selector takes;
-// cancel first leaves 'cancelled', which pause's 'running'-only selector cannot touch. An
-// interleave leaving it merely paused would downgrade an operator's final stop to a reversible one.
+// Either serial order ends cancelled; an interleave leaving it merely paused would downgrade an
+// operator's final stop to a reversible one.
 func TestStress_CancelProcess_vs_PauseProcess(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -524,10 +522,8 @@ func TestStress_CancelProcess_vs_PauseProcess(t *testing.T) {
 	t.Logf("ran %d iterations; cancel won every interleave", iterations)
 }
 
-// A cancel moves the whole tree or none of it. Postgres-gated, because SQLite's single writer
-// would make this pass however it was written. The reader takes the tree in ONE statement, which
-// is what makes it a snapshot -- row by row it could not tell an atomicity bug from its own
-// sampling.
+// Postgres-gated: SQLite's single writer passes however it was written. The reader takes the tree
+// in ONE statement, or it could not tell an atomicity bug from its own sampling.
 func TestStress_CancelProcess_IsAtomic(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")

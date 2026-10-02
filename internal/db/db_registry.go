@@ -43,10 +43,9 @@ type VersionedDef struct {
 
 // ── Process Definitions ───────────────────────────────────────────────────────
 
-// DefinitionWrite is one definition's outcome in a batch apply, decided before any of them is
-// written. Def nil means the content already exists at Version and only the channel pointers
-// move. Channels are listed rather than derived: whether the default channel needs setting is a
-// question about state *before* the batch, which mid-commit could not answer.
+// DefinitionWrite is one definition's outcome in a batch apply, decided before any is written.
+// Def nil means the content already exists at Version; only channel pointers move. Channels are
+// listed, not derived: the default-channel question is about state *before* the batch.
 type DefinitionWrite struct {
 	Def      *model.ProcessDefinition
 	Name     string
@@ -58,10 +57,8 @@ type DefinitionWrite struct {
 	Actor string
 }
 
-// ApplyDefinitions commits a whole planned batch in one transaction: either every definition,
-// dependency and channel pointer lands, or none does -- an apply that half-succeeds leaves
-// parents pointing at children that were never written. Nothing here judges a definition, so
-// callers must decide and validate every entry first.
+// ApplyDefinitions commits a planned batch in one transaction: every definition, dependency and
+// channel pointer lands, or none does. Nothing here judges a definition; callers validate first.
 func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 	if len(writes) == 0 {
 		return nil
@@ -70,9 +67,7 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 		w    DefinitionWrite
 		data string
 	}
-	// Marshal before opening the transaction: a failure here is the caller's data, and
-	// holding a write transaction open across avoidable work costs the single SQLite
-	// writer for no reason.
+	// Marshal before the transaction, so avoidable work never holds the single SQLite writer.
 	rows := make([]marshalled, 0, len(writes))
 	for _, w := range writes {
 		data := ""
@@ -139,9 +134,8 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 	}); err != nil {
 		return err
 	}
-	// Only after the commit: InsertDefinition upserts, so a re-registered (name, version)
-	// can carry different content than a reader cached. Dropping the entry before the
-	// commit would let a concurrent read repopulate it from the pre-commit row.
+	// Only after the commit (InsertDefinition upserts): dropping before it lets a concurrent read
+	// repopulate the cache from the pre-commit row.
 	for _, r := range rows {
 		if r.w.Def != nil {
 			db.defCache.Delete(defKey{name: r.w.Name, version: r.w.Version})
@@ -150,9 +144,8 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 	return nil
 }
 
-// SaveDefinition persists a new process definition version with its dependencies.
-// If channel is non-empty, the channel pointer is updated in the same transaction
-// so a crash cannot leave a definition saved without a channel pointing to it.
+// SaveDefinition persists a new definition version with its dependencies and, if channel is
+// non-empty, moves that channel pointer in the same transaction.
 func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []DependencyRow, hash string, channel string, actor string) error {
 	data, err := json.Marshal(def)
 	if err != nil {
@@ -204,8 +197,7 @@ func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []D
 	}); err != nil {
 		return err
 	}
-	// Drop any stale cache entry: InsertDefinition uses ON CONFLICT DO UPDATE, so
-	// re-registering an existing (name, version) can change its content.
+	// After the commit, for the reason ApplyDefinitions gives.
 	db.defCache.Delete(defKey{name: def.Name, version: version})
 	return nil
 }
@@ -242,9 +234,6 @@ func (db *DB) LatestVersion(name string) (int, error) {
 	return int(v.(int64)), nil
 }
 
-// definitionPaginator is the pagination policy for ListDefinitions. Sort is by
-// name, keyed on the (name, version) PRIMARY KEY (its unique tiebreaker), so the
-// keyset rides the PK index.
 var definitionPaginator = paginator{
 	table:      "process_definitions",
 	columns:    "name, version, definition, created_at, actor",
@@ -253,9 +242,8 @@ var definitionPaginator = paginator{
 		// created carries name+version too: created_at alone is not unique, and a keyset
 		// cursor on a non-total order can skip or repeat a row at the page boundary.
 		"created": {{"created_at", kindInt}, {"name", kindText}, {"version", kindInt}},
-		// The only text sort in the codebase, so the only one collation-dependent: SQLite compares
-		// bytes, Postgres uses the locale. Each engine is self-consistent (paging never skips or
-		// repeats), but no test may assert a text order of its own.
+		// The only text sort, so the only collation-dependent one: no test may assert its order
+		// (internal/db/CLAUDE.md, "Text ordering is not portable").
 		"name": {{"name", kindText}, {"version", kindInt}},
 	},
 	defSort:  "created",
@@ -271,10 +259,9 @@ func definitionCursorVals(sort string, vd VersionedDef) []any {
 	return []any{vd.CreatedAt.UnixMilli(), vd.Def.Name, int64(vd.Version)}
 }
 
-// ListDefinitions returns a page of stored definitions, newest-registered first, bounded
-// by a Window on created_at (zero = unbounded). Pass PageReq.Sort "name" for the
-// alphabetical order instead — the window still applies, but it is then a filter rather
-// than the seek the caller is walking by.
+// ListDefinitions returns a page of stored definitions, newest-registered first, bounded by a
+// Window on created_at (zero = unbounded). PageReq.Sort "name" orders alphabetically; the window
+// then filters rather than seeks.
 func (db *DB) ListDefinitions(created Window, req PageReq) ([]VersionedDef, PageInfo, error) {
 	b, err := created.apply(definitionPaginator.query(req), "created_at").build()
 	if err != nil {
@@ -310,12 +297,9 @@ func (db *DB) FindVersionByHash(name, hash string) (int, error) {
 	return int(v.(int64)), nil
 }
 
-// ResolveChildVersion answers which version of `childName` a parent at (parentName,
-// parentVersion) spawns from taskID: a non-zero declared version wins; else a self-reference
-// inherits the parent's own version; else the version pinned at registration, falling back to
-// the child's latest. depKey is the child_map key ("" for child and child_list). One rule for
-// two callers -- the engine at spawn and an upgrade against the version a parent moves TO --
-// because a second copy would drift silently. specs/version-compatibility.md s3c.
+// ResolveChildVersion picks the childName version a parent spawns from taskID: declared if
+// non-zero, else the parent's own for a self-reference, else pinned at registration, else latest.
+// depKey is the child_map key. Spawn and upgrade share it. specs/version-compatibility.md s3c.
 func (db *DB) ResolveChildVersion(parentName string, parentVersion int, taskID, childName string, declared int, depKey string) (int, error) {
 	if declared != 0 {
 		return declared, nil
@@ -423,10 +407,8 @@ type ChannelRow struct {
 	Actor     string
 }
 
-// channelPaginator is the pagination policy for ListChannels. It is always scoped
-// to one process name (a required filter); within that name the channel is unique,
-// so it is both the sort key and its own tiebreaker — and (name, channel) is the
-// PRIMARY KEY, so the keyset rides the PK index.
+// channelPaginator is always scoped to one name, within which channel is unique (its own
+// tiebreaker), and (name, channel) is the PK, so the keyset rides the PK index.
 var channelPaginator = paginator{
 	table:      "process_channels",
 	columns:    "channel, version, updated_at, actor",

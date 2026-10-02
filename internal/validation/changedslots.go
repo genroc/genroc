@@ -10,9 +10,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// Changed slots are a FIELD comparison, never a schema judgement (see CLAUDE.md). A new
-// Action/Task field must be added here, and nothing fails if you forget —
-// TestChangedSlots_* enumerates both structs to make the omission loud.
+// Changed slots are a FIELD comparison, never a schema judgement (CLAUDE.md). A new Action/Task
+// field must be added here; TestChangedSlots_* enumerates both structs so forgetting is loud.
 
 // slot is one named, comparable field of a task or an action. field is the Go field it
 // reads, carried so the coverage test can enumerate the struct against this list.
@@ -32,9 +31,8 @@ var taskSlots = []slot[*model.Task]{
 	{"output_schema", "OutputSchema", func(t *model.Task) any { return t.OutputSchema }},
 }
 
-// actionSlots are the slots read off model.Action. A task with no action reads every one
-// of them as null, so gaining or losing an action reports as action.type changing —
-// which is the slot an operator would look for.
+// A task with no action reads every one of these as null, so gaining or losing an action
+// reports as action.type changing.
 var actionSlots = []slot[*model.Action]{
 	{"action.type", "Type", func(a *model.Action) any { return a.Type }},
 	{"action.url", "URL", func(a *model.Action) any { return a.URL }},
@@ -59,9 +57,8 @@ var actionSlots = []slot[*model.Action]{
 	{"action.tz", "TZ", func(a *model.Action) any { return a.TZ }},
 }
 
-// childEntrySlots decompose a `child_map`'s children. A key is a CALL, so its slots are
-// addressed the way an action's are — the same address a per-key break carries, which is what
-// lets §6b suppress the slot row where one broke.
+// A child_map key is a CALL, so its slots are addressed as an action's are — the address a
+// per-key break carries, which lets §6b suppress the slot row.
 var childEntrySlots = []slot[model.ChildEntry]{
 	{"name", "Name", func(c model.ChildEntry) any { return c.Name }},
 	{"version", "Version", func(c model.ChildEntry) any { return c.Version }},
@@ -71,10 +68,9 @@ var childEntrySlots = []slot[model.ChildEntry]{
 	{"raises", "Raises", func(c model.ChildEntry) any { return c.Raises }},
 }
 
-// definitionSlots are the process-level slots. `config_schema` and `$defs` are here to be
-// REPORTED, never judged: no verdict covers them, so without a row an edit to either comes
-// back as two clean verdicts with nothing under them. A `$defs` break ALSO lands wherever
-// Normalize baked the definition in — a different fact, and only that one can be missing.
+// `config_schema` and `$defs` are here to be REPORTED, never judged: without a row an edit to
+// either reads as two clean verdicts. A `$defs` break also lands wherever Normalize baked the
+// definition in — a different fact.
 var definitionSlots = []slot[*model.ProcessDefinition]{
 	{"input_schema", "InputSchema", func(d *model.ProcessDefinition) any { return d.InputSchema }},
 	{"config_schema", "ConfigSchema", func(d *model.ProcessDefinition) any { return d.ConfigSchema }},
@@ -92,9 +88,8 @@ const (
 	addressTasks = "tasks"
 )
 
-// slotAddress is where the report files a change to a slot: the place the slot defines, so
-// an edit lands where its consequences are read. An action's slots are polymorphic, so they
-// are addressed by the ACTION TYPE rather than the word `action` (§6a).
+// slotAddress files an edit where its consequences are read. Action slots are addressed by the
+// ACTION TYPE, not the word `action` (§6a).
 func slotAddress(task, slot, actionType string) string {
 	name := slot
 	// `action.type` is the discriminator the others are named by, so addressing it under a
@@ -111,10 +106,8 @@ func slotAddress(task, slot, actionType string) string {
 	return task + ":" + name
 }
 
-// slotLeafName is the last segment of an address. `result_schema` and `responses` both name
-// what they describe rather than what they are (§6a) — and `responses` must land on the SAME
-// leaf, because a fetch's statuses are compared as one merged union under `.result`; a
-// separate leaf here would print a slot row beside the break its own edit produced.
+// `responses` must share `result_schema`'s leaf (§6a): a fetch's statuses are compared as one
+// union under `.result`, and a separate leaf would print a slot row beside its own break.
 func slotLeafName(slot string) string {
 	if slot == "result_schema" || slot == "responses" {
 		return "result"
@@ -122,17 +115,14 @@ func slotLeafName(slot string) string {
 	return slot
 }
 
-// childKeyAddress is where a child_map's key is reported: the key names a call, so it sits
-// under the action type the same way an action's own slots do. compat.go builds break
-// addresses from it too — the two must agree, or §6b's suppression sees two places.
+// compat.go builds break addresses from this too; the two must agree, or §6b's suppression sees
+// two places.
 func childKeyAddress(task, actionType, key string) string {
 	return task + ":" + actionType + "." + key
 }
 
-// slotAffects is the question a slot BEARS ON — a property of the slot itself, not of any
-// comparison. Empty is a real answer, not an omission: it is what `(not judged)` renders, and
-// a slot added to the tables above and forgotten here reads that way too, which is the safe
-// direction. The rule is §3a's: who submits the value, and what conform stands between.
+// slotAffects is the question a slot BEARS ON (§3a). Empty renders `(not judged)` — which is
+// also how a slot forgotten here reads, the safe direction.
 func slotAffects(slot string) []Member {
 	switch slot {
 	// One slot, both questions — the case §3b is entirely about.
@@ -174,9 +164,8 @@ func changedTaskSlots(old, new *model.Task) []SlotChange {
 			emit(s.name)
 		}
 	}
-	// A task that became a different KIND of action reports that and nothing else: its other
-	// slots are not comparable across types, and listing them would file consequences beside
-	// the cause under an address (`go:external.url`) naming a slot that type does not have.
+	// A changed KIND reports that alone: the other slots are not comparable across types, and
+	// `go:external.url` would name a slot the new type lacks.
 	if typeChanged(old, new) {
 		emit("action.type")
 		return changed
@@ -189,9 +178,8 @@ func changedTaskSlots(old, new *model.Task) []SlotChange {
 	return append(changed, changedChildKeySlots(old, new)...)
 }
 
-// sortedResponseKeys orders a responses map for a stable report. Iteration is over KEY
-// PRESENCE throughout: a declared "202": null is a nil schema, which is also what an
-// undeclared status reads as, so a nil test would stop judging a slot that exists.
+// Iterate KEY PRESENCE throughout: a declared "202": null is a nil schema, which is also what
+// an undeclared status reads as.
 func sortedResponseKeys(m map[string]*schema.Schema) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -212,9 +200,8 @@ func changedChildKeySlots(old, new *model.Task) []SlotChange {
 	for _, key := range sortedChildKeys(old.Action.Children) {
 		newChild, ok := new.Action.Children[key]
 		if !ok {
-			// The call went. Nothing FAILS — the orphan output lands under an undeclared key and
-			// the output conform strips it — but a call that stopped being made is an edit no
-			// verdict covers, which is what this channel exists to report.
+			// Nothing FAILS (the conform strips the orphan output), but a call no longer made is
+			// an edit no verdict covers.
 			changed = append(changed, SlotChange{
 				Address: childKeyAddress(old.ID, actionType, key),
 				Task:    old.ID,
@@ -236,10 +223,8 @@ func changedChildKeySlots(old, new *model.Task) []SlotChange {
 	return changed
 }
 
-// childEntrySlotAffects is slotAffects for one key of a child_map, which always parks — so
-// its `result_schema` and `raises` bear on both questions, each being a conform standing
-// between this caller and the child. The rest are judged by nothing: §2c has why a key's
-// `name` needs no rule, and a pinned `version` is the child's own row to report.
+// A child_map key always parks, so its `result_schema` and `raises` bear on both questions.
+// `name` needs no rule (§2c), and a pinned `version` is the child's own row to report.
 func childEntrySlotAffects(slot string) []Member {
 	if slot == "result_schema" || slot == "raises" {
 		return []Member{MemberUpgrade, MemberContract}
@@ -251,10 +236,8 @@ func typeChanged(old, new *model.Task) bool {
 	return actionTypeOf(old) != actionTypeOf(new)
 }
 
-// taskSlotAffects is slotAffects plus the one rule that depends on the action rather than the
-// slot: a schema the engine conforms a settled call against — `result_schema`, and `raises`
-// for the error channel — is ALSO an upgrade concern where the task can park mid-flight, since
-// the instance holds state the entry context does not describe (§2c).
+// taskSlotAffects adds the one action-dependent rule: `result_schema` and `raises` are ALSO an
+// upgrade concern where the task parks mid-flight (§2c).
 func taskSlotAffects(slot, actionType string) []Member {
 	affects := slotAffects(slot)
 	if (slot == "action.result_schema" || slot == "action.raises") && parksMidTask(actionType) {
@@ -263,16 +246,14 @@ func taskSlotAffects(slot, actionType string) []Member {
 	return affects
 }
 
-// parksMidTask reports whether this action leaves a VALUE the entry context does not
-// describe. Derived from model.ActionType.Holds rather than restated — the engine and this
-// comparison need the same answer, and two copies of it drift silently.
+// parksMidTask: does the action leave a VALUE the entry context does not describe? Derived from
+// ActionType.Holds, which the engine shares — a restated copy would drift silently.
 func parksMidTask(actionType string) bool {
 	return model.ActionType(actionType).Holds().Result
 }
 
-// holdsAnInstance is the wider question: can an instance be SITTING in this action at all?
-// True for a delay too, which holds a live instance and no data — its timer was computed
-// under the old definition.
+// holdsAnInstance is wider: true for a delay too, whose timer was computed under the old
+// definition though it holds no data.
 func holdsAnInstance(actionType string) bool {
 	return model.ActionType(actionType).Holds().Anything()
 }
@@ -284,9 +265,8 @@ func actionTypeOf(t *model.Task) string {
 	return string(t.Action.Type)
 }
 
-// documentsDiffer: the content half of "unchanged" (versions can carry identical
-// content; submitted documents carry no number). Task ORDER counts — `switch: next`
-// routes by position, so a move changes control flow while every slot compares equal.
+// documentsDiffer is the content half of "unchanged". Task ORDER counts: `switch: next` routes
+// by position, so a move reroutes while every slot compares equal.
 func documentsDiffer(old, new *model.ProcessDefinition) bool {
 	if len(changedDefinitionSlots(old, new)) > 0 {
 		return true
@@ -327,10 +307,8 @@ func changedDefinitionSlots(old, new *model.ProcessDefinition) []SlotChange {
 	return changed
 }
 
-// reordered reports whether the tasks BOTH versions carry appear in a different order —
-// `switch: next` routes by position, so a move reroutes while every slot compares equal.
-// Only the tasks in common: an insertion shifts everything after it, and would otherwise
-// report a reorder beside the `(added)` row it already caused.
+// Only tasks BOTH versions carry: an insertion shifts everything after it and would report a
+// reorder beside the `(added)` row it already caused.
 func reordered(old, new *model.ProcessDefinition) bool {
 	inOld, inNew := tasksByID(old), tasksByID(new)
 	shared := func(def *model.ProcessDefinition, other map[string]*model.Task) []string {
@@ -352,9 +330,7 @@ func actionSlotValue(a *model.Action, s slot[*model.Action]) any {
 	return s.get(a)
 }
 
-// sameJSON compares two slot values by their encodings. A value that will not marshal is
-// reported changed rather than silently equal: the report exists to surface differences,
-// so an unreadable slot must not read as agreement.
+// A value that will not marshal reads as changed: an unreadable slot must not read as agreement.
 func sameJSON(a, b any) bool {
 	x, errA := json.Marshal(a)
 	y, errB := json.Marshal(b)

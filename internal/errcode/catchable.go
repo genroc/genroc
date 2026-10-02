@@ -14,19 +14,16 @@ const (
 	KindOnlyOnce                  // any action, and only where the task is only_once
 )
 
-// Info is a catchable code with what reports it and what it means, in the one line a caller
-// shows beside it. Every entry is a code the engine stores; the wildcard patterns that cover a
-// family are a way of NAMING codes, so they belong to whoever offers them.
+// Info is a code the engine stores, what reports it, and its one-line meaning. Wildcard
+// patterns are not codes: they belong to whoever offers them.
 type Info struct {
 	Code  Code
 	Kinds Kind
 	Means string
 }
 
-// catchable is the whole vocabulary an on_error rule matches against. Every code this package
-// declares belongs here or in the terminal engine.* set, and `TestEveryCodeIsClassified` is what
-// says so — a code in neither is one an author is never offered and never warned about. The
-// status family (HTTP) has no entry: it is unbounded, so only a pattern can stand for it.
+// catchable is the whole on_error vocabulary; TestEveryCodeIsClassified keeps every code here
+// or in terminal. HTTP has no entry: only a pattern can stand for an unbounded family.
 var catchable = []Info{
 	{HTTPTimeout, KindFetch, "connected, but no response arrived in time"},
 	{HTTPDisconnected, KindFetch, "the request went out, the connection broke before a response"},
@@ -52,10 +49,8 @@ func Catchable(kinds Kind) []Info {
 	return out
 }
 
-// terminal is the other half of the vocabulary: the engine failed the instance itself, so no
-// on_error rule ever sees one (errcode.go's engine.* block). Kinds is zero because no task
-// reports these — the engine does. `TestEveryTerminalCodeIsListed` keeps it complete, on the
-// same standard as catchable: a code with no prose is a bare name wherever it surfaces.
+// terminal: no on_error rule ever sees these, so Kinds is zero.
+// TestEveryTerminalCodeIsListed keeps it complete.
 var terminal = []Info{
 	{EngineDefinition, 0, "the definition is unusable: missing, or it names a task or goto that is not in it"},
 	{EngineExpression, 0, "an expression could not be evaluated against this context"},

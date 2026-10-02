@@ -52,10 +52,8 @@ func (s *uiServer) serveLoginPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(page)
 }
 
-// passwordLogin checks a bcrypt hash from the config -- the `staticPasswords` trade: one file, no
-// directory, no registration, no reset. It answers JSON rather than re-rendering, because the
-// caller is the login bundle's `fetch`; the session cookie rides on that response and the page
-// then navigates. specs/ui-issued-tokens.md §5.
+// passwordLogin checks a bcrypt hash from the config (specs/ui-issued-tokens.md §5). It answers
+// JSON to the login bundle's fetch; the session cookie rides on the response.
 func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	if s.sign == nil || len(s.cfg.Login.Passwords) == 0 {
 		writeJSONError(w, http.StatusNotImplemented, "password login is not configured")
@@ -69,9 +67,8 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	addr := clientIP(r)
 
-	// Checked BEFORE the hash comparison, so a throttled attacker costs nothing to refuse. The
-	// message does not say which limit tripped: telling an attacker whether they hit the
-	// per-email or per-address budget tells them whether the address exists.
+	// Checked BEFORE hashing, so refusing a throttled attacker costs nothing. The message never
+	// says which limit tripped: that would reveal whether the email exists.
 	for _, c := range []struct {
 		key string
 		max int
@@ -88,9 +85,8 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// One message for every failure, and the hash is compared even when no such user exists:
-	// distinguishing "no such account" from "wrong password" tells an attacker which addresses
-	// are real, and returning early on a miss says the same thing through timing.
+	// One message for every failure, and the hash is compared even for an unknown user: either
+	// difference (message or timing) would reveal which addresses are real.
 	var found *Password
 	for i := range s.cfg.Login.Passwords {
 		if strings.EqualFold(s.cfg.Login.Passwords[i].Email, email) {
@@ -112,9 +108,8 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "That email and password did not match.")
 		return
 	}
-	// A correct password says the earlier misses were a person mistyping. The ADDRESS budget is
-	// deliberately not cleared: one success must not buy an attacker a fresh budget for the
-	// other accounts they are working through.
+	// Only the email budget is cleared: one success must not buy an attacker a fresh ADDRESS
+	// budget for the other accounts.
 	s.limiter.succeed("email:" + email)
 	s.log.Info("password login", "email", found.Email)
 	if err := s.setSession(w, r, identity{Subject: found.Email, Groups: found.Groups}); err != nil {

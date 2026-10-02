@@ -7,10 +7,8 @@ import (
 	"time"
 )
 
-// The `for` grammar, tested by what each spec *means* rather than by how it decomposes
-// internally: every row resolves from one fixed anchor in UTC, where there are no DST
-// transitions and a calendar day is exactly 24 hours. The calendar behaviour those same
-// units carry under a real tz is the subject of calendar_test.go.
+// Every row resolves from one anchor in UTC, where a calendar day is exactly 24 hours; the
+// same units under a real tz are calendar_test.go.
 
 // anchor is a Wednesday in midsummer, far from any transition in any zone.
 const anchor = "2026-06-10 12:00"
@@ -84,9 +82,7 @@ func TestParseDuration_Rejects(t *testing.T) {
 	}
 }
 
-// time.Duration is int64 nanoseconds, so the multiply wraps inside the range an author can
-// type — and the dangerous case is a wrap landing somewhere plausible: "5124096h" parsed as
-// 25 minutes, which no downstream check catches and no message reports.
+// The dangerous wrap lands somewhere plausible: "5124096h" parsed as 25 minutes.
 func TestParseDuration_RefusesValuesThatWrapTheNanosecondCounter(t *testing.T) {
 	for _, spec := range []string{
 		"5124096h",                 // wrapped to a positive 25m26s

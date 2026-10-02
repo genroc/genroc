@@ -1,7 +1,5 @@
-# Dropping `required` while adding a default is NOT a break, and the default is the whole
-# reason: a defaulted optional is guaranteed present after a conform, so the read stays
-# non-null on both sides and nothing downstream moves. Loosen without one and the reads widen
-# to T|null instead — default-removed-widens-the-output.yaml is that edit.
+# Not a break: a defaulted optional is present after a conform, so reads stay non-null on
+# both sides.
 apply:
   - channel: reqloose_a
     definitions:

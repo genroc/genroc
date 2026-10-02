@@ -21,18 +21,15 @@ import (
 // task has no equivalent default: parking indefinitely is what it is for.
 const defaultActionTimeout = 30 * time.Second
 
-// fetchMeta is what a fetch answered besides its body, exposed for the duration of the task
-// as self.status and self.headers. Nil for every other action type — a delay or a child has
-// no status, and an always-null slot is one the type system would carry everywhere.
+// fetchMeta is exposed for the task as self.status and self.headers. Nil for every other
+// action type, matching inference (see taskSelf).
 type fetchMeta struct {
 	status  int
 	headers map[string]string
 }
 
-// executeAction sends a request to the task's endpoint and returns (output, meta, done):
-//   - done=nil: action succeeded; output is the task result and meta its response metadata.
-//   - done!=nil: the task loop should stop and persist this outcome (retry, error
-//     route, or permanent fail).
+// executeAction returns the result and its response metadata, or a non-nil outcome (retry,
+// error route, fail) the task loop must stop and persist.
 func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *fetchMeta, *advanceOutcome) {
 	// Resolved per attempt (a retry gets today's budget), then applied as a DURATION via
 	// WithTimeout, never a WithDeadline instant: it was read off db.Now() while context
@@ -46,8 +43,6 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	taskCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Resolve the request. The URL template can pull a base URL from config or input;
-	// secret values it carries are scrubbed from the logged URL/errors in audit().
 	url, err := e.resolveURL(inst, task.Action)
 	if err != nil {
 		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q url: %v", task.ID, err)))
@@ -60,9 +55,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	if err != nil {
 		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q headers: %v", task.ID, err)))
 	}
-	// Appended before the URL is logged, so the audit trail shows the request that was
-	// actually made rather than its stem. Secrets in a parameter are scrubbed by value at
-	// the audit sink, the same as anywhere else.
+	// Appended before the URL is logged, so the trail shows the request actually made.
 	url, err = e.appendQuery(inst, task.Action, url)
 	if err != nil {
 		return nil, nil, stop(e.failInstance(inst, declaredFailureCode(err, errcode.EngineInput, errcode.EngineExpression),
@@ -99,17 +92,12 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q accepted_status: %v", task.ID, err)))
 	}
 
-	// action_started: message = the action type; data = the request body; meta = {url} so the
-	// trail shows which URL was hit. Headers are intentionally omitted — they routinely carry
-	// secrets and the audit log is persisted.
+	// Headers are deliberately not logged: they routinely carry secrets, and the trail persists.
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventActionStarted, Task: task.ID, Msg: string(task.Action.Type), Data: e.snippet(body), Meta: map[string]any{"url": url}})
 
 	resp, err := transport.Send(taskCtx, task.Action, url, method, acceptedStatus, resolvedHeaders, body)
 	if err != nil {
 		code := transport.ClassifyGoError(err)
-		// action_failed (warn) records the call failure — error detail in data,
-		// code in code — separate from the operational retry/route event that follows.
-		// A transport error has no HTTP status, so meta stays absent.
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(err.Error())})
 		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), code))
 	}
@@ -131,14 +119,12 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 				extra = map[string]any{"data": value}
 			}
 		}
-		// action_failed (warn): error body in data, status in meta, code in code.
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})
 		return nil, nil, stop(e.handleCallErrorWith(inst, task, msg, code, extra))
 	}
 
-	// An accepted status whose body could not be decoded fails whatever was declared: the
-	// decode is JSON-only and an empty body already came back as null, so this is a response
-	// nothing could have read.
+	// An undecodable body fails whatever was declared: the decode is JSON-only and an empty
+	// body already came back as null, so nothing could have read this.
 	if resp.BodyCode != "" {
 		msg := resp.ErrorMessage
 		if msg == "" {
@@ -148,10 +134,8 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		return nil, nil, stop(e.handleCallError(inst, task, msg, resp.BodyCode))
 	}
 
-	// The schema declared for this status validates the raw result and normalizes it
-	// (undeclared keys dropped, defaults filled); it does not export it. The result is
-	// transient — available to this task's own output/switch as self.result. Only an
-	// `output` projection adds anything to outputs.<id>.
+	// Normalized, not exported: the result is transient (self.result); only an `output`
+	// projection adds anything to outputs.<id>.
 	normalized, _, err := task.Action.ValidateResponse(resp.Status, resp.Body)
 	if err != nil {
 		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), errcode.ResultInvalid))
@@ -159,9 +143,8 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	resp.Body = normalized
 	inst.RetryCount = 0
 
-	// action_succeeded: the response body in data, the HTTP status in meta. Info, not debug:
-	// what a call sent and what came back IS the task's work, and the size that put it at debug
-	// is the line clamp's problem and the object store's, not the level's.
+	// Info, not debug: what a call got back IS the task's work; its size is the line clamp's
+	// problem, not the level's.
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippet(resp.Body), Meta: statusMeta(resp.Status)})
 
 	return resp.Body, &fetchMeta{status: resp.Status, headers: resp.Headers}, nil
@@ -188,33 +171,29 @@ func (e *Engine) runDelay(inst *model.ProcessInstance, task *model.Task) *advanc
 		if err != nil {
 			return stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q delay: %v", task.ID, err)))
 		}
-		// A target in the past clamps rather than failing. Timers keep running while an
-		// instance is paused, so an `until` can legitimately resolve behind now on resume —
-		// the pause design requires that to be a no-op wait, not an error.
+		// A past target clamps, never fails: timers run while paused, so an `until` can
+		// legitimately resolve behind now on resume.
 		msg := fmt.Sprintf("%s -> %s", spec, wake.Format(time.RFC3339))
 		if wake.Before(now) {
 			msg = fmt.Sprintf("%s -> %s (already past; waking now)", spec, wake.Format(time.RFC3339))
 			wake = now
 		}
 		inst.WakeAt = &wake
-		// Log the source spec alongside the resolved absolute instant: without both, a
-		// calendar target is undebuggable after the fact.
+		// Both the spec and the instant: a calendar target is undebuggable from either alone.
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventDelayArmed, Task: task.ID, Msg: msg})
 		return stop(advanceOutcome{kind: outcomeProgress})
 	}
 	return nil
 }
 
-// resolveDelay turns a delay task's `for` / `until` slot into the absolute instant to wake
-// at, plus the source spec for the audit log. It is called once per task entry (runDelay
-// guards on WakeAt), so a calendar target cannot drift when the instance is re-claimed.
+// resolveDelay must run once per task entry (runDelay guards on WakeAt), so a calendar
+// target cannot drift when the instance is re-claimed.
 func (e *Engine) resolveDelay(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Time, string, error) {
 	return e.resolveSpec(inst, task.Action.DelaySpec, now)
 }
 
-// resolveSpec turns a `for` / `until` pair into the absolute instant it names, plus the
-// source spec for the audit log. Shared by the delay action and by a task timeout, which
-// is the same grammar pointed at a deadline rather than a wake-up.
+// resolveSpec is shared by delay and timeout. It returns a past instant untouched: each
+// caller decides what that means.
 func (e *Engine) resolveSpec(inst *model.ProcessInstance, spec model.DelaySpec, now time.Time) (time.Time, string, error) {
 	loc, err := delayspec.LoadLocation(spec.TZ)
 	if err != nil {
@@ -232,9 +211,8 @@ func (e *Engine) resolveSpec(inst *model.ProcessInstance, spec model.DelaySpec, 
 		return d.Resolve(now, loc), src, nil
 
 	default:
-		// `until`, since delayArity has established exactly one slot is set. A number (bare
-		// or from an expression) is unix milliseconds; only a literal goes through the
-		// instant grammar.
+		// `until`: a number (bare or from an expression) is unix ms; only a literal goes
+		// through the instant grammar.
 		if lit, ok := delayLiteral(spec.Until); ok {
 			target, err := delayspec.ParseInstant(lit)
 			if err != nil {
@@ -319,10 +297,8 @@ func (e *Engine) resolveDuration(inst *model.ProcessInstance, raw any) (*delaysp
 	return delayspec.Millis(ms), fmt.Sprintf("%dms", ms), nil
 }
 
-// delayLiteral reports whether raw is a pure literal string — the only form the delayspec
-// grammars apply to. A "$:" leaf and a bare number both evaluate to a count instead.
-// Classification mirrors checkDelaySlot in the validation package, which rejected the
-// remaining form ("${ }") at registration.
+// delayLiteral reports whether raw is a pure literal, the only form the grammars parse. Must
+// classify as validation's checkDelaySlot does, which rejected "${ }" at registration.
 func delayLiteral(raw any) (string, bool) {
 	src, ok := raw.(string)
 	if !ok {
@@ -335,8 +311,6 @@ func delayLiteral(raw any) (string, bool) {
 	return tmpl.Static()
 }
 
-// delayNumber evaluates a delay slot to a whole number: a "$:" expression against the
-// instance context, or a bare JSON number passed through.
 func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error) {
 	v := raw
 	if src, ok := raw.(string); ok {
@@ -348,17 +322,10 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 	return delayMillis(v)
 }
 
-// runExternal, by phase and the submitted outcome: (1) first arrival — snapshot input,
-// mint a token, park on 'external' with wake_at from the timeout; (2) an outcome submitted —
-// a failure routes through on_error, a result is consumed; (3) still parked ⇒ claimable only
-// because wake_at passed ⇒ external.timeout.
-// Returns (result, nil) to continue or (nil, outcome) to stop and persist.
+// runExternal returns (result, nil) to continue or (nil, outcome) to stop and persist.
 func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
-	// Phase 2: an answer is buffered for this task -- the ONE way an outcome arrives, whether it
-	// was submitted while the task was armed or before it ever reached here. The advance decides
-	// on it and persist deletes it in the same transaction as the state produced, so a refused
-	// write cannot lose the answer and a refused delete cannot apply it twice.
-	// specs/external-outcome-as-signal.md.
+	// Phase 2: a buffered answer, the ONE way an outcome arrives. Peek, never pop: persist
+	// deletes it with the state it produced. specs/external-outcome-as-signal.md.
 	sig, err := retryRead(func() (bufferedSignal, error) {
 		id, o, ok, err := e.db.PeekSignal(inst.ID, task.ID)
 		return bufferedSignal{id: id, outcome: o, ok: ok}, err
@@ -372,13 +339,11 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		clearExternalPark(inst)
 		inst.Phase = model.PhaseNone
 		if f := outcome.Failure; f != nil {
-			// Routed HERE rather than where it was submitted because resolving a retry policy
-			// and moving retry_count/wake_at are writes on the leased row, which the fail API
-			// does not hold.
+			// Routed here, not at submission: retry_count/wake_at are writes on the leased row,
+			// which the fail API does not hold.
 			var extra map[string]any
-			// Key PRESENCE is the signal, not the value: the fail API drops `data` for a code
-			// the task declared no shape for, which is how error.data stays absent rather than
-			// null -- the same distinction a child's undeclared raise makes.
+			// Key PRESENCE is the signal: the fail API drops `data` for an undeclared code, so
+			// error.data stays absent rather than null.
 			if f.HasData {
 				extra = map[string]any{"data": f.Data}
 			}
@@ -389,10 +354,8 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		return outcome.Result, nil
 	}
 
-	// Phase 3: still parked at 'external' — the wait ended without an answer, either because a
-	// holder's claim lapsed on an only_once task (external.lost) or because the deadline passed
-	// (external.timeout). Both are in errcode.Unknowable(); they stay separate codes so an
-	// on_error rule can tell the two apart.
+	// Phase 3: still parked with no answer — a lapsed only_once claim or a passed deadline.
+	// Separate codes so an on_error rule can tell the two apart.
 	if inst.Phase == model.PhaseExternal {
 		code, msg, event := errcode.ExternalTimeout, "external task timed out", model.EventExternalTimeout
 		if inst.ExternalLost {
@@ -404,22 +367,16 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		return nil, stop(e.handleCallError(inst, task, msg, code))
 	}
 
-	// Phase 1: first arrival. Atomically either consume a signal already buffered for this
-	// task (the push/webhook case — it raced ahead of the process reaching the task) or
-	// park and wait. RetryCount is intentionally left untouched so a re-arm after an
-	// external.timeout retry keeps its counter and on_error budgeting terminates.
+	// Phase 1: first arrival. RetryCount is left untouched so a re-arm after an
+	// external.timeout retry keeps its counter and the on_error budget terminates.
 	input, err := e.buildTaskData(inst, task)
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q input: %v", task.ID, err)))
 	}
-	// The token a caller submits identifies WHICH ARMING the result is for, and TaskEpoch
-	// already numbers that -- so it is derived here for the trail and the queue endpoint,
-	// and never stored. Not a secret: the queue hands it to any caller.
+	// Derived from TaskEpoch, never stored. Not a secret: the queue hands it to any caller.
 	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
-	// Resolved at arm time, once per occurrence: a re-arm after an external.timeout retry
-	// resolves again, so an `until` deadline stays the same instant while a `for` budget
-	// starts over. wake_at is a DB timestamp, so the instant goes in as resolved — unlike
-	// the fetch path, there is no clock offset to cancel out.
+	// Resolved per arming: a re-arm keeps an `until` instant but restarts a `for` budget.
+	// wake_at is a DB timestamp, so unlike fetch there is no clock offset to cancel.
 	armedAt := db.Now()
 	deadline, spec, hasDeadline, err := e.resolveTimeout(inst, task, armedAt)
 	if err != nil {
@@ -427,9 +384,8 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	}
 	var wakeAt *time.Time
 	if hasDeadline {
-		// A past deadline clamps (parks already due; the next claim raises external.timeout, the
-		// code on_error is written against). Failing would be an uncatchable engine.expression,
-		// and past deadlines are legitimate — a re-arm after retry, a resume from a long pause.
+		// A past deadline clamps (parks already due, then raises external.timeout); failing would
+		// be an uncatchable engine.expression for a legitimate state.
 		if deadline.Before(armedAt) {
 			spec = fmt.Sprintf("%s (already past; due now)", spec)
 			deadline = armedAt
@@ -438,15 +394,11 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	}
 	armedMsg := "token=" + token
 	if hasDeadline {
-		// Both the source spec and the instant it resolved to: a calendar deadline is
-		// undebuggable after the fact from either one alone, the same reason delay_armed
-		// logs both.
+		// Both spec and instant, as delay_armed logs.
 		armedMsg += fmt.Sprintf(" timeout=%s -> %s", spec, deadline.Format(time.RFC3339))
 	}
-	// Whether this parks or feeds the task a signal that arrived first is the database's to
-	// decide under the instance row lock — that is what makes a signal racing the arm
-	// impossible to lose — so the intent travels to persist rather than being acted on here.
-	// A consumed signal comes back through phase 2 above, on a second advance pass.
+	// Park-or-not is the database's call under the row lock, which is what makes a signal
+	// racing the arm impossible to lose. A buffered signal returns through phase 2.
 	return nil, stop(advanceOutcome{kind: outcomeArm, arm: &externalArm{
 		taskID:   task.ID,
 		input:    input,
@@ -462,9 +414,8 @@ func clearExternalPark(inst *model.ProcessInstance) {
 	inst.ExternalLost = false
 }
 
-// externalArm is an external wait for persist to install: either it parks the instance on
-// the wait, or it finds a signal that reached the task before the process did and consumes
-// that instead. armedMsg is built here because only advance holds the resolved timeout spec.
+// externalArm is the wait persist installs unless a signal is already buffered. armedMsg is
+// built here because only advance holds the resolved timeout spec.
 type externalArm struct {
 	taskID   string
 	input    any
@@ -472,9 +423,8 @@ type externalArm struct {
 	armedMsg string
 }
 
-// delayMillis coerces an evaluated delay value to a whole number of milliseconds. Note the
-// absent string case: a bare numeric string ("30000") was the old `ms` spelling and is now
-// a literal, routed to the delayspec grammar — which rejects it as unitless on purpose.
+// delayMillis has no string case on purpose: a bare "30000" is a literal, which the
+// delayspec grammar rejects as unitless.
 func delayMillis(v any) (int64, error) {
 	switch n := v.(type) {
 	case int:
@@ -494,9 +444,7 @@ func delayMillis(v any) (int64, error) {
 	}
 }
 
-// resolveURL evaluates the fetch URL as a template so a base URL can come from config or
-// input (e.g. "${ config.server_url }/path"). Returns "" for actions without a URL;
-// secrets it carries are scrubbed from logged URLs/errors by audit().
+// resolveURL returns "" for an action without a URL.
 func (e *Engine) resolveURL(inst *model.ProcessInstance, call *model.Action) (string, error) {
 	if call.URL == "" {
 		return "", nil
@@ -508,10 +456,8 @@ func (e *Engine) resolveURL(inst *model.ProcessInstance, call *model.Action) (st
 	return fmt.Sprintf("%v", val), nil
 }
 
-// resolveMethod evaluates the fetch method expression and upper-cases it: definitions are
-// written lowercase (`method: post`), the wire is case-sensitive. An expression resolving to
-// nothing is an error rather than a fallback — net/http reads an empty method as GET, which
-// would be the silent verb-guessing `method` is required to prevent.
+// resolveMethod upper-cases because the wire is case-sensitive. Empty is an error, not a
+// fallback: net/http reads it as GET, the verb-guessing a required `method` prevents.
 func (e *Engine) resolveMethod(inst *model.ProcessInstance, call *model.Action) (string, error) {
 	val, err := e.evalShape(inst, shape.Shape{Raw: call.Method}, e.selfBeforeOutput(inst))
 	if err != nil {
@@ -524,10 +470,6 @@ func (e *Engine) resolveMethod(inst *model.ProcessInstance, call *model.Action) 
 	return m, nil
 }
 
-// resolveHeaders evaluates the fetch Headers shape to a string map. The shape may be a
-// literal map of templated values or a single expression yielding a map; either way it
-// must resolve to an object, whose values are coerced to strings. Returns nil when the
-// call has no headers.
 func (e *Engine) resolveHeaders(inst *model.ProcessInstance, call *model.Action) (map[string]string, error) {
 	if !call.Headers.Present() {
 		return nil, nil
@@ -547,11 +489,8 @@ func (e *Engine) resolveHeaders(inst *model.ProcessInstance, call *model.Action)
 	return resolved, nil
 }
 
-// appendQuery evaluates the fetch query shape and appends it to rawURL, URL-encoded: a null value
-// omits its parameter, an array repeats it once per element, and the parameters are appended
-// because the url may already carry its own `?a=1`. Do not replace url.Values.Encode with
-// hand-built concatenation without restoring its key sort -- it is what keeps the url
-// byte-identical across attempts. specs/fetch-http-surface.md §1.
+// appendQuery: keep url.Values.Encode (or its key sort) -- it keeps the url byte-identical
+// across attempts. specs/fetch-http-surface.md §1.
 func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, rawURL string) (string, error) {
 	if !call.Query.Present() {
 		return rawURL, nil
@@ -560,9 +499,8 @@ func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, ra
 	if err != nil {
 		return "", err
 	}
-	// A declared query_schema drops an optional non-nullable parameter fed null before the
-	// string is built. The null-omit below would drop it anyway; doing it here is what makes
-	// the declaration the description of what is sent rather than a claim beside it.
+	// Redundant with the null-omit below, deliberately: it makes the declaration describe
+	// what is sent rather than a claim beside it.
 	if val, err = conformDeclared(val, call.QuerySchema, "query"); err != nil {
 		return "", err
 	}
@@ -576,9 +514,7 @@ func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, ra
 		case nil:
 			// a null omits its parameter
 		case []any:
-			// One parameter per element, in the order given: `?tag=a&tag=b`, which is
-			// OpenAPI's default (form/explode) and what most services read. An empty array
-			// behaves like an absent value — there is nothing to repeat.
+			// `?tag=a&tag=b`: OpenAPI's default (form/explode).
 			for _, item := range v {
 				if item == nil {
 					continue // the same omission, one level down
@@ -596,16 +532,12 @@ func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, ra
 	if strings.Contains(rawURL, "?") {
 		sep = "&"
 	}
-	// Encode is form-urlencoded, rendering a space as `+`, which a server reading RFC 3986
-	// takes as a literal plus and receives the wrong value SILENTLY. %20 decodes to a space
-	// under both readings, and the replacement is exact: QueryEscape emits `+` only for a
-	// space, and a literal plus is already `%2B`.
+	// Encode renders a space as `+`, a literal plus to an RFC 3986 reader. %20 is a space under
+	// both, and the swap is exact: a literal plus is already `%2B`.
 	return rawURL + sep + strings.ReplaceAll(values.Encode(), "+", "%20"), nil
 }
 
-// resolveAcceptedStatus evaluates the fetch accepted_status shape to status patterns: a
-// literal array of templated values or one expression yielding an array; elements coerced
-// to strings. nil when unset (matchAcceptedStatus then defaults to any 2xx).
+// resolveAcceptedStatus returns nil when unset; matchAcceptedStatus then means any 2xx.
 func (e *Engine) resolveAcceptedStatus(inst *model.ProcessInstance, call *model.Action) ([]string, error) {
 	if !call.AcceptedStatus.Present() {
 		return nil, nil

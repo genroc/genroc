@@ -1,8 +1,5 @@
-# A default is not decoration. An optional property carrying one is guaranteed present after
-# a conform, so every read of it is non-nullable — which means ADDING one narrows the value
-# at every reader. An old row that never carried the key holds null there, and no upgrade
-# fills it (the migration writes nulls, never defaults). So a document whose only edit is a
-# default comes back breaking, and correctly: the null is really in the row.
+# Adding a default narrows every read to non-null, but an old row lacking the key holds null
+# (migration writes nulls, never defaults), so a default-only edit is correctly breaking.
 apply:
   - channel: defadd_a
     definitions:

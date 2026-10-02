@@ -1,7 +1,5 @@
-# Removal, not narrowing-from-nothing: both sides carry an enum and one value is gone. The
-# message names what stopped fitting rather than printing both pools, because an absence
-# cannot be SHOWN in a capped list — at this size both pools truncate to the same five
-# entries, and rendering them side by side reported a change while saying nothing changed.
+# The message names the removed value, not both pools: a capped list cannot show an absence
+# (both truncate to the same five entries here).
 apply:
   - channel: enumrm_a
     definitions:

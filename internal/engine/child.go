@@ -16,10 +16,7 @@ import (
 // PhaseCollecting → merge the settled batch into context and continue. A parent
 // paused mid-spawn spawns paused children — a suspended tree queues nothing runnable.
 func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
-	// Phase 2: parent woke up with the batch settled. Read the children once, then either
-	// resolve a raised batch (route via on_error) or, if every child completed, merge
-	// their outputs into the action result (self.result, exported only if the task
-	// projects it). The one read is shared by resolution and collection.
+	// Phase 2: the batch settled. One read serves both resolution and collection.
 	if inst.Phase == model.PhaseCollecting {
 		siblings, err := e.db.ChildrenForTask(ctx, inst.ID, task.ID, inst.TaskEpoch)
 		if err != nil {
@@ -27,9 +24,7 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 			return nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %v", task.ID, err)))
 		}
 
-		// A batch with any raised child is the parent's to resolve: match on_error rules
-		// against the raised codes and route accordingly. resolveRaisedBatch clears the
-		// wait state and returns the terminal/route outcome itself.
+		// resolveRaisedBatch clears the wait state itself.
 		if raised := raisedInSlotOrder(siblings, task); len(raised) > 0 {
 			return nil, stop(e.resolveRaisedBatch(ctx, inst, task, raised))
 		}
@@ -37,9 +32,8 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		output, err := e.buildChildOutput(task, siblings)
 		if err != nil {
 			inst.Phase = model.PhaseNone
-			// A failed conform is the caller's narrowing bet losing, so it routes through
-			// on_error as result.invalid; every other failure here is corruption of the
-			// batch and stays a defect. specs/error-extensions.md §X2-c.
+			// A failed conform is the caller's narrowing bet losing, so it is catchable; anything
+			// else is batch corruption and stays a defect. specs/error-extensions.md §X2-c.
 			var invalid resultInvalid
 			if errors.As(err, &invalid) {
 				return nil, stop(e.handleCallError(inst, task, invalid.Error(), errcode.ResultInvalid))
@@ -62,8 +56,6 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		if fail != nil {
 			return nil, fail
 		}
-		// Metadata mirrors the result shape: a single child records its one id as a
-		// scalar (child_map records an object, child_list an array).
 		children = []*model.ProcessInstance{single}
 	case model.ActionTypeChildMap:
 		mapped, fail := e.buildMapChildren(ctx, inst, task, childCallStack)
@@ -82,10 +74,8 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 			return nil, fail
 		}
 		if len(listChildren) == 0 {
-			// Empty `over` array: there is nothing to spawn. Yield an empty-array
-			// result and continue inline — do NOT park. SpawnChildrenAndWait is a
-			// no-op on zero children, so parking here would leave the parent to
-			// re-run this task forever.
+			// Do NOT park: SpawnChildrenAndWait is a no-op on zero children, so the parent
+			// would re-run this task forever.
 			e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventChildrenSpawned, Task: task.ID, Msg: "0 children"})
 			return []any{}, nil
 		}
@@ -99,17 +89,11 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	inst.RetryCount = 0
 	inst.WakeAt = nil
 
-	// The batch travels to persist, which inserts it in the same transaction that parks
-	// this parent — the children and the wait state have to land together or a crash
-	// between them strands one side.
 	return nil, stop(advanceOutcome{kind: outcomeSpawn, children: children})
 }
 
-// freshBatch is the batch phase 1 would spawn from the parent AS IT STANDS NOW — versions
-// re-resolved, inputs re-evaluated and re-validated — indexed by slot, and built ONCE per retry
-// round. A replacement must not re-send what its attempt was given: a definition upgrade is how a
-// caller changes what a child receives, and a `$import`ed script IS an input, so copying would
-// make a fix impossible to deliver.
+// freshBatch is what phase 1 would spawn from the parent AS IT STANDS NOW, built ONCE per
+// round. Never re-send the old attempt's input: an upgrade is how a fix reaches a child.
 func (e *Engine) freshBatch(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (map[string]*model.ProcessInstance, *advanceOutcome) {
 	callStack := append(inst.CallStack, inst.ID)
 	var built []*model.ProcessInstance
@@ -152,16 +136,13 @@ func slotID(c *model.ProcessInstance) string {
 	return "single"
 }
 
-// resolveChildVersion asks the shared rule (db.ResolveChildVersion) about THIS instance's
-// version. An upgrade asks the same rule about the version a parent is moving to, which is
-// why the rule does not live here.
+// The rule lives in db because an upgrade asks it about the version a parent is moving to.
 func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name string, declared int, depKey string) (int, error) {
 	return e.db.ResolveChildVersion(inst.ProcessName, inst.ProcessVersion, taskID, name, declared, depKey)
 }
 
-// newChildInstance builds a running child. id is base+i so siblings sort after the parent
-// in spawn order; spawnCtx carries only per-CHILD discriminants (_spawn_child_key,
-// _spawn_index) — what SHAPE the batch is lives on the parent's definition, not here.
+// spawnCtx carries only per-CHILD discriminants; the batch's SHAPE lives on the parent's
+// definition.
 func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *model.ProcessDefinition, version int, input any, callStack []string, id string, spawnCtx map[string]any) *model.ProcessInstance {
 	childCtx := map[string]any{
 		"input":              input,
@@ -190,9 +171,7 @@ func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *mode
 	}
 }
 
-// buildSingleChild constructs the one instance a "child" task spawns — no slot
-// discriminant, output collected unwrapped. Persists nothing; a non-nil outcome means the
-// parent failed and the caller must stop and persist it.
+// The build* functions persist nothing; a non-nil outcome is the parent's failure.
 func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task, callStack []string) (*model.ProcessInstance, *advanceOutcome) {
 	version, err := e.resolveChildVersion(inst, task.ID, task.Action.Name, task.Action.Version, "")
 	if err != nil {
@@ -214,9 +193,6 @@ func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task,
 	return newChildInstance(inst, task, def, version, input, callStack, e.db.NextID(), spawnCtx), nil
 }
 
-// buildMapChildren resolves definitions, evaluates inputs, and constructs
-// ProcessInstances for all keyed (child_map) children. Persists nothing; a non-nil
-// outcome means the parent failed and the caller must stop and persist it.
 func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstance, task *model.Task, callStack []string) ([]*model.ProcessInstance, *advanceOutcome) {
 	keys := make([]string, 0, len(task.Action.Children))
 	for key := range task.Action.Children {
@@ -251,9 +227,8 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 	return children, nil
 }
 
-// buildListChildren evaluates `over` to an array, one child per element in order. Empty
-// array or null yields an empty slice, no error (the caller handles the empty fan-out).
-// Persists nothing; a non-nil outcome fails the parent.
+// buildListChildren returns an empty slice for an empty or null `over`; the caller must
+// not park on it.
 func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInstance, task *model.Task, callStack []string) ([]*model.ProcessInstance, *advanceOutcome) {
 	version, err := e.resolveChildVersion(inst, task.ID, task.Action.Name, task.Action.Version, "")
 	if err != nil {
@@ -283,8 +258,6 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q child_list: over did not evaluate to an array (got %T)", task.ID, concreteArr)))
 	}
 
-	// One base id (sorts after the parent); siblings are base, base+1, … in element
-	// order, so the batch sorts after the parent and among itself in input order.
 	children := make([]*model.ProcessInstance, 0, len(items))
 	for i, elem := range items {
 		// The declaration types one ELEMENT here, matching result_schema on the same action.
@@ -323,11 +296,8 @@ func (e *Engine) evalChildInput(inst *model.ProcessInstance, taskID, label strin
 	return conformDeclared(val, declared, fmt.Sprintf("task %q %s input", taskID, label))
 }
 
-// concrete materializes the references left in an evaluated value, for the two boundaries a marker
-// must not cross: a CONFORM cannot inspect inside an object it would have to load to see, and a
-// value landing on ANOTHER instance's row would reference content it never claimed, which the
-// sweep is entitled to delete. Sharing survives anyway -- the child re-cuts the value and content
-// addressing lands it on the same object with a second claim. specs/lazy-context.md.
+// concrete is for the two boundaries a reference must not cross: a conform cannot see inside
+// one, and another instance's row would hold content it never claimed. specs/lazy-context.md.
 func (e *Engine) concrete(inst *model.ProcessInstance, v any) (any, error) {
 	return e.context(inst).Materialize(v)
 }

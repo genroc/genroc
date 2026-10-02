@@ -1,11 +1,7 @@
 import { expect, test } from "vitest";
 import { client } from "../helpers/client.ts";
 
-// Regression: applying content that dedupes (by hash) to an older version points
-// the "latest" channel back at that older version. `run` without an explicit
-// channel/version must follow that channel — not the highest version number — so
-// it runs what apply most recently published. (Goes through /definitions/batch,
-// the dedup path used by `genctl apply`.)
+// Through /definitions/batch, the dedup path `genctl apply` uses.
 test("run follows the latest channel after a content-dedup to an older version", async () => {
   const name = `dedup_latest_${crypto.randomUUID()}`;
   const contentA = { name, output: "A", tasks: [{ id: "t", switch: "end" }] };
@@ -24,8 +20,6 @@ test("run follows the latest channel after a content-dedup to an older version",
   expect(data!.version).toBe(1);
 });
 
-// Applying only to a custom channel still creates "latest" on the first apply, so
-// a bare `run` resolves via it (=v1) rather than the highest version number (=v2).
 test("'latest' channel is created on first apply even to a custom channel", async () => {
   const name = `ensure_latest_${crypto.randomUUID()}`;
   const a = { name, output: "A", tasks: [{ id: "t", switch: "end" }] };

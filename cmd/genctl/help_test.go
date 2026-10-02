@@ -8,9 +8,7 @@ import (
 	"testing"
 )
 
-// main.go's dispatch is the list of commands that EXIST; commandDocs is the list `genctl -h`
-// shows. A command in one and not the other is either unreachable or invisible, and neither
-// fails any other way -- an undocumented command simply never appears in the map.
+// A command in main.go's dispatch but not commandDocs (or vice versa) fails no other way.
 func TestEveryCommandIsDocumented(t *testing.T) {
 	src, err := os.ReadFile("main.go")
 	if err != nil {

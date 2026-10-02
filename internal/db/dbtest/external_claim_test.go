@@ -17,9 +17,8 @@ const (
 	shortLease = time.Second
 )
 
-// TestClaimExternalTasks_DisjointUnderConcurrency is the property SKIP LOCKED exists for, and
-// the one a single-engine test cannot see: two workers claiming at once must partition the
-// queue, never overlap. An overlap means two workers run the same task's side effects.
+// SKIP LOCKED's property, invisible to a single-engine test: an overlap means two workers run the
+// same task's side effects.
 func TestClaimExternalTasks_DisjointUnderConcurrency(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -60,11 +59,8 @@ func TestClaimExternalTasks_DisjointUnderConcurrency(t *testing.T) {
 	}
 }
 
-// TestClaimExternalTasks_LeavesEngineColumnsAlone is the separate-columns decision as an
-// assertion. A claim that touched worker_id/lease_expires_at/lease_epoch would lock the holder
-// out of its own answer, delay the external.timeout the engine owes at wake_at, and forge the
-// worker_id evidence only_once.interrupted reads. task_epoch must not move either: it numbers
-// the ARMING, and bumping it invalidates every handle already given out.
+// Touching the engine's lease columns would lock the holder out of its own answer, delay
+// external.timeout and forge only_once evidence; moving task_epoch voids every handle out.
 func TestClaimExternalTasks_LeavesEngineColumnsAlone(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -103,10 +99,7 @@ func TestClaimExternalTasks_LeavesEngineColumnsAlone(t *testing.T) {
 	}
 }
 
-// TestClaimExternalTasks_ExpiryReclaimAndFencing covers the lifecycle the design rests on: a
-// live claim is not re-claimable, an expired one is, the re-claim bumps the epoch so the first
-// holder is fenced out — and, in the other direction, an expiry that nobody took over still
-// lets the late holder answer.
+// And the other direction: an expiry nobody took over still lets the late holder answer.
 func TestClaimExternalTasks_ExpiryReclaimAndFencing(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -154,10 +147,7 @@ func TestClaimExternalTasks_ExpiryReclaimAndFencing(t *testing.T) {
 	}
 }
 
-// TestResolveExternalTask_LateHolderStillAnswers is the other half of "re-claim, not expiry,
-// invalidates a handle". A worker that overran its lease and was never taken over must still be
-// able to answer: discarding work that was already done is strictly worse, and it is exactly
-// how the engine treats its own late writes.
+// Re-claim, not expiry, invalidates a handle: discarding work already done is strictly worse.
 func TestResolveExternalTask_LateHolderStillAnswers(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -177,9 +167,8 @@ func TestResolveExternalTask_LateHolderStillAnswers(t *testing.T) {
 	}
 }
 
-// TestResolveExternalTask_UnclaimedHandleVsLiveClaim: the queue hands two-part tokens to any
-// caller, so one must not be able to answer over a worker mid-flight — but must still work once
-// the claim is gone, which is what keeps the approval-UI path unaffected by claiming.
+// A two-part token must not answer over a live claim, yet must work once it is gone: that keeps
+// the approval-UI path unaffected by claiming.
 func TestResolveExternalTask_UnclaimedHandleVsLiveClaim(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -204,9 +193,7 @@ func TestResolveExternalTask_UnclaimedHandleVsLiveClaim(t *testing.T) {
 	}
 }
 
-// TestRenewExternalClaims: a renewal extends a grant and must not bump the epoch (that would
-// fence the worker out of its own answer), and is scoped to the holder so a worker cannot renew
-// a claim it no longer owns.
+// No epoch bump (it would fence the worker out of its own answer), and scoped to the holder.
 func TestRenewExternalClaims(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -241,9 +228,7 @@ func TestRenewExternalClaims(t *testing.T) {
 	}
 }
 
-// TestReleaseExternalClaim: the nack returns the task at once and, unlike an expiry, bumps the
-// epoch — a release is deliberate, so the releasing worker's handle must stop working
-// immediately rather than staying valid until someone else claims.
+// Unlike an expiry, a release bumps the epoch: the releaser's handle must stop at once.
 func TestReleaseExternalClaim(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -274,8 +259,7 @@ func TestReleaseExternalClaim(t *testing.T) {
 	}
 }
 
-// TestClaimExternalTasks_SkipsTasksPastTheirDeadline: the task's own timeout outranks the
-// claim's. Handing out work the engine is about to fail spends a worker on an answer that can
+// The task's own timeout outranks the claim: an answer to work the engine is about to fail can
 // no longer be accepted.
 func TestClaimExternalTasks_SkipsTasksPastTheirDeadline(t *testing.T) {
 	for _, b := range testBackends(t) {
@@ -312,11 +296,8 @@ func expire(t *testing.T) {
 	dbpkg.AdvanceClock(2 * shortLease)
 }
 
-// TestExternalClaim_DoesNotDelayTheEngineTimeout is the payoff of separate columns, stated as
-// the thing a "simplification" back onto worker_id/lease_expires_at would break: a live claim
-// must not hold the engine off the row, so external.timeout still fires the moment the task's
-// own deadline passes. It needs no production code to pass — that is exactly why it needs a
-// test, since nothing else would notice the day the columns are shared.
+// Passes with no production code, which is why it exists: nothing else notices the day the claim
+// is "simplified" back onto worker_id/lease_expires_at.
 func TestExternalClaim_DoesNotDelayTheEngineTimeout(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -341,10 +322,8 @@ func TestExternalClaim_DoesNotDelayTheEngineTimeout(t *testing.T) {
 	}
 }
 
-// TestClaimExternalTasks_ReportsAReclaim covers ExternalReclaimed on BOTH engines, which the
-// e2e cannot: the two claim paths derive it differently — Postgres from a prev_holder column
-// carried through the CTE, SQLite from the row scanned before the UPDATE — and the Postgres one
-// is a hand-written scan list that must stay in step with instanceColumns.
+// The engines derive ExternalReclaimed differently, Postgres through a hand-written scan list
+// that must track instanceColumns; the e2e covers only one.
 func TestClaimExternalTasks_ReportsAReclaim(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -370,9 +349,7 @@ func TestClaimExternalTasks_ReportsAReclaim(t *testing.T) {
 	}
 }
 
-// TestDeliverSignal_DefersToALiveClaim: a signal carries no handle, so it has nothing to fence
-// with. DeliverSignal already refuses to race the engine's live lease by buffering; a claim is
-// the same situation with a different holder and gets the same treatment.
+// A signal carries no handle to fence with, so a live claim gets what a live lease gets: buffering.
 func TestDeliverSignal_DefersToALiveClaim(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

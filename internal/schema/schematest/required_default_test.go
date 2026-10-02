@@ -7,10 +7,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// A required property's default can never apply: required is judged first, so an absent key
-// is refused rather than filled. `config_schema` has always said so; every other schema
-// accepted the dead pair silently. Checked in CheckDoc, so it holds wherever an author
-// writes a schema — input_schema, responses, result_schema, raises, $defs.
+// required is judged first, so the default can never apply. Checked in CheckDoc, so it holds in
+// every schema an author writes.
 func TestCheckDoc_RequiredWithDefaultIsRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name, doc string

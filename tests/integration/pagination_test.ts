@@ -1,13 +1,8 @@
 import { beforeAll, expect, test } from "vitest";
 import { client } from "../helpers/client.ts";
 
-// Every query here is scoped to this file's own process. /instances IS filterable by
-// process, and without that filter these tests page a table other files are concurrently
-// writing: a row inserted between two calls shifts a newest-first page, which made
-// "paging forward then backward" flake on Postgres and forced the rest of the file into
-// workarounds (assert ascending only, bound maxPages, filter the walk afterwards). Scoped,
-// the fixture is exactly N rows nobody else touches, so each property can be asserted
-// outright.
+// Every query is scoped to this file's process, so the fixture is exactly N rows nobody else writes;
+// unscoped, concurrent inserts shift newest-first pages and flake.
 const processName = `paginate_proc_${crypto.randomUUID()}`;
 const N = 5;
 const ids: string[] = [];
@@ -36,9 +31,7 @@ beforeAll(async () => {
 type Item = { id: string; process: string; created_at: string };
 type Query = { sort?: string; order?: "asc" | "desc"; limit?: number };
 
-// walk pages forward through this process's rows until page.after is absent. The bound is
-// a runaway guard, not a workaround: scoped to N rows the walk terminates on its own, and
-// a walk that did not would otherwise hang the suite rather than fail it.
+// A runaway guard: scoped to N rows the walk terminates, and an unbounded one would hang the suite.
 const maxPages = 15;
 
 async function walk(query: Query): Promise<{ items: Item[]; pages: number }> {
@@ -74,10 +67,7 @@ test("page object echoes the effective sort and order", async () => {
 });
 
 test("page object reports position", async () => {
-  // Asserted in BOTH directions. This used to be ascending-only, because on a shared table
-  // an instance another file created between the page and its count sorts before a
-  // newest-first page and flaked items_before to 1. Scoped to N fixed rows, the counts are
-  // exact either way.
+  // Exact in both directions only because the query is scoped.
   for (const order of ["asc", "desc"] as const) {
     const { data, error } = await client.GET("/instances", {
       params: { query: { process: processName, limit: 2, order } },
@@ -103,9 +93,6 @@ test("forward paging has no duplicates and is newest-first", async () => {
 });
 
 test("paging forward then backward returns the original page", async () => {
-  // Unscoped, this was the file's one genuine flake: three calls against a table other
-  // files write to, where a row inserted after p1 shifts what "the newest 2" means, so the
-  // step back returns a page that never equalled p1.
   const page = (q: Record<string, unknown>) =>
     client.GET("/instances", { params: { query: { process: processName, limit: 2, ...q } } });
 

@@ -67,9 +67,7 @@ func childDef(t *testing.T, name string, rawSchema string) *model.ProcessDefinit
 	return def
 }
 
-// parentDef builds a ProcessDefinition with a child_map task, normalises
-// it (mirroring what Generate does), and returns it ready for
-// ValidateChildProcessRefs. Each entry gets a key "child0", "child1", etc.
+// parentDef normalises as Generate does; entries are keyed "child0", "child1", ...
 func parentDef(t *testing.T, inputSchemaRaw string, entries []model.ChildEntry) *model.ProcessDefinition {
 	t.Helper()
 	children := make(map[string]model.ChildEntry, len(entries))
@@ -296,9 +294,7 @@ func TestValidateChildProcessRefs_multipleProcessEntries(t *testing.T) {
 }
 
 func TestValidateChildProcessRefs_selfReference(t *testing.T) {
-	// A process that spawns itself (e.g. recursive tree traversal).
-	// The process does not exist in the DB yet, so the getter must not be called.
-	// Both required fields (amount + name) are forwarded so the input is compatible.
+	// Self-spawn: the process is not in the DB yet, so the getter must not be called.
 	def := parentDef(t, parentInputSchema, []model.ChildEntry{
 		{Name: "parent", Version: 0, Input: inputShape(map[string]string{
 			"amount": "$: input.amount",
@@ -310,9 +306,7 @@ func TestValidateChildProcessRefs_selfReference(t *testing.T) {
 }
 
 func TestValidateChildProcessRefs_selfReferenceIncompatibleInput(t *testing.T) {
-	// Self-reference with an input that doesn't satisfy the process's own InputSchema.
-	// Parent requires {amount: integer, name: string}; child entry only passes "amount"
-	// as a string (via input.name), which is the wrong type.
+	// Self-reference passing "amount" as a string (input.name): the wrong type.
 	def := parentDef(t, parentInputSchema, []model.ChildEntry{
 		{Name: "parent", Version: 0, Input: inputShape(map[string]string{"amount": "$: input.name"})},
 	})
@@ -357,9 +351,7 @@ func TestValidateChildProcessRefs_inputWithNestedRef(t *testing.T) {
 
 // ── single-child via a one-entry child_map ────────────────────────────────────
 
-// singleChildDef builds a ProcessDefinition that spawns one child via a one-entry
-// child_map. This still exercises the per-entry subset path; the standalone `child`
-// action type has its own tests below (childActionDef).
+// A one-entry child_map; the standalone `child` action is tested below (childActionDef).
 func singleChildDef(t *testing.T, inputSchemaRaw string, entry model.ChildEntry) *model.ProcessDefinition {
 	t.Helper()
 	def := &model.ProcessDefinition{
@@ -444,10 +436,8 @@ func TestValidateChildProcessRefs_Child_VersionZeroResolvesToLatest(t *testing.T
 
 // ── standalone `child` action type ────────────────────────────────────────────
 
-// childActionDef builds a ProcessDefinition that spawns one child via the standalone
-// `child` action (Name/Version/Input/ResultSchema on the Action itself, no Children map).
-// The subset checks are the same as a one-entry child_map, so it reuses model.ChildEntry
-// only as a convenient carrier for the fields.
+// The standalone `child` action; model.ChildEntry is only a carrier, since the checks match a
+// one-entry child_map.
 func childActionDef(t *testing.T, inputSchemaRaw string, entry model.ChildEntry) *model.ProcessDefinition {
 	t.Helper()
 	def := &model.ProcessDefinition{

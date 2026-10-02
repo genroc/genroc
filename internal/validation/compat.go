@@ -41,9 +41,8 @@ type Issue struct {
 	Gating  bool   `json:"gating"`
 }
 
-// SlotChange is one definition slot that differs — what the author EDITED, as opposed to
-// what broke; the two never share a row (§6b). Empty Affects means no check covers the
-// slot, which is the one thing this channel exists to say.
+// SlotChange is what the author EDITED, never what broke (§6b). Empty Affects means no check
+// covers the slot, the one thing this channel exists to say.
 type SlotChange struct {
 	Address string   `json:"address"`
 	Task    string   `json:"task,omitempty"`
@@ -103,11 +102,8 @@ const (
 	StatusUnanalysable CompareStatus = "unanalysable"
 )
 
-// SetReport is CompareSet's whole answer. Compatible is the conjunction over the rows
-// actually compared: a new or unmoved process cannot break anything and must not drag the
-// roll-up down, since a deployed channel always carries processes a bundle does not. An
-// unanalysable version does make it false — an answer indistinguishable from "checked, and
-// fine" is worse than no report.
+// SetReport is CompareSet's whole answer. Compatible is the conjunction over the rows actually
+// compared: a new or unmoved process does not count, an unanalysable version makes it false.
 type SetReport struct {
 	Compatible bool `json:"compatible"`
 	// Passes is the same question asked of the SELECTION: false only where a GATING member
@@ -118,11 +114,8 @@ type SetReport struct {
 	Processes []Report `json:"processes"`
 }
 
-// TaskContexts returns the context schema at every task of def, keyed by task id: the state
-// an instance sitting there holds on entry, shaped like the row — `input`, `outputs.<id>`
-// per task that projects one, and `error` — required where guaranteed, optional where merely
-// possible. "config" is stripped: it is re-resolved from the environment every tick, so
-// nothing persisted corresponds to it.
+// TaskContexts returns, per task id, the context an instance holds on entry, shaped like the row:
+// required where guaranteed, optional where merely possible, and no `config`.
 func TaskContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
 	sf, err := Generate(def)
 	if err != nil {
@@ -136,8 +129,7 @@ func TaskContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 func taskContexts(def *model.ProcessDefinition, sf SchemaFile, input schema.Schema) map[string]schema.Schema {
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs)
-	// The zero configSchema is rule 3 above: config is re-resolved every tick, so nothing
-	// persisted corresponds to it. `input` comes from the caller, hoisted out of the loop.
+	// Zero configSchema: config is re-resolved every tick, so nothing persisted corresponds to it.
 	scopes := taskScopes{
 		tasks: sf.Tasks, processInput: input, configSchema: schema.Schema{}, defs: sf.Defs,
 		required: required, optional: optional, errs: errs,
@@ -149,8 +141,7 @@ func taskContexts(def *model.ProcessDefinition, sf SchemaFile, input schema.Sche
 	return out
 }
 
-// analysis is one definition's inferred view, computed once per side so a set
-// comparison infers each version once rather than once per pair it appears in.
+// analysis is computed once per side, so a set comparison infers each version once.
 type analysis struct {
 	def      *model.ProcessDefinition
 	sf       SchemaFile
@@ -165,11 +156,9 @@ func analyze(def *model.ProcessDefinition) (analysis, error) {
 	return analysis{def: def, sf: sf, contexts: taskContexts(def, sf, schema.Schema{})}, nil
 }
 
-// Compare answers, for two versions of one process, whether an instance running the old one
-// could continue under the new one, and separately whether the new version still honours the
-// output contract its consumers were written against. A shape check over inferred schemas, not
-// meaning: dollars → cents is `number` on both sides and comes back compatible.
-// specs/version-compatibility.md §5 and internal/validation/CLAUDE.md.
+// Compare reports whether an instance of old could continue under new (Upgrade), and whether new
+// honours old's output contract (Contract). Shapes, not meaning: dollars → cents compares
+// compatible. specs/version-compatibility.md §5.
 func Compare(old, new *model.ProcessDefinition) (Report, error) {
 	oldA, err := analyze(old)
 	if err != nil {
@@ -232,9 +221,8 @@ func anyMember(issues []Issue, m Member) bool {
 	return false
 }
 
-// issues runs both checks in the order the report reads: the input, then each task as the
-// OLD version ordered them, then the output. Rendering walks this list, so the order is the
-// process's shape rather than the order the checks happened to run in (§6c).
+// issues files in the order the report reads — input, each task in the OLD order, output —
+// because rendering walks this list (§6c).
 func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 	var out []Issue
 	// One difference in the data surfaces at EVERY task that can see it. It is a fact about
@@ -260,8 +248,7 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 		}
 	}
 
-	// Hoisted out of the per-task loop — the input sits in every context, so comparing it
-	// there reports one break once per task. Two readings of one pair: STORED for the
+	// Hoisted out of the per-task loop, where it would report one break per task. STORED for the
 	// upgrade (§2e), STRICT for the contract (what ValidateInput does to the next caller).
 	oldIn, newIn := inputObject(oldA), inputObject(newA)
 	add(MemberUpgrade, addressInput, "", storedExplainer.explain(oldIn, newIn))
@@ -285,9 +272,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 			if issue, ok := typeChangeIssue(t, nt); ok {
 				out = append(out, issue)
 			}
-			// Result schemas are not comparable across types either: the party that submits
-			// the value changed, so old ⊆ new would be asking a service to honour a contract
-			// written for a worker.
+			// Result schemas are not comparable across types: the submitting party changed, so
+			// old ⊆ new would hold a service to a worker's contract.
 			continue
 		}
 		out = append(out, addedChildKeyIssues(t, nt)...)
@@ -298,10 +284,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 	return out
 }
 
-// typeChangeIssue is the break a type change leaves under an instance sitting in the task: what
-// the old action left — a submitted result, children in flight, a timer — no schema relation
-// hands over. Where the old type holds nothing, any instance there is at ENTRY and the new
-// action runs. The upgrade gate asks the same question of the one row it holds.
+// typeChangeIssue: what the old action left — a result, children, a timer — has no counterpart in
+// the new one. Shared with the upgrade gate (TypeChangeBreak), so the two cannot disagree.
 func typeChangeIssue(old, new *model.Task) (Issue, bool) {
 	if !typeChanged(old, new) || !holdsAnInstance(actionTypeOf(old)) {
 		return Issue{}, false
@@ -313,26 +297,21 @@ func typeChangeIssue(old, new *model.Task) (Issue, bool) {
 	}, true
 }
 
-// resultContract is one result schema pair, with the address it is reported under. A
-// child_map declares one per key, so a task can carry several; every other action type
-// carries at most one.
+// A child_map declares one resultContract per key; every other action type at most one.
 type resultContract struct {
 	address  string
 	task     string
 	old, new schema.Schema
-	// added marks a schema the new version declares where the old one declared none. There is
-	// no old schema to compare it against, so it is reported directly — the way a removed
-	// process output is (§3a).
+	// added: declared where the old version had none, so reported directly, as a removed process
+	// output is (§3a).
 	added bool
 	// parks is true where an instance can be sitting on this task when the version changes,
 	// so the schema is part of the upgrade question as well as the contract one (§2c).
 	parks bool
 }
 
-// addedChildKeyIssues reports a key the new version declares and the old one did not — §2b's
-// added-task rule one level down, reported directly because an addition has no old schema to
-// be compared against. It is the only key-set move with a rule; CLAUDE.md says why the other
-// two need none.
+// addedChildKeyIssues is §2b's added-task rule one level down — the only key-set move with a
+// rule; CLAUDE.md says why the other two need none.
 func addedChildKeyIssues(old, new *model.Task) []Issue {
 	if old.Action == nil || new.Action == nil || old.Action.Type != model.ActionTypeChildMap {
 		return nil
@@ -351,10 +330,8 @@ func addedChildKeyIssues(old, new *model.Task) []Issue {
 	return out
 }
 
-// resultContracts pairs what two versions of a task declare they will accept back. It does
-// not care which process a child call names — `old ⊆ new` carries registration's premise
-// forward, so a renamed call needs no rule of its own (§2c). A schema DROPPED is not
-// compared: we conform less than we did, so nobody is turned away.
+// resultContracts ignores which process a child call names: `old ⊆ new` carries registration's
+// premise forward (§2c). A DROPPED schema is not compared — it conforms less, turning nobody away.
 func resultContracts(old, new *model.Task) []resultContract {
 	if old.Action == nil || new.Action == nil {
 		return nil
@@ -367,9 +344,7 @@ func resultContracts(old, new *model.Task) []resultContract {
 		}
 		rc := resultContract{address: address, task: old.ID, new: *b, parks: parks}
 		if a == nil {
-			// A schema that accepts everything constrains nothing, so declaring `{}` — the
-			// carried-but-unread idiom, which only makes the value exportable — is not an
-			// addition anything can fail.
+			// `{}` constrains nothing: declaring it (the carried-but-unread idiom) is no addition.
 			if (schema.Schema{}).IsSubset(*b) {
 				return nil
 			}
@@ -379,10 +354,8 @@ func resultContracts(old, new *model.Task) []resultContract {
 		}
 		return []resultContract{rc}
 	}
-	// A fetch declares its body per status but produces ONE value, so it is compared as one:
-	// the merged union under the same `.result` address every other action type uses. The
-	// child_map below looks similar and is not — its keys are separately readable outputs,
-	// so each is its own contract.
+	// A fetch produces ONE value however many statuses declare it, so it is one contract. The
+	// child_map below is not the same case: its keys are separately readable outputs.
 	if old.Action.Type == model.ActionTypeFetch {
 		oldRS, err := fetchResultContract(old.Action)
 		if err != nil {
@@ -409,9 +382,8 @@ func resultContracts(old, new *model.Task) []resultContract {
 	return pair(old.ID+":"+actionType+".result", old.Action.ResultSchema, new.Action.ResultSchema)
 }
 
-// raiseContract is resultContract for the ERROR channel: what one code promises, on a task whose
-// answer may already be on its way. Same relation and direction as the result's -- old ⊆ new,
-// strictly -- because the answer comes from OUTSIDE and nothing migrates it.
+// raiseContract is resultContract for the error channel: old ⊆ new, strictly, because the answer
+// comes from OUTSIDE and nothing migrates it.
 type raiseContract struct {
 	address  string
 	task     string
@@ -475,23 +447,19 @@ func sortedChildKeys(children map[string]model.ChildEntry) []string {
 	return keys
 }
 
-// addedResultMessage is what a result schema declared where none was says. It covers both
-// members deliberately: the party that produces the value never saw this schema, and an
-// instance already parked will meet it on the way out.
+// Both members deliberately: the producer never saw this schema, and a parked instance meets it
+// on the way out.
 const addedResultMessage = "added; a result written against the version that declared none may not satisfy it"
 
-// resultIssues compares what each task expects back, in §3a's direction and with the strict
-// relation, because a real conform stands there. Where the task can park (§2c) the same
-// difference is also an upgrade break, filed as a SECOND issue rather than a combined one:
-// they gate separately, and the renderer is what merges them into a line.
+// resultIssues uses §3a's direction and the strict relation: a real conform stands there. Where the
+// task parks (§2c) the upgrade break is a SECOND issue — they gate separately; the renderer merges.
 func resultIssues(old, new *model.Task) []Issue {
 	var out []Issue
 	for _, rc := range resultContracts(old, new) {
 		found := (explainer{}).explain(rc.old, rc.new)
 		if rc.added {
-			// No path: the finding is about the schema arriving at all. The zero schema it would
-			// otherwise be compared against is not a document anybody wrote, so its breaks are
-			// not findings.
+			// No path: the finding is the schema arriving at all. Breaks against the zero schema
+			// are not findings — nobody wrote it.
 			found = []finding{{msg: addedResultMessage}}
 		}
 		for _, f := range found {
@@ -511,9 +479,8 @@ func resultIssues(old, new *model.Task) []Issue {
 	return out
 }
 
-// raiseIssues is resultIssues for the error channel. Kept separate only because a code is an
-// extra level of address: the finding's path names the code first, then the place inside its
-// payload, so one slot row covers every code the way one covers every property.
+// raiseIssues is resultIssues for the error channel. A finding's path names the code first, so
+// one slot row covers every code the way one covers every property.
 func raiseIssues(old, new *model.Task) []Issue {
 	var out []Issue
 	for _, rc := range raiseContracts(old, new) {
@@ -556,9 +523,8 @@ func raiseIssues(old, new *model.Task) []Issue {
 	return out
 }
 
-// insideInput strips the wrapper inputObject adds: a path is relative to the schema its
-// address names (§6a), and the address here IS the input. The wrapper's own break — the
-// process gaining an input at all — is left with no path, so the message says it.
+// A path is relative to the schema its address names (§6a), and that is the input, not
+// inputObject's wrapper. The wrapper's own break (gaining an input at all) keeps no path.
 func insideInput(path string) string {
 	if path == "input" {
 		return ""
@@ -566,9 +532,8 @@ func insideInput(path string) string {
 	return strings.TrimPrefix(path, "input.")
 }
 
-// inputObject wraps a side's process input in a one-property object so isSubset answers both
-// halves with no second code path: a newly required input, and an input whose type changed.
-// The wrapper is a device for the relation, never part of an address — see insideInput.
+// inputObject's wrapper lets one relation answer both a newly required input and a changed one.
+// It is never part of an address — see insideInput.
 func inputObject(a analysis) schema.Schema {
 	o := schema.Object()
 	if !a.sf.ProcessInput.IsZero() {
@@ -577,9 +542,8 @@ func inputObject(a analysis) schema.Schema {
 	return o.WithDefs(a.sf.Defs)
 }
 
-// compareOutput is the consumer contract reversed: everything the new version can produce
-// must satisfy readers of the old. IsSubset, not NarrowsTo — narrowing is the privilege of
-// a slot with a runtime conform behind it, and nothing conforms here.
+// compareOutput runs new ⊆ old. IsSubset, not NarrowsTo: narrowing needs a runtime conform
+// behind the slot, and nothing conforms here.
 func compareOutput(oldA, newA analysis) []finding {
 	oldOut, hasOld, err := schemaFileOutput(oldA.sf)
 	if err != nil {
@@ -589,9 +553,8 @@ func compareOutput(oldA, newA analysis) []finding {
 	if err != nil {
 		return []finding{{msg: err.Error()}}
 	}
-	// Adding an output is free: consumers were written against a process that produced
-	// nothing. Removing one has no new schema to be compared against, so it is reported
-	// directly, the way a removed task is (§2b).
+	// Adding an output is free; removing one leaves no new schema to compare, so it is reported
+	// directly, as a removed task is (§2b).
 	if !hasOld {
 		return nil
 	}
@@ -601,15 +564,13 @@ func compareOutput(oldA, newA analysis) []finding {
 	return contractExplainer.explain(newOut, oldOut)
 }
 
-// CompareSet is Compare over a name-paired set; a single pair is one entry. The caller
-// resolves and reconciles both sides first — what arrives here is already paired, and this
-// decides what is worth comparing.
+// CompareSet is Compare over a name-paired set; a single pair is one entry. The caller resolves
+// and reconciles both sides first.
 func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 	report := SetReport{Compatible: true, Processes: []Report{}}
 
-	// Every name on either side gets a row; status comes from versions alone. Analysis runs
-	// only for pairs actually compared — a legacy version failing to analyse must not make a
-	// report about two OTHER versions come back false.
+	// Status comes from versions alone, and only compared pairs are analysed: a legacy version
+	// failing to analyse must not fail a report about two OTHER versions.
 	for _, name := range unionOfNames(old, new) {
 		from, inOld := old[name]
 		to, inNew := new[name]
@@ -622,7 +583,6 @@ func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 		}
 		switch {
 		case !inOld:
-			// No previous version exists, so nothing is being upgraded and nothing can break.
 			unjudged(StatusNew)
 			continue
 		case !inNew, !moved(from, to):
@@ -632,9 +592,8 @@ func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 			continue
 		}
 
-		// A submitted document has no version, so the documents must decide; two STORED versions
-		// are left to their numbers, which say MORE (a version pins child versions, so identical
-		// documents at different versions differ). Normalizing makes raw and canonical comparable.
+		// Only an unversioned (submitted) document is compared by content: a stored version pins
+		// child versions too, so its number says more. Normalize makes raw and canonical agree.
 		if from.Version == 0 || to.Version == 0 {
 			if err := from.Def.Normalize(); err != nil {
 				report.unanalysable(row, SideFrom, err)
@@ -710,9 +669,8 @@ func unionOfNames(a, b map[string]SideEntry) []string {
 
 // ── diagnostics ───────────────────────────────────────────────────────────────
 
-// explainer WORDS a subset break; it does not walk. The relation reports its own breaks, so
-// a message cannot disagree with the verdict it explains. See CLAUDE.md for the three
-// configurations and why a parallel walker was removed.
+// explainer only WORDS the breaks the relation reports, so a message cannot disagree with its
+// verdict. CLAUDE.md has the three configurations.
 type explainer struct {
 	// Both schemas read as descriptions of data a conform already produced. Sound ONLY where
 	// the value is never conformed again — a slot with a runtime conform must not use it.
@@ -729,14 +687,12 @@ var (
 	contractExplainer = explainer{swap: true}
 )
 
-// finding is one break as the report files it: where, and what, kept apart. The path stays a
-// field the whole way to the renderer, so a property name is never recovered by searching
-// prose for a colon — which silently dropped any name containing a space.
+// The path stays a field all the way to the renderer: recovering it by searching prose for a
+// colon silently dropped any name containing a space.
 type finding struct{ path, msg string }
 
-// explain names EVERY place sub fails to fit super, in the relation's own walk order; empty
-// means it fits. All of them because they are independent — one issue per run means one
-// release per difference.
+// explain names EVERY place sub fails to fit super, in the relation's walk order; empty means it
+// fits. One issue per run would mean one release per difference.
 func (e explainer) explain(sub, super schema.Schema) []finding {
 	var breaks []*schema.SubsetBreak
 	if e.asStored {
@@ -770,10 +726,9 @@ func (e explainer) word(b *schema.SubsetBreak) string {
 	return fmt.Sprintf("%s → %s", from, to)
 }
 
-// ApplySelection marks every issue gating or excused and computes Passes. Only contract findings
-// may be excused — the upgrade check is not negotiable (§5) — and an `unanalysable` row cannot
-// be, being the absence of a verdict. A verdict never moves: only Gating and Passes answer to
-// the selection. `contract` is the only token, and an unknown one is an error, never a no-op.
+// ApplySelection sets each issue's Gating and computes Passes; verdicts never move. `contract` is
+// the only token (the upgrade check is not negotiable, §5) and any other is an error, never a
+// no-op. An unanalysable row always fails.
 func (r *SetReport) ApplySelection(ignore []string) error {
 	excused := map[Member]bool{}
 	for _, token := range ignore {

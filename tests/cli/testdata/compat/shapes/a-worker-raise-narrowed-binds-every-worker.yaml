@@ -1,6 +1,5 @@
-# On an external task `raises` is a closed set a worker submits against, and registration checks
-# no worker. So narrowing it refuses future submissions as well as the one in flight: both
-# members, as narrowing its `result_schema` is (a-parked-task-carries-its-result-schema.yaml).
+# Registration checks no worker, so narrowing an external's `raises` refuses future submissions
+# too: both members, as for its `result_schema`.
 apply:
   - channel: wraise_a
     definitions:

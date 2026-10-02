@@ -1,12 +1,6 @@
-# The other half of a-defs-edit-reports-where-it-is-used.yaml, and the half that used to
-# vanish. A definition the document never points at is baked into nothing, so no schema
-# comparison can see it move: the pool is edited, every verdict is clean, and the report was
-# empty. `$defs` is a slot for exactly this — the edit is reported, and `(not judged)` says
-# what is true of it, that no check looked.
-#
-# `Retired` below is referenced by nothing. The pair is deliberately a real narrowing
-# (`string` → `integer`), so what makes it unjudged is the absence of a reader rather than
-# the edit being harmless: point one schema at it and the same change breaks both questions.
+# A $defs entry nothing references is reported `(not judged)`: no schema bakes it in, so no
+# comparison sees it. The edit is a real narrowing on purpose: unjudged for lack of a reader,
+# not because it is harmless.
 apply:
   - channel: defsfree_a
     definitions:

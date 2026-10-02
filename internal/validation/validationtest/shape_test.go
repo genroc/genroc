@@ -2,9 +2,7 @@ package validationtest
 
 import "testing"
 
-// A single-expression output passes the action result through unchanged: the
-// inferred task output type equals the result (result_schema) type, with no
-// object wrapper.
+// The output type is the result type itself, with no object wrapper.
 func TestGenerate_OutputSingleExpressionPassthrough(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",

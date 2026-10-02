@@ -1,15 +1,5 @@
-# The rule is about PARKING, not about a list of action types. An `external` task holds a
-# real instance while it waits, so a result narrowed under it lands on both questions at
-# once: the worker that will submit is a party outside the deployment (contract), and an
-# instance already parked there will have whatever arrives conformed against the schema it
-# runs NOW (upgrade).
-#
-# A `fetch` cannot park — request and response happen inside one advance, with nothing
-# persisted between — so the identical edit there is a contract break and nothing more. The
-# two tasks below carry the same edit, and the report separates them.
-#
-# One difference failing both questions prints ONCE, named for both: they are two findings
-# on the wire, because they gate separately.
+# The same result narrowing under an `external` (parks: contract AND upgrade) and a `fetch`
+# (cannot park: contract only). A difference failing both prints once, named for both.
 apply:
   - channel: parked_a
     definitions:

@@ -15,11 +15,9 @@ type PlannedMove struct {
 	ToVersion int
 }
 
-// PlanUpgrade works out the whole move from a root and the version the ROOT goes to. Only the
-// root's target is a choice: every descendant's is DERIVED from the definition its parent is
-// moving to, or a parent ends up running a child version its own definition never mentions. The
-// unit is the non-terminal closure, so a tree moves whole or not at all; terminal descendants
-// stay put with their outputs frozen.
+// PlanUpgrade works out the whole move from the ROOT's target. Every descendant's is DERIVED from
+// the definition its parent moves to, or a parent runs a child version its definition never names.
+// Non-terminal closure only, so the tree moves whole or not at all.
 func (db *DB) PlanUpgrade(ctx context.Context, rootID string, rootVersion int) ([]PlannedMove, error) {
 	tree, err := db.NonTerminalSubtree(ctx, rootID)
 	if err != nil {
@@ -43,9 +41,8 @@ func (db *DB) PlanUpgrade(ctx context.Context, rootID string, rootVersion int) (
 		return nil, fmt.Errorf("instance %q is not live", rootID)
 	}
 
-	// Breadth-first from the root: a child's target needs its parent's, so the parent must
-	// be resolved first. A descendant whose own parent is terminal is unreachable here, and
-	// that is correct -- nothing will collect it under a new version.
+	// Breadth-first: a child's target needs its parent's. A descendant under a terminal parent is
+	// unreachable here, correctly -- nothing will collect it under a new version.
 	out := []PlannedMove{{Instance: root, ToVersion: rootVersion}}
 	queue := []*model.ProcessInstance{root}
 	for len(queue) > 0 {
@@ -56,9 +53,7 @@ func (db *DB) PlanUpgrade(ctx context.Context, rootID string, rootVersion int) (
 		if len(kids) == 0 {
 			continue
 		}
-		// The version the parent is MOVING TO is what names the children, not the one it is
-		// on now. That is the whole point: after the move the parent's definition and its
-		// children have to agree.
+		// The version the parent is MOVING TO names the children, not the one it is on.
 		parentDef, err := db.GetDefinition(parent.ProcessName, target[parent.ID])
 		if err != nil {
 			return nil, fmt.Errorf("load %s@%d (target of %q): %w", parent.ProcessName, target[parent.ID], parent.ID, err)

@@ -1,6 +1,4 @@
-# Tasks match by id because it is the only handle there is. A rename reads as one
-# removal plus one addition; nothing could validate a claim that two differently-named
-# tasks are the same one.
+# Tasks match by id, so a rename reads as one removal plus one addition.
 apply:
   - channel: taskren_a
     definitions:

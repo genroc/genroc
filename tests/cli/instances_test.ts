@@ -4,8 +4,7 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 
-// A minted id: one opaque token, digit-led so a process name cannot match it. One form -- what a
-// listing prints is what every command takes back, with nothing to shorten or expand.
+// Digit-led, so a process name cannot match it.
 const ID_RE = /^[0-9][0-9a-hjkmnp-tv-z]{7,13}$/;
 import { client, waitForInstance } from "../helpers/client.ts";
 import {
@@ -23,10 +22,6 @@ import {
   uid,
   waitForExternalToken,
 } from "../helpers/genctl.ts";
-
-// The instance entity: `run` that creates one, `get` and `instances` that read it,
-// `pause`/`resume`/`retry` that move it, and `last`/@last that address it. Every flag of
-// each, plus the fields the table and the detail block commit to.
 
 let bin: string;
 beforeAll(() => {
@@ -84,9 +79,7 @@ test("detail --json — a child task in a loop appears once, not once per iterat
   const id = startedID(runCli(bin, ["run", parent]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
 
-  // `outputs` holds ONE value per task however many times a loop re-enters it. Asserted on RAW
-  // stdout because the failure this guards was a repeated KEY in the object, which JSON.parse
-  // hides by silently keeping the last.
+  // Raw stdout: JSON.parse would hide a repeated `outputs` key by keeping the last.
   const raw = runCli(bin, ["detail", id, "--json"]).stdout;
   const outputs = raw.slice(raw.indexOf('"outputs"'));
   const occurrences = outputs.split(`"call":`).length - 1;
@@ -162,16 +155,13 @@ test("run — input that fails the schema is reported before anything starts", (
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("input is not valid for");
   expect(r.stdout).toBe("");
-  // Counted per-process rather than over the whole listing: the other CLI files are
-  // starting instances on this same server while this test runs.
+  // Per-process: other CLI files start instances on this server concurrently.
   expect(instances(["--since", "1h"]).filter((i) => i.process === name)).toEqual([]);
 });
 
 // ── get: displayed fields ───────────────────────────────────────────────────────
 
-// `get` answers "what did it produce", `detail` answers "what does it hold". The split is the
-// point: state is engine bookkeeping, and an everyday read that hands it back teaches people to
-// depend on internals. These two must not drift back into one view.
+// Keep the views apart: state is engine bookkeeping, and an everyday read must not hand it back.
 test("get — reports the output and no state; detail reports the state", async () => {
   const name = uid("split");
   runCli(bin, [
@@ -291,9 +281,7 @@ test("detail — the block names the instance, its process and its state", () =>
   expect(JSON.parse(j.stdout)).toMatchObject({ id, process: name, version: 1 });
 });
 
-// The error a failed instance REPORTS is an object on the wire — code, message, and whatever
-// the clause attached. `get` decodes it as one; while it decoded a bare string, `get` on ANY
-// failed instance died in the JSON decode instead of printing a thing.
+// The reported error is an object on the wire (code, message, data), not a string.
 test("get — a failed instance prints the error it reports, payload and all", async () => {
   const name = uid("panicky");
   runCli(bin, [
@@ -478,8 +466,7 @@ test("instances — the STATUS column carries phase, and only where there is one
 }, 15_000);
 
 test("instances --task — the position, which only --process narrows to one task", async () => {
-  // Two definitions spelling the same task id: that is what makes the pairing advice real
-  // rather than decorative.
+  // Two definitions share the task id, so only --process narrows it to one.
   const shared = "review";
   const def = (prefix: string, task: string) => ({
     name: uid(prefix),
@@ -514,8 +501,7 @@ test("instances --sort updated — orders by last activity, not creation", async
   await waitForExternalToken(first);
   await waitForExternalToken(second);
 
-  // Resolving the first-created makes it the last-updated, which is what tells the two
-  // sorts apart — under one order it is first, under the other last.
+  // Resolving the first-created makes it the last-updated, so the two sorts disagree.
   runCli(bin, ["signal", first, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(first)).toBe("completed");
 
@@ -670,8 +656,7 @@ test("instances -q — ids only, one per line, and they match what the table lis
     runCli(bin, ["run", name, "-q"]).stdout.trim(),
   ];
 
-  // Scoped to this test's own process: the suite shares one server, so comparing two
-  // whole-database listings races against every other file's instances.
+  // Scoped to this test's process: the suite shares one server.
   const scope = ["--process", name, "--since", "1h"];
   const q = runCli(bin, ["instances", "-q", ...scope]);
   expect(q.ok).toBe(true);
@@ -689,8 +674,7 @@ test("instances -q — ids only, one per line, and they match what the table lis
 test("instances -q — an empty list prints NOTHING, not 'no instances'", () => {
   const r = runCli(bin, ["instances", "-q", "--error-code", uid("no_such_code")]);
   expect(r.ok).toBe(true);
-  // The whole point: `genctl pause $(genctl instances -q ...)` would otherwise receive
-  // the words "no" and "instances" as two instance ids.
+  // Else `genctl pause $(genctl instances -q ...)` receives "no" and "instances" as ids.
   expect(r.stdout, "-q must put nothing on stdout when there is nothing to list").toBe("");
   expect(r.stderr).toBe("");
 });
@@ -703,9 +687,8 @@ test("instances -q — feeding the ids straight into a lifecycle command", async
   ];
   for (const id of ids) await waitForExternalToken(id);
 
-  // What `genctl pause $(genctl instances -q --status running)` does, with the shell's
-  // word-splitting spelled out. Narrowed to this test's own ids before pausing: the suite
-  // shares one server, so pausing every running instance suspends other tests mid-flight.
+  // `genctl pause $(genctl instances -q --status running)`, narrowed to this test's ids: the
+  // suite shares one server, and pausing every running instance stalls other tests.
   const listed = runCli(bin, ["instances", "-q", "--status", "running", "--since", "1h"]);
   const args = listed.stdout.trim().split("\n").filter((id) => ids.includes(id));
   expect(args.sort(), "-q must list the running instances this test started").toEqual(
@@ -730,8 +713,7 @@ test("instances -q — the cap still reports, and only on stderr", async () => {
 
   const r = runCli(bin, ["instances", "-q"]);
   expect(r.stdout.trim().split("\n").length).toBe(listCap);
-  // A truncated list nested into `pause` acts on 20 of 21 — so the notice matters more
-  // here than anywhere, and must not land on stdout where it would become an argument.
+  // Nested into `pause`, a notice on stdout would become an argument.
   expect(r.stderr).toContain(`showing the newest ${listCap} instances`);
   expect(r.stdout).not.toContain("showing the newest");
 }, 30_000);
@@ -759,13 +741,6 @@ test("pause then resume — parks a running instance and revives it", async () =
   expect(await waitForInstance(id)).toBe("completed");
 }, 30_000);
 
-// A tree is the unit these verbs act on, and they read it by its root id -- so a child is
-// refused rather than acted on. The refusal is what makes that read correct: without it the
-// tree selector would match nothing and the call would report "unchanged", which reads as a
-// tree that was already stopped.
-// The point of the id scheme: what a listing prints is what every command takes back. There
-// is no short form to expand and no long form to shorten -- that gap is why the old truncated
-// display could not be pasted into anything.
 test("an id printed by one command is accepted by every other, verbatim", async () => {
   const name = apply(externalDef(uid("idform")));
   const listed = startedID(runCli(bin, ["run", name]).stdout);
@@ -784,6 +759,7 @@ test("an id printed by one command is accepted by every other, verbatim", async 
   }
 }, 30_000);
 
+// Unrefused, a child id would match no tree and report "unchanged", as if already stopped.
 test("pause/resume/retry — a child is refused, naming the root to use instead", async () => {
   const child = uid("lchild");
   const parent = uid("lparent");
@@ -822,10 +798,6 @@ test("cancel — stops an instance for good, and it stays stopped", async () => 
   expect(r.stdout, "the CLI reports the verb it performed").toContain("cancelled");
   expect(instances(["--since", "1h"]).find((i) => i.id === id)?.status).toBe("cancelled");
 
-  // Neither verb takes it back, and each says so in its own terms. resume refuses because
-  // the tree has settled; retry refuses because a stop was never an attempt the definition
-  // budgeted for. Both messages must point at starting a new instance -- sending an operator
-  // to `retry` here would name the one door that is bolted.
   const resumed = runCli(bin, ["resume", id]);
   expect(resumed.ok, "a cancelled instance must not resume").toBe(false);
   expect(resumed.stderr).toContain("cancel");
@@ -838,8 +810,7 @@ test("cancel — stops an instance for good, and it stays stopped", async () => 
   expect(retried.stderr).toContain("cancel");
 }, 30_000);
 
-// Re-running the same assertion over a group of ids has to converge, which is why an
-// already-stopped tree reports instead of failing. specs/id-list-commands.md.
+// Re-running an assertion over a group of ids must converge. specs/id-list-commands.md.
 test("cancel — a second cancel reports rather than failing", async () => {
   const name = apply(externalDef(uid("cancel_twice")));
   const id = startedID(runCli(bin, ["run", name]).stdout);
@@ -873,10 +844,8 @@ test("retry — refuses an instance that has not failed", async () => {
 });
 
 // ── id lists ────────────────────────────────────────────────────────────────────
-//
-// pause/resume/retry act on every id named. They are assertions, so an id already in the
-// asserted state is reported and forgiven — which is the property that lets a line that
-// was only half applied be re-run as-is. specs/id-list-commands.md.
+// pause/resume are assertions: an id already in the asserted state is reported and forgiven,
+// so a half-applied line can be re-run as-is. specs/id-list-commands.md.
 
 test("pause/resume — several ids at once, and re-running the same line converges", async () => {
   const name = apply(externalDef(uid("multipause")));
@@ -896,9 +865,6 @@ test("pause/resume — several ids at once, and re-running the same line converg
   expect(status(second)).toBe("paused");
   expect(status(unnamed), "a list of ids must move only what it names").toBe("running");
 
-  // The whole point of `already`: the same line, run again, is a no-op that SUCCEEDS.
-  // Were an already-paused tree an error, a group that half applied could never be
-  // repaired by repeating it.
   const again = runCli(bin, ["pause", first, second]);
   expect(again.ok, `re-running a satisfied assertion must exit 0: ${again.stderr}`).toBe(true);
   expect(again.stdout).toContain(`already: ${first}`);
@@ -968,9 +934,7 @@ test("a malformed id list is refused whole — nothing is sent, nothing is mutat
   const status = () =>
     (JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as InstanceRow).status;
 
-  // The mistake this exists for: `genctl pause $(genctl instances --status running)`
-  // without -q, so the TABLE arrives as arguments. A real id sits among the words, and
-  // acting on it while reporting "not found" for the rest is a typo that mutates.
+  // The mistake this exists for: the TABLE as arguments (no -q), a real id among the words.
   const table = runCli(bin, ["instances", "--status", "running", "--since", "1h"]);
   const words = table.stdout.split(/\s+/).filter(Boolean);
   expect(words, "the table must carry both headers and a real id").toContain("STATUS");
@@ -980,7 +944,7 @@ test("a malformed id list is refused whole — nothing is sent, nothing is mutat
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("are not instance ids");
   expect(r.stderr).toContain("nothing was sent");
-  // One line, not one per cell: the noise was half the bug.
+  // One line, not one per cell.
   expect(r.stderr.split("\n").filter((l) => l.startsWith("genctl:")).length).toBe(1);
   expect(r.stderr).toContain("-q");
   expect(status(), "a malformed command must not pause the id it happened to contain").toBe(

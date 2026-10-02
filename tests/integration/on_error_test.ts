@@ -162,9 +162,7 @@ test("on_error — unmatched code fails instance", async () => {
   failMock.stop();
 });
 
-// `retries` counts the EXTRA attempts, so 3 retries is 4 requests in all — a promise only a
-// request count can keep, and one an off-by-one in the budget would silently break. The goto
-// is what proves the budget was spent rather than the instance still parked.
+// `retries` counts EXTRA attempts, so 3 is 4 requests; the goto proves the budget was spent.
 // docs guides/process-definition/error-handling.mdx.
 test("retry — N retries is N+1 requests, then the goto", async () => {
   const failMock = await startMockService(0, { statusCode: 500 });

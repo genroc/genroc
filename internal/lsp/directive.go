@@ -1,10 +1,8 @@
 package lsp
 
-// What a `$<resolver>:` directive is worth a popup for. A STRUCTURAL directive shows what it
-// yields -- the value it fills or spreads, as the YAML its author would have written, from the
-// call the structural pass makes. A CODE directive is never run here (it shells out, and its
-// answer is a string), so it says only that. specs/source-resolution.md §The editor's guess
-// about a path.
+// What a `$<resolver>:` directive is worth a popup for: a STRUCTURAL one shows what it yields, as
+// YAML, from the structural pass's own call; a CODE one is never run here (it shells out).
+// specs/source-resolution.md §The editor's guess about a path.
 
 import (
 	"bytes"
@@ -81,8 +79,7 @@ func yamlBlock(body string) string {
 var spreadOrder = []string{"name", "input_schema", "result_schema", "raises"}
 
 // renderValue prints what a structural directive yields. A key the mapping around a spread
-// already writes stays in the picture with a note: the popup answers what the file yields, and
-// the precedence is the one fact a reader would otherwise get wrong.
+// already writes stays, with a note: the precedence is what a reader would otherwise get wrong.
 func renderValue(value any, overridden map[string]bool) string {
 	root := toNode(value, spreadOrder, false)
 	root.Style = 0
@@ -115,10 +112,8 @@ func encodeYAML(root *yaml.Node) string {
 	return buf.String()
 }
 
-// toNode builds the tree with keys in reading order rather than yaml.v3's sorted one, and a
-// mapping or list of scalars on one line, the way these files are written. `named` marks a
-// mapping whose keys are the author's names, which sort alphabetically; every other key is a
-// keyword and follows schema.KeywordRank.
+// toNode builds the tree in reading order, not yaml.v3's sorted one, with a mapping or list of
+// scalars on one line. `named` marks a mapping of the author's names, which sort alphabetically.
 func toNode(v any, order []string, named bool) *yaml.Node {
 	switch t := v.(type) {
 	case map[string]any:

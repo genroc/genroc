@@ -8,9 +8,7 @@ import (
 	"genroc/internal/model"
 )
 
-// The on_error contract a definition is written against: rules are tried top to bottom, a rule
-// with no `code` catches anything, and where a rule carries a `case` BOTH selectors must hold —
-// a false case falls through to the next rule rather than swallowing the error.
+// The on_error contract definitions are written against.
 // docs guides/process-definition/error-handling.mdx.
 func TestMatchOnError_SelectorsAndOrder(t *testing.T) {
 	// The case strings are the fixture's own vocabulary, so a row states its selector's verdict

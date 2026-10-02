@@ -2,15 +2,8 @@ import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance, childrenOfTask } from "../helpers/client.ts";
 import type { components } from "../generated/api.ts";
 
-// A raise or panic concludes with a whole error — code, message, and a `data` shape evaluated
-// in the same scope as the message — reported as the row's own `error`. The payload is
-// the half that reaches nobody else: a parent reads it only where the calling task declares its
-// shape. specs/error-extensions.md §X2-c.
-//
-// It is stored in a slot of its own, never in `error`. One slot per direction: the context's
-// `error` is what the instance CAUGHT and belongs to its state at the task it stopped on, so a
-// concluding fault must leave it alone — and the API shows the outbound one, the inbound one
-// staying inside `context`.
+// A raise/panic's `data` is evaluated in the message's scope and stored in a slot of its own: the
+// context's `last_error` is what the instance CAUGHT and must be left alone. specs/error-extensions.md §X2-c.
 
 test("a raise carries data onto its own row, evaluated in the clause's scope", async () => {
   const name = `raise_data_${crypto.randomUUID()}`;
@@ -74,8 +67,6 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
               panic: {
                 code: "script_broken",
                 message: "the script is broken",
-                // The case X2-a always had: a stack trace is unreadable in a one-line
-                // message, and this is the only place it was ever going to be read.
                 data: { kind: "syntax", stack: "at foo (x.ts:1:1)\nat bar (x.ts:9:2)" },
               },
             },
@@ -105,9 +96,8 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
   const { data: parentInst } = await client.GET("/instances/{id}", {
     params: { path: { id } },
   });
-  // A panic poisons its ancestors, which inherit its code and message (§2.3) — but the
-  // payload does not travel: copying it onto every ancestor bloats each row to say the
-  // same thing, and nothing up there can catch a panic to read it anyway.
+  // Ancestors inherit a panic's code and message (§2.3) but not its payload: nothing up there can
+  // catch a panic to read it.
   expect(parentInst?.error_code).toBe("script_broken");
   expect(parentInst?.error_data, "the payload does not travel").toBeUndefined();
 
@@ -121,10 +111,8 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
   });
 });
 
-// A raise fires with whatever the rule CAUGHT still in scope, so forwarding that body is one
-// line — and a raise that says nothing carries nothing. The two slots are what keep those
-// apart: the context's `last_error` still holds the cause either way, and only the reported error
-// says what the raise chose to send on.
+// The context's `last_error` keeps the cause either way; only the reported error says what the
+// raise chose to send on.
 test("a raise forwards the caught body only when it asks to; a silent one sends nothing", async () => {
   const failing = await startMockService(0, {
     statusCode: 404,
@@ -190,9 +178,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
   const { data: quiet } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: ids[silent] } },
   });
-  // Never inherited: a parent that declares a shape for `lookup_failed` must not receive a body
-  // this raise did not choose to send. Absence is the record — the key is MISSING rather than
-  // null, which is what tells a parent's collect there is nothing to conform.
+  // MISSING, not null: that is what tells a parent's collect there is nothing to conform.
   expect(quiet?.error_code).toBe("lookup_failed");
   expect(quiet?.error_message).toContain("no such order");
   expect("error_data" in (quiet ?? {}), "a data-less raise carries nothing").toBe(false);

@@ -8,10 +8,8 @@ const ctx = useTickEnv();
 
 const advance = (ms: number) => ctx.env.client.POST("/tick", { body: { advance_ms: ms } });
 
-// A deadline behind now is legitimate — a re-arm after a retry, or a resume from a pause
-// that outlasted the window — so an external clamps it and raises the code the definition
-// is written against. Failing instead would hand an author who wrote
-// `on_error: [external.timeout]` an uncatchable engine.expression.
+// A past deadline is legitimate (a re-arm after retry, a long pause), so external clamps it;
+// failing would hand `on_error: [external.timeout]` an uncatchable engine.expression.
 test("an external until already past raises external.timeout, not an engine failure", async () => {
   await ctx.env.define("ext_past_until", [
     {
@@ -33,10 +31,8 @@ test("an external until already past raises external.timeout, not an engine fail
   );
 });
 
-// The counterpart on the fetch side, where the same clamp would be a lie: an expired context
-// reports http.timeout for a request that was never sent, and http.timeout is unknowable —
-// unretryable forever on an only_once task. So it is refused, and the catch-all cannot save
-// it because the fault is the definition's, not the call's.
+// Clamping here would report http.timeout for a request never sent, and http.timeout is unknowable
+// (unretryable on only_once). The fault is the definition's, so no catch-all saves it.
 test("a fetch timeout resolving into the past fails rather than reporting a timeout", async () => {
   const mock = await startMockService(0, { response: { ok: true } });
   try {
@@ -61,12 +57,8 @@ test("a fetch timeout resolving into the past fails rather than reporting a time
   }
 });
 
-// A fetch deadline is resolved against db.Now(), which carries the test clock offset, but a
-// context deadline is compared against the real time.Now(). Handing the resolved instant to
-// context.WithDeadline would stretch every timeout by the offset — here by an hour, so the
-// mock's 3s response would win and the task would succeed. Converting to a duration first
-// cancels the offset out. This test is the only thing standing between that bug and a
-// timeout that silently stops applying under an advanced clock.
+// The deadline resolves against db.Now() (with the test-clock offset) but a context compares real
+// time.Now(), so it must become a duration first or every timeout stretches by the offset.
 test("a fetch timeout is not stretched by the test clock offset", async () => {
   const mock = await startMockService(0, { response: { ok: true }, firstRequestDelayMs: 3_000 });
   try {
@@ -93,9 +85,7 @@ test("a fetch timeout is not stretched by the test clock offset", async () => {
   }
 });
 
-// An external timeout is resolved once per arm, so a re-arm after an external.timeout retry
-// starts a fresh `for` budget rather than inheriting the spent one. If it did not re-resolve,
-// the second arm would be due immediately and the retry would burn without any waiting.
+// Resolved once per arm: without re-resolving, the second arm would be due immediately.
 test("a for budget restarts on re-arm after an external.timeout retry", async () => {
   await ctx.env.define("ext_rearm", [
     {

@@ -1,19 +1,6 @@
-# The third case at a result schema, and the one that goes through the pairing. Absent →
-# declared is an ADDITION, reported directly because there is no old schema to reason from
-# (a-result-schema-added.yaml); `{}` → declared is not, because `{}` IS an old schema — the
-# top type — so the comparison runs and reports what stopped fitting.
-#
-# The two directions are pinned together because they are not mirrors:
-#
-#   open   {} → declared. `{}` accepts everything, so a worker written against it may submit
-#          anything, and a parked instance's submission is conformed against the schema the
-#          instance runs NOW. Breaking on both members.
-#   close  declared → {}. We conform LESS, which is free the way dropping a result schema is
-#          (the-silent-removals.yaml).
-#
-# What this holds down is the `{}` shortcut: treating the top type as "nothing declared"
-# anywhere in the comparison would make `open` silent — a narrowing reported as an addition
-# that §2c then excuses, or not reported at all.
+# `{}` → declared runs the pairing (`{}` is the top type, not absence): open breaks both
+# members; close (declared → {}) is free. Treating `{}` as "nothing declared" would make open
+# read as an addition, or silent.
 apply:
   - channel: topnarrow_a
     definitions:

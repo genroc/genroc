@@ -6,9 +6,7 @@ import { spawnSync } from "node:child_process";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { uid } from "../helpers/genctl.ts";
 
-// A rejected definition used to print prose with the location inside it, so nothing could
-// jump to the line. The slot address now travels with the diagnostic and genctl turns it back
-// into a position using the index it parsed the file with. specs/language-server.md §2, §3.
+// Diagnostics carry the slot address; genctl maps it back to file:line:col. specs/language-server.md §2, §3.
 
 let bin: string;
 beforeAll(() => {
@@ -23,7 +21,6 @@ function writeSource(body: string): string {
 
 test("apply — every broken slot is reported as file:line:col", () => {
   const name = uid("located");
-  //            1        2       3            4           5              6         7
   const path = writeSource(
     `name: ${name}\n` +      // 1
       `tasks:\n` +           // 2
@@ -45,7 +42,6 @@ test("apply — every broken slot is reported as file:line:col", () => {
   expect(r.exitCode).toBe(1);
 
   const lines = r.stderr.trim().split("\n");
-  // Both, not just the first: inference used to stop at the failure it found.
   expect(lines).toHaveLength(2);
   for (const line of lines) expect(line.startsWith("genctl: ")).toBe(true);
 
@@ -66,14 +62,11 @@ test("apply — a missing required field points at the node that lacks it", () =
   expect(r.stderr).toContain("id is required");
 });
 
-// Both argv shapes, because both are real: the VS Code extension runs a bare `genctl lsp`,
-// and clients that name the transport append `--stdio`. The extension asks for no flag ON
-// PURPOSE — depending on one it does not need is what turned an older genctl into five
-// restarts and a disposed connection.
+// Both argv shapes are real: the VS Code extension runs a bare `genctl lsp` on purpose, and
+// clients that name the transport append `--stdio`.
 test.each([[[]], [["--stdio"]]])(
   "lsp — genctl lsp %j speaks LSP on stdio and underlines the key a typo is in",
   (extraArgs: string[]) => {
-  // The whole editor path through the binary people already have: framed in, framed out.
   const text = 'name: demo\ntasks:\n  - id: a\n    on_eror: []\n    switch: end\n';
   const frames = [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
@@ -107,7 +100,6 @@ test.each([[[]], [["--stdio"]]])(
   },
 );
 
-/** Read a Content-Length framed LSP stream. */
 function readFrames(out: string): any[] {
   const msgs: any[] = [];
   let rest = Buffer.from(out, "utf8");
@@ -122,9 +114,7 @@ function readFrames(out: string): any[] {
   return msgs;
 }
 
-// The extension probes with this before starting the client. It must exit 0 on a binary that
-// has the subcommand — `-v` cannot answer, because it succeeds on every genctl ever built,
-// including the ones that answer `genctl lsp` with a usage dump and exit 1.
+// The extension's probe: `-v` cannot answer, since it succeeds on a genctl that lacks `lsp`.
 test("lsp — `genctl lsp -h` is the probe an editor can trust", () => {
   const r = runCli(bin, ["lsp", "-h"]);
   expect(r.exitCode).toBe(0);

@@ -10,18 +10,14 @@ import (
 	"unicode/utf8"
 )
 
-// Validate checks data against the schema and returns a normalized copy: undeclared properties
-// are dropped, an absent declared one is filled from its conformed default or omitted, a missing
-// required one is an error, and retained values are type- and constraint-checked. Types are
-// strict, except that "integer" accepts any number with no fractional part. The result shares no
-// maps or slices with the input; a nil or empty {} schema passes data through.
+// Validate returns a normalized copy of data: undeclared keys dropped, absent optionals filled
+// from their conformed default, a missing required one an error; "integer" takes any integral
+// number. The result shares nothing with data; a nil or {} schema passes it through.
 func (s Schema) Validate(data any, mode ...ConformMode) (any, error) {
 	return conformGuard(s.n, s.rootDefs(), data, "", nil, firstMode(mode))
 }
 
-// firstMode reads the optional mode argument, defaulting to Strict so that every existing
-// caller — an input, an action result, a collected child output — keeps checking documents
-// exactly as before.
+// firstMode defaults to Strict, the document check every boundary caller relies on.
 func firstMode(mode []ConformMode) ConformMode {
 	if len(mode) == 0 {
 		return Strict
@@ -46,11 +42,8 @@ func conform(nd *node, defs map[string]*node, data any, path string) (any, error
 	return conformGuard(nd, defs, data, path, nil, Strict)
 }
 
-// ConformMode selects what a walk of schema-and-value is FOR. There is one traversal
-// because there is one set of rules about where a value lives inside a schema —
-// combinators before types, $refs with a cycle guard, open maps versus closed objects,
-// unions picked by which branch the value satisfies — and a second walk beside it would
-// have to rediscover all of them and then stay in step forever.
+// ConformMode selects what the one walk of schema-and-value is FOR. Do not add a walk beside
+// it: it would have to rediscover where a value lives inside a schema and stay in step.
 type ConformMode int
 
 const (
@@ -58,21 +51,14 @@ const (
 	// is rejected whatever its type, and undeclared keys are stripped.
 	Strict ConformMode = iota
 
-	// ConformToSchemaExactly turns the walk into a MIGRATION: it reconciles a stored value with
-	// a schema it was not written against, and is the other half of IsSubsetAsStored. The whole
-	// difference from Strict is the null-versus-missing distinction, in BOTH directions: an
-	// absent required property admitting null gets the null written in, and a present null in an
-	// optional property that admits none has its key removed. Undeclared keys are STRIPPED as in
-	// every other mode, so a caller whose schema is deliberately PARTIAL must put the rest back
-	// (validation.MigrateState); defaults are NOT filled. internal/schema/CLAUDE.md says why
-	// both of those must hold; specs/compat-command.md §2d is the design.
+	// ConformToSchemaExactly is a MIGRATION (specs/compat-command.md §2d): an absent required
+	// nullable gets null written in; a null an optional non-nullable cannot hold loses its key.
+	// No defaults filled; undeclared keys stripped — validation.MigrateState restores them.
 	ConformToSchemaExactly
 )
 
-// conformGuard: visiting holds nodes expanded at the current value position, so a $ref
-// back to one is a no-progress schema cycle and the branch fails instead of recursing
-// forever (stored schemas decode without CheckDoc). Descent into a property/element
-// starts fresh — value depth was consumed.
+// conformGuard: visiting holds nodes expanded at this value position, so a $ref back to one
+// fails the branch (stored schemas skip CheckDoc). Descent into a property/element starts fresh.
 func conformGuard(nd *node, defs map[string]*node, data any, path string, visiting map[*node]bool, mode ConformMode) (any, error) {
 	resolved, err := deref(nd, defs)
 	if err != nil {
@@ -155,9 +141,8 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 				return nil, fmt.Errorf("%srequired property %q is missing", pathPrefix(path), name)
 			}
 			if def := propDefault(prop, defs); def != nil && mode == Strict {
-				// The default is conformed like a supplied value, so a filled
-				// value can never violate the schema and object defaults are
-				// normalized (pruned, nested defaults filled) consistently.
+				// Conformed like a supplied value, so a filled default can never violate the
+				// schema and object defaults are normalized too.
 				norm, err := conformGuard(prop, defs, cloneJSON(def), JoinPath(path, name), nil, mode)
 				if err != nil {
 					return nil, fmt.Errorf("invalid schema default: %w", err)
@@ -166,10 +151,8 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 			}
 			continue // absent optional without a default is omitted
 		}
-		// The other direction of the null-versus-missing gap. A stored null that the new
-		// schema will not hold cannot stay — but where the property is OPTIONAL, absence is
-		// valid, so removing the key reconciles the value instead of failing it. Required
-		// and non-nullable is the case nothing can fix, and it falls through to the error.
+		// Where the property is OPTIONAL, removing a null the schema will not hold reconciles
+		// the value; required and non-nullable falls through to the error.
 		if mode == ConformToSchemaExactly && val == nil && !required[name] && !hasNullResolved(prop, defs) {
 			continue
 		}
@@ -179,10 +162,7 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 		}
 		out[name] = norm
 	}
-	// Undeclared keys: dropped for a closed object; validated against the
-	// additionalProperties subschema and kept for an open map. A migration keeps them
-	// either way — stripping is a conform's job, and losing a value nobody declared is
-	// exactly what an upgrade must not do.
+	// A closed object drops undeclared keys in every mode, a migration's included.
 	if nd.AdditionalProperties != nil {
 		for _, name := range slices.Sorted(maps.Keys(v)) {
 			if _, declared := nd.Properties[name]; declared {
@@ -290,9 +270,7 @@ func valueHasType(data any, t string) bool {
 
 // checkScalar applies the scalar constraints: numeric range and string length.
 func checkScalar(nd *node, data any, path string) error {
-	// Bounds compare exactly. Routing the value through float64 first would let a
-	// number just outside a bound land exactly on it, which is the whole class of
-	// error this representation exists to remove.
+	// Bounds compare exactly: through float64 a number just outside a bound can land on it.
 	if _, isNum := numeric.ToDecimal(data); isNum {
 		if nd.Minimum != nil {
 			if c, ok := numeric.Compare(data, *nd.Minimum); ok && c < 0 {
@@ -348,10 +326,7 @@ func enumContains(enum []any, data any) bool {
 		return false
 	}
 	for _, e := range enum {
-		// Numbers match by value, not by literal. The schema's enum entries decode
-		// as float64 while runtime data decodes with UseNumber, so an enum declared
-		// [1] must still accept an input that arrives as "1.0" — comparing the
-		// marshalled bytes alone would silently start rejecting it.
+		// By value, not literal: [1] must accept 1.0, which the marshalled bytes reject.
 		if numeric.Equal(e, data) {
 			return true
 		}
@@ -396,9 +371,8 @@ func jsonTypeName(data any) string {
 	return fmt.Sprintf("%T", data)
 }
 
-// cloneJSON deep-copies so a filled default is never aliased into two documents, decoding
-// with exact numeric literals — a plain Unmarshal here would silently undo the exactness
-// the schema decode just established.
+// cloneJSON deep-copies so a filled default is never aliased into two documents; the decode
+// keeps exact literals, which a plain Unmarshal would undo.
 func cloneJSON(v any) any {
 	b, err := json.Marshal(v)
 	if err != nil {

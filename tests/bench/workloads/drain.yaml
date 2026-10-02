@@ -1,17 +1,6 @@
-# Cold-queue drain workload: a backlog of many small, INDEPENDENT processes that the
-# engine must work through. Unlike recursive/deep (one big tree whose parent→child
-# synchronization caps how much is runnable at once), every process here is a separate
-# root with no children, so the entire backlog is runnable from the first tick — this
-# is the workload that actually rewards more concurrency / connections / workers.
-#
+# A backlog of independent childless roots, all runnable from the first tick and preloaded
+# untimed: pure queue throughput, one claim + one terminal write per instance.
 #   make bench-drain   (POSTGRES_DSN=… to also compare Postgres)
-#
-# Like every workload it runs in two phases (load → drain; see bench/run.ts), but here
-# the load phase preloads thousands of independent roots instead of one tree-spawning
-# root: the timer then measures how fast that whole backlog drains. Each unit is a
-# child-free two-task process with no count_field, so one drained instance ≈ one claim +
-# one terminal write (instances counted = number of roots) — the purest measure of
-# steady-state queue throughput.
 
 bench:
   roots: 5000            # backlog size to preload (independent root instances)

@@ -1,9 +1,7 @@
 package validation
 
-// Moving an instance to another version of its definition. compat builds a layer per task
-// because a report speaks about every state at once; an upgrade's instance is in exactly one,
-// so one layer from the version it moves TO conforms the stored state, and the validator's
-// refusal is the reason it cannot move. specs/version-compatibility.md s1.
+// An upgrade's instance sits at one task, so one layer of the target version conforms its state
+// -- unlike compat, which speaks about every state at once. specs/version-compatibility.md s1.
 
 import (
 	"fmt"
@@ -12,23 +10,15 @@ import (
 	"genroc/internal/schema"
 )
 
-// MigrateState conforms an instance's stored state to `to`, returning the state to write. The
-// mode is ConformToSchemaExactly, not Strict: this is data already written, so it closes the
-// null-versus-missing gap and fills no defaults (one filled into a half-run instance disagrees
-// with every value computed in its absence).
-//
-// The layer is deliberately PARTIAL -- the slots a definition owns, not the engine's
-// bookkeeping -- so the conform strips what it cannot see and this puts the untouched half back.
-// Inside what it CAN see the schema is complete, which prunes the output of a task the target
-// version no longer has. load resolves an externalized value by content hash.
+// MigrateState conforms an instance's stored state to `to` and returns the state to write; a
+// dropped task's output is pruned, keys outside the layer (engine bookkeeping) pass through.
+// Exactly, not Strict: a default filled into a half-run instance contradicts what ran without it.
 func MigrateState(to *model.ProcessDefinition, task string, state map[string]any, load func(hash string) (any, error)) (map[string]any, error) {
 	if task == "" {
 		return nil, fmt.Errorf("instance holds no task to resume at")
 	}
-	// The whole context, markers resolved: the conform inspects and normalizes a value --
-	// strips undeclared keys, fills defaults -- and can do neither inside an object it would
-	// have to load to see. The write re-cuts what it produces, and identical content hashes to
-	// the same objects, so nothing churns. specs/lazy-context.md.
+	// Materialized first: the conform cannot normalize inside an object it has not loaded. The
+	// write re-cuts identical content to the same hashes, so nothing churns. specs/lazy-context.md.
 	materialized, err := model.NewContext(state, load, nil).Materialize(state)
 	if err != nil {
 		return nil, fmt.Errorf("resolve the externalized values at task %q: %w", task, err)
@@ -61,14 +51,9 @@ func MigrateState(to *model.ProcessDefinition, task string, state map[string]any
 	return out, nil
 }
 
-// InFlightResultBreaks reports why a task that is PARKED MID-FLIGHT cannot move between two
-// versions -- the half MigrateState cannot see, since a parked task has a result on its way back
-// that nothing on the row records. The new version must accept what the old one promised:
-// `old ⊆ new`, registration's relation and direction. Only the UPGRADE member is returned.
-//
-// It cannot check the REQUEST: deciding whether the new version would have asked the same
-// question means evaluating `input` against this instance's state, which only the engine can do
-// at arm time.
+// InFlightResultBreaks is the half MigrateState cannot see: a parked task's result is on its way
+// back, so the new version must accept what the old promised (old ⊆ new). Only MemberUpgrade
+// issues return; the REQUEST goes unchecked -- only the engine can evaluate `input`, at arm time.
 func InFlightResultBreaks(from, to *model.Task) []Issue {
 	if from == nil || to == nil {
 		return nil
@@ -82,9 +67,8 @@ func InFlightResultBreaks(from, to *model.Task) []Issue {
 	return out
 }
 
-// TypeChangeBreak reports a task that changed action type under an instance HELD in it —
-// parked, waiting on children, or on a timer. Ask it only of a held row: one at the task's
-// entry has nothing the old action left, and the new action simply runs.
+// TypeChangeBreak reports a task whose action type changed under an instance held in it. Ask it
+// only of a held row: one at the task's entry has nothing to hand over.
 func TypeChangeBreak(from, to *model.Task) (Issue, bool) {
 	if from == nil || to == nil {
 		return Issue{}, false

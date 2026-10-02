@@ -1,41 +1,6 @@
-// Generalized spawn benchmark runner. A workload is a readable YAML file under
-// workloads/ describing a genroc process (pure orchestration, no external HTTP calls)
-// plus a small bench header; this runner applies it, drives it across the selected
-// engines, and reports throughput. It isolates engine + DB throughput and compares
-// SQLite (single writer) vs Postgres (concurrent workers).
-//
-//   node bench/run.ts recursive                             # SQLite only
-//   POSTGRES_DSN=postgres://… node bench/run.ts recursive   # + Postgres compare
-//   make bench-recursive | bench-deep | bench-drain            # via Makefile
-//
-// Every workload runs the SAME two-phase way: (1) load — a tick-only server (--poll 0)
-// preloads `roots` root instances that nothing advances, so they pile up as a backlog;
-// (2) drain — the server is restarted with the real poll loop and the time to work the
-// whole backlog off (no instance left running) is measured. recursive/deep preload one
-// root that fans out into a big tree; drain preloads thousands of independent roots.
-// Only the drain phase is timed; the load phase is setup.
-//
-// Workloads (workloads/<name>.yaml):
-//   recursive — one root, full binary tree (wide); concurrent throughput ceiling.
-//   deep      — one root, narrow/tall tree; per-spawn depth cost.
-//   drain     — many independent roots; steady-state queue-drain throughput.
-//   drain_big — like drain, but each root carries a ~16 KiB input echoed to its output,
-//               so both externalize into the object store; isolates object-store overhead.
-//
-// Instances processed are counted from each root's SELF-REPORTED subtree size
-// (output[count_field], summed) when the process defines one (recursive/deep); a
-// process with no count_field is a single childless instance, so the count is just the
-// number of roots (drain).
-//
-// Each YAML's `bench` section is the single source of truth for the run: input, roots,
-// count_field, load_concurrency, poll_ms, runs, and per-engine concurrency (under
-// `sqlite:`/`postgres:`). Concurrency is per engine — SQLite's single writer overwhelms
-// at high concurrency while Postgres' concurrent workers thrive on it. The runner reads
-// NO numeric env overrides, so there is exactly one place to look for a knob.
-//
-// Env is only for invocation, never workload numbers: BENCH_WORKLOAD (or argv[2])
-// selects the workload, BENCH_ENGINES filters which engines run, BENCH_JSON sets the
-// results output path, GENROC_SQLITE_SYNCHRONOUS sets SQLite durability (default FULL).
+// `node bench/run.ts <workload>`: times draining a workloads/<name>.yaml backlog on SQLite, and on
+// Postgres when POSTGRES_DSN is set. Every numeric knob lives in the YAML's `bench` section; env only
+// selects (BENCH_WORKLOAD, BENCH_ENGINES, BENCH_JSON, GENROC_SQLITE_SYNCHRONOUS).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { load as loadYaml } from "js-yaml";
@@ -135,18 +100,12 @@ if (DEFS.length === 0) throw new Error(`workload "${NAME}" defines no process`);
 const DEFS_NAME = (DEFS[0] as { name?: string }).name;
 if (!DEFS_NAME) throw new Error(`workload "${NAME}" root definition has no name`);
 
-// Per-engine concurrency: the engine's own `concurrency`, else the workload's shared
-// fallback, else the built-in default.
 function concurrencyFor(engine: string): number {
   const perEngine = engine === "sqlite" ? bench.sqlite : bench.postgres;
   return perEngine?.concurrency ?? bench.concurrency ?? DEFAULT_CONCURRENCY;
 }
 
-// countInstances returns how many process instances the run actually worked off. With
-// a count_field, each root self-reports its subtree size (recursive/deep), so the total
-// is those summed; without one, every root is a single childless instance (drain), so
-// the total is just the number of roots. waitDrained has already returned, so every
-// root is terminal — a non-completed root here is a genuine failure.
+// Runs after waitDrained, so every root is terminal and a non-completed one is a genuine failure.
 async function countInstances(client: Client, rootIds: string[]): Promise<number> {
   if (!COUNT_FIELD) return rootIds.length;
   let total = 0;
@@ -177,9 +136,7 @@ interface EngineResult {
   concurrency: number;
 }
 
-// preload inserts `roots` root instances as fast as the API allows (a fixed pool of
-// `conc` concurrent POSTs) and returns their ids. The target server is tick-only, so
-// the instances pile up as a backlog instead of being advanced.
+// Onto a tick-only server, so the instances pile up as a backlog instead of being advanced.
 async function preload(
   client: Client,
   roots: number,
@@ -202,11 +159,8 @@ async function preload(
   return ids;
 }
 
-// anyWithStatus reports whether at least one instance of THIS workload, created at/after
-// `since`, currently has the given status. Both bounds are load-bearing against a reused
-// Postgres DSN: the name excludes dbtest fixtures, whose AdvanceClock timestamps land in
-// the future and so survive any time window; `since` excludes an earlier failed bench of
-// this same workload, which would otherwise poison every run after it.
+// Both bounds matter on a reused Postgres DSN: the name excludes dbtest fixtures (future-dated by
+// AdvanceClock), and `since` excludes an earlier failed run of this workload.
 async function anyWithStatus(
   client: Client,
   status: "running" | "failed",
@@ -219,12 +173,8 @@ async function anyWithStatus(
   return (data?.items ?? []).length > 0;
 }
 
-// waitDrained blocks until no instance is left running, then asserts none failed. A
-// parent parked on its children keeps status='running' (only its phase changes),
-// so an empty status=running page means every tree has fully collapsed and every
-// childless root is done — for both the trees and the drain backlog. The failed-check
-// stops a broken workload from masquerading as a fast drain (a failed instance is also
-// "not running").
+// A parent parked on its children stays `running`, so an empty running page means all collapsed.
+// The failed check stops a broken workload passing as a fast drain.
 async function waitDrained(client: Client, since: number) {
   const deadline = Date.now() + TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -239,12 +189,8 @@ async function waitDrained(client: Client, since: number) {
   throw new Error(`backlog did not drain within ${TIMEOUT_MS}ms`);
 }
 
-// benchEngine runs the workload against one engine in two phases per repeat: (1) load —
-// a tick-only server (--poll 0) preloads `roots` root instances that nothing advances,
-// so they pile up as a backlog; (2) drain — the server is restarted with the real poll
-// loop and the time to work the backlog off is measured. Both phases share the same
-// database (SQLite file / Postgres DSN), so the backlog survives the restart and the
-// definitions persist. Only the drain phase is timed.
+// Load on a tick-only server, then restart with the poll loop and time only the drain. Both phases
+// share the database, so the backlog survives the restart.
 async function benchEngine(
   engine: string,
   dbPath: string,
@@ -270,9 +216,7 @@ async function benchEngine(
       }
       rootIds = await preload(loader.client, ROOTS, LOAD_CONCURRENCY);
     } finally {
-      // Await the exit (not a fixed sleep): the drainer rebinds the SAME port on the
-      // next line, so the loader must have fully released it. Its exit also flushes
-      // the SQLite checkpoint (database.Close runs on shutdown) before we reopen.
+      // Await the exit: the drainer rebinds the SAME port next, and exit flushes the SQLite checkpoint.
       await loader.stop();
     }
 
@@ -296,9 +240,7 @@ function fmt(n: number, width: number) {
   return String(n).padStart(width);
 }
 
-// describeInput summarizes the input for the config line: a long string value (e.g.
-// drain_big's ~16 KiB blob) is shown as "<N bytes>" so the report stays one readable line
-// instead of dumping the whole payload to the terminal.
+// A long string value (drain_big's ~16 KiB blob) prints as "<N bytes>", keeping one readable line.
 function describeInput(input: Record<string, unknown>): string {
   const shown = Object.fromEntries(
     Object.entries(input).map(([k, v]) =>
@@ -317,11 +259,8 @@ function report(results: EngineResult[]) {
       `workload=${NAME} input=${describeInput(INPUT)} roots=${ROOTS} ` +
       `load_concurrency=${LOAD_CONCURRENCY} instances=${total} poll_ms=${POLL_MS} runs=${RUNS}`,
   );
-  // Both engines run fully durable by default (matched comparison): SQLite fsyncs the
-  // WAL on every commit, Postgres commits synchronously. GENROC_SQLITE_SYNCHRONOUS
-  // overrides SQLite's level (e.g. NORMAL for the faster, process-crash-only setting).
-  // fullfsync is printed because on macOS it is the difference between a real fsync and a
-  // 185x-faster no-op — a number without it says nothing (specs/durability-levels.md §1).
+  // Both engines fully durable by default. fullfsync is printed because on macOS it separates a
+  // real fsync from a 185x-faster no-op (specs/durability-levels.md §1).
   const sqliteSync = process.env.GENROC_SQLITE_SYNCHRONOUS ?? "FULL";
   const fullFsync = process.env.GENROC_SQLITE_FULLFSYNC ? "on" : "off";
   const commitDelay = process.env.GENROC_PG_COMMIT_DELAY ?? "0";

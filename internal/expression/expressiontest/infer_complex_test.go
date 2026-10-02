@@ -267,10 +267,7 @@ func TestInfer_AnyOf_MemberAccess_NonObjectVariant(t *testing.T) {
 	inferErr(t, "input.flexible.x", c, `"x" not found in any anyOf variant`)
 }
 
-// TestInfer_OneOf_ObjectAndNonObject_PropertyAccess checks that when a oneOf has
-// one object variant with the property and one non-object variant (e.g. string),
-// accessing the property succeeds and returns a nullable type.
-// This is the pattern used by save_order_output → check_fraud.result.
+// The pattern save_order_output → check_fraud.result relies on.
 func TestInfer_OneOf_ObjectAndNonObject_PropertyAccess(t *testing.T) {
 	c := ctx(t, `{
 		"type": "object",
@@ -300,10 +297,8 @@ func TestInfer_OneOf_ObjectAndNonObject_PropertyAccess(t *testing.T) {
 
 // --- member access on all-null variants ---
 
-// TestInfer_AnyOf_AllNullVariants_MemberAccess checks that accessing a property
-// on an anyOf whose only variants are null-type returns null rather than an error.
-// The property can't exist at runtime but the access is not a type error —
-// it's a likely bug the caller should be warned about, not a hard failure.
+// Not a type error: the property cannot exist at runtime, but that is a likely bug to warn
+// about, not a hard failure.
 func TestInfer_AnyOf_AllNullVariants_MemberAccess(t *testing.T) {
 	c := ctx(t, `{
 		"type": "object",

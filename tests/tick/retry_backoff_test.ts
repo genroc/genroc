@@ -1,11 +1,5 @@
-/**
- * Tests that an authored retry curve is the one the engine parks on.
- *
- * Runs with the real backoff (immediateRetries: false) and moves the server clock instead
- * of waiting, so the assertions are about the scheduled wake-up rather than wall time.
- * The delays here are minutes, far outside anything the default curve produces, which is
- * what makes "still parked" evidence that the policy was read at all.
- */
+/** The authored retry curve is the one the engine parks on. Real backoff and a shifted clock; delays are
+ *  minutes, far outside the default curve, so "still parked" proves the policy was read. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 import { tick, startMockService } from "../helpers/client.ts";
@@ -29,10 +23,8 @@ async function defineFailing(name: string, retry: unknown) {
   ]);
 }
 
-// The server runs at max-concurrent 1, so one tick advances one instance and the earlier
-// tests' instances are still parked on retry timers of their own. Advance the clock once,
-// then tick until nothing more is claimable, so the instance under test is reached
-// whatever else is queued ahead of it.
+// max-concurrent 1, and earlier tests' instances are still parked on their own timers: drain so the
+// instance under test is reached whatever is queued ahead.
 async function advanceAndDrain(ms: number) {
   await tick(ctx.env.client, ms);
   await ctx.env.tickUntilIdle();
@@ -61,9 +53,8 @@ test("factor 1 keeps the delay constant across attempts", async () => {
   const id = await ctx.env.start(name);
 
   await ctx.env.tickUntilIdle();
-  // Jitter only shortens, so a constant curve never waits more than its 1m base. The same
-  // advance therefore releases every attempt — under the default factor the third wait
-  // would be 4m nominal and this would leave it parked.
+  // Jitter only shortens, so a constant 1m curve releases every attempt here; the default factor
+  // would leave the third (4m nominal) parked.
   for (const attempt of [2, 3]) {
     await advanceAndDrain(70_000);
     expect(await ctx.env.retryCount(id)).toBe(attempt);

@@ -12,10 +12,8 @@ import (
 
 // --- Request / Response types ---
 
-// Pagination is the common sort/cursor query surface embedded in every list
-// request. Order is "asc"|"desc"|"" (empty = the endpoint's default direction).
-// after/before are opaque cursors from a previous page's page object; before pages
-// backward. Empty after+before = the first page.
+// Pagination is embedded in every list request. After/Before are opaque cursors from a
+// previous page's page object; Order "" is the endpoint's default direction.
 type Pagination struct {
 	Sort   string `json:"sort,omitempty"`
 	Order  string `json:"order,omitempty"`
@@ -39,9 +37,7 @@ func (p Pagination) page() db.PageReq {
 	return req
 }
 
-// PageResp is the envelope every list endpoint returns: a page of items plus the
-// page object (size, the item counts before and after this page, the effective
-// sort/order, and the cursors to page either way).
+// PageResp is the envelope every list endpoint returns.
 type PageResp[T any] struct {
 	Items []T         `json:"items"`
 	Page  db.PageInfo `json:"page"`
@@ -98,9 +94,8 @@ type ChannelStatusReq struct {
 	Channel string `json:"channel"`
 }
 
-// VersionRef is one entry's version: a number, or the name of a channel to resolve it
-// through. It decodes from either JSON form (3 or "latest") so a selector can pin some
-// processes and follow a channel for others without a second field.
+// VersionRef decodes from 3 or "latest", so a selector can pin some processes and follow
+// a channel for others.
 type VersionRef struct {
 	Version int
 	Channel string
@@ -123,10 +118,9 @@ func (v *VersionRef) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CompatSelector resolves to one version per process name: a triple of {process, from, to}
-// cannot name a graph, so each side of a comparison is a selector and the two pair by name.
-// Exactly one field may be set. What it names is closed over the child versions those
-// definitions were registered against, and an entry named here wins over one a dependency pins.
+// CompatSelector resolves to one version per process name; the two sides pair by name. Exactly
+// one field may be set. It closes over pinned child versions, and an entry named here wins over
+// one a dependency pins.
 type CompatSelector struct {
 	Channel     string                    `json:"channel,omitempty"      description:"Every process on this channel, at the version the channel points at."`
 	Versions    map[string]VersionRef     `json:"versions,omitempty"     description:"Process name → version number, or a channel name to resolve it through."`
@@ -139,21 +133,17 @@ type CompatReq struct {
 	// Process scopes the comparison to one process and the subtree of children it
 	// reaches, so a large channel can be asked a small question.
 	Process string `json:"process,omitempty"`
-	// Ignore excuses a check from the exit code. It changes neither what is compared nor
-	// what is reported — an excused break still appears, marked — and the upgrade check
-	// cannot be excused at all. specs/compat-command.md §5.
+	// Ignore excuses a check from the exit code only: an excused break is still reported.
+	// specs/compat-command.md §5.
 	Ignore []string `json:"ignore,omitempty" description:"Members excused from the exit code. Only \"contract\" is accepted: the upgrade check answers for rows this deployment already owns"`
 }
 
-// CompatResp is the whole verdict: one row per process named on either side, whatever
-// became of it. Compatible is the conjunction over the rows that were actually compared —
-// a process with nothing to compare, or one that is new, cannot break anything — plus any
-// version that failed its own inference.
+// CompatResp has one row per process named on either side. Compatible is the conjunction over
+// the rows actually compared, plus any version that failed its own inference.
 type CompatResp struct {
 	Compatible bool `json:"compatible"`
-	// Passes is the gated answer — the exit code as a boolean. It equals Compatible when
-	// nothing was ignored, and the two are MEANT to disagree when something was: the
-	// roll-up is what was found, Passes is what this caller asked about.
+	// Passes is the exit code as a boolean; it and Compatible are MEANT to disagree when
+	// something was ignored.
 	Passes    bool                `json:"passes" description:"False only where a gating check broke. Equals compatible when ignore is empty"`
 	Processes []validation.Report `json:"processes"`
 }
@@ -188,9 +178,8 @@ type StartInstanceResp struct {
 	Status  model.Status `json:"status"`
 }
 
-// Every list takes its time bounds as {col}_after / {col}_before, in unix millis, forming
-// the half-open range [after, before) — see db.Window for why the far end is exclusive.
-// Zero means unbounded on that side.
+// Time bounds are {col}_after / {col}_before in unix millis, half-open [after, before)
+// (db.Window); zero is unbounded.
 
 type ListDefinitionsReq struct {
 	CreatedAfter  int64 `json:"created_after"`  // only versions registered at/after this timestamp
@@ -222,9 +211,8 @@ type RetryInstanceReq struct {
 	Force bool `json:"force"` // override only_once retry protection
 }
 
-// ExternalTaskResp is one entry in the external-task queue. It exposes only the task's
-// snapshotted input + the result_schema the resolver must satisfy, plus the resolve
-// token — never the process context.
+// ExternalTaskResp exposes the input snapshot, result_schema and token, never the process
+// context.
 type ExternalTaskResp struct {
 	Token        string         `json:"token"` // pass back to /external-tasks/resolve
 	Process      string         `json:"process"`
@@ -240,9 +228,8 @@ type ExternalTaskResp struct {
 	ClaimExpires string         `json:"claim_expires,omitempty"` // RFC3339 visibility timeout of that claim
 }
 
-// FailureReq is the error half of a submitted outcome. A pointer field on the two request
-// types, so its PRESENCE is the discriminator: `result: null` stays an ordinary success, and
-// nothing has to be spelled to say which channel a submission is on.
+// FailureReq is a pointer field, so its PRESENCE discriminates: `result: null` stays an
+// ordinary success.
 type FailureReq struct {
 	Code    string `json:"code"`           // lower_snake_case, no dots: the code on_error rules match
 	Message string `json:"message"`        // human-readable cause; lands on error.message
@@ -299,14 +286,11 @@ type DefinitionSummary struct {
 	Name      string `json:"name"`
 	Version   int    `json:"version"`
 	CreatedAt string `json:"created_at"` // RFC3339 registration time; the default listing sort
-	// Raises is the set of error codes this definition can raise, derived by scanning
-	// its raise clauses. There is no `errors:` declaration block to read, so this is the
-	// answer to "what can this process raise?" and therefore to "what may a parent write
-	// on_error rules against?". Panic codes are excluded: nothing can catch a panic.
+	// Raises is what a parent may write on_error rules against, scanned from raise clauses
+	// (there is no `errors:` block). Panic codes are excluded: nothing can catch a panic.
 	Raises []string `json:"raises,omitempty"`
-	// Actor is who deployed this version, as `source:subject`. Absent for anything applied
-	// before attribution landed, which is permanent rather than pending -- the fact was never
-	// recorded. specs/api-auth.md section 7.
+	// Actor is who deployed this version; permanently absent for versions applied before
+	// attribution. specs/api-auth.md section 7.
 	Actor string `json:"actor,omitempty"`
 }
 
@@ -314,15 +298,12 @@ type BatchApplyResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 	Saved   bool   `json:"saved"`
-	// Previous is what the REQUESTED channel pointed at before this apply, 0 when it had no
-	// pointer. Saved alone cannot tell a rollback (content matched an older version, so the
-	// pointer moved backwards and nothing was written) from a no-op; Previous is the difference.
+	// Previous is the REQUESTED channel's prior pointer, 0 for none: what tells a rollback
+	// (nothing saved, pointer moved back) from a no-op.
 	Previous int `json:"previous"`
 }
 
-// InstanceSummaryResp is the per-row shape returned by the instance list. Listing
-// many instances should stay light, so it omits the (potentially large) context; it
-// is embedded in InstanceStatusResp, which adds the context for a single-instance fetch.
+// InstanceSummaryResp is the instance list row; it omits the context so a listing stays light.
 type InstanceSummaryResp struct {
 	ID string `json:"id"`
 	// ParentID is "" for a root. Present on every row, not only when children were asked
@@ -332,26 +313,20 @@ type InstanceSummaryResp struct {
 	Version  int          `json:"version"`
 	Status   model.Status `json:"status"`
 	Phase    model.Phase  `json:"phase,omitempty"`
-	// Task is where the instance sits in its definition: the task it is running, is
-	// parked on, or stopped at — and on a settled instance, the one it finished,
-	// failed or raised at. Status says what is happening to the process and
-	// phase says why it is not executing a task; this says where.
+	// Task is where the instance runs, parks, or settled. Status says what is happening and
+	// phase why it is not executing; this says where.
 	Task       string `json:"task,omitempty"`
 	RetryCount int    `json:"retry_count"`
-	// The error the instance REPORTS, flat and under the column names it is stored by, so the
-	// field a caller filters on (?error_code=) is the field it reads back. Its payload is
-	// error_data, on the single-instance shape only -- a list row stays light. The error the
-	// instance CAUGHT is neither of these; it lives in `context` under `error`.
+	// The error the instance REPORTS, under its column names so ?error_code= filters the field it
+	// reads back. The error it CAUGHT is `error` in `context`.
 	ErrorCode    string `json:"error_code,omitempty"` // machine-readable discriminator for every non-success outcome; see model.ProcessInstance.ErrorCode
 	ErrorMessage string `json:"error_message,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
 }
 
-// InstanceStatusResp is the single-instance shape: the summary's fields plus the context and
-// the reported error's payload. It embeds nothing, so every field it puts on the wire is
-// declared here — the list and this one must agree on names and TYPES, and an embedded struct
-// whose fields one of them overrides is how they stopped agreeing before.
+// InstanceStatusResp is the single-instance shape. It embeds nothing: it and the list row must
+// agree on names and TYPES, and an embedded struct with overridden fields is how they diverged.
 type InstanceStatusResp struct {
 	ID         string       `json:"id"`
 	Process    string       `json:"process"`
@@ -361,37 +336,27 @@ type InstanceStatusResp struct {
 	Task       string       `json:"task,omitempty"`
 	RetryCount int          `json:"retry_count"`
 	ErrorCode  string       `json:"error_code,omitempty"`
-	// ErrorMessage and ErrorData are the rest of the same error. Data is what the clause
-	// attached, absent where it attached nothing — a parent reads it only where its call
-	// declares the code under `raises`; here it is for an operator.
+	// ErrorData is absent where the clause attached nothing. A parent reads it only under
+	// declared `raises`; here it is for an operator.
 	ErrorMessage string `json:"error_message,omitempty"`
 	ErrorData    any    `json:"error_data,omitempty"`
-	// Output is the process's declared `output:` block -- what it reports OUTWARD, and the same
-	// value a parent collects as a child's result (engine/collect.go). It is the reason this
-	// endpoint answers "what did it produce" without handing back state, which is engine
-	// internals; absent until the definition sets it.
+	// Output is the declared `output:` -- what the process reports outward, and what a parent
+	// collects as its result -- so this answers "what did it produce" without exposing state.
 	Output any `json:"output,omitempty"`
-	// ExternalInput is the parked external task's evaluated `input:` snapshot -- what this
-	// instance is ASKING for, the outward-facing counterpart to Output. Named apart from the
-	// process's own `input` because they are different values. Present only while parked: the
-	// engine deletes the slot when the answer is consumed. Reading it takes no claim, so it does
-	// not disturb a worker holding the task; the full work contract (result_schema, raises) is
-	// the CLAIM's, not this endpoint's. specs/external-task-queue.md.
+	// ExternalInput is the parked external task's `input:` snapshot, present only while parked.
+	// Reading it takes no claim; the work contract (result_schema, raises) is the claim's.
+	// specs/external-task-queue.md.
 	ExternalInput any    `json:"external_input,omitempty"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
-	// Objects covers error_data, output and external_input alike: a payload past the inline cutoff is ABSENT
-	// above and listed here at the path it belongs to -- which is what tells the two apart --
-	// so nothing in the data can be mistaken for a reference. Fetch one with GET /objects/{ref} and put it back. It is not resolved for you
-	// -- a payload has no size limit, and inlining it here would put an unbounded response behind
-	// no control at all. specs/object-store.md §The wire.
+	// Objects covers error_data, output and external_input: a payload past the inline cutoff is
+	// ABSENT above and listed here, never resolved for you -- a payload has no size limit.
+	// specs/object-store.md §The wire.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 
-// InstanceDetailResp is the whole row: the instance's STATE exactly as stored, bookkeeping slots
-// included, plus the columns around it. The debugging and upgrade view; `context` on the status
-// response is the authoring one. Config is absent on purpose -- resolved per tick from the
-// environment, never persisted, and where secrets live.
+// InstanceDetailResp is the whole row, bookkeeping slots included: the debugging and upgrade
+// view. Config is absent on purpose -- never persisted, and where secrets live.
 type InstanceDetailResp struct {
 	ID          string   `json:"id"`
 	Process     string   `json:"process"`
@@ -410,25 +375,19 @@ type InstanceDetailResp struct {
 
 	ErrorCode    string `json:"error_code,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
-	// ErrorData, Output and ExternalInput are the state slots that have a field of their own, so
-	// that this response is a strict SUPERSET of the status one: a caller can move to this
-	// endpoint without losing a field. They are MOVED out of State rather than copied into it --
-	// one value, one place, and an objects path that names it once.
+	// Fields of their own so this is a strict SUPERSET of the status response; MOVED out of
+	// State, not copied, so each value and its objects path appear once.
 	ErrorData     any `json:"error_data,omitempty"`
 	Output        any `json:"output,omitempty"`
 	ExternalInput any `json:"external_input,omitempty"`
 
-	// Children is the parent's spawns, keyed by the task that made them: a bare id for a single
-	// `child`, an object keyed by entry for a `child_map`, an array in spawn order for a
-	// `child_list`. DERIVED from the child rows on every read rather than stored on the parent
-	// -- the relation is already in the rows, and a copy on the parent is a second source to
-	// keep in step. A `child_list` that spawned nothing therefore names no task here.
+	// Children is keyed by spawning task: an id (child), an object by entry (child_map), an array
+	// in spawn order (child_list). DERIVED from the child rows on read, never stored on the
+	// parent, so a child_list that spawned nothing names no task here.
 	Children map[string]any `json:"children,omitempty"`
 
-	// State is what is left of the stored state once the three fields above have been taken out
-	// of it: input, outputs, last_error and the engine's spawn slots. The stored set is CLOSED --
-	// a key outside it does not survive a write -- so State plus those fields is still the whole
-	// of what the instance holds, with nothing said twice.
+	// State is the stored state minus the three fields above. The stored key set is CLOSED, so
+	// State plus those fields is all the instance holds.
 	State map[string]any `json:"state"`
 
 	// The lease is the engine's grant to advance this instance; the external claim is a worker
@@ -444,11 +403,8 @@ type InstanceDetailResp struct {
 	ExternalLeaseExpiresAt string `json:"external_lease_expires_at,omitempty"`
 	ExternalClaimEpoch     int64  `json:"external_claim_epoch"`
 
-	// Objects lists the values too large to be carried inline, each with the path in this
-	// response where it belongs. Fetch one with GET /objects/{ref} and put it there; the slot is
-	// ABSENT from state rather than holding a marker, so nothing in the data can be mistaken for
-	// a reference. Omitted when there are none, like every other section — a recipient checks
-	// for the field, so one shape everywhere beats absent-versus-empty. specs/object-store.md.
+	// Objects lists values too large to inline, at their path in this response; the slot is
+	// ABSENT, not a marker. Omitted when empty, like every section. specs/object-store.md.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 
@@ -467,10 +423,8 @@ type LogEntryResp struct {
 	Actor string         `json:"actor,omitempty"`
 	Data  any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
 	Meta  map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
-	// Objects lists this ENTRY's externalized values, with paths rooted at the entry —
-	// ["data"], not ["items", 3, "data"]. A path containing a position is valid only for one
-	// unmodified page; rooted at the entry, the section travels with its owner.
-	// specs/object-store.md §The wire.
+	// Objects paths are rooted at the ENTRY (["data"]), not the page, so the section travels
+	// with its owner. specs/object-store.md §The wire.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 

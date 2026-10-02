@@ -5,13 +5,10 @@ import (
 	"time"
 )
 
-// The calendar rules from the package comment, one test each. These are the cases that
-// distinguish calendar arithmetic from millisecond arithmetic, and every one of them is a
-// behaviour Go's own time package would get differently if left to its defaults.
+// The calendar rules (CLAUDE.md), one test each: Go's time package gets every one of them
+// differently by default.
 
-// Rule 1: a calendar day keeps the *wall clock*, so its real length is 23, 24 or 25 hours
-// depending on whether a DST transition falls inside it. "Same time tomorrow" is what a
-// person means by "in a day"; "exactly 24 hours later" is not.
+// Rule 1: a calendar day is 23, 24 or 25 real hours.
 func TestDuration_ADayKeepsTheWallClockAcrossDST(t *testing.T) {
 	loc := prague(t)
 	for _, tc := range []struct {
@@ -84,9 +81,7 @@ func TestDuration_MonthArithmeticClampsToTheEndOfTheMonth(t *testing.T) {
 	}
 }
 
-// Rule 3: calendar components apply before fixed ones no matter which order they were
-// written in, so a spec means the same thing however it was typed. Only a DST boundary can
-// tell the two orders apart, which is why this is anchored on one.
+// Rule 3. Only a DST boundary can tell the two orders apart, so this is anchored on one.
 func TestDuration_CalendarUnitsApplyBeforeFixedOnes(t *testing.T) {
 	loc := prague(t)
 	now := at(t, loc, "2026-03-28 12:00")

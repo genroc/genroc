@@ -8,28 +8,22 @@ import (
 	"strings"
 )
 
-// subsetMode carries the rules that differ between the three subset relations. Each is a
-// deliberate relaxation with a stated reason, and each is sound only where that reason
-// holds — see narrowsTo and absentAsNullSubset.
+// subsetMode carries the rules that differ between the subset relations; each is sound only
+// where its relation's doc says.
 type subsetMode struct {
 	// narrow admits an unknown in sub position — see narrowsTo.
 	narrow bool
 	// absentAsNull stops requiring the presence of a nullable property — see
 	// absentAsNullSubset.
 	absentAsNull bool
-	// afterConform reads both schemas as descriptions of CONFORMED data rather than as
-	// predicates over what may arrive: a property that is required *or* carries a default is
-	// guaranteed present, because the conform filled it. See storedSubset. It implies
-	// nullRemoval; the two are separate because ConformToSchemaExactly performs the removal
-	// and does NOT fill defaults, so a relation paired with it takes one rule and not the other.
+	// afterConform reads both as CONFORMED data: required or defaulted means present. It
+	// implies nullRemoval, kept separate because ConformToSchemaExactly removes but never fills.
 	afterConform bool
 	// nullRemoval admits a null in an OPTIONAL property super declares non-nullable, because
 	// the conform reconciles it by removing the key. Paired with ConformToSchemaExactly.
 	nullRemoval bool
-	// closed refuses a key in sub that super does not declare, where super is a closed object.
-	// The conform would strip it, which at an author-written slot is a silent deletion —
-	// specs/declared-slot-schemas.md §3. Includes an open-map sub, whose values are keys no
-	// schema names.
+	// closed refuses a key a closed super does not declare, an open-map sub's included: the
+	// conform would silently strip it. specs/declared-slot-schemas.md §3.
 	closed bool
 }
 
@@ -46,10 +40,8 @@ func absentAsNullSubset(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{absentAsNull: true})
 }
 
-// storedSubset compares two schemas as descriptions of data ALREADY conformed. It adds one
-// rule to absentAsNullSubset — a property sub declares with a default is guaranteed present —
-// and that rule needs no fill behind it, which is why it does not live there. It is asked of
-// the sub side only; see guaranteed. Design: specs/compat-command.md §2e.
+// storedSubset adds to absentAsNullSubset that a property sub defaults is present. That needs
+// no fill behind it, which is why it does not live there. specs/compat-command.md §2e.
 func storedSubset(sub, super *node) bool {
 	return subsetWith(sub, super, storedMode())
 }
@@ -58,12 +50,8 @@ func storedMode() subsetMode {
 	return subsetMode{absentAsNull: true, afterConform: true, nullRemoval: true}
 }
 
-// conformsExactlyTo answers the question a declared slot schema asks: will
-// ConformToSchemaExactly against super succeed on every value of sub, WITHOUT stripping a key?
-// It is the static half of that fill and must accept exactly the gaps the fill closes — the
-// insert (absentAsNull) and the removal (nullRemoval), and neither the defaults rule, which
-// the fill does not perform, nor an undeclared key, which it would silently drop (closed).
-// specs/declared-slot-schemas.md §4.
+// conformsExactlyTo must accept exactly the gaps ConformToSchemaExactly closes: the insert and
+// the removal, not defaults or an undeclared key. specs/declared-slot-schemas.md §4.
 func conformsExactlyTo(sub, super *node) bool {
 	return subsetWith(sub, super, conformsExactlyMode())
 }
@@ -148,7 +136,6 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 		defer delete(ctx.visiting, key)
 	}
 
-	// Resolve $refs.
 	sub = derefSubset(sub, ctx.subDefs)
 	super = derefSubset(super, ctx.superDefs)
 
@@ -156,10 +143,8 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 	if isEmptyNode(super) {
 		return true
 	}
-	// So does a union with a top-type ARM — anyOf only. `anyOf[{}, T]` denotes the same set as
-	// `{}`, and without this the relation manufactures a refusal for a change that turns nobody
-	// away. oneOf is excluded: there a value matching two arms is REJECTED, so a top-type arm
-	// narrows rather than absorbs.
+	// So does an anyOf with a {} arm — it denotes {}. Not oneOf: a value matching two arms is
+	// rejected there, so a top arm narrows rather than absorbs.
 	for _, v := range super.AnyOf {
 		if isEmptyNode(derefSubset(v, ctx.superDefs)) {
 			return true
@@ -358,10 +343,8 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 			if ctx.check(subProp, superProp, ctx.at(at, name)) {
 				continue
 			}
-			// The other direction of the null-versus-missing gap: where super leaves the property
-			// OPTIONAL, the migration reconciles a stored null by REMOVING the key. Sound only if
-			// everything but the null already fits, which is what the stripped re-check asks;
-			// `required` is the case nothing can fix, since absence is not valid there either.
+			// Where super leaves it OPTIONAL the migration REMOVES a stored null: sound only if all
+			// but the null fits (the stripped re-check). Under `required` nothing can fix it.
 			if ctx.nullRemoval && !superReq[name] && hasNullResolved(subProp, ctx.subDefs) {
 				retry := ctx.mark()
 				if ctx.check(stripNull(subProp), superProp, ctx.at(at, name)) {
@@ -378,9 +361,8 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 		}
 	}
 
-	// Open-map super: every key sub can carry that super does not declare must fit
-	// super's additionalProperties — both sub's own undeclared properties and sub's
-	// own open-map values. (A closed super strips extras, so it imposes nothing here.)
+	// Every key sub can carry undeclared (extra properties, open-map values) must fit super's
+	// additionalProperties. A closed super strips extras, so imposes nothing.
 	if super.AdditionalProperties != nil {
 		for _, name := range slices.Sorted(maps.Keys(sub.Properties)) {
 			if _, declared := super.Properties[name]; declared {
@@ -411,13 +393,8 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 	return ok
 }
 
-// checkClosed refuses what sub can carry and super does not name. A conform against super
-// would STRIP it, and where super is a schema the author wrote that is a silent deletion of
-// something they typed — so it is refused instead. specs/declared-slot-schemas.md §3.
-//
-// The open-map arm is the one that is silent when missing: an inferred type CAN be an open
-// map (object<string>, a child_map's output), and a value of one holds keys no schema names,
-// so without it the strip stays reachable and §4's assertion is quietly false.
+// checkClosed refuses what sub carries and super does not name: a conform would silently strip
+// it. The open-map arm is the one silent when missing. specs/declared-slot-schemas.md §3.
 func (ctx *subsetCtx) checkClosed(sub, super *node, at *pathLink, stop func() bool) bool {
 	declared := make(map[string]bool, len(super.Properties)+len(super.Required))
 	for name := range super.Properties {
@@ -549,9 +526,8 @@ func (ctx *subsetCtx) checkEnum(sub, super *node, at *pathLink) bool {
 	if len(extra) == 0 {
 		return true
 	}
-	// Name the values that do not fit, rather than printing both pools. An absence cannot be
-	// SHOWN in a capped list: two large enums differing by one value rendered identically on
-	// both sides of the arrow, so the line reported a change while saying nothing changed.
+	// Name the extra values, not both pools: a capped list cannot SHOW an absence, so two big
+	// enums differing by one rendered identically.
 	return ctx.no(at, BreakConstraint, "allows "+enumList(extra), enumValues(super.Enum))
 }
 

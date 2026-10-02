@@ -1,9 +1,5 @@
-# the-upgrade-check-cannot-be-ignored.yaml refuses `upgrade`, which is a member the grammar
-# KNOWS and declines to excuse. A token that names nothing at all takes the other branch, and
-# it is the one a typo reaches: a selection that quietly matched nothing would leave the
-# operator believing a break was excused while the build failed for reasons they cannot see —
-# or worse, believing one was checked. Refused by the server, so the endpoint's second
-# consumer gets the same answer.
+# An `--ignore` token naming nothing (a typo) is refused, by the server so every consumer
+# agrees: a selection that matched nothing would read as an excusal.
 apply:
   - channel: badtoken_a
     definitions:

@@ -1,10 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { Lsp, edit, orders, useWorkspace } from "./helpers.ts";
 
-// Highlighting the real binary produces, over the same fixture every other suite reads.
-//
-// The grammar cannot answer this: it sees `"$: tick"` and not the slot holding it. These tests
-// are about that difference — the same characters in two slots, marked in one and not the other.
+// The grammar sees `"$: tick"`, not the slot holding it; the server marks the same characters in
+// one slot and not in another.
 
 let lsp: Lsp;
 
@@ -34,8 +32,6 @@ test("a ${ } interpolation is marked inside the string it renders into", async (
   expect(toks.some((t) => t.text.includes("api.example.com"))).toBe(false);
 });
 
-// The report this whole change came from: `id` holds text, so a `$:` written there is the
-// literal string `$: tick`. A grammar paints it anyway; the server knows the slot.
 test("the same marker in a literal slot is left alone", async () => {
   const doc = edit(orders, { "  - id: price": `  - id: "$: price"` });
   const toks = await lsp.semanticTokens(doc);
@@ -48,8 +44,6 @@ test("the same marker in a literal slot is left alone", async () => {
   expect(kindOf(toks, "$:"), "no marker was found anywhere, so this proves nothing").toBe("keyword");
 });
 
-// One referent, one kind. Two kinds paint a path in two colours in any editor that maps them
-// apart, which is what was reported twice against the grammar.
 test("a member path is one kind from root to leaf", async () => {
   const toks = await lsp.semanticTokens(orders);
   const path = ["self", "result", "total"].map((seg) => kindOf(toks, seg));
@@ -71,8 +65,7 @@ test("every routing target is one kind", async () => {
   expect(new Set(targets.map((t) => t.kind)).size, "one slot must not render in two colours").toBe(1);
 });
 
-// A buffer being typed in is the normal input. A token past the end of a line corrupts every
-// token after it, and the editor paints the wrong ranges rather than showing nothing.
+// A token past the end of a line corrupts every token after it.
 test("a document mid-edit still yields placeable ranges", async () => {
   const changes: Record<string, string>[] = [
     { '      charged: "$: self.result.total - (self.result.discount ?? 0)"': '      charged: "$: self.result.' },

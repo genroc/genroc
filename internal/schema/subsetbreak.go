@@ -27,7 +27,7 @@ const (
 	BreakUndeclared SubsetBreakKind = "undeclared"
 )
 
-// SubsetBreak is the first place one schema fails to fit another. Sub and Super each say
+// SubsetBreak is one place one schema fails to fit another. Sub and Super each say
 // what their side holds, direction-neutrally, so a caller may print them in either order.
 type SubsetBreak struct {
 	Path  string

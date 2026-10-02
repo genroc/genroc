@@ -1,7 +1,6 @@
-# Child: a generic HTTP poller. The caller supplies two whole requests — a kickoff and a
-# check — and this process loops check → backoff until the check stops returning 202.
-# It reads nothing from either response body: both are unknown, and the final one is
-# handed back for the caller to narrow. Raises `poll_timeout` on budget exhaustion.
+# Child: a generic HTTP poller. Given a kickoff and a check request, it loops check → backoff
+# until the check stops returning 202, then hands back the unread body for the caller to
+# narrow. Raises `poll_timeout` on budget exhaustion.
 name: poll-until-done
 input_schema:
   type: object

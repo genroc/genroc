@@ -46,10 +46,8 @@ func TestNullAccess_CoalescingThroughAnAbsentSideTakesTheOther(t *testing.T) {
 		"a non-null left operand must win, and the null right must not re-introduce null")
 }
 
-// The two spellings of "object or null" must answer a property read identically. `type:
-// ["object","null"]` is the inline form of the oneOf below it, and reading the properties map
-// straight through drops the null member — typing the read non-nullable while the evaluator
-// answers nil for it, so the `??` the author was owed is never demanded.
+// Reading `type: ["object","null"]`'s properties map straight through drops the null member,
+// typing the read non-nullable while the evaluator answers nil.
 func TestNullAccess_NullableObjectKeepsTheNullArm(t *testing.T) {
 	for _, tc := range []struct{ name, doc string }{
 		{"inline type list", `{"type":["object","null"],"properties":{"k":{"type":"string"}},"required":["k"]}`},
@@ -102,8 +100,8 @@ func TestNullAccess_UnknownTopTypeIsStillRefused(t *testing.T) {
 }
 
 // ── StripNull / HasNull symmetry ──────────────────────────────────────────────
-// StripNull's contract is that HasNull is false afterwards. It used to drop only whole null
-// arms, so a null inside an arm's type list survived and HasNull disagreed with it.
+// StripNull's contract is that HasNull is false afterwards, a null inside an arm's type list
+// included.
 
 func TestStripNull_RemovesNullHidingInsideAUnionArm(t *testing.T) {
 	s := schema.OneOf(schema.Type("boolean"), schema.Type("boolean").WithNull())

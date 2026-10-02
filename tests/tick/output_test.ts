@@ -1,10 +1,7 @@
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-// Exercises the per-task `output` map end to end: a no-action task computes its
-// output from self.previous (recursive, inferred — no schema declared), the
-// switch routes on self.output, and the remapped value is what later tasks and
-// the process output see.
+// A self.previous-driven output is inferred recursively, with no schema declared.
 const ctx = useTickEnv();
 
 test("no-action output map drives a counter via self.previous; switch reads self.output", async () => {

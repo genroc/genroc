@@ -1,13 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// The task scope at RUNTIME. Validation pins which names each slot may use
-// (internal/validation/validationtest/task_scopes_test.go); these pin what the engine
-// actually puts behind them, which is the half a type-checker cannot see.
-//
-// The rule under test: outputs.<own id> is the PREVIOUS output in every slot of its own task,
-// self.previous being the other name for it. The switch is where that is not free — the engine
-// has already written the new output by then, so it must shadow the slot.
+// The runtime half of task scopes (names: validationtest/task_scopes_test.go). outputs.<own id> is
+// the PREVIOUS output in every slot; the switch runs after the write, so the engine must shadow it.
 
 async function register(def: unknown) {
   const { error } = await client.PUT("/definitions", { body: def as never });
@@ -102,9 +97,8 @@ test("outputs.<own id> in the switch is the previous output, not the one just wr
 });
 
 test("self.previous drives a child task's input", async () => {
-  // A child's input is evaluated before the child is spawned, which is the slot that had no
-  // self at all. The child echoes what it was given, so the count can only climb if each run
-  // read the run before it.
+  // A child's input is evaluated before spawn; the child echoes it, so the count climbs only if
+  // each run read the run before.
   const child = `scope_echo_${crypto.randomUUID()}`;
   await register({
     name: child,
@@ -136,9 +130,8 @@ test("self.previous drives a child task's input", async () => {
 });
 
 test("self.previous is readable from an on_error rule", async () => {
-  // on_error runs after a failed action: the task has no result, but the output of its last
-  // SUCCESSFUL run is untouched, so the rule's case can read it. Two mocks give the task one
-  // 200 and then a 500 — the only way to reach a failure with a previous output in hand.
+  // After a failed action the last SUCCESSFUL output is intact; two mocks (200, then 500) reach a
+  // failure with a previous output in hand.
   const ok = await startMockService(0, { response: { ok: true } });
   const bad = await startMockService(0, { response: { bad: true }, statusCode: 500 });
   try {

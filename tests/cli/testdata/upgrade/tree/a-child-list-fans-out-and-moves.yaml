@@ -1,13 +1,6 @@
-# A child_list across the three states a batch passes through. Two things are being asserted at
-# once, and the output value carries both:
-#
-#   ORDER — the array is in INPUT order, which is `_spawn_index` on each child. That index is
-#           the one piece of spawn bookkeeping a version change must not disturb, and a batch
-#           that came back [10, 30, 20] would say it had.
-#   VERSION — leaf v2 decuples where v1 doubled, so the numbers say which definition ran.
-#
-# The third position is the one that differs: children that already COMPLETED stay on the
-# version that ran them, so the parent collects v1's numbers.
+# The output carries order (`_spawn_index`, input order: [10, 30, 20] would mean it moved) and
+# version (leaf v2 decuples where v1 doubled). Completed children stay on v1, so the third
+# position collects v1's numbers.
 apply:
   - definitions:
       - name: leaf

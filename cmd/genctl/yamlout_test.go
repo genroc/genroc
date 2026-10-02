@@ -7,9 +7,7 @@ import (
 	"genroc/internal/numeric"
 )
 
-// The text view renders a payload as YAML, and YAML has two ways to lie about a value it
-// was handed: quote a number, or leave a string looking like one bare. Both round-trip as a
-// DIFFERENT value, and nothing downstream would notice.
+// A quoted number, or a number-like string left bare, round-trips as a DIFFERENT value, silently.
 func TestYamlBlock_RendersEachTypeAsItself(t *testing.T) {
 	for _, tc := range []struct{ name, in, want string }{
 		{"a large integer keeps every digit and stays a number",

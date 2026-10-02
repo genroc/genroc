@@ -1,7 +1,5 @@
-# A child that stops producing a field breaks its output contract the other way round. The
-# output direction is reversed — we produce it, so it may only narrow — and the message says
-# so from the reader's side: the old output guaranteed `note` and the new one does not. A
-# parent that named it now reads null.
+# Output is reversed (we produce it, so it may only narrow): dropping `note` breaks the
+# contract, and the message speaks from the reader's side.
 apply:
   - channel: unread_a
     definitions:

@@ -9,10 +9,7 @@ import (
 	"genroc/internal/numeric"
 )
 
-// Division is the only place arithmetic rounds, at a pinned 34 significant digits
-// (decimal128). Everything else is exact, so these pin where the boundary is —
-// the precision is a constant rather than a setting because genroc replays tasks,
-// and a precision that varied between runs would change results on retry.
+// Division is the only place arithmetic rounds (34 significant digits); these pin the boundary.
 
 // precEnv holds operands longer than the division precision, which is where the
 // interesting cases live. Values arrive as json.Number, matching decoded data.
@@ -159,9 +156,7 @@ func TestPrecision_FractionalLiteralIsDecimal(t *testing.T) {
 }
 
 // --- the digit bound ---
-// A looping task squares its own output, doubling digits per tick: a 54-digit id reaches
-// ~55,000 in ten iterations. Unbounded it ran to apd's exponent limit — after materialising and
-// externalising the value, with a message that explained nothing.
+// A 54-digit id squared each tick reaches ~55,000 digits in ten iterations.
 
 // Squaring repeatedly is what a looping task does; the bound must stop it with a
 // message naming the cause.

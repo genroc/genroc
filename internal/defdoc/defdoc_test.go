@@ -37,9 +37,6 @@ tasks:
     switch: end
 `
 
-// The two spellings are the whole reason the index exists: a validator namespace produces the
-// physical one, a diagnostic and `genctl schema context` produce the logical one, and a
-// conversion between them would be a rule that can be wrong.
 func TestATaskIsAddressableByIndexAndById(t *testing.T) {
 	d := parse(t, twoTasks)
 	byIndex := span(t, d, "tasks[0].action.url")
@@ -64,8 +61,6 @@ func TestTheSecondTaskIsNotAddressedByTheFirstsId(t *testing.T) {
 	}
 }
 
-// A diagnostic chooses which to underline: an unknown key underlines the key, a value that
-// failed its rule underlines the value. One range could not serve both.
 func TestKeyAndValueAreSeparatelyLocated(t *testing.T) {
 	d := parse(t, "name: demo\n")
 	s := span(t, d, "name")
@@ -97,8 +92,6 @@ tasks:
     only_once: false
 `
 
-// The location a reader needs for a merged key is where it was written -- inside the anchor --
-// not the `<<` line that pulled it in.
 func TestAMergedKeyIsLocatedInsideTheAnchor(t *testing.T) {
 	d := parse(t, anchored)
 	s := span(t, d, "tasks.a.only_once")
@@ -134,8 +127,6 @@ func TestASequenceMergeIsRefusedRatherThanSilentlyReversed(t *testing.T) {
 	}
 }
 
-// Decoding into `any` floats big integers: this literal once left the CLI as 1.2e+53, having
-// been corrupted before the server ever saw it.
 func TestLargeIntegerLiteralsSurviveExactly(t *testing.T) {
 	const big = "123748297583958759399485776859493938587768583992939858"
 	d := parse(t, "id: "+big+"\n")
@@ -200,8 +191,6 @@ func TestAMappingSpansItsChildren(t *testing.T) {
 	}
 }
 
-// At is how a cursor becomes an address: the inverse of Span, and the primitive hover,
-// completion and goto-definition all reach for. specs/language-server.md §7.
 func TestAtFindsTheInnermostNodeUnderTheCursor(t *testing.T) {
 	d := parse(t, twoTasks)
 	//	 4  - id: fetch
@@ -231,8 +220,6 @@ func TestAtFindsTheInnermostNodeUnderTheCursor(t *testing.T) {
 	}
 }
 
-// The logical spelling is what the context and type views are keyed by, so a cursor that lands
-// on a node addressable both ways must answer with the one those views can be asked.
 func TestAtAnswersWithTheLogicalSpelling(t *testing.T) {
 	d := parse(t, twoTasks)
 	got, ok := d.At(7, 12)
@@ -263,8 +250,6 @@ func TestValueAtAnswersInEitherSpelling(t *testing.T) {
 	}
 }
 
-// The value and the span describe the same node, so a merged key's value must be the one that
-// won — the same rule the spans follow.
 func TestValueAtAgreesWithTheSpanOnWhichKeyWon(t *testing.T) {
 	d := parse(t, anchored)
 	v, ok := d.ValueAt("tasks.b.only_once")
@@ -276,9 +261,6 @@ func TestValueAtAgreesWithTheSpanOnWhichKeyWon(t *testing.T) {
 	}
 }
 
-// Containers are values too. A caller asking which keys a mapping already holds gets nothing
-// if only scalars were registered — and every ValueAt test that used a scalar passed while
-// that was true.
 func TestValueAtAnswersForContainersNotJustScalars(t *testing.T) {
 	d := parse(t, twoTasks)
 	v, ok := d.ValueAt("tasks.fetch.action")
@@ -299,10 +281,8 @@ func TestValueAtAnswersForContainersNotJustScalars(t *testing.T) {
 	}
 }
 
-// A block scalar's extent is in the SOURCE, not in the value it decodes to: `>` folds the line
-// breaks away, `|-` drops the last one, and an escape narrows a quoted one. Deriving the end
-// from the value's newlines put it back at the indicator, so a cursor in the body resolved to
-// the mapping instead and hover described the key two levels up.
+// A block scalar's extent is in the SOURCE, not its value: `>` folds the line breaks away, `|-`
+// drops the last one, and an escape narrows a quoted one.
 const blocks = `
 folded: >
   $: input.who

@@ -29,9 +29,7 @@ func TestInferScalar(t *testing.T) {
 		{"true", true},
 		{"false", false},
 		{"null", nil},
-		// Numbers keep their literal rather than converting through int64/float64,
-		// so a value past either range survives; see TestSetScalar* in
-		// yamlnum_test.go.
+		// Numbers keep their literal, so a value past int64/float64 survives (setscalar_test.go).
 		{"3", json.Number("3")},
 		{"-7", json.Number("-7")},
 		{"1.5", json.Number("1.5")},
@@ -153,8 +151,7 @@ func TestInputValidationError(t *testing.T) {
 }
 
 func TestParseWhen(t *testing.T) {
-	// A duration counts back from now; the sign is ignored, since "--since -2h" and
-	// "--since 2h" are the same intent.
+	// The sign is ignored: "--since -2h" and "--since 2h" are the same intent.
 	for _, s := range []string{"2h", "-2h"} {
 		got, err := parseWhen("--since", s)
 		if err != nil {
@@ -164,8 +161,7 @@ func TestParseWhen(t *testing.T) {
 			t.Errorf("parseWhen(%q) = %d, want ~%d (2h back from now)", s, got, want)
 		}
 	}
-	// A zone-less timestamp is read in the local zone, not UTC — the whole point of the
-	// flag is that a user types the wall clock they see.
+	// Zone-less means local, not UTC: a user types the wall clock they see.
 	for _, s := range []string{"2026-07-31", "2026-07-31 00:00", "2026-07-31T00:00:00"} {
 		got, err := parseWhen("--since", s)
 		if err != nil {
@@ -233,10 +229,7 @@ func TestTimeFormatting(t *testing.T) {
 	}
 }
 
-// isInstanceRef is the shape check that runs BEFORE anything is sent, so it has to accept
-// every id the server can mint and refuse everything that cannot name a row. Both forms are
-// real: minted ids are what a running server produces now, and legacy UUIDs are what rows
-// written before the scheme changed still carry.
+// Legacy UUIDs are still accepted: rows written before the id scheme changed carry them.
 func TestIsInstanceRefAcceptsBothMintedAndLegacyIDs(t *testing.T) {
 	m, err := idgen.NewMinter(1)
 	if err != nil {

@@ -8,11 +8,8 @@ import (
 	"genroc/internal/model"
 )
 
-// An unresolved reference is legal to COPY and illegal to OPERATE ON. Copying is how an
-// untouched value reaches the next write without ever being loaded; comparing, indexing or
-// rendering one would compute a plausible wrong answer, so it must fail instead. A hit here
-// means expression.Roots called a read a copy -- the analysis is the bug, and this is the
-// alarm that says so. specs/lazy-context.md.
+// Operating on an unresolved reference gives a plausible wrong answer. A hit here means
+// expression.Roots called a read a copy -- the analysis is the bug. specs/lazy-context.md.
 func TestExternalMarker_CopyIsLegalAndOperatingOnOneFails(t *testing.T) {
 	marker := &model.ObjectRef{Ref: "deadbeefdeadbeefdeadbeefdeadbeef", Size: 4096}
 	env := map[string]any{

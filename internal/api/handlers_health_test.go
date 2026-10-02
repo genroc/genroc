@@ -8,9 +8,8 @@ import (
 	"genroc/internal/db"
 )
 
-// The 503 path needs a database that fails a ping, which means closing the pool — so this
-// cannot use newTestHandlers, whose cleanup closes it a second time (db.Close closes a
-// channel and would panic). The ok path is covered end-to-end in tests/integration.
+// Not newTestHandlers: this closes the pool, and that cleanup would close it again, which
+// panics.
 func TestHealth_ReportsUnavailableWhenTheDatabaseIsGone(t *testing.T) {
 	f, err := os.CreateTemp("", "genroc-health-*.db")
 	if err != nil {

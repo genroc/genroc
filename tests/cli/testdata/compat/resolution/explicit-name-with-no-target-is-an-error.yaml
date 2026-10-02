@@ -1,6 +1,4 @@
-# You asked about a process and there is nothing to answer with. Refused rather than
-# reported, because the alternative is a clean-looking report about a question that was
-# never actually asked.
+# Refused, not reported: a clean-looking report would answer a question never asked.
 apply:
   - channel: orphan_a
     definitions:

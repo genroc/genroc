@@ -1,12 +1,6 @@
-# Removing the process output is the one removal that breaks, and it is not a schema
-# comparison: there is no new schema to compare the old one against, so it is reported
-# directly the way a removed task is. A waiting parent conforms this value against its own
-# result_schema at collect and would now get nothing.
-#
-# Its mirror is free and stays silent — a process that produced nothing and now produces
-# something breaks no consumer, because none could have been written against a value that
-# was never there. The other removals are silent for the same shape of reason: dropping the
-# input schema means we accept anything, dropping a result_schema means we conform less.
+# Removing the process output breaks (a waiting parent's collect now gets nothing) and is
+# reported directly, with no new schema to compare. Adding one is silent: no consumer can
+# have been written against a value never produced.
 apply:
   - channel: outrm_a
     definitions:

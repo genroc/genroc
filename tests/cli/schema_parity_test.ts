@@ -4,14 +4,9 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// An expression can be typed by two different routes, and they must agree. `-e` types a BARE
-// expression against the slot's context; the same text written as a `$:` leaf at that slot is
-// typed through the template layer, inside the checker's own pass over the definition. They
-// share the context and the inference primitive but not the path to it — so a divergence would
-// mean `schema context` describes a definition nobody could actually write.
-//
-// The leaf's type is read back out of the DEFINITION's own answer: `self.output` in the task's
-// switch is the output map the checker inferred, so `.v` is that leaf. specs/schema-command.md.
+// `-e` and a `$:` leaf type the same text by different paths and must agree, or `schema context`
+// describes a definition nobody could write. The leaf's type is read back as `self.output.v` in
+// the task's switch. specs/schema-command.md.
 
 let bin: string;
 beforeAll(() => {
@@ -61,10 +56,8 @@ function probeFile(expr: string): string {
   return path;
 }
 
-/** `type` as the set it is. The definition's output map is canonicalized on its way out of the
- *  solver — sorted, because the recursive-inference fixpoint keys off byte-equality — while `-e`
- *  reports inference's own form, which keeps the declared order. It is the ONLY thing normalized
- *  here: anything else the two routes disagree about is a real disagreement. */
+/** The only normalization: the solver sorts `type` (its fixpoint keys off byte-equality) while
+ *  `-e` keeps declared order. Anything else the routes disagree about is real. */
 function typeSet(node: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(node.type)) return node;
   return { ...node, type: [...(node.type as string[])].sort() };
@@ -96,8 +89,7 @@ function schemaAt(path: string, address: string, expr?: string) {
   return resolve(doc, doc.$defs ?? {});
 }
 
-// One row per type constructor inference can produce, because a divergence is most likely
-// where the two routes hand the type on differently — a nullable, a literal, a $ref.
+// One row per type constructor: a divergence hides where the routes hand a type on differently.
 const PARITY: { name: string; expr: string; want: unknown }[] = [
   { name: "a field of the result", expr: "self.result.fee", want: { type: "number" } },
   { name: "a field of the input", expr: "input.name", want: { type: "string" } },
@@ -135,26 +127,18 @@ for (const c of PARITY) {
     const path = probeFile(c.expr);
 
     const direct = schemaAt(path, "tasks.probe.output", c.expr);
-    // The checker's own answer for the same text: the output map it inferred, as the task's
-    // switch reads it back.
     const switchCtx = schemaAt(path, "tasks.probe.switch") as any;
     const inDefinition = switchCtx.properties.self.properties.output.properties.v;
 
     expect(direct, "the two routes disagree about the type of one expression").toEqual(inDefinition);
-    // The expectation goes through the same normalizer, so the table can be written in the
-    // declared order rather than the solver's.
+    // Normalized too, so the table can be written in declared order.
     expect(direct, "…and the type itself is not what either route claims").toEqual(resolve(c.want, {}));
   });
 }
 
 // ── the two VIEWS have to agree too ──────────────────────────────────────────────
-//
-// `type` projects a finished SchemaFile; `context` builds scopes through the checker's own
-// constructors. Two documents, two code paths, and one value in both — so every row below reads
-// the same thing twice: once as a type, once at the path an expression would read it by. The Go
-// side pins the library (TestTypeSlotsAreTheCheckersOwn); this pins the COMMAND, where a bug in
-// how an answer is narrowed or its pool rewritten would show and the library test could not see
-// it.
+// `type` and `context` reach one value by two code paths. TestTypeSlotsAreTheCheckersOwn pins
+// the library; this pins the command's narrowing and pool rewriting.
 
 /** A definition reaching every slot both views name. */
 function bothViewsFile(): string {
@@ -215,9 +199,7 @@ const CROSS: { name: string; type: string; context: string; path: string }[] = [
     context: "tasks.handler.switch",
     path: "self.output",
   },
-  // One route reaches the handler, so the payload it carries is guaranteed and the read is not
-  // nullable. Where two routes with different payloads meet, `data` is optional and the read
-  // adds a null the declaration does not have — pinned on the Go side, where it arises.
+  // One route reaches the handler, so the read is not nullable; two routes are pinned in Go.
   {
     name: "the routed failure's payload",
     type: "tasks.handler.last_error",
@@ -233,8 +215,6 @@ for (const c of CROSS) {
   });
 }
 
-// The other half: an expression rooted at a navigated schema is the same answer as the same
-// expression rooted at the slot and walked there. Navigation and `-e` compose, in both views.
 test("an expression rooted at a navigated type is rooted at the slot in the other view", () => {
   const path = bothViewsFile();
 

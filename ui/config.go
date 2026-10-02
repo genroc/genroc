@@ -10,19 +10,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// genroc-ui's configuration. specs/ui-issued-tokens.md §5.
-//
-// A file rather than flags because the shape is not flat: several providers, a role map, and a
-// user list are all lists and maps, and an env var per field stops being expressible at the
-// second provider.
+// genroc-ui's configuration (specs/ui-issued-tokens.md §5): a file, not flags, because
+// providers, roles and users are lists and maps.
 
 type Config struct {
 	// Server is the genroc API to proxy to.
 	Server string `yaml:"server"`
 	Listen string `yaml:"listen"`
-	// RedirectURL pins the callback a provider sends the browser back to. Optional: it is
-	// derived from the request otherwise, so a deployment states its address once — at the
-	// provider, where it has to be registered anyway. Set it behind a proxy that rewrites Host.
+	// RedirectURL pins the provider callback; derived from the request otherwise. Set it behind
+	// a proxy that rewrites Host.
 	RedirectURL string `yaml:"redirect_url"`
 	// SecureCookie forces the Secure attribute on or off. Optional: it follows the request's
 	// scheme otherwise, which is right in both directions and cannot be set wrong.
@@ -32,10 +28,9 @@ type Config struct {
 	Login Login `yaml:"login"`
 	Token Token `yaml:"token"`
 
-	// Roles maps a group asserted by a provider to permissions (`*` is anyone who logged in);
-	// Users maps a subject, for providers carrying no groups. Here rather than in the genroc
-	// server because the token this component mints carries PERMISSIONS, so the resolution has
-	// to happen before signing. specs/ui-issued-tokens.md §1.
+	// Roles maps a provider group to permissions (`*` is anyone signed in); Users maps a subject,
+	// for providers with no groups. Resolved here, before signing, because the token carries
+	// PERMISSIONS (specs/ui-issued-tokens.md §1).
 	Roles map[string][]string `yaml:"roles"`
 	Users map[string][]string `yaml:"users"`
 }
@@ -85,10 +80,8 @@ type Token struct {
 }
 
 const (
-	// The genroc server defaults to these too (api.DefaultJWTIssuer / DefaultJWTAudience), which
-	// is what lets the pair run as shipped with no issuer or audience configured anywhere. They
-	// are duplicated rather than imported because this module deliberately does not depend on
-	// the server's. specs/ui-component.md §1.
+	// Match the server's defaults (api.DefaultJWTIssuer / DefaultJWTAudience) so the pair runs
+	// unconfigured; duplicated, not imported, since this module must not depend on the server's.
 	defaultTokenIssuer   = "genroc-ui"
 	defaultTokenAudience = "genroc"
 
@@ -211,17 +204,14 @@ func dur(s string, def time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
-// A `type` is what a named IdP needs that a generic OIDC entry cannot guess. Only VERIFIED
-// quirks belong here: Google's discovery document publishes `openid email profile` and no groups
-// claim, so asking for `groups` -- which the generic default does -- is refused by Google rather
-// than ignored, and membership has to be fetched afterwards (google.go).
+// A `type` holds only VERIFIED quirks of a named IdP. Google publishes no groups claim and
+// refuses a `groups` scope, so its membership is fetched afterwards (google.go).
 type providerType struct {
 	issuer       string
 	scopes       []string
 	subjectClaim string
-	// groupsClaim is the claim membership arrives in. Empty means the ID token carries none and
-	// the type fetches them another way, which is why setting `groups_claim` on such a provider
-	// is refused: it would name a claim that never arrives.
+	// groupsFetched: the ID token carries no groups and the type fetches them, so `groups_claim`
+	// is refused on such a provider.
 	groupsFetched bool
 }
 
@@ -236,9 +226,8 @@ var providerTypes = map[string]providerType{
 	},
 }
 
-// defaultScopes is what a generic provider asks for. `groups` is in it because the IdPs that
-// have groups only emit them when the scope asks -- silently otherwise, which reads as a broken
-// role map rather than a missing scope.
+// `groups` is in the generic set because IdPs with groups emit them only when asked, and their
+// silent absence reads as a broken role map.
 var defaultScopes = []string{"openid", "email", "profile", "groups"}
 
 // applyType fills in what the type knows and refuses what it knows cannot work. Anything set

@@ -1,13 +1,8 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// This test asserted the OPPOSITE until 2026-08-24: that a secret config value came back "***"
-// over the API. `secret: true` now keeps a value out of the server's CONSOLE and nothing else —
-// the durable trail and every API response carry what actually happened, because protecting a
-// value at rest is encryption's job and redacting on read was never that. The console half is
-// pinned by secret_log_test.ts, which is where the guarantee now lives.
-// Fixture: GENROC_GLOBAL_API_KEY = "supersecret-api-key" (see helpers/server.ts).
-// specs/object-store.md §Redaction.
+// `secret: true` scrubs only the console (secret_log_test.ts); the API returns the value. Fixture
+// GENROC_GLOBAL_API_KEY is set in helpers/server.ts. specs/object-store.md §Redaction.
 test("a secret config value is returned by the API, not redacted", async () => {
   const name = `secret_redact_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {

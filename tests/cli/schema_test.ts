@@ -5,9 +5,7 @@ import { load } from "js-yaml";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// `genctl schema context` answers what an expression at a slot may read. It infers locally, so
-// none of this needs a server — which is the point, since it is meant to be run while writing
-// YAML. specs/schema-command.md.
+// `schema context` answers what an expression at a slot may read, offline. specs/schema-command.md.
 
 let bin: string;
 beforeAll(() => {
@@ -56,8 +54,7 @@ function defFile(body = DEF): string {
 
 /** The command's stdout as JSON — the document, with the resolved-phase note left on stderr. */
 function schemaOf(path: string, address?: string) {
-  // --json for the machine form: the tests assert on documents, and the YAML default has
-  // its own test below.
+  // The YAML default has its own test below.
   const args = ["schema", "context", "pricing", ...(address ? [address, "--json"] : []), "-f", path];
   const r = runCli(bin, args, OFFLINE);
   expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
@@ -74,11 +71,8 @@ test("schema context — lists one slot per phase, and what each can read", () =
     .filter((l) => !l.startsWith(" "))
     .map((l) => l.split(/\s{2,}/)[0]);
 
-  // Four phases per task and the process output, plus one row per switch CASE — the same
-  // per-index treatment `on_error` gets, and for the same reason: reaching case k means every
-  // earlier case was false, so each case reads a different context. And one per CLAUSE
-  // written: a `retry`, `panic` or `raise` runs only because its case matched, so it may
-  // assume it where the case expression beside it may not.
+  // One row per switch case and per clause too: case k knows every earlier case was false, and a
+  // clause may assume its case matched, so each reads a different context.
   expect(addresses.sort()).toEqual([
     "output",
     "tasks.explain.action",
@@ -102,10 +96,7 @@ test("schema context — lists one slot per phase, and what each can read", () =
   expect(line("tasks.price.switch")).toContain("output");
 });
 
-// A slot address can be a PREFIX of another one — a switch and its cases, a rule and its
-// clauses — and the nested document cannot hold both: writing the case under the switch's own
-// context makes the case INDEX a property of it, so `0` reads as a name in scope. The slots
-// answer an address before the document does, which is what keeps these apart.
+// Slots answer before the document does, or a case INDEX under its switch reads as a name in scope.
 test("schema context — a slot that is also a prefix reports only what is in scope", () => {
   const path = defFile();
 
@@ -115,16 +106,12 @@ test("schema context — a slot that is also a prefix reports only what is in sc
   const rule = schemaOf(path, "tasks.price.on_error.0").doc;
   expect(Object.keys(rule.properties)).not.toContain("retry");
 
-  // The clause under it is still addressable, and it is a context of its own — the rule's
-  // scope, which is what a `$:` in `retry.delay` is written against.
+  // The clause is a context of its own: the rule's scope, which `retry.delay` is written against.
   const retry = schemaOf(path, "tasks.price.on_error.0.retry").doc;
   expect(Object.keys(retry.properties).sort()).toEqual(["error", "input", "outputs"]);
 });
 
-// The process output is evaluated once, on whichever path the instance ended — so its context
-// is one arm per ending, and each arm says what that ending holds. The `=null` is the
-// correlation: the branch that did not run set nothing, and naming it is what lets an
-// expression recover from it with `??`.
+// `=null` names what the ending that did not run left unset, so an expression can recover with `??`.
 test("schema context — the process output has one arm per way the process can end", () => {
   const path = defFile();
   const r = runCli(bin, ["schema", "context", "pricing", "-f", path], OFFLINE);
@@ -137,8 +124,7 @@ test("schema context — the process output has one arm per way the process can 
   expect(doc.anyOf, "one arm per terminal").toHaveLength(2);
   const arms = doc.anyOf.map((a: any) => a.description);
   expect(arms.some((d: string) => d.includes("price"))).toBe(true);
-  // Each arm types the output the OTHER ending produced as null rather than dropping it, which
-  // is what an expression joining the two branches reads.
+  // Each arm types the OTHER ending's output as null rather than dropping it.
   const nulls = doc.anyOf.map((a: any) => Object.entries(a.properties.outputs.properties)
     .filter(([, v]: any) => v.type === "null").map(([k]) => k));
   expect(nulls.flat().sort()).toEqual(["explain", "price"]);
@@ -147,14 +133,12 @@ test("schema context — the process output has one arm per way the process can 
 test("schema context — a rule reads `error`, a routed task reads `last_error`", () => {
   const path = defFile();
 
-  // Inside the rule: the failure it caught, typed by the code it catches — `wait` comes from
-  // the 429 body, which is what makes `retry.delay` writable.
+  // `wait` comes from the 429 body the rule catches, which is what makes `retry.delay` writable.
   const rule = schemaOf(path, "tasks.price.on_error.0").doc;
   expect(Object.keys(rule.properties).sort()).toEqual(["error", "input", "outputs"]);
   expect(rule.properties.error.properties.data.properties).toEqual({ wait: { type: "number" } });
 
-  // At the task the second rule routes to: the failure that got it there, and no `error` —
-  // there is no rule being written at that task's own slots.
+  // No `error` at the routed-to task: no rule is being written at its own slots.
   const routed = schemaOf(path, "tasks.explain.output").doc;
   expect(Object.keys(routed.properties)).toContain("last_error");
   expect(Object.keys(routed.properties)).not.toContain("error");
@@ -163,21 +147,17 @@ test("schema context — a rule reads `error`, a routed task reads `last_error`"
 test("schema context — an address is a path, and a task is an object of its phases", () => {
   const path = defFile();
 
-  // A task holds its phases and nothing else: `url` and `timeout` are slots of the ACTION, and
-  // the address space is the document, so they are not addresses. The miss names what is.
+  // `url` and `timeout` belong to the ACTION, so they are not addresses under the task.
   const url = runCli(bin, ["schema", "context", "pricing", "tasks.price.url", "-f", path], OFFLINE);
   expect(url.ok).toBe(false);
   expect(url.stderr).toContain("which holds: action, on_error, output, switch");
 
-  // The rules are keyed, not indexed (`items` types every element alike), and the key is spelled
-  // three ways that must agree. The dotted one is canonical because it is the only one a shell
-  // leaves alone: zsh reads `[0]` as a glob and refuses the command before genctl sees it.
+  // Three spellings must agree; dotted is canonical because zsh globs `[0]` before genctl sees it.
   const dotted = schemaOf(path, "tasks.price.on_error.0");
   expect(schemaOf(path, "tasks.price.on_error[0]").doc).toEqual(dotted.doc);
   expect(schemaOf(path, 'tasks.price.on_error["0"]').doc).toEqual(dotted.doc);
 
-  // A number is a KEY, so it reads an object and not an array: a property lookup into an array
-  // means nothing, and saying so beats inventing a second way to index.
+  // A number is a KEY, so it does not index into an array.
   const onArray = runCli(
     bin,
     ["schema", "type", "pricing", "tasks.price.output.fee.0", "-f", path],
@@ -186,9 +166,7 @@ test("schema context — an address is a path, and a task is an object of its ph
   expect(onArray.ok).toBe(false);
 });
 
-// Past the slot, an address NAVIGATES what the slot answered — the same rule `schema type` has,
-// so one grammar covers both. It is what makes an address that names nothing fail: a context has
-// roots, and `headers` is not one of them.
+// Past the slot an address navigates the answer, the same grammar `schema type` uses.
 test("schema context — the tail navigates the context, and a name that is not there fails", () => {
   const path = defFile();
 
@@ -206,9 +184,7 @@ test("schema context — the tail navigates the context, and a name that is not 
     expect(r.stderr).toContain("which holds:");
   }
 
-  // The process output's context is one arm per ending, and navigation walks them WITHOUT
-  // flattening: each arm keeps what that ending set and what it did not, which is the
-  // correlation an expression reads with `??`.
+  // Navigation walks the arms WITHOUT flattening, so each keeps its ending's nulls.
   const arms = schemaOf(path, "output.outputs").doc;
   expect(arms.anyOf, "one arm per ending, still").toHaveLength(2);
   const nulls = arms.anyOf.map((a: any) =>
@@ -219,8 +195,6 @@ test("schema context — the tail navigates the context, and a name that is not 
   expect(nulls.flat().sort()).toEqual(["explain", "price"]);
 });
 
-// The other half of the same idea: an object schema IS a scope, its properties the roots, so an
-// expression can be typed against whatever the address selected rather than only against a slot.
 test("schema context -e — an expression is rooted where the address stopped", () => {
   const path = defFile();
 
@@ -240,9 +214,7 @@ test("schema context -e — an expression is rooted where the address stopped", 
   expect(JSON.parse(fromSlot.stdout)).toEqual({ type: "number" });
 });
 
-// A schema prints as YAML unless JSON is asked for: it is the language definitions are written
-// in, so an answer can be pasted into one, and the keys come out in the order they are read —
-// what it IS before what it holds, with the pool last. Both forms are the same document.
+// YAML so an answer pastes into a definition, keys in reading order with the pool last.
 test("schema context — a document is YAML by default, and JSON on request", () => {
   const path = defFile();
   const args = ["schema", "context", "pricing", "tasks.price.output", "-f", path];
@@ -256,8 +228,7 @@ test("schema context — a document is YAML by default, and JSON on request", ()
     JSON.parse(asJSON.stdout),
   );
 
-  // Reading order, not alphabetical: `type` before `properties`, and the pool it resolves
-  // against after both.
+  // Reading order, not alphabetical: `type`, then `properties`, then the pool.
   const keys = asYAML.stdout.split("\n").filter((l) => /^\S/.test(l)).map((l) => l.split(":")[0]);
   expect(keys).toEqual(["type", "properties", "required", "$defs"]);
 });
@@ -282,8 +253,7 @@ test("schema context --json — the listing is the same addresses, as documents 
     "tasks.price.switch",
     "tasks.price.switch.0",
   ]);
-  // One pool for the whole listing: the same definitions are reached from most addresses, so a
-  // pool per entry would repeat most of the answer.
+  // One pool for the whole listing: a pool per entry would repeat most of the answer.
   expect(Object.keys(doc.$defs).length).toBeGreaterThan(0);
   for (const [address, entry] of Object.entries(doc)) {
     if (address === "$defs") continue;
@@ -349,9 +319,7 @@ test("schema context — an address that names nothing says what the task has", 
   expect(noSwitch.stderr, "and a wrong process name lists the ones read").toContain("pricing");
 });
 
-// A task id is `validate:"required"` and nothing else, so it may hold a dot — and an address is
-// a path in the expression language's own accessor syntax, where a dot is a step. Quoting is how
-// such an id is named, and it is what the listing prints back.
+// A task id may hold a dot, and in an address a dot is a step, so such an id is quoted.
 const WEIRD = [
   "name: pricing",
   "tasks:",
@@ -383,14 +351,11 @@ test("schema context — an id no identifier can spell is addressed, and printed
     .filter((l) => !l.startsWith(" "))
     .map((l) => l.split(/\s{2,}/)[0]);
 
-  // The rendering quotes anything that is not a plain identifier, which is wider than what the
-  // grammar strictly needs — dotting a key that needed brackets is wrong, quoting one that did
-  // not is merely verbose.
+  // Quoting is wider than the grammar needs: over-quoting is verbose, under-quoting is wrong.
   expect(addresses).toContain('tasks["step.one"].output');
   expect(addresses).toContain('tasks["my task"].action');
 
-  // The parser is the looser half: only a dot is a step, so an id with a space still resolves
-  // bare — and the note says which address it landed on.
+  // The parser is looser: only a dot is a step, so an id with a space resolves bare.
   const bare = runCli(bin, ["schema", "context", "pricing", "tasks.my task.output", "-f", path], OFFLINE);
   expect(bare.ok, bare.stderr).toBe(true);
   expect(bare.stderr, "nothing was resolved — a space is not a separator").toBe("");
@@ -433,10 +398,8 @@ test("schema context -e — types one expression, and the slot is what decides",
   expect(ok.ok, `${ok.stdout}${ok.stderr}`).toBe(true);
   expect(JSON.parse(ok.stdout)).toEqual({ type: "number" });
 
-  // The same expression one phase earlier: the action has not answered, so there is no
-  // `self.result` to read — which is the whole reason the answer is per slot. The message is
-  // the checker's own (one Roots hook, `validation.slotRoots`), not inference's "field not
-  // found", which names the member and reads as a typo rather than a rule.
+  // The message is the checker's (`validation.slotRoots`), not inference's "field not found",
+  // which reads as a typo rather than a rule.
   const early = typeOf(path, "tasks.price.action", "self.result.fee");
   expect(early.ok, "self.result must not be readable from the action slots").toBe(false);
   expect(early.stderr).toContain("self.result is not available here");
@@ -447,8 +410,6 @@ test("schema context -e — types one expression, and the slot is what decides",
   expect(JSON.parse(action.stdout)).toEqual({ type: "number" });
 });
 
-// The arms are not decoration: an expression is typed under each ending and the results joined,
-// so `??` recovering from the branch that did not run is visible in the type it produces.
 test("schema context -e — an expression at `output` is typed under every ending", () => {
   const path = defFile();
 
@@ -463,9 +424,7 @@ test("schema context -e — an expression at `output` is typed under every endin
   expect(recovered, "?? removes the null under every arm").not.toContain("null");
 });
 
-// Availability is checked before inference, in that order, so a reference that is unavailable
-// HERE gets the rule rather than the navigation failure. Same sentence the checker gives at
-// registration; only the location is spelled in this command's own idiom.
+// Availability is checked before inference, so the rule wins over the navigation failure.
 test("schema context -e — an unavailable root is refused with the checker's reason", () => {
   const path = defFile(
     [
@@ -490,8 +449,7 @@ test("schema context -e — an unavailable root is refused with the checker's re
     .toContain("no path returns to task \"price\"");
 });
 
-// A rule is a slot like any other, so the availability rule answers there too — under either
-// spelling of the key, since both parse to the same four segments.
+// Both key spellings parse to the same four segments.
 test("schema context -e — availability answers at an on_error rule, keyed or indexed", () => {
   const path = defFile();
 
@@ -527,9 +485,6 @@ test("schema context -e — a bad path is refused, and a pasted leaf is named as
   expect(noAddress.stderr).toContain("needs an address");
 });
 
-// `secret: true` is declared on a config property and nothing else (registration refuses it
-// elsewhere), and the answer carries it — which is what tells an author the slot they are
-// writing reads one.
 test("schema context -e — a config secret is reported as secret", () => {
   const path = defFile(
     [
@@ -551,9 +506,7 @@ test("schema context -e — a config secret is reported as secret", () => {
   expect(JSON.parse(read.stdout)).toEqual({ type: "string", secret: true });
 });
 
-// specs/schema-command.md §1 has always said this side is "not a verdict" and answers "as far
-// as inference gets". It did not: SlotContexts went through Generate, which refuses any
-// document that does not infer — which is every document worth asking about while writing one.
+// This side is "not a verdict" (specs/schema-command.md §1): it answers as far as inference gets.
 // specs/language-server.md §7b.
 test("schema context — a document that would be refused is still answered for", () => {
   const dir = mkdtempSync(join(tmpdir(), "genroc-schema-broken-"));
@@ -575,8 +528,7 @@ test("schema context — a document that would be refused is still answered for"
 
   const r = runCli(bin, ["schema", "context", "broken", "-f", path], OFFLINE);
   expect(r.ok, r.stderr).toBe(true);
-  // The slot whose expression is broken is still listed, because that is the slot someone is
-  // asking about when they ask.
+  // The broken slot is the one someone is asking about.
   expect(r.stdout).toContain("tasks.a.action");
   expect(r.stdout).toContain("tasks.b.action");
 

@@ -14,9 +14,6 @@ import {
   uid,
 } from "../helpers/genctl.ts";
 
-// The definition entity: `apply` (and its --check-only dry run), and `definitions` that
-// reads it back. Every flag of both, plus the columns the table commits to.
-
 let bin: string;
 beforeAll(() => {
   bin = buildGenctlBinary();
@@ -33,9 +30,7 @@ function defs(extra: string[] = []): DefRow[] {
 test("apply — a YAML merge key folds the anchored map in, and an explicit key overrides it", () => {
   const name = uid("merge");
   const file = join(tmpdir(), `${name}.yaml`);
-  // `two` declares no action type or method of its own, so it can only validate if the
-  // merge landed. Before this worked, `<<` arrived as a literal field the server dropped
-  // as unknown — the definition applied and every merged key was silently gone.
+  // `two` declares no action type or method of its own, so it validates only if the merge landed.
   writeFileSync(
     file,
     [
@@ -68,9 +63,6 @@ test("check — a child that exists only in the batch resolves, as it does on ap
   const parent = uid("vparent");
   const file = writeDefs([switchDef(child), childDef(parent, child)]);
 
-  // Neither is stored. apply has always resolved a sibling from the batch; the check could
-  // not, so a batch that applied cleanly was unvalidatable — and `apply` now validates
-  // first to infer types for imports, which put that gap on the apply path too.
   const r = runCli(bin, ["apply", "--check-only", "-f", file]);
   expect(r.stderr).not.toContain("no definitions found");
   expect(r.ok).toBe(true);
@@ -88,7 +80,6 @@ test("apply — reports the move the channel made, not just whether a version wa
   ).toBe(`latest: ${name} - -> v1 (new)`);
   expect(runCli(bin, ["apply", "-f", b]).stdout.trim()).toBe(`latest: ${name} v1 -> v2 (new)`);
 
-  // The pair `saved` could not tell apart. Both mint nothing; only one is a deploy.
   expect(
     runCli(bin, ["apply", "-f", b]).stdout.trim(),
     "re-applying what the channel already points at moved nothing",
@@ -171,16 +162,12 @@ test("apply — one invalid definition rolls the whole batch back", () => {
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("genctl:");
 
-  // A batch is one logical change: everything is validated before anything is written, so
-  // a rejection anywhere leaves the registry exactly as it was. A partial apply would
-  // leave parents pointing at children that were never stored.
   expect(defs(["--since", "1h"]).some((d) => d.name === good)).toBe(false);
   expect(runCli(bin, ["channel", "list", good]).stdout.trim()).toBe("");
 });
 
 test("apply — a batch that fails late leaves no version of anything it named", () => {
-  // The invalid document sorts after several valid ones, so under the old
-  // save-as-you-go loop every earlier definition was already committed.
+  // The invalid document comes last, so a save-as-you-go apply would have committed the rest.
   const names = [uid("aa"), uid("bb"), uid("cc")];
   const r = runCli(bin, [
     "apply", "-f",
@@ -216,7 +203,6 @@ test("apply --check-only — reports each definition without registering anythin
   expect(r.stdout.trim(), "the same per-definition line an apply prints, minus the version").toBe(
     `valid: ${name}`,
   );
-  // A check is a dry run: nothing reaches the registry.
   expect(defs(["--since", "1h"]).some((d) => d.name === name)).toBe(false);
 
   // --json is the inferred schemas, which is what a type generator reads.
@@ -264,17 +250,12 @@ test("definitions --json — the raw rows carry name, version and created_at", (
 test("definitions --sort — name is alphabetical, created is registration order", () => {
   const stem = uid("sort");
   const [alpha, omega] = [`${stem}_aaa`, `${stem}_zzz`];
-  // Registered zzz first, so the two orders disagree — which is what makes --sort
-  // observable rather than incidentally the same list.
+  // Registered zzz first, so the two orders disagree.
   runCli(bin, ["apply", "-f", writeDefs([switchDef(omega)])]);
   runCli(bin, ["apply", "-f", writeDefs([switchDef(alpha)])]);
 
-  // Only the relative position of these two names is asserted, never the shape of the
-  // whole list. Two reasons: the server is shared, so rows appear between calls; and the
-  // rows come back in the *database's* collation, which the engines disagree on — SQLite
-  // compares bytes ("big_values" < "bigctx", "_" being 0x5F) while Postgres under
-  // en_US.utf8 demotes punctuation and yields the reverse. These names differ only after
-  // a shared stem, so their order holds under either.
+  // Relative order only: the server is shared, and SQLite and Postgres collate punctuation
+  // differently. These names differ only after a shared stem, so their order holds under either.
   const byName = defs(["--since", "1h", "--sort", "name"]).map((d) => d.name);
   expect(byName.indexOf(alpha)).toBeLessThan(byName.indexOf(omega));
 
@@ -314,8 +295,6 @@ test("definitions — the cap keeps listCap rows and says so; --since lifts both
 
   const full = runCli(bin, ["definitions", "--json", "--since", "1h"]);
   expect((JSON.parse(full.stdout) as DefRow[]).length).toBeGreaterThan(listCap);
-  // Nothing was dropped, so claiming otherwise would send the reader chasing rows that
-  // are already on screen.
   expect(full.stderr).toBe("");
 });
 
@@ -330,20 +309,15 @@ test("definitions — under --sort name the cap keeps the first N, not the last"
     ),
   ]);
 
-  // Compared against the same list read uncapped, never against a JS sort: only the
-  // database can say what name order is, and the engines' collations disagree.
-  //
-  // Both reads share an --until cutoff so they see the same rows. Without it this races:
-  // the other suites apply definitions continuously, and one landing between the two
-  // reads shifts the second list by a row. --since lifts the cap over that same window.
+  // Against the uncapped list, not a JS sort: the engines' collations disagree. The shared
+  // --until keeps a definition another suite applies between the two reads out of both.
   const until = await frozenUntil();
   const all = defs(["--since", "2000-01-01", "--until", until, "--sort", "name"]).map((d) => d.name);
   const capped = defs(["--until", until, "--sort", "name"]).map((d) => d.name);
 
   expect(capped.length).toBe(listCap);
   expect(all.length).toBeGreaterThan(listCap);
-  // A prefix, not a suffix — a newest-N cap on an A→Z list would return the right count
-  // from the wrong end of the alphabet.
+  // A newest-N cap on an A→Z list would return the right count from the wrong end.
   expect(capped).toEqual(all.slice(0, listCap));
 }, 15_000);
 

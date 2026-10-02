@@ -12,9 +12,8 @@ const (
 	LogError LogLevel = "error"
 )
 
-// LogLevelsAtLeast returns min and every level above it, or nil when min names no level. A level
-// filter is a FLOOR, never an equality. The order lives here because the stored value is the WORD
-// -- 'error' < 'info' sorts wrong in every collation -- so a caller must turn the floor into a set.
+// LogLevelsAtLeast returns min and every level above it, or nil for an unknown level. The stored
+// value is the WORD, which sorts wrong, so a caller must turn the floor into a set.
 func LogLevelsAtLeast(min LogLevel) []LogLevel {
 	order := []LogLevel{LogDebug, LogInfo, LogWarn, LogError}
 	for i, l := range order {
@@ -25,10 +24,8 @@ func LogLevelsAtLeast(min LogLevel) []LogLevel {
 	return nil
 }
 
-// Log event kinds emitted by the engine as it advances an instance -- the stable machine-readable
-// identifiers; the human message lives in Message. The LEVEL says who is asking: info is the
-// run's own story, debug is how the engine did it. Verbosity is not the test -- a payload too big
-// for a line is the renderer's problem. genctl logs floors at info.
+// Log event kinds; the human text lives in Message. Pick the LEVEL by audience, not verbosity:
+// info is the run's own story, debug is how the engine did it. genctl logs floors at info.
 const (
 	EventInstanceCreated = "inst_created"
 	EventWorkStarted     = "work_started"     // debug: one per ADVANCE -- a retry or resume emits it again
@@ -43,9 +40,8 @@ const (
 	EventInstanceRaised  = "inst_raised" // concluded by a `raise` clause; the parent may react to the code
 	EventInstanceFailed  = "inst_failed"
 	EventInstanceSettled = "inst_settled"
-	// EventInstanceUpgraded records a move to another definition version. The whole story is
-	// in one entry: an upgrade writes no other trace, and the row it changed no longer says
-	// which version it came from. specs/version-compatibility.md s4.
+	// EventInstanceUpgraded must tell the whole story: nothing else records which version
+	// the instance came from. specs/version-compatibility.md s4.
 	EventInstanceUpgraded = "inst_upgraded"
 	// Pause/resume fan out over a subtree, so per-instance entries are debug. Only pause gets
 	// an info root entry, because only its outcome is deferred (meta.pausing counts the
@@ -65,9 +61,8 @@ const (
 	EventExternalTimeout  = "extern_timeout"
 	EventExternalFailed   = "extern_failed"
 	EventExternalLost     = "extern_lost"
-	// EventLeaseLost marks an advance whose write the fence refused: the row was
-	// re-granted mid-flight and the outcome dropped. It explains a work_started with no
-	// completion, and a stream of them is what replaced the fatal overwhelm exit.
+	// EventLeaseLost marks an advance whose write the fence refused; it explains a
+	// work_started with no completion.
 	EventLeaseLost = "lease_lost"
 )
 
@@ -76,11 +71,9 @@ const (
 // actor. It is stored on every such row but not rendered -- see logview.Record.Detail.
 const ActorEngine = "engine:self"
 
-// LogEntry is one persisted line of an instance's execution audit trail. Data carries the single
-// raw payload an event is about, as valid JSON -- a value too large to sit inline is replaced by
-// a reference listed in Objects, never truncated. Meta carries small structured metadata, Message
-// the human summary; the same fact may appear in both by design, and a small fact with no payload
-// lives in Message alone.
+// LogEntry is one line of an instance's audit trail. Data is the event's single payload: an
+// oversized value becomes a ref listed in Objects, never truncated. Meta and Message may repeat
+// a fact by design; a small fact with no payload lives in Message alone.
 type LogEntry struct {
 	ID         string   `json:"id"`
 	InstanceID string   `json:"instance_id"`

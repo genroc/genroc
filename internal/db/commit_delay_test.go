@@ -1,10 +1,7 @@
 package db
 
-// commit_delay is set per pooled connection rather than in postgresql.conf, so genroc's
-// connections get it and no other database on the server pays for it. Postgres skips the
-// delay entirely unless commit_siblings transactions are open, which is what keeps it off
-// the narrow, causally-sequential workloads it would otherwise slow down.
-// specs/durability-levels.md §6.
+// commit_delay is set per pooled connection, never server-wide, so no other database on the
+// server pays for it. specs/durability-levels.md §6.
 
 import (
 	"context"
@@ -63,10 +60,8 @@ func TestCommitDelay_OffLeavesTheServerDefault(t *testing.T) {
 	if dsn == "" {
 		t.Skip("POSTGRES_DSN not set; commit_delay is a PostgreSQL setting")
 	}
-	// Give the server a non-zero delay of its own first. Against a stock server (0) this
-	// test cannot tell "sent no SET" from "sent SET commit_delay = 0" — both read back 0 —
-	// so it would pass without discriminating. Establishing the precondition is what makes
-	// it a test rather than a coincidence.
+	// A non-zero server default first: against a stock 0 this cannot tell "sent no SET" from
+	// "sent SET commit_delay = 0".
 	admin, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Fatalf("sql.Open (admin): %v", err)
@@ -81,11 +76,8 @@ func TestCommitDelay_OffLeavesTheServerDefault(t *testing.T) {
 	}
 	t.Cleanup(func() { admin.Exec(`ALTER DATABASE "` + dbName + `" RESET commit_delay`) })
 
-	// ALTER DATABASE reaches only sessions opened after it, so the oracle must be a pool
-	// opened here — reading through `admin` races its own pre-ALTER connection. It is a raw
-	// driver handle rather than OpenPostgres-with-no-options for a second reason: both
-	// OpenPostgres paths run the same option code, so they move together under a bug and
-	// comparing them proves nothing. This reference has never been near it.
+	// A fresh raw pool: `admin` holds a pre-ALTER session, and OpenPostgres-without-options
+	// shares the option code under test, so a bug would move both together.
 	raw, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)

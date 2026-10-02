@@ -1,11 +1,5 @@
-# The state every freshly-created instance is in, and the one an upgrade sweep meets most
-# often: nothing has run, so the context is an input and an empty outputs map. It is worth a
-# case of its own because it is the only state whose shape is not the engine's doing — the
-# create path builds it, and a create path that forgot a slot would surface here first.
-#
-# The two versions differ only in an added optional input property, so nothing about the
-# stored state has to change. What is being asserted is that a move which SHOULD be trivial
-# is in fact trivial.
+# Fresh instance, nothing run: the only state the create path builds rather than the engine,
+# so a slot it forgot surfaces here. The versions differ by one optional input property.
 apply:
   - definitions:
       - name: entryproc
@@ -33,5 +27,4 @@ start: {process: entryproc, input: {n: 1}, ticks: 0}
 resting: {task: first, status: running, phase: "", outputs: [], state_keys: [input, last_error, outputs]}
 after: {task: first, status: running, outputs: [], state_keys: [input, last_error, outputs]}
 run: [entryproc, --from, "1", --to, "2"]
-# Nothing had run, so nothing had to move — and the instance still finishes on the new version.
 finish: {status: completed, output: {v: 1}}

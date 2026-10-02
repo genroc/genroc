@@ -8,14 +8,8 @@ import { client, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 import { evaluate } from "../../eval-node/eval.ts";
 
-// A script task is an `external` task: the engine parks and holds no worker, and an evaluator
-// claims it off the queue, evaluates it in its own realm, and answers. What these tests pin is
-// the seam — the failure KIND is the error code an on_error rule matches, so the definition
-// never reads a payload to find out what went wrong.
-//
-// The realm's own properties are asserted by calling evaluate() directly at the bottom: they
-// are relationships between two evaluations in one process, which no definition can observe.
-// See eval-node/README.md.
+// A script task is an `external` task an evaluator claims; the failure KIND is the code on_error
+// matches. Realm properties are asserted via evaluate() at the bottom (eval-node/README.md).
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
@@ -23,9 +17,8 @@ let worker: ChildProcess;
 
 beforeAll(async () => {
   worker = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
-    // TASK scopes the fleet to this file's script tasks. Without a filter a worker claims
-    // every parked external task on the server, including other suites' approvals — which is
-    // the same mistake a real deployment makes when one fleet shares a genroc with another.
+    // TASK scopes the worker to this file's tasks; unfiltered, it would claim every parked
+    // external task on the server, including other suites' approvals.
     env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "run", WORKER_ID: `test-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });
@@ -90,9 +83,6 @@ async function run(name: string, tasks: unknown[], input?: unknown, inputSchema?
   return { status, data };
 }
 
-// The bare-value contract: the script's return value IS the result, so `result_schema` types
-// self.result and a script task reads like a typed function call. An envelope here would cost
-// every definition a `self.result.result`.
 test("script task — the return value is self.result, typed by result_schema", async () => {
   const t = withInput(scriptTask("export default (input) => ({ fee: input.amount * 0.1 });"));
   t.action.result_schema = { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] };
@@ -108,9 +98,6 @@ test("script task — the return value is self.result, typed by result_schema", 
   expect((data?.state?.outputs as any)?.run).toEqual({ fee: 25 });
 });
 
-// The headline path, and what the error channel bought: the KIND is the code, so `code: [threw]`
-// catches a throw directly. Under the old fetch shape every failure shared http.422 and the
-// definition had to switch on error.data.kind to tell them apart.
 test("script task — a throw is caught by its own code, and the definition raises a named one", async () => {
   const t = withInput(
     scriptTask(
@@ -146,9 +133,7 @@ test("script task — a throw is caught by its own code, and the definition rais
   expect(data?.error_code).toBe("limit_exceeded");
 });
 
-// Three kinds that are all "the script is broken", each with its own code — so one arm can
-// cover them without any of them being indistinguishable from a throw. A module that exports
-// no function is the same class of mistake: nothing ran, and only editing the script helps.
+// No default export is compile_error too: nothing ran, and only editing the script helps.
 test("script task — compile_error, nonserializable and exited are distinct codes", async () => {
   for (const [label, code, want] of [
     ["a syntax error", "export default () => {", "compile_error"],
@@ -167,8 +152,6 @@ test("script task — compile_error, nonserializable and exited are distinct cod
   }
 }, 60_000);
 
-// The evaluator's own budget, enforced by killing the realm. It must come back as the
-// classified `timeout` code, not as the task's external.timeout.
 test("script task — a script over its budget reports `timeout`, not external.timeout", async () => {
   const t = scriptTask("export default () => { while (true) {} };", { timeout_ms: 400 });
   const tasks = [
@@ -180,11 +163,8 @@ test("script task — a script over its budget reports `timeout`, not external.t
   expect((data?.state?.outputs as any)?.slow).toEqual({ code: "timeout" });
 }, 30_000);
 
-// The task input is a Shape, so `${` is genroc's interpolation marker and a JS template
-// literal has to be escaped. Moving the code into a .ts file removes this — genctl doubles
-// every `$` on splice. See specs/typed-values.md.
-// The interpolated binding is the SCRIPT's, not the task context's — which is the case that
-// actually bites, since a template literal usually reads a local.
+// The task input is a Shape, so a JS template literal's `${` must be escaped (specs/typed-values.md).
+// The binding is the SCRIPT's own, not the task context's — the case that actually bites.
 const TEMPLATE_SCRIPT = (dollars: string) =>
   [
     "export default function (input) {",
@@ -214,13 +194,10 @@ test("script task — the unescaped ${ is read by genroc and refused at registra
       tasks: [{ ...t, output: "$: self.result", switch: [{ goto: "end" }] }],
     } as never,
   });
-  // Registration must refuse it rather than silently shipping a mangled script: `who` is a JS
-  // binding genroc cannot resolve, and this is the only point where that is visible.
+  // `who` is a JS binding genroc cannot resolve.
   expect(JSON.stringify(error), "an unescaped ${ must be refused, not silently interpolated").toContain("who");
 });
 
-// The queue's own property, and the reason for the move: the worker decides how many scripts
-// run at once, so a backlog forms rather than overwhelming the evaluator.
 test("script task — a backlog drains", async () => {
   const name = `script_backlog_${crypto.randomUUID()}`;
   const t = withInput(scriptTask("export default (input) => ({ doubled: input.n * 2 });"));
@@ -246,10 +223,7 @@ test("script task — a backlog drains", async () => {
 }, 60_000);
 
 // ── the realm ───────────────────────────────────────────────────────────────────
-//
-// One Worker per execution. These call evaluate() directly: each asserts a relationship
-// between two evaluations in one process, which no single definition can see — and eval.ts is
-// kept free of any genroc knowledge precisely so it can be driven like this.
+// eval.ts is kept free of genroc knowledge so it can be driven directly like this.
 
 test("evaluator — a return value JSON cannot represent is the script's fault", async () => {
   const r = await evaluate({ code: "export default () => { const a = {}; a.self = a; return a; };" });
@@ -259,17 +233,13 @@ test("evaluator — a return value JSON cannot represent is the script's fault",
   expect(r.ok === false && r.failure.kind).toBe("nonserializable");
 });
 
-// A script's output has to survive the realm being torn down. eval.ts terminates the Worker the
-// moment the reply lands, so anything still in the realm's stdio pipe dies with the thread —
-// which loses precisely what a script printed LAST, the lines someone adds to find out what a
-// run was doing. Both channels are the same stream, so both are covered: `console` and a direct
-// process.stdout.write. Asserted from a child process because stdout itself is under test.
+// eval.ts terminates the Worker as the reply lands, so the stdio pipe can lose what a script
+// printed LAST. Asserted from a child process because stdout itself is under test.
 test("output — everything a script prints survives the realm's termination", async () => {
   const script = [
     "export default () => {",
     "  console.log('CONSOLE-FIRST');",
-    // Big enough that the pipe is still draining it when the thread is killed. The small write
-    // before it lands either way, which is what made the loss look like "logging stopped".
+    // Big enough that the pipe is still draining it when the thread is killed.
     "  console.log(new Array(200).fill({ k: 'v'.repeat(30) }));",
     "  process.stdout.write('DIRECT-BIG:' + 'x'.repeat(20000) + '\\n');",
     "  process.stderr.write('DIRECT-ERR\\n');",
@@ -324,9 +294,8 @@ test("evaluator — Math and Date are the realm's own, and die with it", async (
   expect(Math.abs((clock.ok === true ? JSON.parse(clock.body) : 0) - Date.now()), "the script reads the wall clock").toBeLessThan(5_000);
 });
 
-// `stack` carries the lines the AUTHOR wrote. The script is imported as a module rather than
-// compiled from a string, so the engine numbers its frames from the source itself and there is
-// no wrapper preamble to correct for (eval-node/realm.ts).
+// The script is imported as a module, not compiled from a string, so there is no wrapper
+// preamble offset to correct for (eval-node/realm.ts).
 test("stack — a throw reports the author's line, and the function that threw", async () => {
   const code = [
     "const rate = 0.1;", //             1
@@ -356,8 +325,6 @@ test("realm — a synchronous busy loop is bounded and the evaluator keeps worki
   const r = await evaluate({ code: "export default () => { while (true) {} };", timeout_ms: 400 });
   const elapsed = Date.now() - t0;
 
-  // The whole reason the realm is a thread: no in-process timer can interrupt a loop that
-  // never yields, so before this the runner hung forever on exactly this input.
   expect(r.ok, `a busy loop must fault, not hang (took ${elapsed}ms)`).toBe(false);
   expect(r.ok === false && r.failure.kind).toBe("timeout");
   expect(elapsed, "the budget must be enforced, not merely reported").toBeLessThan(3_000);
@@ -368,8 +335,7 @@ test("realm — a synchronous busy loop is bounded and the evaluator keeps worki
 
 test("realm — a script that ends its own realm faults instead of hanging", async () => {
   const r = await evaluate({ code: "export default () => process.exit(7);", timeout_ms: 5_000 });
-  // Without the close event this returned nothing at all and the caller waited out the full
-  // budget for an answer that was never coming.
+  // Relies on the Worker's close event; without it the caller waits out the full budget.
   expect(r.ok).toBe(false);
   expect(r.ok === false && r.failure.kind).toBe("exited");
 });
@@ -383,9 +349,7 @@ test("realm — one execution cannot leave state behind for the next", async () 
 });
 
 test("realm — a script can import a node builtin", async () => {
-  // What the bundler emits for a builtin: it is externalised rather than inlined, and the realm
-  // resolves it as an ordinary import. Under the old browser target this was rewritten to `{}`
-  // and failed at runtime with no diagnostic.
+  // The bundler externalises builtins, so the realm must resolve them as ordinary imports.
   const r = await evaluate({
     code: 'import { platform } from "node:os";\nexport default () => ({ platform: platform() });',
   });
@@ -393,13 +357,9 @@ test("realm — a script can import a node builtin", async () => {
   expect(typeof (r.ok === true && JSON.parse(r.body).platform)).toBe("string");
 });
 
-// The bundle case this whole store exists for: a script past the inline cutoff is stored ONCE as
-// an object and listed by each task rather than copied into every instance. The worker follows
-// the reference and caches it by content hash, which never invalidates.
 test("script task — a large script is shared, not copied, and still runs", async () => {
   const name = `script_big_${crypto.randomUUID()}`;
-  // Well past the 2 KiB cutoff, and identical across instances — which is what makes it one
-  // object with many claims instead of one copy each.
+  // Past the 2 KiB cutoff, and identical across instances so it is stored as one object.
   const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
   const t = withInput(scriptTask(`${pad}\nexport default (input) => ({ doubled: input.n * 2 });`));
 
@@ -425,12 +385,8 @@ test("script task — a large script is shared, not copied, and still runs", asy
   }
 }, 60_000);
 
-// The property the test above cannot see: it passes whether or not the bundle is externalized,
-// because a script carried inline still runs. What must be pinned is that the code LEFT the
-// instance — one object, listed by every task, instead of a copy in each.
-//
-// The task id is deliberately not "run", so this file's worker (TASK=run) leaves it parked and
-// the queue can be inspected.
+// The test above passes even if the bundle stays inline; this pins that it LEFT the instance.
+// The task id is deliberately not "run", so this file's worker (TASK=run) leaves it parked.
 test("script task — a large script leaves the instance and is listed, not carried", async () => {
   const name = `script_shared_${crypto.randomUUID()}`;
   const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
@@ -457,8 +413,7 @@ test("script task — a large script leaves the instance and is listed, not carr
   let entries: any[] = [];
   while (Date.now() < deadline) {
     if ((await parkedInProcess(name, client)).length === 2) {
-      // The externalized-value list is on the CLAIM, not on discovery: it is what a worker
-      // needs to fetch the bundle, so it travels with the work rather than with the view.
+      // The externalized-value list rides on the claim, not on discovery.
       entries = await claimInProcess(name);
       if (entries.length === 2) break;
     }
@@ -467,7 +422,6 @@ test("script task — a large script leaves the instance and is listed, not carr
   expect(entries.length, "both instances parked").toBe(2);
 
   for (const e of entries) {
-    // The code is gone from the input and named by the entry instead.
     expect(e.external_input?.code, "the bundle must not be carried in the task input").toBeUndefined();
     const listed = (e.objects ?? []).find(
       (o: any) => o.path.length === 2 && o.path[0] === "external_input" && o.path[1] === "code",
@@ -479,7 +433,6 @@ test("script task — a large script leaves the instance and is listed, not carr
     expect(e.external_input?.input?.n).toBeGreaterThan(0);
   }
 
-  // One object, two tasks: byte-identical code across instances is stored once.
   const refs = new Set(entries.map((e) => e.objects[0].ref));
   expect(refs.size, "both instances name the SAME object — the bundle is stored once").toBe(1);
 

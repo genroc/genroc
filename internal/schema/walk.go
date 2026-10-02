@@ -6,19 +6,13 @@ import (
 	"slices"
 )
 
-// slotKind classifies a child position by what it means to a walk — the axis every
-// structural walk in this package steers on:
-//
-//	slotNested — properties/items/additionalProperties: consumes a level of the value.
-//	slotBare   — oneOf/anyOf/allOf arms: the value stays at this depth, so a $ref here
-//	             is recursion with no structural progress (see checkProductivity).
-//	slotDefs   — $defs: a definitions namespace, not a position in the value at all.
+// slotKind is what a child position means to a walk; every structural walk steers on it.
 type slotKind uint8
 
 const (
-	slotNested slotKind = iota
-	slotBare
-	slotDefs
+	slotNested slotKind = iota // properties/items/additionalProperties: consumes a value level
+	slotBare                   // union arms: same depth, so a $ref here makes no progress
+	slotDefs                   // $defs: a namespace, not a position in the value
 )
 
 // childSlot names one position where a sub-schema lives.
@@ -29,15 +23,9 @@ type childSlot struct {
 	kind slotKind
 }
 
-// mapChildren applies fn to every direct sub-schema of n and returns a copy carrying the results;
-// n is not modified. It is the single definition of where sub-schemas live, so a new sub-schema
-// keyword is added HERE and every structural walk picks it up -- enumerating them per walk failed
-// silently when one was missed.
-//
-// fn drives its own recursion and steers by slot. It sees nil children, which only malformed
-// input has. A nil result drops the entry from a list slot and clears a single-valued one, but
-// keeps a map key with a nil value. Map slots are visited in sorted key order, so a walk that
-// reports the first error is deterministic.
+// mapChildren is the one definition of where sub-schemas live: add a keyword HERE. fn recurses
+// itself and sees nil children; a nil result drops a list entry, clears a single slot, keeps a
+// map key. Map slots visit in sorted order, so a first-error walk is deterministic.
 func mapChildren(n *node, fn func(childSlot, *node) *node) *node {
 	m := *n
 	if n.Properties != nil {

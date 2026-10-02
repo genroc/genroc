@@ -2,19 +2,14 @@ package model
 
 import "fmt"
 
-// ObjectRef points at one row in objects. Ref is the content address — the
-// first 16 bytes (128 bits) of the content's sha256, hex-encoded (32 chars); it
-// doubles as the object id and the change-detection key (a re-encoded value with the
-// same hash needs no new write). Size is the byte length of the content, surfaced to
-// the API without loading the object.
+// ObjectRef points at one row in objects. Ref is the content's sha256 truncated to 128 bits,
+// hex: object id and change-detection key at once. Size is surfaced without loading the object.
 type ObjectRef struct {
 	Ref  string `json:"ref"`
 	Size int64  `json:"size"`
-	// Path is where the value belongs inside the slot, as keys from the slot's root; empty means
-	// the whole slot. It is what lets a composite carry a reference for ONE of its leaves. The
-	// alternative -- a marker inside the value -- does not survive the round trip: it comes back
-	// a plain map, and recovering the type means guessing from the shape, which misreads user
-	// data that legitimately has those keys. specs/object-store.md.
+	// Path is where the value sits inside the slot, empty for the whole slot. Not a marker inside
+	// the value: that comes back a plain map, indistinguishable from user data with those keys.
+	// specs/object-store.md.
 	Path []any `json:"path,omitempty"`
 }
 
@@ -23,10 +18,8 @@ type ObjectRef struct {
 // expression, so the dependency cannot run the other way. specs/lazy-context.md.
 func (r *ObjectRef) ExternalRef() (string, int64) { return r.Ref, r.Size }
 
-// ObjectOwner is who holds a claim on an object. Every kind names the entity that actually
-// carries the reference, so an owner changing or going away means updating its own claims and
-// nothing else -- what makes the object collectable is the absence of ALL claims, which only the
-// sweep is in a position to see. Reads consult no claim at all: the address IS the content.
+// ObjectOwner is the entity that actually carries a reference, so an owner going away touches
+// only its own claims; only the sweep sees an object with none left. Reads consult no claim.
 // specs/object-store.md.
 type ObjectOwner string
 

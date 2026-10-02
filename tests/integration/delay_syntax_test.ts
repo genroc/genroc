@@ -1,17 +1,8 @@
 import { expect, test } from "vitest";
 import { client } from "../helpers/client.ts";
 
-// The `delay` action takes exactly one of `for` (a duration from arm time) or `until` (an
-// instant). Each accepts three written forms, and which one it is decides how it is
-// checked — a split made syntactically, before any type inference runs:
-//
-//   pure literal        for: "2h30m"                 parsed against the delayspec grammar
-//   bare JSON number    for: 5000                    milliseconds (unix ms for until)
-//   $: expression       until: "$: input.due_ms"     must infer to a number
-//   ${ } interpolation  for: "${ input.h }h"         rejected — it yields a string at runtime
-//
-// The grammars themselves (DST, month-end clamping, calendar patterns) are table-tested in
-// internal/delayspec; these cases cover the registration surface over HTTP.
+// `for`/`until` take a literal (delayspec grammar), a bare number (ms), or a `$:` expression that
+// infers to a number; `${ }` is rejected. Grammars are table-tested in internal/delayspec.
 
 const delayDef = (action: Record<string, unknown>) => ({
   name: `delay_syntax_${crypto.randomUUID().replace(/-/g, "")}`,

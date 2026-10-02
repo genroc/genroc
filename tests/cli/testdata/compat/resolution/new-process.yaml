@@ -1,6 +1,4 @@
-# Only the target side carries it. No previous version exists, so nothing is being
-# upgraded and nothing can break — reported, not refused, and it must not drag the
-# roll-up down.
+# Only the target carries it: reported `new`, not refused, and it must not drag the roll-up down.
 apply:
   - channel: arrival_a
     definitions:

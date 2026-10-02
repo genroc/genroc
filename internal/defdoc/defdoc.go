@@ -1,7 +1,6 @@
-// Package defdoc parses a definition document into the JSON-native values the model decodes from,
-// and records where in the source each part was written. One walk produces both: a second would
-// repeat the merge-key precedence rule to stay aligned, and a location that disagrees with the
-// value it locates is worse than no location. specs/language-server.md §3.
+// Package defdoc parses a definition document into JSON-native values and records where each part
+// was written, in one walk: a second would repeat the merge-key precedence rule, and a location
+// that disagrees with its value is worse than none. specs/language-server.md §3.
 package defdoc
 
 import (
@@ -14,10 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Range is a span of source text in yaml.v3's own coordinates: 1-based line, 1-based column.
-// The LSP converts to its own 0-based UTF-16 positions; nothing else needs to.
-//
-// The end is approximate for a quoted or block scalar — it is an underline, not a parse.
+// Range is a span of source text in yaml.v3's coordinates: 1-based line, 1-based column (only the
+// LSP converts). The end is approximate for a quoted or block scalar: an underline, not a parse.
 type Range struct {
 	Line, Col       int
 	EndLine, EndCol int
@@ -28,11 +25,8 @@ func (r Range) Empty() bool { return r.Line == 0 }
 // Contains reports whether a 1-based line and column fall inside the range.
 func (r Range) Contains(line, col int) bool { return contains(r, line, col) }
 
-// Span is where one value was written. Key is the mapping key that introduced it, and is
-// empty when nothing introduced it by name: a sequence element, or the document root.
-//
-// Both are kept because a diagnostic chooses: an unknown key underlines the key, a value that
-// failed its rule underlines the value.
+// Span is where one value was written. Key is the mapping key that introduced it — empty for a
+// sequence element or the root — kept so a diagnostic can underline either.
 type Span struct {
 	Key   Range
 	Value Range
@@ -50,19 +44,16 @@ type Doc struct {
 	values map[string]any
 }
 
-// Span returns where path was written, under either spelling: the physical
-// `tasks[0].on_error[1].case` a validator namespace produces, or the logical
-// `tasks.fetch.on_error.1.case` of specs/schema-command.md, which names a task by its id and so
-// survives an insertion above it. Both are registered, because a conversion between them is a
-// rule that can be wrong and a second map entry cannot.
+// Span returns where path was written, under either spelling: the physical `tasks[0].on_error[1]`
+// or the logical `tasks.fetch.on_error.1` of specs/schema-command.md. Both are registered, so no
+// conversion between them can be wrong.
 func (d *Doc) Span(path string) (Span, bool) {
 	s, ok := d.spans[path]
 	return s, ok
 }
 
-// Locate is Span falling back to the shortest enclosing path that exists. A missing REQUIRED
-// field has no node of its own, so `tasks[0].id` resolves to the task that lacks an id — which
-// is the line a reader has to look at either way.
+// Locate is Span falling back to the nearest enclosing path that exists: a missing REQUIRED field
+// has no node, so `tasks[0].id` resolves to the task that lacks an id.
 func (d *Doc) Locate(path string) (Span, bool) {
 	for p := path; p != ""; p = ParentPath(p) {
 		if s, ok := d.spans[p]; ok {
@@ -157,9 +148,8 @@ func (d *Doc) node(n *yaml.Node, phys, logi string, key Range) (any, Range, erro
 		out := make([]any, 0, len(n.Content))
 		r := start(n)
 		for i, c := range n.Content {
-			// A sequence element is addressed by its `id` when it has one -- that is what
-			// makes `tasks.fetch` an address at all, and it is the only reason the logical
-			// spelling differs from the physical one below a task.
+			// An element with an `id` is addressed by it -- the only place the logical
+			// spelling differs from the physical.
 			cp := fmt.Sprintf("%s[%d]", phys, i)
 			cl := fmt.Sprintf("%s.%d", logi, i)
 			if id, ok := elementID(c); ok {
@@ -178,9 +168,7 @@ func (d *Doc) node(n *yaml.Node, phys, logi string, key Range) (any, Range, erro
 
 	case yaml.AliasNode:
 		v, _, err := d.node(n.Alias, phys, logi, key)
-		// The alias is where the value was *written* for the reader's purposes; the anchor
-		// is where it was defined. Underlining the anchor would send them to another file's
-		// worth of scrolling for a value they can see.
+		// Locate an alias where it is written, not at its anchor: that is what the reader sees.
 		r := start(n)
 		r.EndCol = n.Column + len(n.Value) + 1
 		d.spans[phys] = Span{Key: key, Value: r}
@@ -218,10 +206,8 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 		if err := kn.Decode(&name); err != nil {
 			return nil, r, fmt.Errorf("line %d: object key must be a scalar: %w", kn.Line, err)
 		}
-		// A `<<` whose value is a plain string is a resolution directive, not a merge defdoc
-		// can perform: it is kept as a literal key so genctl's structural phase consumes it,
-		// and where that phase does not run it surfaces as an unresolved directive rather
-		// than as a parse error. specs/source-resolution.md §The split defdoc keeps.
+		// A directive `<<` stays a literal key for genctl's structural phase.
+		// specs/source-resolution.md §The split defdoc keeps.
 		if name == mergeKey && !isDirectiveValue(vn) {
 			merges = append(merges, vn)
 			continue
@@ -234,10 +220,8 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 		r = extend(extend(r, d.scalarRange(kn)), vr)
 	}
 
-	// An explicit key beats a merged one -- YAML's own precedence, so there is no new rule to
-	// learn. Applied after the loop because a merge may appear above the key it is overridden
-	// by, and the spans below follow the same order for the same reason: a merged key that
-	// lost must not leave its location behind on the key that won.
+	// After the loop: a merge may sit above the explicit key that beats it, and a merged key that
+	// lost must not leave its span on the winner.
 	for _, m := range merges {
 		src, err := mergeTarget(m)
 		if err != nil {
@@ -293,9 +277,8 @@ func join(prefix, name string) string {
 	return prefix + "." + name
 }
 
-// elementID reports the `id` of a sequence element, which is what makes `tasks.<id>` an
-// address. Only a plain scalar id qualifies: an id that is itself an expression has no stable
-// spelling to address it by.
+// elementID reports the `id` that makes `tasks.<id>` an address. Only a plain scalar id
+// qualifies: anything else has no stable spelling to address it by.
 func elementID(n *yaml.Node) (string, bool) {
 	if n.Kind != yaml.MappingNode {
 		return "", false
@@ -311,9 +294,7 @@ func elementID(n *yaml.Node) (string, bool) {
 	return "", false
 }
 
-// scalar keeps numeric literals exact: decoding into `any` floats big integers (a 54-digit id
-// once left here as 1.2374829758395876e+53). Scalars ride as json.Number; non-JSON literals
-// (0x1F, 1_000, .inf) fall back to yaml.
+// scalar keeps numeric literals exact as json.Number: decoding into `any` floats big integers.
 func scalar(n *yaml.Node) (any, error) {
 	if n.Tag == "!!int" || n.Tag == "!!float" {
 		// A bare number is itself a valid JSON document, so this rejects exactly the YAML
@@ -329,19 +310,14 @@ func scalar(n *yaml.Node) (any, error) {
 	return v, nil
 }
 
-// mergeKey is YAML's merge key. Without handling it here the alias landed under a literal
-// "<<" field, which the server ignores as unknown and the canonical re-marshal strips -- so a
-// definition using anchors silently lost every merged key. yaml.v3's own decoder merges
-// correctly, so the two readers of one file disagreed.
-// MergeKey is the spread position. Exported because genctl consumes the directive form defdoc
-// leaves behind, and two spellings of one key would drift exactly as two parsers would.
+// MergeKey is YAML's merge key, exported so genctl, which consumes the directive form defdoc
+// leaves behind, cannot drift to a second spelling.
 const MergeKey = "<<"
 
 const mergeKey = MergeKey
 
-// isDirectiveValue reports whether a `<<` value is a string holding a resolution directive.
-// Only the SHAPE is tested: which names are registered is genctl's question, so `<<: nope`
-// stays the refusal it always was and only a well-formed directive passes through.
+// isDirectiveValue tests only a `<<` value's SHAPE: which names are registered is genctl's
+// question, so `<<: nope` stays a refusal.
 func isDirectiveValue(n *yaml.Node) bool {
 	if n.Kind != yaml.ScalarNode || n.Tag != "!!str" {
 		return false
@@ -351,8 +327,7 @@ func isDirectiveValue(n *yaml.Node) bool {
 }
 
 // mergeTarget resolves a `<<` value to the mapping it contributes. The SEQUENCE form is refused:
-// YAML 1.1 gives EARLIER entries precedence, so `<<: [*base, *override]` would silently do the
-// reverse of what it reads as. One anchor, or nesting, covers the same ground.
+// YAML gives EARLIER entries precedence, so it reads backwards.
 func mergeTarget(n *yaml.Node) (*yaml.Node, error) {
 	if n.Kind == yaml.SequenceNode {
 		return nil, fmt.Errorf("line %d: `<<` takes a single mapping - a sequence is refused "+
@@ -399,9 +374,8 @@ func (d *Doc) scalarRange(n *yaml.Node) Range {
 	return r
 }
 
-// blockRange is a block scalar's extent read off the SOURCE: the header plus every following
-// line that is blank or indented past it. The VALUE cannot give it -- folding joins lines and
-// chomping drops them -- so counting its newlines ended the span back at the `>` marker.
+// blockRange reads a block scalar's extent off the SOURCE: the VALUE cannot give it, since
+// folding joins lines and chomping drops them.
 func (d *Doc) blockRange(n *yaml.Node) Range {
 	r := start(n)
 	header := indentOf(d.lineText(n.Line))
@@ -441,17 +415,14 @@ func (d *Doc) lineText(line int) string {
 // indentOf counts leading spaces. Tabs are not indentation in YAML, so they do not count.
 func indentOf(s string) int { return len(s) - len(strings.TrimLeft(s, " ")) }
 
-// At returns the innermost path whose value contains the position (1-based line, 1-based
-// column), which is how a cursor becomes an address. Ties between a node's two spellings go to
-// the logical one — `tasks.fetch.action`, not `tasks[0].action` — because that is the spelling
-// the context and type views are keyed by.
+// At returns the innermost path containing the 1-based position — how a cursor becomes an
+// address. Ties between a node's two spellings go to the logical one, which the views are keyed by.
 func (d *Doc) At(line, col int) (string, bool) {
 	best, found := "", false
 	var bestRange Range
 	for path, span := range d.spans {
-		// A cursor on the KEY names that key's slot, not the mapping it sits in — which is
-		// what a reader means by hovering `action:`. A key range is strictly inside its
-		// parent's value range, so ranking below sorts it out with no special case.
+		// A cursor on the KEY names that key's slot. A key range is strictly inside its
+		// parent's value range, so the ranking below needs no special case.
 		hit := span.Value
 		if contains(span.Key, line, col) {
 			hit = span.Key
@@ -490,8 +461,7 @@ func inner(a, b Range) bool {
 	return startsAfter && endsBefore
 }
 
-// preferred picks between the two spellings of one node: the logical one, which addresses a
-// task by id and so matches the slot grammar the views are keyed by.
+// preferred picks the logical spelling of a node over the physical one.
 func preferred(candidate, current string) bool {
 	return strings.ContainsRune(current, '[') && !strings.ContainsRune(candidate, '[')
 }

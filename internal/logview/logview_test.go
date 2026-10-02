@@ -151,10 +151,8 @@ func TestTimeStyle(t *testing.T) {
 
 	ts := time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC)
 	rec := Record{Event: "action_succeeded", Meta: map[string]any{"status": float64(200)}}
-	// The full style widens the time column by exactly its extra layout, so every later
-	// column stays aligned with its header rather than drifting right by a few spaces.
-	// UTC must render as "+00:00", not "Z" — a one-character offset would shorten the
-	// column for exactly the readers running under TZ=UTC.
+	// UTC must render as "+00:00", not "Z": a one-character offset would shorten the column
+	// for exactly the readers running under TZ=UTC.
 	got := RenderEvent(TimeFull, ts, "info", "", rec.Event, "fetch", rec.Detail(ModeBasic), false)
 	want := "2026-01-02 15:04:05 +00:00  INFO   action_succeeded  fetch           status=200"
 	if got != want {
@@ -238,8 +236,7 @@ func TestRenderJSON(t *testing.T) {
 	}
 }
 
-// The console must render UTC whatever zone the host runs in — otherwise a fleet's logs
-// interleave by wall clock and stop collating, and nothing in the output would say why.
+// Host-local stamps would interleave a fleet's logs by wall clock, and nothing would say why.
 func TestHandlerRendersUTC(t *testing.T) {
 	zone, err := time.LoadLocation("Asia/Kathmandu") // +05:45: no whole-hour coincidence
 	if err != nil {

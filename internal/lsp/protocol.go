@@ -133,9 +133,8 @@ type completionItem struct {
 	// TextEdit's text, so an item that sets it must set replaceFrom too.
 	insert string
 
-	// replaceTo is the 1-based BYTE column the item overwrites TO, where that is past the
-	// cursor. A key completed from inside a word has to swallow the rest of it, or `respon|se`
-	// becomes `responsese`. Zero means "to the cursor", which is every value slot.
+	// replaceTo is the 1-based BYTE column the item overwrites TO, past the cursor, so `respon|se`
+	// does not become `responsese`. Zero means "to the cursor".
 	replaceTo int
 }
 
@@ -152,8 +151,8 @@ const (
 	kindFolder   = 19
 )
 
-// completionOpts asks the editor to re-request after a `.`, which is where a member list is
-// wanted and where the client has nothing cached to filter.
+// completionOpts names the characters after which the editor re-requests rather than filtering
+// the list it holds.
 type completionOpts struct {
 	TriggerCharacters []string `json:"triggerCharacters"`
 }

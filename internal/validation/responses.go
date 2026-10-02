@@ -10,18 +10,15 @@ import (
 	"genroc/internal/template"
 )
 
-// The status space a fetch can answer with. Coverage, reachability and the success/failure
-// split are all decided by walking it rather than by reasoning about the pattern syntax —
-// exact where a syntactic rule would be approximate, and cheap enough to run per task.
+// Coverage, reachability and the success split walk the whole status space rather than reason
+// about pattern syntax: exact, and cheap enough per task.
 const (
 	minStatus = 100
 	maxStatus = 599
 )
 
-// staticAcceptedStatus returns the patterns accepted_status names, and whether the set is
-// knowable at all. static=false is the generic-poller shape — the caller supplies the
-// accepted set at runtime ([specs] §2) — and nothing about which statuses succeed can be
-// decided here. An absent slot IS static: the 2xx default is a known set.
+// static=false is the generic-poller shape: the caller supplies the accepted set at runtime
+// (specs/fetch-http-surface.md §2). An absent slot IS static — the 2xx default is known.
 func staticAcceptedStatus(a *model.Action) ([]string, bool) {
 	if !a.AcceptedStatus.Present() {
 		return nil, true
@@ -62,9 +59,8 @@ func acceptedPatterns(a *model.Action) ([]string, bool) {
 	return []string{"2xx"}, true
 }
 
-// isAccepted reports whether code succeeds. Under a dynamic accepted_status every status is
-// possibly-accepted AND possibly-not, which is why a declared schema then appears on both
-// channels: the honest answer is both, not a guess at one.
+// Under a dynamic accepted_status every status is possibly accepted AND possibly not, so a
+// declared schema appears on both channels.
 func isAccepted(code int, accepted []string, static bool) bool {
 	if !static {
 		return true
@@ -72,11 +68,9 @@ func isAccepted(code int, accepted []string, static bool) bool {
 	return model.MatchAnyStatus(code, accepted)
 }
 
-// fetchResultType is rule 2 for the success channel: the union of the schemas declared for
-// statuses that can be accepted, plus a null arm where an accepted status is described by no
-// pattern. Coverage is what makes {"2xx": T} exactly T — no null arm — without enumerating
-// 200, 201 and 204. typed=false only when nothing is declared at all, which keeps a fetch
-// with no responses exactly as untyped as one with no result_schema used to be.
+// fetchResultType: the union of bodies declared for statuses that can be accepted, plus null where
+// an accepted status has no pattern — so {"2xx": T} is exactly T. typed=false only when nothing
+// is declared. specs/fetch-http-surface.md §2.
 func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, error) {
 	if len(a.Responses) == 0 {
 		return schema.Schema{}, false, nil
@@ -106,10 +100,8 @@ func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, er
 		arms = append(arms, merged)
 	}
 
-	// Declaring only error statuses says nothing about what a success carries, so the body
-	// that arrives is undeclared — exactly as if no responses were given. Typing it `null`
-	// instead would be a claim the runtime contradicts: the 2xx default still accepts the
-	// response, and its body reaches self.result unvalidated.
+	// Only error statuses declared: the success body is undeclared. Not `null` — the 2xx default
+	// still accepts the response, and its body reaches self.result unvalidated.
 	if !describesAccepted {
 		return schema.Schema{}, false, nil
 	}
@@ -141,9 +133,7 @@ func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, er
 	if nullable {
 		arms = append(arms, schema.Type("null"))
 	}
-	// anyOf, never oneOf: two status bodies routinely overlap (objects whose properties are
-	// all optional both admit {}), and oneOf means EXACTLY one arm — an overlapping union
-	// would reject a value that fits two of them.
+	// anyOf, never oneOf: status bodies routinely overlap.
 	return schema.AnyOf(arms...), true, nil
 }
 
@@ -167,9 +157,8 @@ func anyStatusMatching(patterns []string, pred func(int) bool) bool {
 	return false
 }
 
-// untypedResultAdvice words the "self.result is not available" message for the slot that
-// would have typed it. A fetch types per status, so pointing its author at result_schema —
-// a field a fetch now refuses — would send them somewhere they cannot go.
+// A fetch types per status: pointing its author at result_schema, which a fetch refuses, would
+// send them nowhere.
 func untypedResultAdvice(a *model.Action) string {
 	if a == nil {
 		return "a task with no action has no result to read"
@@ -183,10 +172,8 @@ func untypedResultAdvice(a *model.Action) string {
 	return "the action has no result_schema — add a result_schema to type the response, or `result_schema: {}` (the top type) to export it opaquely for a caller to narrow"
 }
 
-// fetchResultContract is the schema a fetch's result is compared AS: the merged union, not the
-// per-status parts. Every declared body feeds the one self.result, so comparing statuses one at
-// a time judges something no consumer can read -- and goes wrong in both directions. nil means
-// the fetch declares nothing, as an absent result_schema always meant.
+// Compared AS the merged union: every body feeds one self.result, so comparing statuses one at a
+// time judges what no consumer reads. nil means nothing is declared.
 func fetchResultContract(a *model.Action) (*schema.Schema, error) {
 	if a == nil || a.Type != model.ActionTypeFetch || len(a.Responses) == 0 {
 		return nil, nil
@@ -202,10 +189,8 @@ func fetchResultContract(a *model.Action) (*schema.Schema, error) {
 	return &out, nil
 }
 
-// nonStatusProbes are the catchable codes a fetch can report that carry no response body.
-// A rule whose patterns reach any of them can arrive at its handler with nothing in hand, so
-// error.data admits null — this is the list `%` and `http.%` are caught by. Child raise codes
-// are not here: they belong to a child task, whose error.data is absent outright.
+// Catchable fetch codes with no response body: a rule reaching one can arrive with nothing, so
+// error.data admits null. No child raise codes — a child task's error.data is absent outright.
 var nonStatusProbes = []errcode.Code{
 	errcode.HTTPTimeout, errcode.PreTimeout, errcode.PreError,
 	errcode.ResultParse, errcode.ResultTooLarge, errcode.ResultInvalid,
@@ -224,9 +209,8 @@ func ruleCatches(rule model.ErrorCase, code errcode.Code) bool {
 	return false
 }
 
-// ruleErrorData is one rule's contribution to error.data: the bodies its patterns can catch,
-// and whether it can also arrive carrying nothing. A source that is not a fetch declaring
-// statuses contributes only the null — there is no body on that path to type.
+// ruleErrorData: the bodies one rule's patterns can catch, and whether it can arrive carrying
+// nothing.
 func ruleErrorData(t *model.Task, rule model.ErrorCase, defs schema.Defs) ([]schema.Schema, bool, error) {
 	a := t.Action
 	if a == nil {
@@ -284,9 +268,8 @@ func ruleErrorData(t *model.Task, rule model.ErrorCase, defs schema.Defs) ([]sch
 	return arms, nullable, nil
 }
 
-// childRuleErrorData is ruleErrorData for the tasks that declare `raises` — the child family
-// and external, whose payload shapes the CALLER declared for the codes this rule can catch.
-// Any other action type declares nothing, so it contributes only the null.
+// childRuleErrorData: the child family and external, whose payload shapes the CALLER declared in
+// `raises`. Any other action type contributes only the null.
 func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs) ([]schema.Schema, bool, error) {
 	decl, partial := declaredRaises(a)
 	if len(decl) == 0 {
@@ -298,15 +281,12 @@ func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs)
 		if !ruleCatches(rule, errcode.Code(code)) {
 			continue
 		}
-		// One entry of a child_map declaring a code says nothing about the entry that
-		// actually raised it: that one may declare no shape, and its payload is then absent
-		// at runtime. The arm admits null so the handler cannot read a slot that is not there.
+		// The child_map entry that raised a code may not declare it, so a partial code admits
+		// null.
 		nullable = nullable || partial[code]
 		for _, sc := range decl[code] {
-			// A nil declaration is `raises: {code: null}` — the code is declared and carries
-			// nothing. It contributes no ARM, so a rule catching only such codes types
-			// error.data as absent; caught alongside a code that does carry a payload it
-			// admits null, since the handler cannot know which one arrived.
+			// `raises: {code: null}` adds no ARM: caught alone, error.data is absent; caught
+			// beside a code with a payload, it admits null.
 			if sc == nil {
 				nullable = true
 				continue
@@ -321,11 +301,8 @@ func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs)
 	return arms, nullable, nil
 }
 
-// reachesUndeclaredCode: whether this rule can fire on a code no key declares, which is what
-// puts the null arm in. A wildcard counts even where the child happens to raise only declared
-// codes — the raise set belongs to another definition and is not read here, so the answer
-// stays conservative in the direction that costs a narrowing rather than a wrong type.
-// result.invalid is an undeclared literal like any other and falls out of the same rule.
+// A wildcard counts even if the child raises only declared codes: its raise set is another
+// definition's, so this stays conservative — costing a narrowing, never a wrong type.
 func reachesUndeclaredCode(rule model.ErrorCase, decl map[string][]*schema.Schema) bool {
 	if len(rule.Code) == 0 {
 		return true // the catch-all reaches everything
@@ -338,10 +315,8 @@ func reachesUndeclaredCode(rule model.ErrorCase, decl map[string][]*schema.Schem
 	return false
 }
 
-// declaredRaises collects a child task's declarations, keyed by raise code, plus the codes
-// only SOME entries of a child_map declare: the entries can be different processes, so one
-// code's payload is whatever the entry that raised it declared — the type is the union over
-// them, and a gap in that cover is what `partial` reports.
+// partial marks codes only SOME child_map entries declare: entries can be different processes,
+// so a code's type is the union over them, and partial is a gap in that cover.
 func declaredRaises(a *model.Action) (decl map[string][]*schema.Schema, partial map[string]bool) {
 	switch a.Type {
 	case model.ActionTypeChild, model.ActionTypeChildList, model.ActionTypeExternal:
@@ -388,10 +363,8 @@ func sortedDeclaredCodes(decl map[string][]*schema.Schema) []string {
 	return codes
 }
 
-// errorDataSchema types error.data at a task: the union over every on_error rule that can have
-// set the `error` visible there, so narrowing is done by the rules themselves rather than by
-// type-system machinery. A zero schema means no reaching rule declares a body, and error.data
-// is then absent entirely.
+// errorDataSchema unions every on_error rule that can have set `error` here, so the rules do the
+// narrowing. A zero schema means no reaching rule declares a body: error.data is absent.
 func errorDataSchema(tasks []*model.Task, srcs []errSource, defs schema.Defs) (schema.Schema, error) {
 	var arms []schema.Schema
 	nullable, any := false, false
@@ -417,11 +390,8 @@ func errorDataSchema(tasks []*model.Task, srcs []errSource, defs schema.Defs) (s
 	return combineErrData(arms, nullable), nil
 }
 
-// combineErrData joins the bodies an `error.data` slot can hold.
-//
-// One body reads as a nullable body — the same spelling the success channel uses. Only a
-// union of two BODIES needs anyOf, where the arms can overlap. These schemas are served,
-// so the two channels must not describe one concept two ways.
+// One body reads as a nullable body, as on the success channel; only two BODIES need anyOf.
+// These schemas are served, so the two channels must not spell one concept two ways.
 func combineErrData(arms []schema.Schema, nullable bool) schema.Schema {
 	if len(arms) == 0 {
 		return schema.Schema{}
@@ -438,9 +408,8 @@ func combineErrData(arms []schema.Schema, nullable bool) schema.Schema {
 	return schema.AnyOf(arms...)
 }
 
-// ruleErrAt is what `error` looks like INSIDE one on_error rule, as opposed to on entry to
-// a task the rule routes to: it is always present (the rule only runs because the task
-// failed), and its data is what this rule alone can catch.
+// Inside a rule `error` is always present (it runs only because the task failed), and its data
+// is what this rule alone can catch.
 func ruleErrAt(t *model.Task, rule model.ErrorCase, defs schema.Defs) errAt {
 	arms, nullable, err := ruleErrorData(t, rule, defs)
 	if err != nil {
@@ -449,19 +418,16 @@ func ruleErrAt(t *model.Task, rule model.ErrorCase, defs schema.Defs) errAt {
 	return errAt{must: true, data: combineErrData(arms, nullable)}
 }
 
-// errAt is what `error` looks like on entry to one task: whether it is always or possibly
-// present, and the type of its `data` slot. A zero Data means no reaching rule declares a
-// body, and `error.data` is then absent from the context entirely.
+// errAt is `error` on entry to one task. A zero data means no reaching rule declares a body, so
+// `error.data` is absent from the context.
 type errAt struct {
 	must bool
 	may  bool
 	data schema.Schema
 }
 
-// errContexts resolves the per-task error facts once, so every context built for a task agrees
-// about what `error` holds there. A schema that fails to merge leaves the slot ABSENT rather
-// than taking the caller down: an expression reading it then fails loudly as "not in schema",
-// and the same merge runs on the success channel where the error does surface.
+// A schema that fails to merge leaves the slot ABSENT rather than failing the caller: a read then
+// fails loudly, and the same merge surfaces the error on the success channel.
 func errContexts(tasks []*model.Task, mustErr, mayErr map[string]bool, errSrc map[string][]errSource, defs schema.Defs) map[string]errAt {
 	out := make(map[string]errAt, len(tasks))
 	for _, t := range tasks {

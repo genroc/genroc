@@ -15,10 +15,8 @@ import (
 	"strings"
 )
 
-// authToken is the credential every request presents, resolved ONCE in main before any command
-// runs. A package var rather than a parameter through 30-odd call sites: genctl is a single-shot
-// process that sets this before dispatch and never writes it again. internal/'s ban on
-// package-level state turns on goroutines and GC roots, neither of which applies to a CLI.
+// authToken is set ONCE in main before dispatch and never written again. The package-state ban's
+// reasons (goroutines, GC roots) do not apply to a single-shot CLI.
 var authToken string
 
 // authGet is http.Get plus the credential. Go attaches basic-auth from URL userinfo on its
@@ -54,15 +52,13 @@ func callGet(url string, out any) error {
 		return fmt.Errorf("server: %s", errResp.Error)
 	}
 	if out != nil {
-		// Exact literals: a plain Unmarshal would round a large id back through
-		// float64 purely for display, making the CLI disagree with the value the
-		// server actually holds.
+		// Not json.Unmarshal: a large literal must survive display. specs/number-precision.md.
 		return numeric.Decode(raw, out)
 	}
 	return nil
 }
 
-// page is the {items, page:{...}} envelope every list endpoint now returns.
+// page is the {items, page:{...}} envelope every list endpoint returns.
 type page[T any] struct {
 	Items []T `json:"items"`
 	Page  struct {
@@ -70,7 +66,6 @@ type page[T any] struct {
 	} `json:"page"`
 }
 
-// appendQuery adds one query parameter to a URL that may already carry a query string.
 func appendQuery(u, key, val string) string {
 	sep := "?"
 	if strings.Contains(u, "?") {
@@ -83,9 +78,8 @@ func appendQuery(u, key, val string) string {
 // for it explicitly keeps a long forward walk from costing a round trip per 20 rows.
 const pageMax = 100
 
-// streamPages walks a list endpoint forward (order=asc from base's *_after bound),
-// handing each page to fn as it arrives — output starts on page one, a piped `head`
-// costs nothing further. base must omit order/limit/after; fn's error aborts the walk.
+// streamPages walks ascending from base's *_after bound, handing fn each page as it arrives.
+// base must omit order/limit/after; fn's error aborts the walk.
 func streamPages[T any](base string, fn func([]T) error) error {
 	after := ""
 	for {
@@ -109,24 +103,21 @@ func streamPages[T any](base string, fn func([]T) error) error {
 	}
 }
 
-// Which end of a sort a capped read keeps — the end a reader starts from. Time sorts keep
-// the descending head and flip for display; a name sort already reads in display order,
-// so it keeps the ascending head (the descending end would show the alphabetically last N).
+// Which end of a sort a capped read keeps. Time sorts keep the descending head and flip for
+// display; a name sort keeps the ascending head, else it would show the alphabetically last N.
 const (
 	newestFirst = true
 	firstFirst  = false
 )
 
-// fetchOrdered delivers rows in display order: limit > 0 takes the newest/first N (no
-// start point named); limit <= 0 streams ascending from base's *_after bound. Reports
-// whether the cap dropped rows, so callers never truncate silently.
+// fetchOrdered delivers rows in display order: limit > 0 takes the newest/first N, limit <= 0
+// streams ascending from base's *_after bound. Reports whether the cap dropped rows.
 func fetchOrdered[T any](base string, limit int, desc bool, emit func([]T) error) (bool, error) {
 	if limit <= 0 {
 		return false, streamPages(base, emit)
 	}
-	// One past the limit: whether that row came back is what separates a read that was
-	// cut short from one that ended on its own, so neither is ever reported as the other.
-	// It is dropped before display.
+	// One past the limit, dropped before display: it is what tells a cut-short read from one
+	// that ended on its own.
 	order := "asc"
 	if desc {
 		order = "desc"
@@ -167,9 +158,8 @@ func listAll[T any](base string) ([]T, error) {
 	}
 }
 
-// listHead fetches up to limit items from one end of the sort (order asc|desc), following
-// page.after; base carries only filters/sort. Items return in request order — desc callers
-// reverse for display so the newest row lands nearest the prompt.
+// listHead fetches up to limit items from one end of the sort; base carries only filters/sort.
+// Items return in request order — desc callers reverse them for display.
 func listHead[T any](base, order string, limit int) ([]T, error) {
 	all := make([]T, 0, limit)
 	after := ""
@@ -195,8 +185,7 @@ func listHead[T any](base, order string, limit int) ([]T, error) {
 	return all, nil
 }
 
-// printIndented writes a raw server response as indented JSON — the machine-readable form
-// for a single object, echoed rather than re-encoded so nothing is lost on the way through.
+// printIndented echoes rather than re-encodes, so nothing is lost on the way through.
 func printIndented(raw json.RawMessage) {
 	var buf bytes.Buffer
 	json.Indent(&buf, raw, "", "  ")
@@ -216,10 +205,8 @@ func printJSONItems(items []json.RawMessage) {
 	os.Stdout.Write([]byte("\n"))
 }
 
-// assert performs a lifecycle assertion (pause/resume/retry) and reports what it did.
-// The outcome is read from the status line, which is where the server puts it — never
-// from the message, so a reworded server string cannot reclassify an outcome.
-// specs/id-list-commands.md.
+// assert reads the outcome off the status line, never the message, so a reworded server string
+// cannot reclassify it. specs/id-list-commands.md.
 func assert(url string) (model.Outcome, error) {
 	var body struct {
 		Outcome model.Outcome `json:"outcome"`
@@ -240,8 +227,6 @@ func call(url, method string, body any, out any) error {
 	return err
 }
 
-// callStatus is call plus the HTTP status of a success, for the callers that read their
-// answer off the status line.
 func callStatus(url, method string, body any, out any) (int, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -273,17 +258,14 @@ func callStatus(url, method string, body any, out any) (int, error) {
 		}
 	}
 	if out != nil && len(raw) > 0 {
-		// Exact literals: a plain Unmarshal would round a large id back through
-		// float64 purely for display, making the CLI disagree with the value the
-		// server actually holds.
+		// Not json.Unmarshal: a large literal must survive display. specs/number-precision.md.
 		return resp.StatusCode, numeric.Decode(raw, out)
 	}
 	return resp.StatusCode, nil
 }
 
-// serverError is a rejected request with the per-field detail kept rather than flattened to
-// the joined message. A caller holding the source turns each field into a line; one that does
-// not prints Error() and reads exactly as before.
+// serverError keeps the per-field detail rather than flattening it into the message, so a
+// caller holding the source can print a line per field.
 type serverError struct {
 	Message string
 	Fields  []serverField

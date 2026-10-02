@@ -4,7 +4,6 @@ import { tmpdir } from "os";
 import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { startMockService, tick } from "../helpers/client.ts";
 
-
 async function getStatus(genroc: GenrocProcess, id: string) {
   const { data, error } = await genroc.client.GET("/instances/{id}", {
     params: { path: { id } },
@@ -13,10 +12,7 @@ async function getStatus(genroc: GenrocProcess, id: string) {
   return data!;
 }
 
-// Verifies that pausing between two tasks stops execution cleanly, and that
-// resuming picks up at exactly the task the pause stopped in front of.
-// Uses manual tick mode (-poll 0) so each engine cycle is explicit, making
-// every intermediate DB state directly observable.
+// Manual tick mode (-poll 0), so every intermediate DB state is observable.
 test("pause between tasks — step2 waits for the resume, then runs exactly once", async () => {
   const processName = `pause_tick_${crypto.randomUUID()}`;
   const db = join(tmpdir(), `genroc_pause_${Date.now()}.db`);
@@ -73,9 +69,7 @@ test("pause between tasks — step2 waits for the resume, then runs exactly once
     const s1 = await getStatus(genroc, id);
     expect(s1.status).toBe("running"); // still running, waiting for next tick
 
-    // Pause between tasks. The instance holds no lease here (tick 1 released it
-    // when it persisted step1's result), so there is no in-flight task to wait
-    // out and it is suspended outright — no 'pausing' step, no extra tick.
+    // Tick 1 released the lease, so the pause applies outright — no 'pausing' step.
     await genroc.client.POST("/instances/{id}/pause", {
       params: { path: { id } },
     });

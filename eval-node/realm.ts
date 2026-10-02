@@ -1,18 +1,13 @@
-// The evaluation realm. One Worker per execution: a fresh global object per script, and a
-// thread the host can kill mid-loop — the only thing that bounds a synchronous busy loop.
-// eval.ts owns the budget and does the killing; nothing here knows about time.
-//
-// Everything that touches the script's VALUE lives on this side of the boundary — loading,
-// classifying, serialising — because this is the only realm the value exists in.
+// The evaluation realm: one Worker per execution, killable mid-loop by eval.ts, which owns the
+// budget. Everything touching the script's VALUE lives here, the only realm it exists in.
 
 import { registerHooks } from "node:module";
 import { parentPort } from "node:worker_threads";
 
 import type { EvalFailure, FailureKind, WorkerReply, WorkerRequest } from "./eval.ts";
 
-// The script is IMPORTED as a module under a URL of our own, not compiled from a string: its
-// frames then carry the author's own line numbers, and an `import` of a node builtin resolves
-// the way it does everywhere else.
+// IMPORTED under our own URL rather than compiled from a string, so frames carry the author's
+// line numbers and builtin imports resolve normally.
 const SCRIPT_URL = "script:main";
 const STACK_BYTES = 2_048;
 
@@ -54,9 +49,8 @@ function safeText(v: unknown): string {
   }
 }
 
-/** A module that will not parse, or names an import nothing resolves, is broken code — only
- *  editing it helps. Anything else thrown by the import is the module's top level running,
- *  which is the script throwing. */
+/** Unparseable code or an unresolvable import is broken code; anything else the import throws is
+ *  the module's top level running, i.e. the script throwing. */
 function unloadable(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
   return err instanceof SyntaxError || (typeof code === "string" && code.startsWith("ERR_MODULE"));
@@ -99,10 +93,8 @@ async function run(req: WorkerRequest): Promise<WorkerReply> {
   }
 }
 
-// The realm's stdio is a pipe to the host thread, and eval.ts terminates this thread the moment
-// the reply lands — so whatever a script wrote last is still in the pipe when it dies. An empty
-// write's callback fires once the queue ahead of it has drained, which makes the reply a barrier
-// for `console` and a direct process.stdout.write alike: both are this stream.
+// eval.ts terminates this thread the moment the reply lands, while stdio may still be in the
+// pipe. An empty write's callback fires once the queue drains, making the reply a barrier.
 function flush(stream: NodeJS.WriteStream): Promise<void> {
   return new Promise((resolve) => stream.write("", () => resolve()));
 }

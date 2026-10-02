@@ -8,10 +8,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// The error-channel analogue of child_output_type_test.go: the payload a code carries must
-// narrow to the shape the CALLER declared for it under `raises`. Same relation, same
-// soundness condition — Engine.raisedData conforms the payload against that very schema.
-// specs/error-extensions.md §X2-c.
+// child_output_type_test.go for the error channel: a code's payload must narrow to the caller's
+// `raises` shape, which Engine.raisedData conforms against. specs/error-extensions.md §X2-c.
 
 // raiser builds a child that raises `code` carrying `data` (nil = attaches nothing),
 // normalised as the stored definition would be.
@@ -130,9 +128,8 @@ func TestChildRaises_UndeclarableCodeStillRefused(t *testing.T) {
 
 // ── a payload built from another definition's declaration ────────────────────────────────
 
-// forwarder raises `outer` carrying, verbatim, the payload it declared for its own child's
-// `inner` — a wrapper passing a refusal up. The type has to survive that hop, or a caller two
-// levels up could declare anything.
+// forwarder raises `outer` carrying its child's `inner` payload verbatim. The type must survive
+// that hop, or a caller two levels up could declare anything.
 func forwarder(t *testing.T, name, childName string) *model.ProcessDefinition {
 	t.Helper()
 	d := &model.ProcessDefinition{
@@ -174,9 +171,8 @@ func TestChildRaises_ForwardedPayloadKeepsItsTypeAcrossTheHop(t *testing.T) {
 		"code: declared required, never set")
 }
 
-// A recursive payload arrives as a $ref into the definition's own $defs, so it is only comparable
-// if checkDeclaredRaises re-attaches the pool, and the relation's cycle guard is what stops the
-// walk. Both fail silently: a lost pool reads as "unknown", which narrows to anything.
+// Comparable only if checkDeclaredRaises re-attaches the pool, and stopped only by the cycle
+// guard. A lost pool fails silently: it reads as "unknown", which narrows to anything.
 const recursiveDefs = `"$defs":{"node":{"type":"object","properties":{"v":{"type":"string"},` +
 	`"kid":{"$ref":"#/$defs/node"}},"required":["v"]}}`
 const recursiveNode = `{"$ref":"#/$defs/node",` + recursiveDefs + `}`
@@ -219,10 +215,8 @@ func TestChildRaises_RecursivePayloadComparesThroughItsPool(t *testing.T) {
 
 // ── a known imprecision, inherited ───────────────────────────────────────────────────────
 
-// The context at a task COLLAPSES the paths into it, so an output set on every branch of a join is
-// still merely optional there and `a ?? b` types nullable -- the process output slot recovers this
-// with a per-terminal walk and a raise clause has no equivalent. Pinned rather than fixed: the
-// remedy is the one every other read in a collapsed context takes. specs/path-sensitive-output.md.
+// Pinned, not a bug: a clause's scope is the COLLAPSED context, so `a ?? b` over a join types
+// nullable. internal/validation/CLAUDE.md, specs/path-sensitive-output.md.
 func TestChildRaises_JoinedBranchPayloadTypesNullable(t *testing.T) {
 	child := &model.ProcessDefinition{
 		Name:        "kid",

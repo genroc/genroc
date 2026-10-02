@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// A task id is READ BACK in two places, and neither survives arbitrary text: `outputs.<id>` in
-// an expression, and `$<id>` in a routing slot. The colon is the one that bit — `goto: $a:b`
-// naming a task called `a:b` read as a resolution directive named `a`, and where a resolver
-// happened to carry that name it ran. specs/source-resolution.md.
+// An id is read back as `outputs.<id>` and as `$<id>`; `goto: $a:b` would read as a resolution
+// directive named `a`. specs/source-resolution.md.
 
 func routingTask(id string) *Task {
 	return &Task{ID: id, Switch: SwitchMap{{Goto: GotoEnd}}}
@@ -47,9 +45,8 @@ func TestTaskID_EmptyKeepsItsOwnMessage(t *testing.T) {
 	}
 }
 
-// The rule must not quietly re-reserve the routing KEYWORDS. It was a separate rule once and was
-// dropped deliberately: the `$` sigil is what tells a task from a keyword, so a task called
-// `end` is ordinary and `goto: $end` reaches it. tests/integration/reserved_ids_test.ts runs it.
+// The `$` sigil tells a task from a keyword, so `end` and `next` need no reserving.
+// tests/integration/reserved_ids_test.ts runs it end to end.
 func TestTaskID_AcceptsOrdinaryIdentifiersIncludingTheKeywords(t *testing.T) {
 	for _, id := range []string{"tick", "eval_node", "timed_out", "_private", "step2", "End", "end", "next"} {
 		d := def(routingTask(id))

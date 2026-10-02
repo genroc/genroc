@@ -6,10 +6,8 @@ import (
 	"time"
 )
 
-// What a `tz` slot may say. One rule decides every case below: a zone is accepted if it
-// names the same offset rule on every host and on every date. Anything whose meaning
-// depends on the season, or on the host's zone database, is refused — otherwise the same
-// stored definition would mean different things on different workers.
+// A zone is accepted only if it names the same offset rule on every host and every date;
+// otherwise one stored definition means different things on different workers.
 
 func TestLoadLocation_Accepts(t *testing.T) {
 	for _, tc := range []struct {

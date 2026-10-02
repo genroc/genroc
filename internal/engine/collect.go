@@ -13,15 +13,11 @@ import (
 	"genroc/internal/shape"
 )
 
-// resolveRaisedBatch decides a settled batch containing raised children (runs before
-// buildChildOutput). Only the FIRST raised child in key order routes (I3); the routing
-// mirrors handleCallError minus retries (D7); no matching rule degrades the raise to a
-// defect carrying the child's own code. specs/child-error-handling.md.
+// resolveRaisedBatch routes only the FIRST raised child in slot order (I3).
+// specs/child-error-handling.md.
 func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) advanceOutcome {
-	// Admission runs before anything is written: a slot under its rule's limit is re-spawned
-	// and the batch goes back to waiting, so `error` is never set for a parent that is only
-	// backing off -- the action path reaches its own error write the same way, by returning
-	// from the retry branch first. specs/child-error-handling.md s5.5.
+	// Admission runs before anything is written: a parent only backing off carries no `error`.
+	// specs/child-error-handling.md s5.5.
 	retired, replacements, logs, fail := e.admitRetries(ctx, inst, task, raised)
 	if fail != nil {
 		return *fail
@@ -37,9 +33,7 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 	// code as easily as an engine one — so it is converted once, here, at the boundary.
 	raisedCode := errcode.Code(first.ErrorCode)
 
-	// The conform runs BEFORE the rules: a payload that does not satisfy what this call
-	// declared REPLACES the code, so a rule naming the raised code stops catching it — the
-	// fetch precedent, where a malformed declared body takes a 400 away from `http.4%`.
+	// The conform runs BEFORE the rules: a payload failing its declaration REPLACES the code.
 	data, declared, err := e.raisedData(task, first, raisedCode)
 	if err != nil {
 		msg := fmt.Sprintf("child %q (%s) raised %q: %v",
@@ -52,9 +46,7 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 		// the collect path reports rather than a shape the caller got wrong.
 		return e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg))
 	}
-	// Written on every path out, unlike in admission: this path routes or fails whatever the
-	// rules say, so the failure is the instance's state either way. Deferred past the clause
-	// though, because until then `last_error` is still the failure that routed control INTO
+	// Deferred past the clause: until then `last_error` is still the failure that routed INTO
 	// this task, which a rule may name beside the one it caught. specs/task-scopes.md.
 	errVal := batchErrorValue(task, first, data, declared)
 	release := bindCaught(inst, errVal)
@@ -69,9 +61,8 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 
 	switch {
 	case rule == nil || (rule.Goto == "" && rule.Raise == nil && rule.Panic == nil):
-		// Unhandled: the raise degrades to a defect and fails the parent, which fails fast
-		// up its own tree. The parent inherits the child's code and message verbatim, so
-		// error_code stays the raised code an operator would filter on.
+		// Unhandled: the parent inherits the child's code verbatim, so error_code stays the
+		// raised code an operator would filter on.
 		return e.failInstance(inst, raisedCode, fmt.Sprintf(
 			"task %q: child %q (%s) raised %q: %s; no on_error rule matches",
 			task.ID, first.ProcessName, childSlotLabel(task, first), first.ErrorCode, first.ErrorMessage))
@@ -94,18 +85,14 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 	}
 }
 
-// admitRetries decides which raised slots get another attempt. Each slot conforms its own
-// payload first -- a payload that fails its declaration REPLACES the code, and the code picks
-// the rule -- then compares its own `_spawn_attempt` against that rule's limit. A code
-// matching no retry rule is never re-spawned. specs/child-error-handling.md s5.5.
+// admitRetries conforms each slot's payload before matching (it can replace the code, and the
+// code picks the rule). specs/child-error-handling.md s5.5.
 func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) (retired []string, replacements []*model.ProcessInstance, logs []string, fail *advanceOutcome) {
 	// Built lazily: a batch with nothing admissible must not pay for a rebuild, and the
 	// rebuild can fail the instance (an upgraded parent may no longer declare the slot).
 	var fresh map[string]*model.ProcessInstance
-	// The operator's `retry` marks the parent instead of re-spawning in the db layer, so the
-	// replacement's input is re-evaluated here against the parent's CURRENT definition. It
-	// grants one attempt past the budget and is one-shot: the count still advances, so the
-	// next automatic round declines on its own. specs/child-error-handling.md s12.
+	// The operator's one-shot grant: the count still advances, so the next automatic round
+	// declines on its own. specs/child-error-handling.md s12.
 	override := inst.State[retryOverrideKey] == true
 	delete(inst.State, retryOverrideKey)
 	for _, child := range raised {
@@ -114,9 +101,7 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 			msg := fmt.Sprintf("child %q (%s) raised %q: %v", child.ProcessName, childSlotLabel(task, child), child.ErrorCode, err)
 			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg)))
 		}
-		// Under an override the rules are not consulted at all: an operator naming a failed
-		// tree has decided, and a zero policy also means no backoff — someone asking for a
-		// retry wants it now.
+		// Under an override the rules are not consulted, and the zero policy means no backoff.
 		var policy model.ResolvedRetry
 		if !override {
 			// The case sees THIS slot's error: per-slot admission means a per-slot predicate.
@@ -164,11 +149,8 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 	return retired, replacements, logs, nil
 }
 
-// slotError is what a raised slot is judged by: its code — its own, unless the payload it
-// carries fails the shape the call declared, which replaces it with result.invalid before any
-// rule is consulted (the fetch precedent — a malformed declared body takes a 400 away from
-// `http.4%`) — and the `error` value an M2 case reads. A payload that cannot be read at all is
-// corruption, not a lost bet.
+// slotError returns result.invalid in place of the slot's code when its payload fails the
+// declaration. An unreadable payload is corruption, not a lost bet.
 func (e *Engine) slotError(task *model.Task, child *model.ProcessInstance) (errcode.Code, map[string]any, error) {
 	code := errcode.Code(child.ErrorCode)
 	data, declared, err := e.raisedData(task, child, code)
@@ -182,10 +164,6 @@ func (e *Engine) slotError(task *model.Task, child *model.ProcessInstance) (errc
 	return code, batchErrorValue(task, child, data, declared), nil
 }
 
-// respawnChild builds the replacement for a raised slot: the slot's identity and the input it
-// was given, none of what the attempt produced, and a wake_at measured from the attempt's own
-// conclusion rather than from now -- the wall-clock it spent waiting on its siblings already
-// served what a backoff is for, so charging the delay again would charge the wait twice.
 func (e *Engine) respawnChild(old *model.ProcessInstance, fresh map[string]*model.ProcessInstance, attempt int64, policy model.ResolvedRetry) (*model.ProcessInstance, error) {
 	slot := slotID(old)
 	replacement, ok := fresh[slot]
@@ -205,9 +183,8 @@ func (e *Engine) respawnChild(old *model.ProcessInstance, fresh map[string]*mode
 	return replacement, nil
 }
 
-// spawnAttemptKey records how many times this slot has been re-spawned. It rides the child's
-// own `_spawn_*` bookkeeping beside the slot identity, so the sibling queries gain neither a
-// column nor a predicate -- the cost D7 mispriced. specs/child-error-handling.md s5.5.
+// spawnAttemptKey lives on the child, never the parent's retry_count (CLAUDE.md), so the
+// sibling queries gain neither a column nor a predicate. specs/child-error-handling.md s5.5.
 const spawnAttemptKey = "_spawn_attempt"
 
 // retryOverrideKey is the one-shot grant RetryProcess leaves for the next collect (s12).
@@ -234,10 +211,8 @@ func spawnAttempt(child *model.ProcessInstance) int64 {
 	return 0
 }
 
-// raisedInSlotOrder returns the batch's raised children in slot order — by _spawn_index
-// for a child_list, by sorted _spawn_child_key for a child_map — so that raised[0] is
-// deterministically the first-slot raise that routes (I3), regardless of the order the
-// children happened to complete in.
+// raisedInSlotOrder makes raised[0] the first-slot raise (I3), whatever order the children
+// completed in.
 func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*model.ProcessInstance {
 	var raised []*model.ProcessInstance
 	for _, c := range siblings {
@@ -259,18 +234,12 @@ func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*m
 	return raised
 }
 
-// setBatchError writes `error` for a routed batch: the first raised child's identity, code,
-// message, and its `data` where this call declared a shape for the code — key presence is
-// what says the payload is readable, so an undeclared code leaves the slot absent rather than
-// null (I6 as amended). child_key (string) and child_index (integer) are separate
-// single-typed fields so an expression never type-switches.
 func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance, data any, declared bool) {
 	inst.State[model.StateLastError] = batchErrorValue(task, first, data, declared)
 }
 
-// resolveRetry resolves a policy with the failure it is retrying bound as `error` — the rule's
-// own scope, the same one its case was matched in. Bound, never written: a granted retry must
-// leave nothing behind. specs/task-scopes.md.
+// resolveRetry binds the failure as `error`, the scope its case matched in. Bound, never
+// written: a granted retry must leave nothing behind. specs/task-scopes.md.
 func (e *Engine) resolveRetry(inst *model.ProcessInstance, r model.Retry, errVal map[string]any) (model.ResolvedRetry, error) {
 	defer bindCaught(inst, errVal)()
 	return r.Resolve(func(expr string) (any, error) {
@@ -278,11 +247,8 @@ func (e *Engine) resolveRetry(inst *model.ProcessInstance, r model.Retry, errVal
 	})
 }
 
-// bindCaught binds errVal as `error` — the failure the rule at hand is handling, which is not
-// the `last_error` persisted for whatever task the rule routes to. Deferred-call shaped so it
-// wraps a return: `defer bindCaught(inst, v)()`. It RESTORES rather than deletes because the
-// binds nest: a case evaluated inside an outer bind must not unbind the clause that follows it.
-// specs/task-scopes.md.
+// bindCaught binds `error` (not `last_error`) for `defer bindCaught(inst, v)()`. It RESTORES
+// rather than deletes because binds nest. specs/task-scopes.md.
 func bindCaught(inst *model.ProcessInstance, errVal map[string]any) func() {
 	prev, had := inst.State[model.StateError]
 	inst.State[model.StateError] = errVal
@@ -295,9 +261,8 @@ func bindCaught(inst *model.ProcessInstance, errVal map[string]any) func() {
 	}
 }
 
-// batchErrorValue is what a routed task reads as `last_error` (§5.3). Separated from the write so
-// admission can BIND it for an M2 case without persisting it: a rule that declines must leave
-// nothing behind, and a retrying parent carries no `error` at all (§5.5).
+// batchErrorValue is separate from the write so admission can BIND it without persisting: a
+// declining rule must leave nothing behind. `data` key presence says the payload is readable.
 func batchErrorValue(task *model.Task, child *model.ProcessInstance, data any, declared bool) map[string]any {
 	errCtx := map[string]any{
 		"task":    task.ID,
@@ -324,17 +289,16 @@ func (e *Engine) caseEvaluator(inst *model.ProcessInstance, errVal map[string]an
 		}
 		b, ok := v.(bool)
 		if !ok {
-			// Registration type-checks the case to a boolean, so this means that guarantee
-			// did not hold. Erroring beats declining: a silent non-match routes the error
-			// somewhere the author never wrote.
+			// Erroring beats declining: a silent non-match routes the error somewhere the
+			// author never wrote.
 			return false, fmt.Errorf("on_error case %q evaluated to %T, not a boolean", expr, v)
 		}
 		return b, nil
 	}
 }
 
-// addChildSlot sets the one identity field a child carries: "child_key" (string) for a
-// child_map child, "child_index" (int) for a child_list child.
+// addChildSlot keeps child_key and child_index separate, single-typed fields so an
+// expression never type-switches.
 func addChildSlot(m map[string]any, child *model.ProcessInstance) {
 	if key := spawnKey(child); key != "" {
 		m["child_key"] = key
@@ -345,10 +309,8 @@ func addChildSlot(m map[string]any, child *model.ProcessInstance) {
 	}
 }
 
-// childSlotLabel renders a child's identity for a human-readable message
-// (`child_key "charge"`, `child_index 3`). The single-child case is read off the PARENT's task
-// rather than a discriminant on the child: what shape a batch was spawned in is the parent
-// definition's to say, and a copy carried by the child is one an upgrade can leave stale.
+// childSlotLabel reads the single-child case off the PARENT's task: a copy on the child is
+// one an upgrade can leave stale.
 func childSlotLabel(task *model.Task, child *model.ProcessInstance) string {
 	if key := spawnKey(child); key != "" {
 		return fmt.Sprintf("child_key %q", key)
@@ -368,15 +330,11 @@ func spawnKey(child *model.ProcessInstance) string {
 	return key
 }
 
-// resultInvalid marks the collect failures a caller may react to: a value that failed a shape
-// THIS task declared for it — an output against result_schema, a raised fault's data against
-// raises. A lost bet, not a defect, since the child states no shape to disagree with. Every
-// other failure here is corruption and stays engine.collect. specs/error-extensions.md §X2-c.
+// resultInvalid is a value failing a shape THIS task declared: a lost bet, so catchable. Every
+// other collect failure is corruption and stays engine.collect. specs/error-extensions.md §X2-c.
 type resultInvalid struct{ error }
 
-// buildChildOutput merges a settled batch into self.result (map for child_map, array for
-// child_list). Reached only with every child completed — failed/paused/raised are each
-// blocked upstream — so the guard asserts an invariant, not a case to handle.
+// buildChildOutput is reached only with every child completed; the guard asserts that.
 func (e *Engine) buildChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	for _, c := range siblings {
 		if c.Status != model.StatusCompleted {
@@ -393,9 +351,6 @@ func (e *Engine) buildChildOutput(task *model.Task, siblings []*model.ProcessIns
 	}
 }
 
-// buildSingleChildOutput returns the one child's output unwrapped — the child result is
-// the task result directly, not keyed (child_map) or arrayed (child_list). Validated
-// against the declared result_schema and resolved from the object store when externalized.
 func (e *Engine) buildSingleChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	if len(siblings) != 1 {
 		return nil, fmt.Errorf("child task expected exactly one child, got %d", len(siblings))
@@ -403,9 +358,6 @@ func (e *Engine) buildSingleChildOutput(task *model.Task, siblings []*model.Proc
 	return e.resolveAndValidateChildOutput(task.Action.ResultSchema, siblings[0])
 }
 
-// buildMapChildOutput returns each sibling's output keyed by its child key, validated
-// against the declared result_schema (if any) and resolved from the object store when
-// externalized.
 func (e *Engine) buildMapChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	result := make(map[string]any, len(siblings))
 	for _, child := range siblings {
@@ -419,9 +371,7 @@ func (e *Engine) buildMapChildOutput(task *model.Task, siblings []*model.Process
 	return result, nil
 }
 
-// buildListChildOutput returns outputs as an array in input order: siblings arrive
-// unordered, so each lands at its recorded _spawn_index. Each is schema-validated and
-// resolved from the object store if externalized.
+// Siblings arrive unordered, so each lands at its recorded _spawn_index.
 func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	result := make([]any, len(siblings))
 	for _, child := range siblings {
@@ -460,10 +410,8 @@ func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, chil
 	return normalized, nil
 }
 
-// raisedData conforms a raised child's payload against what THIS call declared for the code
-// under `raises` — the error channel's resolveAndValidateChildOutput, and read from the
-// parent's CURRENT task for the same reason. declared=false is how an undeclared code stays
-// unreadable: the slot is absent rather than null. specs/error-extensions.md §X2-c.
+// raisedData is resolveAndValidateChildOutput for `raises`, under the same CURRENT-task rule.
+// declared=false keeps an undeclared code's slot absent, not null. specs/error-extensions.md §X2-c.
 func (e *Engine) raisedData(task *model.Task, child *model.ProcessInstance, code errcode.Code) (any, bool, error) {
 	sc := declaredRaiseSchema(task, child, string(code))
 	if sc == nil {
@@ -480,9 +428,7 @@ func (e *Engine) raisedData(task *model.Task, child *model.ProcessInstance, code
 	return normalized, true, nil
 }
 
-// declaredRaiseSchema reads the declaration for one code: a child_map declares per entry,
-// since its entries can be different processes, while child and child_list declare on the
-// action — the same split result_schema has.
+// A child_map declares per entry, child and child_list on the action, as result_schema does.
 func declaredRaiseSchema(task *model.Task, child *model.ProcessInstance, code string) *schema.Schema {
 	if task.Action.Type == model.ActionTypeChildMap {
 		return task.Action.Children[spawnKey(child)].Raises[code]
@@ -490,10 +436,8 @@ func declaredRaiseSchema(task *model.Task, child *model.ProcessInstance, code st
 	return task.Action.Raises[code]
 }
 
-// childRaisedData reads what the raise clause attached, which setErrorData left in the
-// child's outbound slot. A raise that attached nothing reads as nil, and a declared shape that
-// does not admit null reports the mismatch — the caller declared what it did not get. Never the
-// child's `error`: that is the error it CAUGHT, which its raise did not choose to forward.
+// childRaisedData is never the child's `error`: that is what it CAUGHT, which its raise did
+// not choose to forward.
 func childRaisedData(child *model.ProcessInstance) any {
 	return child.State[model.StateErrorData]
 }
@@ -509,9 +453,8 @@ func spawnIndex(child *model.ProcessInstance) (int, bool) {
 	case float64:
 		return int(v), true
 	case json.Number:
-		// Context data decodes with UseNumber, so a stored index arrives as its
-		// literal. Missing this case is silent: children lose their order rather
-		// than erroring.
+		// UseNumber: a stored index arrives as its literal. Missing this case is
+		// silent: children lose their order.
 		n, err := v.Int64()
 		return int(n), err == nil
 	}

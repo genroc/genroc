@@ -1,6 +1,5 @@
-# The same field made REQUIRED is a different question: the projected value is non-null, so
-# an old row that lacks the key cannot satisfy it. Breaking — and reported ONCE, though both
-# downstream tasks can see it, because it is a fact about the value rather than the reader.
+# Made required, the projected field is non-null, which an old row lacking the key cannot
+# satisfy. Reported once though two tasks see it: it is about the value, not the reader.
 apply:
   - channel: reqfield_a
     definitions:

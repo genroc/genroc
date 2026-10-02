@@ -1,10 +1,7 @@
 package schema
 
-// The shape of a schema document, read before it is decoded. encoding/json's own type error
-// names a Go type and the OUTERMOST slot it was decoding ("ProcessDefinition.input_schema.
-// properties of type map[string]json.RawMessage"), so a reader is pointed at the whole
-// input_schema for a mistake in one property. checkRawNode says which property, in the same
-// prose + path pair checkDoc uses. specs/language-server.md §2.
+// The shape of a schema document, read before decoding: encoding/json's error names a Go type
+// and the OUTERMOST slot, not the property at fault. specs/language-server.md §2.
 
 import (
 	"bytes"

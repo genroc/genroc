@@ -1,6 +1,5 @@
-# The submitted parent calls a process that exists nowhere — not in its own bundle, and not
-# in the registry. Refused as validate refuses it, rather than compared against a resolution
-# that silently found nothing.
+# The parent calls a process in neither its bundle nor the registry: refused as validate
+# refuses it, not compared against an empty resolution.
 apply:
   - channel: badref_a
     definitions:

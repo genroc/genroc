@@ -8,9 +8,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// "unknown" is the empty schema {}, not a keyword — a dedicated `type: unknown` was built and
-// dropped (the only thing genroc would accept that a standard validator rejects, and erased at
-// parse anyway). These pin what makes {} usable, and the narrowing back out.
+// "unknown" is {}, not a keyword (specs/unknown-type.md). These pin what makes {} usable, and
+// the narrowing back out.
 
 // An annotation describes the slot without constraining the value, so a described empty
 // node is still the top type. This is the recommended way to say the opacity is
@@ -41,10 +40,8 @@ func TestDescribedEmptyNodeIsStillTop(t *testing.T) {
 	}
 }
 
-// A type name outside the JSON Schema simpleTypes enum matches no value, so the schema
-// is unsatisfiable — it used to parse cleanly and then reject everything at runtime. The
-// check is a CheckDoc validity rule, not a decode rule, so a definition already stored
-// with a bad name stays decodable (see the note in checkdoc.go).
+// A CheckDoc validity rule, not a decode rule, so a definition already stored with a bad name
+// stays decodable.
 func TestUnsupportedTypeNameRejected(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{`{"type":"date"}`, `unsupported schema type "date"`},

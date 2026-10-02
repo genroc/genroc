@@ -1,34 +1,15 @@
-# The genroc UI, with a login. specs/ui-component.md, specs/ui-issued-tokens.md.
+# The genroc UI with a login (specs/ui-issued-tokens.md). A person gets a short-lived JWT with
+# permissions from genroc-ui; the evaluator holds a `genroc_sk_*`. The server has no role map,
+# so the embeddable binary carries no login code. Delete ./data (made on first run) to reset.
 #
 #   docker compose -f examples/ui/compose.yaml up --build
 #   open http://localhost:8448                    -> alice / demo
-#
-# No setup step. Everything the stack needs that it cannot commit -- the signing key and the
-# worker's credential -- is generated into ./data on first run and left alone afterwards, so a
-# restart neither loses a run nor invalidates a session. Delete ./data to start over.
-#
-# What it demonstrates:
-#
-#   * TWO CREDENTIAL TYPES, one for each audience. A person signs in and genroc-ui mints them a
-#     short-lived JWT carrying permissions; the evaluator holds a `genroc_sk_*` and talks to the
-#     server directly. Neither can use the other's.
-#   * THE SERVER HAS NO ROLE MAP. It verifies one issuer and reads a `perms` claim. Groups,
-#     providers and passwords are all genroc-ui's problem, which is why the server binary carries
-#     none of it -- it is meant to be embedded.
-#   * ONE /data VOLUME holds the database and the shared signing key, so both persist together
-#     and a restart neither loses a run nor invalidates every session.
-#   * SQLite, so there is no database to wait for and nothing to provision. `-pg <dsn>` is the
-#     same image against PostgreSQL; examples/auth/ shows that.
 
 name: genroc-ui-demo
 
 services:
-  # Generates what cannot be committed, once, into ./data. Everything else mounts that folder,
-  # so the database, the signing key and the worker's credential persist together -- and a
-  # restart neither loses a run nor invalidates a session.
-  #
-  # FILES rather than environment variables: a credential in the environment shows up in
-  # `docker inspect` and is inherited by every child process.
+  # Generates what cannot be committed, once, into ./data, which every service mounts. FILES,
+  # not env vars: an env credential shows in `docker inspect` and leaks to child processes.
   init:
     image: alpine:3
     command:
@@ -59,19 +40,15 @@ services:
 
   genroc:
     build: { context: ../.., dockerfile: Dockerfile }
-    # Environment, not a command array: one key per line, and adding a setting does not mean
-    # restating the others. Everything not named here is a default -- the listen address, the
-    # token's issuer and audience, its lifetime.
+    # Environment rather than a command array: one key per line. Unnamed settings default.
     environment:
       GENROC_DB: /data/genroc.db
-      # BOTH credential types. The secret accepts what genroc-ui mints for people; token mode
-      # accepts the opaque credential the evaluator holds. They compose in one chain, each
-      # declining what is not its own.
+      # BOTH credential types: the secret accepts genroc-ui's JWTs for people, token mode the
+      # evaluator's opaque credential; each declines what is not its own.
       GENROC_JWT_SECRET_FILE: /data/jwt-secret
       GENROC_AUTH: token
-      # The evaluator's credential, generated in ./data rather than by genroc, so no secret
-      # originates inside the server or reaches its logs. Stored if absent and ignored if
-      # present, so a restart is a no-op.
+      # Generated in ./data, not by genroc, so no secret originates in the server or its logs.
+      # Stored if absent, ignored if present.
       GENROC_SEED_TOKENS_FILE: /data/seed-tokens
     volumes:
       - ./data:/data
@@ -95,9 +72,8 @@ services:
       genroc: { condition: service_started }
     restart: unless-stopped
 
-  # The script-task worker, and the reason the UI has anything to show. It claims parked
-  # `external` tasks off genroc's queue -- genroc never calls it -- so it needs only outbound
-  # access and never touches genroc-ui.
+  # The script-task worker: it claims `external` tasks off genroc's queue, so it needs only
+  # outbound access.
   evaluator:
     build: { context: ../.., dockerfile: eval-node/Dockerfile }
     environment:

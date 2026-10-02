@@ -33,9 +33,7 @@ func raiseTypesOf(t *testing.T, doc string) map[string]string {
 	return out
 }
 
-// SchemaFile.Raises is the error channel's ProcessOutput, and checkDeclaredRaises decides a
-// caller's declaration against it. Every rule below changes which declarations register, and
-// none of them shows up as a compile error if it is dropped.
+// Every rule below changes which declarations register, and none is a compile error if dropped.
 func TestRaiseTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name string

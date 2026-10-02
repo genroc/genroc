@@ -6,24 +6,15 @@ import (
 	"genroc/internal/schema"
 )
 
-// exprLeafDesc annotates every string position in a relaxed schema: a string leaf accepts a
-// literal, or — because a Shape leaf is an expression — a $: expression / ${ } template.
 const exprLeafDesc = "A literal string, or a $: expression / ${ } template evaluated against the context."
 
-// modelShapeRef is the recursive self-reference every free (unconstrained) Shape position
-// resolves to: the generic Value def. The spec builder's InterceptDefName keeps this type's
-// generated def name as ModelShape, and the OpenAPI builder rewrites #/$defs/ModelShape to
-// #/components/schemas/ModelShape.
+// The name ModelShape is coupled to the spec builder's InterceptDefName and to the OpenAPI
+// builder's #/$defs → #/components/schemas rewrite.
 func modelShapeRef() map[string]any { return map[string]any{"$ref": "#/$defs/ModelShape"} }
 
-// GenericValueSchema generates the ModelShape def — the recursive Value grammar, with the string
-// branch doubling as the $:/${ } escape hatch at every level. Every free Shape slot resolves here
-// via $ref; RelaxedSchema handles the bounded ones. anyOf, not oneOf: the branches overlap, which
-// oneOf's exactly-one rule would spuriously reject.
-//
-// Do not change array items from permissive ({}) to $ref ModelShape: openapi-typescript emits a
-// $ref as an indexed access, and an array of that self-reference is an eager cycle tsc rejects
-// (TS2502), breaking the client typecheck.
+// GenericValueSchema generates the ModelShape def every free Shape slot $refs. anyOf, not oneOf:
+// the branches overlap. Keep array items {} — a $ref to ModelShape there becomes an eager cycle in
+// openapi-typescript's output that tsc rejects (TS2502).
 func GenericValueSchema() ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"anyOf": []any{
@@ -37,9 +28,8 @@ func GenericValueSchema() ([]byte, error) {
 	})
 }
 
-// RelaxedSchema generates the editor JSON Schema for a Shape whose value must conform to target.
-// schema.Relaxed does the work: every node becomes "the literal value, or a string" — the
-// expression escape hatch — recursively, with each string position labelled exprLeafDesc.
+// RelaxedSchema is the editor schema for a Shape that must conform to target: every node also
+// accepts a string, the expression escape hatch.
 func RelaxedSchema(target schema.Schema) ([]byte, error) {
 	return json.Marshal(target.Relaxed(exprLeafDesc))
 }

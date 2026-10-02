@@ -2,11 +2,7 @@ package sources
 
 import "testing"
 
-// How a directive picks its resolver, as the project-file reference states it: entries are tried
-// in order and taken first-match on name AND suffix, an empty `ext` accepts anything, and a
-// suffix is a WHOLE suffix rather than an extension. The two failures are distinguished because
-// they are worded differently: no entry carries the name, or some do and none take the suffix.
-// docs reference/project-file.md.
+// The rules as docs/src/content/docs/reference/project-file.md states them.
 func TestMatchResolver_NameAndSuffix(t *testing.T) {
 	cfg := projectConfig{Resolvers: []resolverConfig{
 		{Name: "import", Ext: []string{".ts"}},
@@ -45,8 +41,6 @@ func TestMatchResolver_NameAndSuffix(t *testing.T) {
 	}
 }
 
-// The built-in is appended after everything `.genroc` registers, which is what makes first-match
-// the whole override rule — there is no shadowing pass to get wrong.
 func TestMatchResolver_ABuiltinIsReachedLast(t *testing.T) {
 	local := resolverConfig{Name: builtinProcess, Phase: phaseStructural, Ext: []string{".genroc.yaml"}}
 	cfg := projectConfig{Resolvers: append([]resolverConfig{local}, builtins()...)}

@@ -1,9 +1,7 @@
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-// Exercises buffered signals (the push/webhook model): POST /instances/{id}/signal
-// delivers a result to an external task by id — resolving it if armed, else buffering
-// FIFO until the task next arms. Driven in manual-tick mode.
+// POST /external-tasks/signal resolves an armed external task by id, else buffers FIFO until it arms.
 const ctx = useTickEnv();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,11 +48,8 @@ test("a signal that arrives before the task arms is buffered, then consumed on a
   expect((await contextOf(id)).outputs.approval).toEqual({ approved: true });
 });
 
-// A pause suspends execution, not delivery. A signal to a paused instance whose task is
-// armed is delivered into the task's result slot — that write clears the wait but leaves
-// the status alone, so the instance still does not advance until it is resumed. Buffering
-// it instead would strand it: an already-armed task never re-arms, so nothing would ever
-// pop the buffer.
+// Buffering here would strand the signal: an already-armed task never re-arms, so nothing would
+// pop the buffer. Delivery clears the wait but leaves the status, so it still waits for resume.
 test("a signal to a paused instance is delivered but does not advance it until resume", async () => {
   await ctx.env.define("sig_paused", [
     {
@@ -92,8 +87,6 @@ test("a signal to a paused instance is delivered but does not advance it until r
   expect((await contextOf(id)).outputs.approval).toEqual({ approved: true });
 });
 
-// The buffering path still applies when the paused instance is not sitting on that
-// task: the result waits until the task arms after the resume.
 test("a signal for a not-yet-reached task buffers while paused, and lands on arming", async () => {
   await ctx.env.define("sig_paused_early", [
     { id: "step1", switch: [{ goto: "next" }] },

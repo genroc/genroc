@@ -10,9 +10,8 @@ import (
 	"genroc/internal/api"
 )
 
-// The docs site publishes the process schema by running this binary into
-// docs/public/ (Makefile: docs-schema), so a caller that asked for a file and got
-// none would ship a site whose $schema URL 404s.
+// Makefile docs-schema runs this into docs/public/; no file means the site's $schema
+// URL 404s.
 func TestWriteSchemaFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "process-schema.json")
 	write(path, api.ProcessSchema)

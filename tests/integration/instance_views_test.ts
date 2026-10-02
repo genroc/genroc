@@ -3,16 +3,8 @@ import { client, fetchObject, spliceObjects, waitForInstance } from "../helpers/
 import { waitForParked } from "../helpers/external.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// An instance is readable through two views and the split is deliberate.
-//
-//   GET /instances/{id}         what the instance reports OUTWARD: where it is, how it ended,
-//                               the error it carries, and the `output:` its definition declared
-//                               -- the same value a parent collects as a child's result.
-//   GET /instances/{id}/detail  what it HOLDS: state exactly as stored, bookkeeping slots and
-//                               all, plus the columns around it.
-//
-// State is engine-internal — it is what an upgrade validates and a migration rewrites — so it
-// is not on the outward view. specs/version-compatibility.md.
+// /instances/{id} is what an instance reports OUTWARD; /detail is what it HOLDS. State is
+// engine-internal, so it stays off the outward view. specs/version-compatibility.md.
 
 async function completedInstance(): Promise<string> {
   const name = `views_${crypto.randomUUID().slice(0, 8)}`;
@@ -34,13 +26,11 @@ test("the outward view carries no state — not under any name", async () => {
   const id = await completedInstance();
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
 
-  // Asserted as the WHOLE key set: a field added here is a field added to the public surface,
-  // and that should be a decision rather than a side effect.
+  // The WHOLE key set: a field added here is a public-surface decision, not a side effect.
   expect(Object.keys(data as object).sort()).toEqual([
     "created_at",
     "id",
-    // The declared output: block, which is a projection of state rather than state -- a caller
-    // reading it is reading what the process chose to report, not the engine's slots.
+    // A projection of state, not state: what the process chose to report.
     "output",
     "process",
     "retry_count",
@@ -56,10 +46,8 @@ test("the detail view carries state, bookkeeping included", async () => {
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
 
   const state = data!.state as Record<string, unknown>;
-  // `last_error` is seeded null when the instance is created, so it is here even for a process with
-  // no error handling at all -- a slot no definition declares, which the outward view used to
-  // hide and this one must not. `output` is NOT here: a slot with a field of its own is moved
-  // there, so nothing on this response is said twice.
+  // `last_error` is seeded null at creation, so it appears even without error handling; `output`
+  // has a field of its own and is moved out of state.
   expect(Object.keys(state).sort()).toEqual(["input", "last_error", "outputs"]);
   expect(data!.output, "moved to its own field rather than dropped").toBeDefined();
   expect(data).toHaveProperty("task_epoch");
@@ -67,8 +55,7 @@ test("the detail view carries state, bookkeeping included", async () => {
   expect(data).toHaveProperty("next_replayable");
 });
 
-// Config is resolved per tick from the environment and never persisted, which is what keeps
-// secrets out of stored state. The fixture below is set on the test server.
+// The e2e_token fixture is set in the test server's environment.
 test("a config value reaches expressions but neither view, nor the state behind them", async () => {
   const name = `views_secret_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
@@ -96,10 +83,8 @@ test("a config value reaches expressions but neither view, nor the state behind 
   }
 });
 
-// error_data is the one value on the outward view that has no size limit -- a clause may attach
-// anything. Past the inline cutoff it must behave like every other externalized slot: ABSENT
-// from the data and listed instead, never a {ref, size} marker sitting where the value goes.
-// It is not resolved server-side: that would put an unbounded response behind no control at all.
+// error_data has no size limit, so past the cutoff it is listed like any externalized slot. It is
+// not resolved server-side: that would put an unbounded response behind no control.
 test("an oversized error_data is listed, not inlined and not leaked as a marker", async () => {
   const name = `views_bigdata_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "B".repeat(8 * 1024);
@@ -132,10 +117,7 @@ test("an oversized error_data is listed, not inlined and not leaked as a marker"
   expect(JSON.parse(await fetchObject(listed!.ref))).toBe(blob);
 });
 
-// `output` is the other unbounded value on the outward view -- a definition may declare any
-// shape -- so it obeys the same rule error_data does, and the paths it is listed under are
-// rooted at THIS response rather than at the state slot it came from. A path naming `state`
-// here would send a caller looking for a field the outward view does not have.
+// Same rule as error_data, with paths rooted at THIS response, not the state slot it came from.
 test("an oversized output is listed at its own path, not inlined and not leaked as a marker", async () => {
   const name = `views_bigout_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "B".repeat(8 * 1024);
@@ -181,11 +163,8 @@ test("an oversized output is listed at its own path, not inlined and not leaked 
     .not.toContain(JSON.stringify(["state", "output", "echo"]));
 });
 
-// The detail view is a strict SUPERSET of the status one: every field the status endpoint
-// returns, detail returns too, so moving a caller to it can never lose them a field. Asserted
-// across the shapes whose OPTIONAL fields differ -- a completed instance has no error, a failed
-// one has all three parts of it, a parked one has a phase -- because a superset that only
-// holds for the fields present on a happy path is not one.
+// Covers the shapes whose OPTIONAL fields differ (completed, failed, parked): a superset that
+// holds only on the happy path is not one.
 test("the detail view returns every field the status view does", async () => {
   const cases: Record<string, string> = {};
 
@@ -236,13 +215,8 @@ test("the detail view returns every field the status view does", async () => {
   }
 });
 
-// State is RECONSTRUCTIBLE from the wire: what /detail returns plus what it lists is the whole
-// of it. That is the contract behind listing rather than inlining -- a caller fetches the pieces
-// and puts them back at the paths given, and ends up holding exactly what the instance holds.
-//
-// Checked against the server's OWN reconstruction (?resolve=true) as well as against the value
-// that went in, so a listing that is complete but mis-pathed fails, and so does one where both
-// routes agree on the same wrong answer.
+// Checked against both the input value and the server's own ?resolve=true, so a mis-pathed listing
+// fails, as does one where both routes agree on the same wrong answer.
 test("state can be rebuilt from what the detail view lists", async () => {
   const name = `views_rebuild_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "R".repeat(4 * 1024);
@@ -279,11 +253,8 @@ test("state can be rebuilt from what the detail view lists", async () => {
   expect(server!.state, "the caller's rebuild and the server's must agree").toEqual(rebuilt!.state);
 });
 
-// `external_input` is the third unbounded value on the outward view, and the only one that
-// describes what an instance WANTS rather than what it produced. It is on this view because a
-// parked instance's request is outward-facing: reading it takes no claim, so an operator can see
-// what is being asked without leasing the task away from a worker. The full work contract
-// (result_schema, raises) stays with the CLAIM. specs/external-task-queue.md.
+// external_input is on the outward view because reading a parked request takes no claim; the
+// full work contract (result_schema, raises) stays with the claim. specs/external-task-queue.md.
 async function parkedOnExternal(extra: Record<string, unknown> = {}): Promise<{ id: string; name: string }> {
   const name = `views_ext_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
@@ -320,8 +291,7 @@ test("the outward view carries the parked external input, under a name of its ow
   // The evaluated snapshot, not the process's own input -- which is why the name is not `input`.
   expect(data!.external_input).toEqual({ doubled: 42, note: "please review" });
 
-  // The whole key set again, for the parked shape: this view gained a field and that must stay a
-  // decision. `state` in particular must not have arrived with it.
+  // The whole key set again, for the parked shape: `state` must not arrive with it.
   expect(Object.keys(data as object).sort()).toEqual([
     "created_at",
     "external_input",
@@ -360,8 +330,7 @@ test("an oversized external input is listed at its own path, not inlined and not
   expect(asked.blob, "the oversized leaf is absent, not a marker").toBeUndefined();
   expect(JSON.stringify(asked), "no reference may sit where a value goes").not.toContain("ref");
 
-  // Rooted at the RESPONSE field, which the state slot is now spelled the same as -- the
-  // outward view has no state for a path to point into.
+  // Rooted at the response field: the outward view has no state for a path to point into.
   const listed = (data!.objects ?? []).find(
     (o) => o.path?.[0] === "external_input" && o.path?.[1] === "blob",
   );
@@ -369,10 +338,8 @@ test("an oversized external input is listed at its own path, not inlined and not
   expect(JSON.parse(await fetchObject(listed!.ref))).toBe(blob);
 });
 
-// detail moves three state slots to fields of their own, so the same value is never in two
-// places on one response -- and its objects entry names one path, not two. Listed twice, a
-// caller splicing the listing writes the value into a slot the response does not have; listed
-// only under `state`, the field beside it is left short a leaf with nothing pointing at it.
+// detail moves three state slots to their own fields; listed twice, a splice would write into a
+// slot the response does not have.
 test("detail says each value once, and lists it at the field that holds it", async () => {
   const blob = "M".repeat(8 * 1024);
   const { id } = await parkedOnExternal({ blob });

@@ -1,10 +1,8 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance, objectAt, spliceObjects, childrenOfTask } from "../helpers/client.ts";
 
-// `raises` on a child call declares what a raised fault's payload looks like, keyed by raise
-// code — the error channel's counterpart to result_schema, and declared by the CALLER so a
-// generic child stays generic. Declared → readable as error.data; undeclared → absent;
-// mismatched → result.invalid, replacing the raised code. specs/error-extensions.md §X2-c.
+// `raises` types a raised payload per code, declared by the CALLER: declared → error.data,
+// undeclared → absent, mismatched → result.invalid. specs/error-extensions.md §X2-c.
 
 const DECLINE_SHAPE = {
   type: "object",
@@ -27,9 +25,8 @@ async function putDecliner(name: string, data?: unknown) {
   expect(error).toBeUndefined();
 }
 
-// The same child with an OPAQUE payload: whatever the caller passes in comes back out on the
-// raise. A declaration over `{}` is the one a caller may still get wrong, since registration
-// judges every payload it can type — so this is what the runtime conform is tested through.
+// An OPAQUE (`{}`) payload is the only one registration cannot judge, so the runtime conform is
+// tested through this child.
 async function putOpaqueDecliner(name: string) {
   const { error } = await client.PUT("/definitions", {
     body: {
@@ -121,9 +118,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_bad_child_${uid}`;
   const parent = `raises_bad_parent_${uid}`;
-  // A string where the caller declared an object. The child's payload is opaque, so nothing at
-  // registration could have said so — a mismatch it CAN type is refused there instead, which
-  // is the test below.
+  // The child's payload is opaque, so only the runtime conform can catch this string.
   await putOpaqueDecliner(child);
 
   await client.PUT("/definitions", {
@@ -168,10 +163,8 @@ test("a payload that does not fit the declaration replaces the raised code with 
   expect(kid?.error_code).toBe("card_declined");
 });
 
-// The payload is checked against the declaration at REGISTRATION, exactly as a child's output
-// type is checked against result_schema — NarrowsTo either way, both backed by the conform at
-// collect. Only a payload registration cannot type (the `{}` above) reaches that conform.
-// specs/error-extensions.md §X2-c.
+// Checked at registration via NarrowsTo, like result_schema; only an untypable `{}` payload
+// reaches the conform at collect. specs/error-extensions.md §X2-c.
 test("a payload the child can never produce is refused where it is declared", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const wrongType = `raises_static_type_${uid}`;
@@ -209,8 +202,6 @@ test("a payload the child can never produce is refused where it is declared", as
   ).toContain("null is not accepted where object is expected");
 });
 
-// A code the child raises from two clauses is a UNION: either may fire, so a declaration has
-// to accept both, and one arm alone is not enough.
 test("a code raised from two clauses is checked against both", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_union_child_${uid}`;
@@ -341,9 +332,7 @@ test("declaring a code the child never raises is refused, like a rule for one", 
   expect(JSON.stringify(error)).toContain("never raises");
 });
 
-// A child_map's entries are different processes, so a declaration on one says nothing about
-// the entry that actually raised. Where the cover has a gap the payload can be absent at
-// runtime, and the type has to say so — otherwise a handler reads a slot that is not there.
+// Entries are different processes, so a declaration on one says nothing about the one that raised.
 test("a code only some child_map entries declare is nullable; declared by all, it is not", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const a = `raises_cover_a_${uid}`;
@@ -390,9 +379,6 @@ test("a code only some child_map entries declare is nullable; declared by all, i
   expect(fullErr, "with every entry covered the same read is sound").toBeUndefined();
 });
 
-// The slot refuses three things it cannot mean. Each is a decision with a message that has
-// to point somewhere: null at "omit or {}", a wrong action type at the child family, a dotted
-// key at the fact that no engine code carries a declared payload.
 test("raises refuses a boolean, a non-declaring action, and a code that is not one", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_refuse_child_${uid}`;
@@ -408,11 +394,8 @@ test("raises refuses a boolean, a non-declaring action, and a code that is not o
     expect(JSON.stringify(error), `${suffix} must be refused with its own message`).toContain(expected);
   }
 
-  // null used to be refused ("omitting the code already says that"). It is now the third
-  // declaration state — the code is declared and carries nothing — because on an external
-  // task omitting means NOT SUBMITTABLE, so the two stopped being the same statement.
-  // A boolean takes over the refusal: raises[code] is a schema position, and genroc has no
-  // boolean schemas.
+  // null is a valid declaration (declared, carries nothing), so a boolean carries the refusal:
+  // raises[code] is a schema position, and genroc has no boolean schemas.
   await refused(
     "boolean",
     { type: "child", name: child, raises: { card_declined: true } },
@@ -430,8 +413,6 @@ test("raises refuses a boolean, a non-declaring action, and a code that is not o
   );
 });
 
-// The third declaration state: {} is the top type — present, forwardable whole, and not
-// readable field by field until something restates its shape.
 test("{} exposes the payload opaquely: forwardable, but a field read is refused", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_open_child_${uid}`;
@@ -469,8 +450,6 @@ test("{} exposes the payload opaquely: forwardable, but a field read is refused"
   expect((data?.output as any)?.payload).toEqual({ decline_code: "51", retry_after: 3600 });
 });
 
-// The conform NORMALIZES, exactly as result_schema does on the success path: the caller sees
-// the shape it declared, not whatever the child happened to attach.
 test("the payload is conformed, not passed through: extras dropped, defaults filled", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_norm_child_${uid}`;
@@ -514,8 +493,6 @@ test("the payload is conformed, not passed through: extras dropped, defaults fil
   expect((data?.output as any)?.seen).toEqual({ decline_code: "51", channel: "unknown" });
 });
 
-// child_list declares on the action (one process for every element), and the first raised
-// slot in index order is the one whose payload crosses.
 test("child_list declares on the action, and the first raised slot's payload crosses", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_list_child_${uid}`;
@@ -554,8 +531,7 @@ test("child_list declares on the action, and the first raised slot's payload cro
   expect(data?.output).toEqual({ slot: 0, why: "51" });
 });
 
-// A declaration is an ordinary schema document, so it may name a shared definition — which
-// means the process pool has to be baked into it before inference embeds it in a context.
+// The process $defs pool must be baked into the declaration before inference embeds it.
 test("a raises schema may be a $ref into the process $defs", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_ref_child_${uid}`;
@@ -590,8 +566,7 @@ test("a raises schema may be a $ref into the process $defs", async () => {
   expect(data?.output).toEqual({ wait: 3600 });
 });
 
-// Past the 2 KiB inline cutoff the payload lives in the object store, so crossing to the
-// parent means resolving it before the conform — the path a stack trace actually takes.
+// Past the 2 KiB cutoff the payload is in the object store and must be resolved before the conform.
 test("a payload past the inline cutoff externalizes and still crosses whole", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_big_child_${uid}`;
@@ -624,14 +599,11 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
 
-  // The proof that the object store was involved is on the CHILD's row, where the payload was
-  // written: the fault slot is enveloped alone, so past the cutoff it reads as a {ref, size}
-  // marker until something asks for it.
+  // The proof is on the CHILD's row: error_data has its own field, so the object listing names
+  // it rather than a path through `state`.
   const { data: lazy } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   const childId = (await childrenOfTask(started!.id, "pay")) as string;
   const { data: kid } = await client.GET("/instances/{id}/detail", { params: { path: { id: childId } } });
-  // The cut takes the big leaf inside the raised payload, and error_data has a field of its
-  // own, so the listing names that field rather than a path through `state`.
   expect(
     (kid!.objects ?? []).some((o: any) => o.path[0] === "error_data"),
     "8 KiB is past the 2 KiB cutoff, so the payload must be externalized",
@@ -675,9 +647,7 @@ test("a wildcard rule widens the type to admit null; the literal does not", asyn
   expect(litErr, "the declared literal is exactly covered").toBeUndefined();
 });
 
-// checkDeclaredRaises is the error-channel member of the child/parent compatibility family
-// (input subset, output narrowing, R5 reachability), so it has to hold on every shape that
-// family covers — and on the one code kind that is never raisable.
+// checkDeclaredRaises must hold on every child shape the compatibility family covers.
 test("a declaration is checked against the raise set on every child shape", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_shape_child_${uid}`;
@@ -698,8 +668,6 @@ test("a declaration is checked against the raise set on every child shape", asyn
   }
 });
 
-// A panic code is excluded from raises(D) by construction, so no declaration can ever apply
-// to one: nothing catches a panic, and its payload reaches an operator only.
 test("a panic-only code cannot be declared — nothing can ever catch it", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_panic_child_${uid}`;
@@ -733,8 +701,6 @@ test("a panic-only code cannot be declared — nothing can ever catch it", async
   expect(JSON.stringify(error), "a panic code is not in the raise set").toContain("never raises");
 });
 
-// A self-reference resolves to the definition being registered, so its own raise set is what
-// a declaration on it is checked against — the raises analogue of R5 terminating on itself.
 test("a self-referencing call checks declarations against the definition being registered", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const name = `raises_self_${uid}`;
@@ -774,9 +740,6 @@ test("a self-referencing call checks declarations against the definition being r
   expect(JSON.stringify(typo)).toContain("never raises");
 });
 
-// A wildcard catching SEVERAL declared codes combines their shapes: error.data is the union
-// of every declaration the rule can reach, and the arm that arrives is the one the raised
-// code declared. A field only one arm carries is therefore nullable, not refused.
 const DECLINED_SHAPE = {
   type: "object",
   properties: { kind: { type: "string" }, decline_code: { type: "string" } },
@@ -894,8 +857,6 @@ test("a field only one arm of the union declares reads as null when the other ar
           on_error: [{ code: ["card_%"], goto: "$handle" }],
           switch: [{ goto: "end" }],
         },
-        // decline_code exists in one arm only. The read is legal — the union admits it — and
-        // it is null on the run where the other arm arrived.
         { id: "handle", output: { code: "$: last_error.data.decline_code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.handle",
@@ -911,10 +872,7 @@ test("a field only one arm of the union declares reads as null when the other ar
   expect((data?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
 });
 
-// M2's typing claim: a rule's `case` is checked against the payload of the codes THAT RULE
-// names, not the union a routed task would see. Two codes with incompatible shapes make the
-// difference observable — the same expression is legal under one rule and rejected under the
-// other. specs/child-error-handling.md M2.
+// Two incompatible payload shapes make case scoping observable. specs/child-error-handling.md M2.
 const NAMED = { type: "object", properties: { name: { type: "string" } }, required: ["name"] } as const;
 const NUMBERED = { type: "object", properties: { digits: { type: "integer" } }, required: ["digits"] } as const;
 
@@ -922,9 +880,8 @@ async function putCaseScopeChild(name: string) {
   const { error } = await client.PUT("/definitions", {
     body: {
       name,
-      // Both codes from ONE task: raises(D) is a syntactic scan, so a case that never fires
-      // still puts its code in the set — and a second task nothing routes to would be
-      // rejected as unreachable.
+      // Both codes from ONE task: raises(D) is a syntactic scan, so a never-firing case still
+      // counts, and a second task nothing routes to would be rejected as unreachable.
       tasks: [
         {
           id: "go",

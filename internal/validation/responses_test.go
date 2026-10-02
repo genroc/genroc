@@ -19,11 +19,8 @@ func mustSchema(t *testing.T, raw string) *schema.Schema {
 	return &s
 }
 
-// The nullability of self.result is the whole point of `responses`: a declared status set
-// that covers everything accepted types exactly, and any gap between the two admits null.
-// Each row here is a rule from specs/fetch-http-surface.md §2 that a refactor can silently
-// invert, since an over-wide type only shows up as a downstream expression that stops
-// compiling — or worse, one that keeps compiling and reads null.
+// Each row is a rule from specs/fetch-http-surface.md §2 a refactor can silently invert: an
+// over-wide type only shows up downstream, or keeps compiling and reads null.
 func TestFetchResultType_NullabilityFollowsCoverage(t *testing.T) {
 	obj := `{"type":"object","properties":{"state":{"type":"string"}}}`
 	for _, tc := range []struct {
@@ -97,9 +94,7 @@ func TestFetchResultType_NullabilityFollowsCoverage(t *testing.T) {
 	}
 }
 
-// oneOf means EXACTLY one arm matches, so two status bodies that overlap — objects whose
-// properties are all optional both admit {} — would make the union reject a value fitting
-// both. The same mistake literal-types.md was written to fix.
+// oneOf means EXACTLY one arm, so overlapping status bodies would reject a value fitting both.
 func TestFetchResultType_MultiStatusUnionIsAnyOf(t *testing.T) {
 	a := &model.Action{
 		Type:   model.ActionTypeFetch,
@@ -143,11 +138,8 @@ func contains(haystack, needle string) bool {
 
 var _ = shape.Shape{}
 
-// The route by which an ordinary definition reaches a union containing the top type — which
-// is what makes the navigation guard worth having rather than a theoretical rule. Declaring
-// one status opaquely and another concretely puts `{}` in self.result's union, and reading a
-// field off it must be refused: on a 202 the body is undeclared, so `.state` means nothing.
-// Exporting the whole value stays legal, since that is the entire use of an opaque body.
+// One opaque status beside a concrete one puts `{}` in self.result's union: reading a field off
+// it is refused, exporting the whole value stays legal.
 func TestFetchResultType_UnknownStatusMakesTheResultUnreadable(t *testing.T) {
 	def := `{"name":"p","tasks":[
 		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{

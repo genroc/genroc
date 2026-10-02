@@ -7,19 +7,16 @@ import (
 	"genroc/internal/numeric"
 )
 
-// ExternalOutcome is an answer to a parked external task: a result, or a failure. The two travel
-// as one value because they are one event — the wait is over — and splitting them at the edge is
-// what left /instances/{id}/signal able to report success and not failure. Failure nil means this
-// is a result, whose value may itself be null, so a decoder must discriminate on key PRESENCE.
+// ExternalOutcome answers a parked external task with a result or a failure, as one value
+// because it is one event. Failure nil means a result, which may itself be null, so a decoder
+// must discriminate on key PRESENCE.
 type ExternalOutcome struct {
 	Failure *ExternalFailure
 	Result  any
 }
 
-// ExternalFailure is a submitted failure: the code an on_error rule matches, the message it
-// carries, and the payload for a code the task declared a shape for. Data is absent — not
-// null — for a code declared to carry none, which is what keeps the runtime context no richer
-// than the type inference derives for it.
+// ExternalFailure is a submitted failure. Data is absent, not null, for a code declared to carry
+// none, so the runtime context is no richer than inference derives.
 type ExternalFailure struct {
 	Code    string
 	Message string
@@ -68,9 +65,8 @@ func MarshalOutcome(o ExternalOutcome) (string, error) {
 	return string(b), err
 }
 
-// UnmarshalOutcome decodes a buffered signal. Values are decoded through numeric so an exact
-// integer literal survives: a plain unmarshal into `any` collapses every number to float64,
-// which is the corruption internal/numeric exists to prevent.
+// UnmarshalOutcome decodes through numeric: a plain unmarshal into `any` collapses every number
+// to float64.
 func UnmarshalOutcome(s string) (ExternalOutcome, error) {
 	var env signalEnvelope
 	if err := json.Unmarshal([]byte(s), &env); err != nil {

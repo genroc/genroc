@@ -1,15 +1,6 @@
-// Package idgen mints every id genroc stores, as one opaque token widening only when the numbers
-// behind it do: `6fah8w2p`. It is a (worker, counter) pair, scattered — the worker number comes
-// from a database counter that only increases, so the pair is unique by construction, and every
-// step is INJECTIVE, so two mints cannot meet the way two hashes can.
-//
-// THE CONSTANTS CAN NEVER CHANGE: ids on disk came from this exact map. Scattering hides the pair
-// and nothing more; an id is not secret-grade (specs/api-auth.md).
-//
-// Three load-bearing properties of the rendering: it SORTS AS NOTHING (ordering rows within a
-// millisecond is `seq`'s job), its leading character is a DIGIT so a process name cannot be
-// mistaken for an id, and it excludes `.` (which would split an external task's token) and
-// I, L, O, U (so an id survives being read aloud).
+// Package idgen mints every id genroc stores: an injective scatter of a (worker, counter) pair,
+// unique by construction. THE CONSTANTS CAN NEVER CHANGE: ids on disk came from this map.
+// An id sorts as nothing (`seq` orders rows), leads with a digit, and excludes `.` and I/L/O/U.
 package idgen
 
 import (
@@ -23,11 +14,8 @@ const (
 	// round constants are arbitrary and chosen for spread, not secrecy.
 	rounds = 4
 
-	// Both hold the id WIDTH still, which is worth more than the characters they cost.
-	// minValue is the first value that renders minChars wide, added to every pair so none is
-	// narrower. An offset and not a padded string: render's leading character is base 10 and may
-	// be `0`, so "0"+<narrower id> would collide with an id that starts with one. minGroups pads
-	// the worker's code so the counter sits at a fixed height for every worker under 32768.
+	// Both hold the id WIDTH still. minValue is an offset, not padding: "0"+<narrower id> would
+	// collide with an id that starts with one. minGroups fixes the counter's height below 32768.
 	minChars  = 8
 	minValue  = 10 * (1<<(5*(minChars-1)) - 1) / 31
 	minGroups = 3
@@ -50,25 +38,19 @@ func NewMinter(worker int64) (*Minter, error) {
 	return &Minter{worker: uint64(worker)}, nil
 }
 
-// Stream returns an independent counter under the same worker number, so one kind of row does not
-// run another's numbers up. Ids from two streams can therefore be EQUAL: nothing resolves a bare
-// id without knowing its table, and the one place kinds meet is object_refs, keyed by owner kind.
+// Stream returns an independent counter under the same worker. Ids from two streams can be
+// EQUAL: an id resolves only with its table, and object_refs keys by owner kind.
 func (m *Minter) Stream() *Minter { return &Minter{worker: m.worker} }
 
-// Next returns an id no other process can mint and this one has not minted before, with the
-// counter behind it -- what a row stores in `seq` when its order must survive a shared
-// millisecond. The counter starts at zero on every construction BECAUSE the worker number is
-// fresh on every one, which is what makes it safe to keep in memory.
+// Next returns a never-minted id and its counter (a row's `seq`). The counter lives in memory,
+// safe only because every Minter gets a fresh worker number.
 func (m *Minter) Next() (string, int64) {
 	n := m.counter.Add(1)
 	return render(scatter(pair(m.worker, n))), int64(n)
 }
 
-// pair packs the two numbers into one, the worker in the low bits as 6-bit groups (five of
-// value, one continuation) and the counter above them. The code is SUFFIX-free, so the two can
-// always be told apart reading from the bottom -- which is what makes the pairing injective
-// without bounding either of them. A fixed field would have been a cliff instead: past it a
-// process could not start at all.
+// pair codes the worker SUFFIX-free below the counter, injective without bounding either. A
+// fixed field would be a cliff: past it a process could not start at all.
 func pair(worker, counter uint64) uint64 {
 	var low, shift uint64
 	for {
@@ -89,16 +71,12 @@ func pair(worker, counter uint64) uint64 {
 	return minValue + (counter<<shift | low)
 }
 
-// scatter permutes v inside the base32 width it already has, so consecutive pairs render as
-// unrelated ids of the same length; widths do not overlap and each permutation is bijective, so
-// the whole map stays injective. A Feistel network, not a multiply: multiplying by a constant
-// carries the 2^workerBits stride straight through, leaving every id in a run sharing its tail.
+// scatter permutes within v's own width, keeping the map injective. Feistel, not a multiply:
+// a multiply carries the worker stride through, so every id in a run shares its tail.
 func scatter(v uint64) uint64 {
 	lo, size := widthOf(v)
 
-	// Feistel needs a power-of-two domain; cycle-walking maps the excess back in, which keeps
-	// the whole thing a bijection on [0, size). The domain is under 32/31 of size, so it walks
-	// about 1.03 times on average.
+	// Cycle-walking maps Feistel's power-of-two excess back in, keeping a bijection on [0, size).
 	half := (bits.Len64(size-1) + 1) / 2
 	x := v - lo
 	for {
@@ -127,9 +105,8 @@ func mix(z uint64) uint64 {
 	return z ^ z>>31
 }
 
-// widthOf returns the range v renders in: k characters hold 10*32^(k-1) values, the leading one
-// being a digit. The ranges partition the numbers, so a value's width is fixed by its magnitude
-// and scattering inside one cannot change an id's length.
+// widthOf: k characters hold 10*32^(k-1) values. The ranges partition the numbers, so
+// scattering inside one cannot change an id's length.
 func widthOf(v uint64) (lo, size uint64) {
 	lo, size = 0, 10
 	for v >= lo+size {

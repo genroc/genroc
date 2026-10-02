@@ -1,11 +1,7 @@
 import { expect, test } from "vitest";
 import { client, spliceObjects, waitForInstance } from "../helpers/client.ts";
 
-/**
- * The blob as the CHILD stored it. Asserted on the child rather than routed back through the
- * parent's output: the round trip needs result-schema plumbing that has nothing to do with the
- * boundary under test, and the child's own row is where a marker would have landed.
- */
+/** The blob as the CHILD stored it — its own row is where a marker would have landed. */
 async function childInput(parentID: string): Promise<unknown> {
   const { data: trail } = await client.GET("/instances/{id}/logs", {
     params: { path: { id: parentID }, query: { limit: 200, recursive: true } },
@@ -20,18 +16,8 @@ async function childInput(parentID: string): Promise<unknown> {
 
 const BLOB = "B".repeat(20 * 1024);
 
-/**
- * A child's input is a boundary a reference must not cross.
- *
- * Once an expression can COPY a reference instead of loading it (specs/lazy-context.md), a
- * parent that passes a slot straight into a child hands it a marker. Two things then break, and
- * the first is loud: the child's input is CONFORMED, and a conform cannot inspect or normalize a
- * value it would have to load to see — `expected type string, got *model.ObjectRef`. The second
- * is silent: the value lands on the child's row, and a claim written only for objects that write
- * produced would leave the child referencing content it never held.
- *
- * All three child types cross the same boundary, so all three are covered here.
- */
+/** A copied reference must not cross into a child's input: the conform cannot inspect an unloaded
+ *  value, and the child would reference content it never held. specs/lazy-context.md. */
 
 async function defineChild(name: string) {
   await client.PUT("/definitions", {

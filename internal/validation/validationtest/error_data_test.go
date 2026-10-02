@@ -15,10 +15,8 @@ func errDataDef(responses, codes, handlerOutput string) string {
 	]}`
 }
 
-// A status declared on the error side is readable at the handler its rule routes to, and it
-// is readable WITHOUT a null check when the rule can catch nothing else — that narrowing is
-// done by the on_error patterns themselves, which is what lets the design need none of the
-// deferred discriminated-union work.
+// Readable WITHOUT a null check when the rule catches nothing else: the on_error patterns do the
+// narrowing, so no discriminated-union machinery is needed.
 func TestGenerate_ErrorData_TypedByTheRuleThatCaughtIt(t *testing.T) {
 	out := runGenerate(t, errDataDef(
 		`{"200":{"type":"object"},"404":`+problemSchema+`}`,
@@ -32,10 +30,8 @@ func TestGenerate_ErrorData_TypedByTheRuleThatCaughtIt(t *testing.T) {
 	assertJSON(t, handler, `{"type":"object","properties":{"d":{"type":"string"}},"required":["d"]}`)
 }
 
-// Widening the rule widens the type. The union is computed from the on_error patterns, not
-// from the responses map, so the moment a pattern can also catch a status nobody described —
-// or a code that carries no body at all — last_error.data admits null. That is the narrowing
-// story the design rests on: done by the rules, with no discriminated-union machinery.
+// The union follows the on_error patterns, not the responses map: once a pattern can catch an
+// undescribed status or a bodyless code, last_error.data admits null.
 func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 	problem := `{"type":"object","properties":{"detail":{"type":"string"}},"required":["detail"]}`
 	nullable := `{"oneOf":[{"type":"null"},` + problem + `]}`
@@ -71,9 +67,7 @@ func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 	}
 }
 
-// A task no error edge reaches has no `last_error` at all, so last_error.data is not merely null there
-// — it does not exist, and reading it is the same "not in schema" error every undeclared
-// value gets.
+// No error edge, no `last_error`: reading it is the plain "not in schema" error, not null.
 func TestGenerate_ErrorData_AbsentWhereNoRuleReaches(t *testing.T) {
 	err := runGenerateErr(t, `{"name":"p","tasks":[
 		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{"200":{"type":"object"}}},
@@ -100,10 +94,8 @@ func TestGenerate_ErrorData_AbsentWithoutAnErrorDeclaration(t *testing.T) {
 	}
 }
 
-// `last_error` is scoped to the task its rule routes to. A task reached from the handler by an
-// ordinary transition is not an error handler, so `last_error` does not exist there at all — the
-// engine drops it on that transition, and typing it would promise a value the context no
-// longer holds. A handler that wants the failure to travel projects it into its output.
+// The engine drops `last_error` on an ordinary transition out of the handler, so typing it
+// further would promise a value the context no longer holds.
 func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 	err := runGenerateErr(t, `{"name":"p","tasks":[
 		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{"200":{"type":"object"}}},
@@ -129,10 +121,8 @@ func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 	}
 }
 
-// self.result's nullability follows the gap between what a fetch ACCEPTS and what it
-// DESCRIBES. The rule is unit-tested against fetchResultType directly; this pins it through
-// Generate, where a miswired branch in actionResultType would otherwise leave the unit tests
-// green while every definition types its result wrong.
+// Unit-tested against fetchResultType too; this catches a miswired actionResultType branch the
+// unit tests would stay green through.
 func TestGenerate_FetchResult_NullabilityThroughGenerate(t *testing.T) {
 	body := `{"type":"object","properties":{"fee":{"type":"number"}},"required":["fee"]}`
 	for _, tc := range []struct {

@@ -10,9 +10,8 @@ import (
 	"genroc/internal/model"
 )
 
-// NonTerminalSubtree returns the instance and every descendant still live, oldest first.
-// This is the unit an upgrade moves: terminal descendants stay put because their outputs are
-// frozen and nothing re-runs them. specs/version-compatibility.md s3c.
+// NonTerminalSubtree returns the instance and every live descendant, oldest first: the unit an
+// upgrade moves, since terminal outputs are frozen. specs/version-compatibility.md s3c.
 func (db *DB) NonTerminalSubtree(ctx context.Context, rootID string) ([]*model.ProcessInstance, error) {
 	rows, err := db.q.NonTerminalSubtree(ctx, rootID)
 	if err != nil {
@@ -37,22 +36,17 @@ type InstanceUpgrade struct {
 	NewContext map[string]any
 }
 
-// ErrUpgradeBlocked reports that the tree cannot be planned at all: a child sits in a slot the
-// target version no longer declares, or under a task that no longer spawns. It is a REFUSAL and
-// not a failure -- the definition legitimately says this, and the caller wants to be told which
-// child and why, the same way every other refusal names one.
+// ErrUpgradeBlocked: a child sits in a slot the target no longer declares, or under a task that
+// no longer spawns. A REFUSAL, not a failure: the caller names which child and why.
 var ErrUpgradeBlocked = fmt.Errorf("upgrade blocked")
 
-// ErrUpgradeStale reports that a row moved between the read that produced the migrated
-// state and this write -- its version, task, status or lease changed. The migration was
-// computed against something that is no longer there, so the whole batch rolls back.
+// ErrUpgradeStale: a row's version, task, status or lease moved since the read the migration was
+// computed from; the whole batch rolls back.
 var ErrUpgradeStale = fmt.Errorf("instance changed while its upgrade was being prepared")
 
-// UpgradeInstances moves every instance in one transaction. It writes state someone else
-// decided: this package reads rows and writes rows, and what the migrated state should BE
-// is internal/validation's question, asked by the caller that owns the operation. All or nothing: a cluster with
-// one immovable member does not move, because a half-migrated tree is a tree whose parent
-// and children disagree about which version describes their data.
+// UpgradeInstances moves every instance in one transaction, all or nothing: a half-migrated tree's
+// parent and children disagree on which version describes their data. What the migrated state
+// should BE is internal/validation's to decide; this only writes it.
 func (db *DB) UpgradeInstances(ctx context.Context, ups []InstanceUpgrade) error {
 	if len(ups) == 0 {
 		return nil
@@ -60,9 +54,8 @@ func (db *DB) UpgradeInstances(ctx context.Context, ups []InstanceUpgrade) error
 	return db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
 		now := nowMillis()
 		for _, up := range ups {
-			// A copy carrying the migrated state, so persistState externalizes and
-			// reference-counts it exactly as any other write would -- the migrated value can
-			// cross the inline/object boundary in either direction.
+			// A copy, so persistState cuts and claims the migrated value like any write: it can
+			// cross the inline/object boundary either way.
 			staged := *up.Instance
 			staged.State = up.NewContext
 			cols, err := db.persistState(ctx, qtx, &staged, now)

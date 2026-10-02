@@ -1,8 +1,5 @@
-# The documented false alarm. The comparison never sees an instance, so a new main-line
-# task carrying an output is required at every later task and every old context lacking
-# it reads as different — even though nothing reads it. Pinned as EXPECTED: the
-# correction (demand-pruning) belongs to a layer that knows where an instance sits, and
-# every such correction may only turn "different" into "tolerable".
+# The documented false alarm, pinned as EXPECTED: a new main-line output is required at every
+# later task even if unread. The fix (demand-pruning) needs to know where an instance sits.
 apply:
   - channel: insert_a
     definitions:

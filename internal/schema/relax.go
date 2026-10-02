@@ -1,10 +1,7 @@
 package schema
 
-// Relaxed returns a copy of s in which every node also admits a plain string, recursively via
-// mapChildren so it is exhaustive rather than a special-cased handful of keywords. This is the
-// editor's "any value may be written as its literal, or at any level as an expression" transform:
-// a pure string leaf is left alone, every other node becomes `node | string`. stringNote, when
-// non-empty, labels every string position that does not already carry a description.
+// Relaxed makes every node also admit a plain string (an expression at any level), via
+// mapChildren so it is exhaustive. stringNote labels string positions with no description.
 func (s Schema) Relaxed(stringNote string) Schema {
 	if s.n == nil {
 		return s

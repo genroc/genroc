@@ -1,19 +1,4 @@
-/**
- * End-to-end coverage for the per-instance execution audit trail
- * (GET /instances/{id}/logs).
- *
- * Runs in manual-tick mode with --immediate-retries (via useTickEnv) so retries
- * are claimable on the very next tick with no backoff wait.
- *
- * Covers:
- *   1. A successful run records work_started → action_started → action_succeeded →
- *      task_completed → inst_completed; action_succeeded carries the response
- *      body in data and the HTTP status in meta, work_started names the worker.
- *   2. A failing task with one retry records action_failed and retry_scheduled (warn)
- *      then instance_failed; the level filter is a floor over those levels.
- *   3. Time-based pruning: advancing the clock past the retention window drops
- *      old log rows on the next tick.
- */
+/** The per-instance audit trail (GET /instances/{id}/logs), under manual ticks with --immediate-retries. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -110,10 +95,7 @@ test("successful run records task and completion events with response snippet", 
   const logs = await getLogs(id);
   const events = logs.map((l) => l.event);
 
-  // Oldest-first ordering, full lifecycle of a two-task run. work_started marks a
-  // worker picking the instance up (one per task, since a call checkpoints and
-  // yields); action_started/action_succeeded are the request/response;
-  // task_completed is the per-task routing; inst_created/completed bookend.
+  // One work_started per task, since a call checkpoints and yields.
   expect(events).toEqual([
     "inst_created",
     "work_started",
@@ -133,9 +115,8 @@ test("successful run records task and completion events with response snippet", 
   expect(started?.task).toBe("first");
   expect(String(started?.meta?.worker ?? "")).not.toBe("");
 
-  // action_succeeded carries the response body in data -- as the VALUE it is, the same shape
-  // every other payload takes -- and the HTTP status in the structured meta. Info: what a call
-  // sent and what came back is the task's work, not the engine's bookkeeping.
+  // action_succeeded carries the body in data (as a value) and the HTTP status in meta. Info, since
+  // a call's request and response are the task's work, not engine bookkeeping.
   const firstSucceeded = logs.find((l) => l.event === "action_succeeded");
   expect(firstSucceeded?.level).toBe("info");
   expect(logs.find((l) => l.event === "action_started")?.level).toBe("info");
@@ -165,9 +146,7 @@ test("failing task records retry_scheduled then instance_failed; level filter na
   expect(retry?.code).toMatch(/^http\./);
   expect(retry?.message).toContain("retry 1/1");
 
-  // action_failed (warn) captures the raw call failure separately: the http code,
-  // the status in structured meta, and the error body in data. Warn, so the answer to
-  // "why did it fail" is in the default view of a run that did.
+  // action_failed is warn, so why a run failed is in its default view.
   const failed = logs.find((l) => l.event === "action_failed");
   expect(failed?.level).toBe("warn");
   expect(failed?.code).toMatch(/^http\./);

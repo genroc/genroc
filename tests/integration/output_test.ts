@@ -1,9 +1,6 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// The output map remaps an action's result: result_schema validates the full
-// response, but only the projection is exported to outputs.<task> (coupling
-// reduction), and the switch routes on the remapped self.output.
 test("output map remaps an action result — only the projection is exported", async () => {
   const mock = await startMockService(0, {
     response: { job_id: "j-42", queue: "q1", secret: "shh" },
@@ -47,7 +44,6 @@ test("output map remaps an action result — only the projection is exported", a
   expect(await waitForInstance(id)).toBe("completed");
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  // Only the projected {id} is exported — not the full {job_id, queue, secret} body.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expect((data?.state?.outputs as any)?.create).toEqual({ id: "j-42" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,9 +52,6 @@ test("output map remaps an action result — only the projection is exported", a
   mock.stop();
 });
 
-// A single-expression output ("$: self.result") passes the action result
-// through unchanged, with no object wrapper. The process output is also a single
-// expression that forwards the task output.
 test("single-expression output passes the action result through", async () => {
   const mock = await startMockService(0, {
     response: { job_id: "j-7", queue: "q1" },
@@ -95,7 +88,6 @@ test("single-expression output passes the action result through", async () => {
   expect(await waitForInstance(id)).toBe("completed");
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  // The whole result is exported (passthrough), and the process output forwards it.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expect((data?.state?.outputs as any)?.create).toEqual({ job_id: "j-7", queue: "q1" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,8 +96,6 @@ test("single-expression output passes the action result through", async () => {
   mock.stop();
 });
 
-// A nested-object output shapes the data freely: nested objects with expression
-// leaves are evaluated recursively.
 test("nested output shapes data with nested objects", async () => {
   const mock = await startMockService(0, {
     response: { job_id: "j-9", queue: "q2" },

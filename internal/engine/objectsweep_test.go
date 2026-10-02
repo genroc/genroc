@@ -11,10 +11,8 @@ import (
 	"genroc/internal/model"
 )
 
-// The object sweep used to live inside pruneLogs(), which returns early when log retention is
-// disabled. Harmless while a released object was deleted on the spot; once releases only leave a
-// grace claim, that early return means `--log-retention 0` never collects anything and grows
-// without bound. LogConfig{} below is exactly that configuration.
+// LogConfig{} is `--log-retention 0`, where pruneLogs returns early: a sweep inside it
+// would never collect.
 func TestCollectObjects_RunsWithLogRetentionDisabled(t *testing.T) {
 	database := openTestDB(t)
 	database.SetObjectGrace(0) // released content is collectable at once
@@ -40,15 +38,12 @@ func TestCollectObjects_RunsWithLogRetentionDisabled(t *testing.T) {
 		t.Fatalf("the big output was not externalized")
 	}
 
-	// Release it, then sweep.
 	reloaded.State["outputs"].(map[string]any)["out"] = "small"
 	if err := database.UpdateInstanceProgress(reloaded); err != nil {
 		t.Fatalf("UpdateInstanceProgress: %v", err)
 	}
-	// Two sweeps: the first NOTICES that nothing claims it and starts the clock, the second
-	// collects once that mark is older than the (zero-length) window. The window runs from when
-	// the sweep noticed, not from the release -- no releaser can tell whether it dropped the last
-	// claim. specs/object-store.md.
+	// Two sweeps: the first NOTICES nothing claims it and starts the clock, the second collects.
+	// specs/object-store.md.
 	eng.collectObjects()
 	db.AdvanceClock(time.Second)
 	eng.collectObjects()

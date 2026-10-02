@@ -9,11 +9,9 @@ import (
 	"genroc/internal/shape"
 )
 
-// The task scope in one place: which members of `self` each slot may name. The three come into
-// existence at different moments — previous on entry, result when the action answers, output
-// when the output map has run — so a slot may only name those that already exist where it is
-// evaluated. outputs.<own id> is previous at EVERY slot, the switch included, because a task is
-// not complete until its switch has routed. specs/task-scopes.md.
+// Which `self` members each slot may name: previous on entry, result once the action answers,
+// output once the output map ran. outputs.<own id> is previous in EVERY slot, the switch
+// included. specs/task-scopes.md.
 type selfScope struct{ result, output bool }
 
 var (
@@ -22,9 +20,7 @@ var (
 	afterOutput  = selfScope{result: true, output: true} // the switch
 )
 
-// checkSelfScope rejects a slot naming a member that does not exist where it is evaluated.
-// The schema would reject it too, with "field not found" — which names the member but not the
-// reason, and reads as a typo rather than a rule.
+// The schema would refuse it too, with "field not found" — which reads as a typo, not a rule.
 func checkSelfScope(s *model.Task, label string, loops bool, sc selfScope, refs expression.Roots) error {
 	switch {
 	case refs.SelfResult && !sc.result:
@@ -43,11 +39,9 @@ func checkSelfScope(s *model.Task, label string, loops bool, sc selfScope, refs 
 	return nil
 }
 
-// slotRoots is the availability rule for one phase of a task, as the Roots hook every check of
-// that phase installs: which `self` members exist there, whether a previous output exists at
-// all, and — where `self.result` is in scope — whether the action types it. typedResult is read
-// only in that last case. One constructor, so an expression refused at registration and the same
-// expression typed by `genctl schema context -e` are refused for the same reason.
+// slotRoots is one phase's Roots hook. One constructor, so registration and `genctl schema
+// context -e` refuse an expression for the same reason. typedResult is read only where
+// self.result is in scope.
 func slotRoots(s *model.Task, label string, loops, typedResult bool, sc selfScope) func(expression.Roots) error {
 	return func(refs expression.Roots) error {
 		if sc.result && !typedResult && refs.SelfResult {
@@ -64,9 +58,8 @@ type preOutputSlot struct {
 	expr  bool // a bare expression (a case) rather than a template
 }
 
-// preOutputSlots enumerates every slot evaluated before the task's output map runs. It is the
-// list engine-side scope construction must match: a slot missing here keeps a scope the
-// runtime does not populate, and reads null where the schema promised a value.
+// Engine-side scope construction must match this list: a slot missing here reads null where
+// the schema promised a value.
 func preOutputSlots(s *model.Task) []preOutputSlot {
 	var out []preOutputSlot
 	add := func(label string, raw any, expr bool) {

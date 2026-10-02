@@ -72,7 +72,7 @@ Keep new list/get commands consistent so the surface stays predictable.
 
 Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 
-- `logs` keeps `--mode basic|detail|json`: three views, and its json is JSONL (one object
+- `logs` keeps `--mode basic|detail` beside `--json`, and its json is JSONL (one object
   per line, streaming), not a `{items, page}` array. It also caps at 200 rather than
   `listCap` and renders as it streams — the others build a tabwriter, which sizes its
   columns from every row and so cannot. The text views cut each row to one line
@@ -135,8 +135,8 @@ name is now refused by name, and `looksLikePath` catches a path in any position.
 
 genctl was the last lossy hop for large numbers, in three places — YAML upload, response
 display, and `--set` — each of which decoded into an `interface{}` through float64. See
-[specs/number-precision.md](../../specs/number-precision.md); `yamlnum.go` is the walker
-that keeps a literal exact, and `tests/cli/genctl_precision_test.ts` asserts on raw stdout
+[specs/number-precision.md](../../specs/number-precision.md); `defdoc`'s `scalar` is what
+keeps a literal exact, and `tests/cli/precision_test.ts` asserts on raw stdout
 because parsing it in JavaScript would corrupt the values under test.
 
 ## YAML merge keys

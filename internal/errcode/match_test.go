@@ -2,10 +2,7 @@ package errcode
 
 import "testing"
 
-// MatchCode uses '%' as the only wildcard; every other character is literal. This is
-// deliberately not full SQL LIKE — '_' is a literal, not a single-char wildcard — because
-// error codes commonly contain underscores (snake_case) and dots (namespaces), and a '_'
-// wildcard makes `order_%` surprisingly match `order.placed`.
+// Not SQL LIKE: a '_' wildcard would make `order_%` match `order.placed`.
 func TestMatchCode(t *testing.T) {
 	cases := []struct {
 		pattern, code string

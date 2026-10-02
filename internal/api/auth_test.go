@@ -8,10 +8,8 @@ import (
 // specs/api-auth.md §3. The gate is coarse on purpose; what these pin is that it cannot be
 // reached by accident — an endpoint added without a permission must be closed, not open.
 
-// The permission an action declares is a security decision, and the registry is where it is
-// made. An action that declares neither Allow nor Open is admin-only, which is a legitimate
-// answer — `tick` is one — but it must be the author's answer rather than a field they forgot,
-// so the deliberate cases are named here and anything else fails.
+// Admin-only is a legitimate answer (`tick`), but it must be the author's rather than a
+// forgotten field, so the deliberate cases are named here.
 func TestEveryActionDeclaresAPermission(t *testing.T) {
 	adminOnly := map[string]string{
 		"tick": "manual-tick mode only, and it can shift the server clock",
@@ -124,11 +122,8 @@ func TestAuthorize_OpenNeedsNoIdentity(t *testing.T) {
 	}
 }
 
-// The rule a deployment writes its ingress from: EVERYTHING under /api requires a credential.
-// It held only by inspection before — `/api/docs` and `/api/openapi.json` sat under the
-// authenticated prefix and answered without one, which is exactly the mismatch
-// specs/api-auth.md §1 is about. This asserts it over the mounted paths, so a route added to
-// server.go outside the registry cannot quietly reopen the hole.
+// Asserted over the mounted paths, so a route added outside the registry cannot quietly
+// reopen the mismatch specs/api-auth.md §1 is about.
 func TestEveryApiPathIsGated(t *testing.T) {
 	for _, a := range registry {
 		p := a.mountPath()

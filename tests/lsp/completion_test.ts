@@ -2,9 +2,6 @@ import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, edit, Lsp, orders, shipment, useWorkspace } from "./helpers.ts";
 import type { Doc } from "./helpers.ts";
 
-// What `genctl lsp` offers, at the places someone actually pauses while writing a definition.
-// Each test quotes the line it is about; `<|text>` is the cursor with `text` not yet typed.
-
 let lsp: Lsp;
 beforeAll(async () => {
   useWorkspace();
@@ -30,9 +27,7 @@ test("after `self.result.` — the shape the action declared it returns", async 
   ).toEqual(["discount", "total"]);
 });
 
-// The scope is not one thing: it depends on the slot. An action runs before its own result
-// exists, so `self` is not there to read — which is the whole reason completion asks the
-// context view rather than the schema.
+// An action runs before its own result exists, so completion asks the context view, not the schema.
 test("a bare expression in an OUTPUT sees self; the same in an ACTION does not", async () => {
   const inOutput = await lsp.completions(
     at(`      charged: "$: <|self>.result.total - (self.result.discount ?? 0)"`),
@@ -47,7 +42,6 @@ test("a bare expression in an OUTPUT sees self; the same in an ACTION does not",
   expect(inAction).toContain("input");
 });
 
-// This is the state a buffer is in while someone types. Nothing about it parses.
 test("an unclosed interpolation still answers", async () => {
   expect(
     await lsp.completions(at(`        X-Currency: "\${ input.<|currency> }"`)),
@@ -56,8 +50,7 @@ test("an unclosed interpolation still answers", async () => {
 
 // ── keys: the schema, discriminated by the action's own type ──────────────────────
 
-// `discriminator` is an OpenAPI keyword a JSON Schema validator ignores, which is why
-// yaml-language-server offers the union of every action shape here. This one reads `type`.
+// Reads the OpenAPI `discriminator` (`type`), which a JSON Schema validator ignores.
 test("inside a `fetch` action — fetch's keys, and no other action's", async () => {
   // On the KEY, like the `switch` case below: in the VALUE the reader is writing get.
   const keys = await lsp.completions(at(`      <^method>: get`));
@@ -76,8 +69,7 @@ test("inside a `child` action — child's keys, and not fetch's", async () => {
 });
 
 test("keys already written are not offered again", async () => {
-  // On the KEY: a cursor in the value of a `switch` is asking where to route, not what a task
-  // may hold.
+  // On the KEY: in the value of a `switch` the cursor asks where to route.
   const keys = await lsp.completions(at(`    <^switch>: end`));
   expect(keys).not.toContain("switch");
   expect(keys).not.toContain("id");
@@ -87,18 +79,14 @@ test("keys already written are not offered again", async () => {
 
 // ── a user-supplied JSON Schema ──────────────────────────────────────────────────
 
-// `input_schema` reflected to an opaque object, so the editor had nothing to offer and fell
-// back to whatever mapping SPANNED the line — the document root. Eliding the first key puts
-// the cursor on the empty line under `input_schema:`, which is where it was reported.
+// Eliding the first key puts the cursor on the empty line under `input_schema:`.
 test("inside input_schema — the schema keywords, not the document's", async () => {
   const keys = await lsp.completions(at(`input_schema:\n  <|type: object>`));
-  // `type`, `properties` and `required` are already written, so what is left is the rest of
-  // the vocabulary.
   expect(keys).toContain("type"); // elided by the marker, so offered again
   expect(keys).toContain("description");
   expect(keys).toContain("additionalProperties");
   expect(keys).not.toContain("required"); // already written
-  // What it used to answer with.
+  // Not the document root's keys.
   expect(keys).not.toContain("tasks");
   expect(keys).not.toContain("config_schema");
 });
@@ -117,8 +105,6 @@ test("a schema keyword carries what it means", async () => {
   expect(keys["additionalProperties"].documentation).toContain("open map");
 });
 
-// A completion list is a guessing game without them, and the prose is already on the struct
-// tags — the schema carries it through.
 test("a key completion carries the prose the struct tag already wrote", async () => {
   // `price` carries everything else, so these two are what is left to offer.
   const keys = await lsp.completionDetails(at(`  - <^id>: price`));
@@ -127,8 +113,6 @@ test("a key completion carries the prose the struct tag already wrote", async ()
   expect(keys["output_schema"].documentation).toContain("conformed");
 });
 
-// `timeout` bounds the call, so it is offered on the ACTION — the same prose, one level down.
-// It was a task key until it moved; a completion list is where that shows up first.
 test("a timeout completes on the action, not on the task", async () => {
   const taskKeys = await lsp.completionDetails(at(`  - <^id>: price`));
   expect(Object.keys(taskKeys)).not.toContain("timeout");
@@ -191,8 +175,7 @@ test("inside a fetch response's schema — the schema keywords", async () => {
 
 // ── expressions written without a `$:` ───────────────────────────────────────────
 
-// A `case` is an expression slot: the scan for `$:` finds nothing, so the cursor read as
-// sitting on a key and the switch clause's own keys were offered inside the expression.
+// A `case` has no `$:`: only the slot says it is an expression.
 test("inside a switch case's expression — the scope, not the clause's keys", async () => {
   const members = await lsp.completions(at(`      - case: "self.<|output>.charged > 1000"`));
   expect(members).toContain("output");
@@ -210,9 +193,7 @@ test("at the start of a case — the roots of the switch scope", async () => {
 
 // ── the leaf being written must not defeat the scope ─────────────────────────────
 
-// A half-typed expression does not type, its slot recovers as {}, and everything reading that
-// slot then offers nothing — exactly where help was asked for. `self.previous` is that case:
-// a looping task's previous output IS the slot being written, so the leaf under the cursor
+// A half-typed leaf recovers its slot as {}, and `self.previous` reads that very slot, so the leaf
 // must come out of the document before the scope is computed.
 test("writing into a looping task's output still offers its own members", async () => {
   const looping = edit(orders, {
@@ -229,8 +210,7 @@ test("writing into a looping task's output still offers its own members", async 
 
 // ── a value with a closed set ────────────────────────────────────────────────────
 
-// A routing slot is the one place a VALUE has a closed set. Without this the cursor read as
-// sitting on a key and the clause's own siblings were offered while typing `goto: $`.
+// A routing slot is the one place a VALUE has a closed set.
 test("after `goto: $` — the tasks it could name", async () => {
   expect(await lsp.completions(at(`        goto: "$<|review>"\n      - goto: "$fulfil"`))).toEqual([
     "$fulfil",
@@ -252,8 +232,7 @@ test("the routing words that are not tasks are offered too", async () => {
   expect(values["next"].detail).toBe("advance to the next task in the list");
 });
 
-// `$` is not a word character, so an editor given no range inserts beside what was typed:
-// choosing `$tick` after `goto: $` left `$$tick`. The item replaces the token instead.
+// `$` is not a word character, so without a range an editor inserts beside it: `$$tick`.
 test("a task name replaces the `$` already typed", async () => {
   const typed = edit(orders, { '      - goto: "$fulfil"': "      - goto: $" });
   const [first] = await lsp.completionItems(at(`      - goto: $<|>`, typed));
@@ -264,9 +243,7 @@ test("a task name replaces the `$` already typed", async () => {
   expect(first.textEdit!.newText).toBe(first.label);
 });
 
-// `goto:` with nothing after it is the moment help is wanted most, and it was the moment the
-// server answered with the clause's own keys — the empty value has a zero-width node, so the
-// cursor past it resolves to the sequence around it.
+// The empty value has a zero-width node, so the cursor past it resolves to the enclosing sequence.
 test("an empty `goto:` still offers what it may name", async () => {
   const typed = edit(orders, { '      - goto: "$fulfil"': "      - goto: " });
   // The line above is quoted too: `- goto: ` is a prefix of `- goto: end` further down.
@@ -281,9 +258,7 @@ test("an empty `goto:` still offers what it may name", async () => {
   ]);
 });
 
-// Alphabetical put `$anchor` at the top of a list of JSON Schema keywords — the least useful
-// thing first. They are offered in the order a schema READS, which is the order
-// `genctl schema` prints one in.
+// The order a schema READS, as `genctl schema` prints one, not alphabetical.
 test("schema keywords are offered in the order a schema reads", async () => {
   const items = await lsp.completionItems(at(`input_schema:\n  <|type: object>`));
   const inListOrder = items
@@ -301,8 +276,6 @@ test("schema keywords are offered in the order a schema reads", async () => {
   expect(inListOrder.at(-1)).toBe("$defs");
 });
 
-// A key a definition cannot be registered without comes before the rest, whatever the order
-// says about the others.
 test("a required key is offered first", async () => {
   const items = await lsp.completionItems(at(`    <|switch: end>`, shipment));
   const first = items.slice().sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))[0];
@@ -311,8 +284,6 @@ test("a required key is offered first", async () => {
 
 // ── the two closed sets a `type` may take ────────────────────────────────────────
 
-// A `type:` inside a user schema takes JSON types. Without this the cursor after it read as
-// sitting on a key and the schema's own keywords came back.
 test("a schema's type offers the JSON types", async () => {
   // The line above disambiguates: `  type: object` is also a prefix of the response schema's.
   expect(await lsp.completions(at(`input_schema:\n  type: <^object>`))).toEqual([
@@ -340,9 +311,7 @@ test("null is listed by name and written quoted", async () => {
   expect(items.find((i) => i.label === "string")?.textEdit?.newText).toBe("string");
 });
 
-// `type` takes a LIST of names as well as one, which is how a nullable property is declared —
-// so the list is offered as a value of its own, and it writes the brackets rather than its
-// label. Last, because one type is the common case.
+// The list form declares a nullable property; last, because one type is the common case.
 test("a schema's type offers the list form, which writes the brackets", async () => {
   const items = await lsp.completionItems(at(`input_schema:\n  type: <^object>`));
   const list = items.find((i) => i.label === "[]");
@@ -372,8 +341,7 @@ test("a name already written in the list still completes as a type", async () =>
   expect(await lsp.completions(at(`      type: [string, "<^null>"]`, nullable))).toEqual(JSON_TYPES);
 });
 
-// The state a list is in for as long as it takes to write one: an unclosed `[` swallows every
-// line below it, so the document does not parse and nothing at all was offered.
+// An unclosed `[` swallows every line below it, so the document does not parse.
 test("a list still being written completes while it is unclosed", async () => {
   const nullable = edit(orders, {
     "    currency: { type: string }": "    currency:\n      type: [string,",
@@ -381,8 +349,7 @@ test("a list still being written completes while it is unclosed", async () => {
   expect(await lsp.completions(at(`      type: [string,<|>`, nullable))).toEqual(JSON_TYPES);
 });
 
-// A task's `action.type` is a different closed set, and the schema says which: the variants of
-// the union it discriminates, read from the arms themselves rather than a list kept here.
+// Read from the discriminated union's arms, not from a list kept here.
 test("an action's type offers the action types, with what each one is", async () => {
   const items = await lsp.completionItems(at(`      type: <^fetch>`));
   const byLabel = Object.fromEntries(items.map((i) => [i.label, i.detail]));
@@ -402,8 +369,7 @@ test("an action's type does not offer the list form", async () => {
   expect(await lsp.completions(at(`      type: <^fetch>`))).not.toContain("[]");
 });
 
-// They are offered in the order the schema declares them, not alphabetically — `fetch` is the
-// one an author reaches for most and it is written first.
+// Schema order, not alphabetical: `fetch` is the one an author reaches for most.
 test("the action types keep the order the schema declares", async () => {
   const items = await lsp.completionItems(at(`      type: <^fetch>`));
   const ordered = items
@@ -415,9 +381,7 @@ test("the action types keep the order the schema declares", async () => {
 
 // ── the codes an on_error rule can catch ─────────────────────────────────────────
 
-// The third value with a set, and the only one no schema describes: what a task can FAIL with
-// is decided by its ACTION. Reported from an editor — the cursor inside a `code` list read as
-// sitting on a key, so a list of codes was offered `case`, `goto`, `panic` and `raise`.
+// The one value set no schema describes: what a task can FAIL with is decided by its ACTION.
 test("inside `code:` — what this task's fetch can fail with", async () => {
   const codes = await lsp.completions(at(`      - code: [<|http.500>]`));
   expect(codes).toContain("http.timeout");
@@ -458,9 +422,8 @@ test("only_once.interrupted is offered only on an only_once task", async () => {
   );
 });
 
-// A child task catches what its CHILDREN raise, and `shipment` raises `carrier_down` in its own
-// file. The answer is this document's alone: reading the other one would make what an editor
-// offers depend on a buffer nobody is looking at.
+// `shipment` raises `carrier_down` in its own file; reading it would make the answer depend on a
+// buffer nobody is looking at.
 test("a child task offers nothing the other file declares", async () => {
   const codes = await lsp.completions(at(`      - code: [<|carrier_down>]`));
   expect(codes).toEqual(["result.invalid"]); // its output can still fail this task's schema
@@ -489,8 +452,7 @@ test("codes declared in `raises` are offered as this task's own", async () => {
   expect(Object.keys(codes)).not.toContain("http.timeout"); // how the CHILD fails is its own
 });
 
-// A slot with no codes still ANSWERS: a `code` list never takes a key, and the rule's own keys
-// there are the bug this whole slot was added for.
+// A `code` list never takes a key, so the rule's keys must not stand in for an empty answer.
 test("a task with nothing to catch offers nothing, not the rule's keys", async () => {
   const delayed = edit(orders, {
     '      type: child\n      name: shipment\n      input:\n        order: "$: input.customer_id"':
@@ -499,8 +461,7 @@ test("a task with nothing to catch offers nothing, not the rule's keys", async (
   expect(await lsp.completions(at(`      - code: [<|carrier_down>]`, delayed))).toEqual([]);
 });
 
-// A code is written with dots, which are not word characters — so an item chosen after `http.`
-// replaces the whole token rather than landing beside it, the way `$` did for a task name.
+// Dots are not word characters, so the item must replace the whole `http.` token.
 test("a code replaces the prefix already typed", async () => {
   const typed = edit(orders, { "      - code: [http.500]": "      - code: [http." });
   const [first] = await lsp.completionItems(at(`      - code: [http.<|>`, typed));
@@ -526,8 +487,6 @@ function withTags(expression: string): Doc {
   });
 }
 
-// Reported from an editor: `input.who.` offered nothing at all, which reads as a server that
-// does not work rather than as a dot that does not belong there.
 test("an array offers the index, and the item replaces the dot", async () => {
   const doc = withTags("${ input.tags. }");
   const cursor = at('        X-Currency: "${ input.tags.<|> }"', doc);
@@ -539,8 +498,7 @@ test("an array offers the index, and the item replaces the dot", async () => {
   expect(items[0].textEdit?.range.start.character).toBe(cursor.character - 1);
 });
 
-// The tail scanner stopped at `[`, so the container came out empty and the ROOT scope was
-// offered — `input`, `self` and `outputs`, in a position where none of them is legal.
+// The tail scanner must step past `[`, or the ROOT scope is offered.
 test("members are found through an index", async () => {
   const doc = withTags("${ input.tags[0]. }");
   expect(await lsp.completions(at('        X-Currency: "${ input.tags[0].<|> }"', doc))).toEqual([
@@ -550,8 +508,6 @@ test("members are found through an index", async () => {
 
 // ── a key is written with its colon ──────────────────────────────────────────────
 
-// Choosing a key used to leave the reader to type the `:` themselves, which is the one thing
-// that is never in doubt.
 test("a key writes its colon, and a block key writes only the colon", async () => {
   const doc = edit(orders, { "  - id: review\n": "  - id: review\n    on\n" });
   const cursor = at("    on<|>\n", doc);
@@ -588,9 +544,7 @@ test("an action opens a block, though its arms carry unions of their own", async
 
 // ── a value position is not a key position ───────────────────────────────────────
 
-// Reported from an editor: a half-written `for: ` answered with the task's remaining KEYS —
-// `on_error`, `only_once`, `timeout`. An empty value has no extent, so the cursor fell out to
-// the mapping around it and got the answer for the NEXT line while this one was being written.
+// An empty value has no extent, so the cursor falls out to the enclosing mapping: the NEXT line's keys.
 test("after a key's colon, nothing belonging to the next line is offered", async () => {
   const doc = edit(orders, { "      method: get": "      method: " });
   expect(await lsp.completions(at("      method: <|>", doc))).toEqual([]);
@@ -600,9 +554,8 @@ test("the same once the value is written — the cursor is still in it", async (
   expect(await lsp.completions(at("      method: get<|>"))).toEqual([]);
 });
 
-// The rule must not swallow a flow collection: `{ retries: 3, | }` takes another KEY, and the
-// cursor is past a colon there too. (Which keys it offers is a separate imprecision — the
-// enclosing rule's rather than retry's own.)
+// The rule must not swallow a flow collection: `{ retries: 3, | }` takes another KEY. (That it
+// offers the enclosing rule's keys rather than retry's is a separate imprecision.)
 test("inside an inline map, keys are still offered", async () => {
   const items = await lsp.completionItems(at("        retry: { retries: 3,<|> delay: 2s }"));
   expect(items.length).toBeGreaterThan(0);

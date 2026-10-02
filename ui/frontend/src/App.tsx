@@ -2,9 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, actor, getInstance, listInstances, setToken, signOut, token, type Instance } from "./api.ts";
 import { Tokens } from "./Tokens.tsx";
 
-// Deliberately small: a list of instances and one detail view. genroc's own answer to "what is
-// happening" is `genctl instances`, and this is the same question with a mouse — enough to be
-// useful, not so much that it grows a second opinion about the domain.
+// Deliberately small: instances and one detail view, `genctl instances` with a mouse. It must not
+// grow a second opinion about the domain.
 
 const REFRESH_MS = 3000;
 
@@ -20,9 +19,8 @@ export function App() {
   // means `-auth none` OR a proxy that authenticated us, and those are opposite things.
   const [who, setWho] = useState<string | null>(null);
 
-  // No credential of its own behind a proxy: the proxy attaches the JWT. Requests simply go
-  // out, and a 401 means there is no proxy and nothing was pasted — which the header renders as
-  // the input rather than as an error.
+  // No credential of its own behind a proxy. A 401 means no proxy and nothing pasted, which the
+  // header renders as the input rather than as an error.
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,9 +40,7 @@ export function App() {
     }
   }, [status]);
 
-  // Polling rather than a stream: genroc has no change feed, and a 3s poll of one page is
-  // cheaper to reason about than a reconnecting socket for a screen someone watches for a
-  // minute. It pauses while a detail is open, which is where the reader's attention is.
+  // Polling: genroc has no change feed. Paused while a detail is open.
   useEffect(() => {
     if (view !== "instances") return;
     void load();

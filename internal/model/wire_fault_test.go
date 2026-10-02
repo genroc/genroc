@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// A raise clause is authored for the moment it fires, so a key that silently does nothing is
-// found at the worst possible time. `switch` and `on_error` around it already reject; Fault
-// did not, and the published JSON Schema could not close it without disagreeing with the
-// server. specs/language-server.md §5.
+// A dead key in a raise clause would surface only when it fires; `switch` and `on_error`
+// around it already reject. specs/language-server.md §5.
 func TestARaiseClauseRejectsAnUnknownKey(t *testing.T) {
 	var f Fault
 	err := f.UnmarshalJSON([]byte(`{"code":"c","message":"m","mesage":"typo"}`))

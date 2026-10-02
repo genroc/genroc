@@ -1,20 +1,6 @@
-# A task that becomes a different KIND of action can still be compatible — the question is
-# whether an instance could be sitting INSIDE it when the version lands, not whether the two
-# actions resemble each other.
-#
-#   ask   fetch → external   a fetch never parks: request and response happen inside one
-#                            advance, so any instance at this task is at ENTRY and the new
-#                            action simply runs. The output shape is compared as always.
-#   wait  external → fetch   an external parks. An instance there is waiting for a result
-#                            that will be submitted against a task which is now a fetch, and
-#                            no schema relation describes handing that state over.
-#
-# Both produce the same output, so nothing downstream changes; the report separates them on
-# the parking question alone. version-compatibility.md §2 refuses the same move at the gate.
-#
-# The other action slots are NOT listed for either task: a `url` that appeared did so because
-# the task became a fetch, and filing consequences beside their cause reads as independent
-# edits — under an address (`wait:external.url`) naming a slot that type does not have.
+# A type change is judged on parking alone: ask (fetch → external) is fine, since a fetch never
+# parks; wait (external → fetch) strands a parked instance. Consequent slots (the new `url`)
+# are not listed beside their cause.
 apply:
   - channel: typeswap_a
     definitions:

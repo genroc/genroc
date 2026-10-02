@@ -1,9 +1,8 @@
 import { expect, test } from "vitest";
 import { client, listAllInstances, waitForInstance } from "../helpers/client.ts";
 
-// A leaf process that doubles its input number. It delays INVERSELY to n so that
-// higher-index children finish first — forcing children to complete out of input
-// order, which is exactly what the _spawn_index-ordered collection must survive.
+// Delays INVERSELY to n, so children complete out of input order — what the _spawn_index-ordered
+// collect must survive.
 async function defineDoubler(name: string) {
   await client.PUT("/definitions", {
     body: {
@@ -189,8 +188,6 @@ test("child_list — registration rejects an element type incompatible with the 
 
 // ── type-inference / validation errors on `over` (rejected at registration) ──────
 
-// Builds a child_list parent with the given input_schema + over expression and
-// returns the PUT error (undefined if it unexpectedly succeeds).
 async function overError(inputSchema: unknown, over: string, leaf: string) {
   const parent = `cl_over_parent_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
@@ -275,9 +272,7 @@ test("child_list — a result_schema the child's output can't satisfy is rejecte
   const parent = `cl_mismatch_parent_${uid}`;
   await defineDoubler(leaf); // produces { doubled, original }
 
-  // result_schema requires a field the child's output type never produces. This is a
-  // *static* incompatibility (the child's output type is not a subset of result_schema),
-  // so it is caught at registration rather than surfacing per-item at collect.
+  // A static incompatibility, so it is caught at registration rather than per item at collect.
   const { error } = await client.PUT("/definitions", {
     body: {
       name: parent,

@@ -6,18 +6,9 @@ import { join } from "node:path";
 import { buildGenctlBinary, buildGenctlWasm } from "../helpers/cli.ts";
 import { FANOUT, GUARDED, ORDERS, SHIPMENT } from "./fixture.ts";
 
-// Driving `genctl lsp` the way an editor does: a real process, real framing, real binary.
-//
-// A test names a position by quoting the line it is on and marking it, so the assertion shows
-// the code it is about instead of a line number that drifts the moment the fixture is edited.
-//
-//   <|>          the cursor is here
-//   <|text>      the cursor is here and `text` has NOT been typed yet — it is removed from the
-//                buffer, which is how a half-written expression is spelled
-//   <^text>      the cursor is inside `text`, which stays; for hover and go-to-definition
-//
-// The quoted fragment must appear exactly once in the document, so a test can never silently
-// come to mean a different line.
+// A position is a quoted fragment, unique in the document, with one marker: `<|>` the cursor;
+// `<|text>` the cursor with `text` not yet typed (removed from the buffer); `<^text>` the cursor
+// inside `text`, which stays (hover, go-to-definition).
 
 export interface Cursor {
   uri: string;
@@ -68,11 +59,7 @@ export function at(snippet: string, doc: Doc = orders): Cursor {
   };
 }
 
-/**
- * A copy of `doc` with each search string replaced. Diagnostics need a document that is wrong,
- * and a marker places a cursor rather than editing a word — so a mistake is written here, where
- * the test can show both halves of it. Each search string must appear exactly once.
- */
+/** A copy of `doc` with each search string, which must appear exactly once, replaced. */
 export function edit(doc: Doc, changes: Record<string, string>): Doc {
   let text = doc.text;
   for (const [from, to] of Object.entries(changes)) {
@@ -138,9 +125,8 @@ export class Lsp {
   private version = 1;
 
   private constructor(command: string, args: string[]) {
-    // stderr is INHERITED, not swallowed: the server prints there when a session ends on an
-    // error, and a swallowed line turns "it stopped after one message" into a bare timeout —
-    // which is what a non-blocking stdin under WASI looked like for an afternoon.
+    // stderr INHERITED: the server reports a session-ending error there, and swallowing it
+    // leaves only a bare timeout.
     this.child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
     this.child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
   }
@@ -149,11 +135,7 @@ export class Lsp {
     return Lsp.session(buildGenctlBinary(), ["lsp"]);
   }
 
-  /**
-   * The server the VS Code extension falls back to where a machine has no genctl: the same code
-   * as WebAssembly, launched by the extension's own loader over the same stdio. The workspace is
-   * passed because a wasm module reaches no path that is not preopened for it.
-   */
+  /** The extension's wasm fallback, via its own loader; a wasm module reaches only preopened paths. */
   static async startWasm(): Promise<Lsp> {
     const loader = join(new URL("../../", import.meta.url).pathname, "editors/vscode/wasi.mjs");
     return Lsp.session(process.execPath, [
@@ -205,12 +187,7 @@ export class Lsp {
     );
   }
 
-  /**
-   * Semantic tokens, decoded back into the text each one covers and its legend name. The wire
-   * form is five delta-encoded integers per token, so a decoder that disagrees with the server's
-   * encoder paints the wrong ranges rather than none — which is why the decoding lives here,
-   * shared by every test that asks.
-   */
+  /** Tokens decoded to the text each covers: a decoder disagreeing with the encoder paints wrong ranges. */
   async semanticTokens(doc: Doc): Promise<{ text: string; kind: string; line: number }[]> {
     this.sync({ uri: doc.uri, text: doc.text, line: 0, character: 0, quoted: "" });
     const legend = this.legend;
@@ -242,9 +219,8 @@ export class Lsp {
   }
 
   /**
-   * Every diagnostic for a document, as `<line>: <message>` — or `<first>-<last>` when it
-   * spans lines. The span is part of the answer: underlining a whole `switch` and underlining
-   * the one case that is wrong both START on the same line, and only the end tells them apart.
+   * `<line>: <message>`, or `<first>-<last>` when it spans lines: the end is what tells a whole
+   * underlined `switch` from its one wrong case.
    */
   async diagnostics(doc: Doc): Promise<string[]> {
     const cursor: Cursor = { ...doc, line: 0, character: 0, quoted: "" };

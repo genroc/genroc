@@ -1,6 +1,5 @@
-# compat's only positional is an instance id. Every other selector moved to a flag because a
-# position cannot be told from an unquoted glob's leftovers: `compat *.yaml` read the files as
-# a process name, matched nothing, and reported an empty comparison with exit 0.
+# compat's only positional is an instance id: an unquoted glob's leftovers (`compat *.yaml`)
+# were read as a process name and reported an empty comparison, exit 0.
 apply:
   - channel: bare_a
     definitions:

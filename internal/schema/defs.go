@@ -8,11 +8,8 @@ import (
 
 // ─── Defs: the shared root-definitions handle ───────────────────────────────────
 
-// Defs is a handle over a set of root definitions. It intentionally wraps a
-// SHARED, MUTABLE map: attach the same handle to several Schemas via WithDefs and
-// a later Set is observed by all of them through their $refs. That aliasing is the
-// mechanism the recursive output-type fixpoint drives — each pass updates a def
-// in place and re-infers until the estimates stabilize.
+// Defs is a handle over a SHARED, MUTABLE map: every Schema given it via WithDefs observes a
+// later Set through its $refs. The recursive output-type fixpoint relies on that aliasing.
 type Defs struct {
 	m map[string]*node
 }
@@ -77,10 +74,8 @@ func (d *Defs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// WithDefs returns a copy of s whose resolution context is the handle's underlying map
-// (shared, not copied). An empty-but-live handle is attached too, so the schema
-// observes definitions the fixpoint seeds later; only a nil handle (zero Defs) is a
-// no-op.
+// WithDefs shares the handle's map, not a copy. An empty-but-live handle attaches too, so the
+// schema sees definitions seeded later; only a zero Defs is a no-op.
 func (s Schema) WithDefs(d Defs) Schema {
 	if d.m == nil {
 		return s
@@ -106,10 +101,8 @@ func (s Schema) WithMergedDefs(d Defs) Schema {
 	return s.keepingContext(wrap(s.n, merged))
 }
 
-// MergeInto hoists the schema's root $defs into the handle (mutated in place) and returns a
-// defs-free copy with its refs pointing at the merged locations. Collisions are safe: a
-// content-equal definition is reused, a different one renamed with a unique suffix, and every
-// $ref rewritten. Existing handle entries keep their names, so those seeded first take precedence.
+// MergeInto hoists s's root $defs into d (in place) and returns s defs-free, refs rewritten. A
+// content-equal def is reused, a different one renamed; existing entries keep their names.
 func (s Schema) MergeInto(d Defs) (Schema, error) {
 	if s.n == nil || len(s.n.Defs) == 0 {
 		return s, nil
@@ -144,7 +137,6 @@ func (s Schema) MergeInto(d Defs) (Schema, error) {
 		d.m[newName] = def // claim immediately so later names stay unique
 	}
 
-	// Rewrite refs in the schema body and in the moved definition bodies.
 	applyRename(cloned, rename)
 	for _, def := range insert {
 		applyRename(def, rename)
@@ -219,10 +211,8 @@ func (d Defs) Flatten() (Defs, error) {
 	return FlattenNamed(named)
 }
 
-// JSONSchemaBytes types every definition in the pool as a schema, so an editor completes
-// keywords inside `$defs` as it does inside `input_schema`. The value schema is INLINED rather
-// than $ref'd: a `#/$defs/SchemaSchema` reference survives into openapi.json, where the
-// spec builder only rewrites the `Model` prefix and would leave it dangling.
+// JSONSchemaBytes INLINES the value schema rather than $ref-ing it: openapi.json would keep a
+// dangling `#/$defs/SchemaSchema`.
 func (Defs) JSONSchemaBytes() ([]byte, error) {
 	value, err := Schema{}.JSONSchemaBytes()
 	if err != nil {
@@ -237,28 +227,22 @@ func (s Schema) DefsHandle() Defs {
 	return Defs{m: s.rootDefs()}
 }
 
-// WithoutDefs returns a copy of s with every $defs attachment dropped, at the root and
-// on any nested node. Use it when embedding a sub-schema into a container that owns the
-// resolution context: navigation attaches the shared root defs to sub-schemas, and
-// storing such a node back into that same defs set would form a marshal cycle —
-// stripping deeply keeps the stored form clean and finite.
+// WithoutDefs drops every $defs attachment, root and nested. Use it before storing a navigated
+// sub-schema into the defs set that owns it, which would otherwise form a marshal cycle.
 func (s Schema) WithoutDefs() Schema {
 	return s.keepingContext(Schema{n: stripDefsDeep(s.n)})
 }
 
-// keepingContext carries s's refinements and bindings onto a re-anchored copy of the SAME
-// context. Only the defs methods use it: they change where a context resolves, not which
-// context it is. Navigation is the opposite case and must not — a sub-schema is a different
-// value, and the guards are keyed by paths from the root.
+// keepingContext carries guards and vars onto a re-anchored copy of the SAME context: defs
+// methods only. Navigation must not — guards are keyed from the root.
 func (s Schema) keepingContext(out Schema) Schema {
 	out.guards = s.guards
 	out.vars = s.vars
 	return out
 }
 
-// stripDefsDeep returns a structural copy of n with all Defs fields cleared. It walks
-// the tree rather than JSON round-tripping because an attached defs map can reach back
-// into this tree (cycling the marshaler), while the walk skips Defs and terminates.
+// stripDefsDeep walks rather than JSON round-tripping: an attached defs map can reach back into
+// this tree and cycle the marshaler.
 func stripDefsDeep(n *node) *node {
 	if n == nil {
 		return &node{}
@@ -273,10 +257,8 @@ func stripDefsDeep(n *node) *node {
 	return m
 }
 
-// FlattenNamed bundles named schemas (each of which may carry nested $defs) into one
-// flat definitions set: every input becomes a root definition under its name
-// (collisions suffixed), nested defs hoisted, all $refs rewritten to the flat
-// locations. It is the def-preparation step process generation runs before inference.
+// FlattenNamed bundles named schemas into one flat set: each a root definition under its name
+// (collisions suffixed), nested defs hoisted, $refs rewritten.
 func FlattenNamed(named map[string]Schema) (Defs, error) {
 	defs := make(map[string]*node, len(named))
 	refs := make([]*node, 0, len(named))

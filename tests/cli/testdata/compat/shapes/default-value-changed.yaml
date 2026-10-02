@@ -1,7 +1,5 @@
-# ACCEPTED, and the boundary of the two cases above: only the VALUE moved, so no type moved
-# with it. Old instances keep whatever they were created with while new ones take 5 — a
-# difference in behaviour that no shape check can see, and that the changed slot is the only
-# thing to report.
+# ACCEPTED: only the value moved, so no type did. Old instances keep their default, new ones
+# take 5; the changed slot is all there is to report.
 apply:
   - channel: defval_a
     definitions:

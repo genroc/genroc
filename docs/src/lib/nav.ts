@@ -15,20 +15,9 @@ export type NavEntry = {
 
 export type NavSection = { id: string; label: string; href: string; entries: NavEntry[] }
 
-// One key per page, ordered so that a single string comparison answers "which way".
-//
-//   home                                       00
-//   guides/getting-started                     00.01.01
-//   guides/getting-started/installation        00.01.01.01
-//   guides/process-definition                  00.01.02
-//
-// Two properties do the work. Lexicographic order matches reading order, because "."
-// sorts below every digit — so a parent precedes its children and a child precedes its
-// parent's next sibling. And a parent's key is a proper prefix of its children's, so
-// `b.startsWith(a + ".")` means b is *below* a rather than merely after it.
-//
-// Two digits per level: an entry past the 99th would sort wrong. Levels come from the
-// nav, not the URL, so reordering a page changes its key and the slide follows.
+// One sortable key per page (guides/getting-started → 00.01.01): "." sorts below every digit,
+// so string order is reading order, and a parent's key prefixes its children's, so
+// `b.startsWith(a + ".")` means below. Two digits per level: a 100th sibling would sort wrong.
 const KEY_DIGITS = 2
 const ROOT_KEY = '00'
 const pad = (n: number) => String(n).padStart(KEY_DIGITS, '0')
@@ -53,13 +42,9 @@ export async function navTree(): Promise<Record<string, string>> {
   return tree
 }
 
-// The whole structure is the file tree: `a/b/c.mdx` hangs off `a/b.mdx`, and a page at the
-// root is a SECTION. `order` sorts siblings only, so each folder page places itself among
-// its own kind and nothing compares an order across two parents.
-//
-// A folder page carries no body: it exists to give the folder a name and a position, and a
-// click on it lands on its first child ([...slug].astro redirects anyone who reaches the URL
-// itself). That is why `description` is optional — there is nothing to describe.
+// The structure is the file tree: `a/b/c.mdx` hangs off `a/b.mdx`, and a root page is a SECTION.
+// A folder page has no body; a click lands on its first child, and [...slug].astro redirects
+// its own URL.
 export async function navSections(): Promise<NavSection[]> {
   const all = await getCollection('docs')
   const bySlug = new Map<string, NavEntry>(
@@ -96,9 +81,8 @@ export async function navSections(): Promise<NavSection[]> {
     owner.children.push(entry)
   }
 
-  // Depth-first, deepest first: a folder's href is its first child's, and that child may be a
-  // folder too, so the child must be resolved before the parent reads it. `autoCollapse` runs
-  // the other way -- it is inherited, so a level resolves its own before descending.
+  // A folder's href is its first child's, which may be a folder too, so children settle first;
+  // `autoCollapse` is inherited, so each level sets its own before descending.
   const settle = (entries: (NavEntry & { empty?: boolean })[], inherited: boolean) => {
     entries.sort((a, b) => a.order - b.order)
     for (const e of entries) {
@@ -128,9 +112,8 @@ async function linkTargets(): Promise<Map<string, { title: string; href: string 
   return out
 }
 
-// `docs / Guides / Getting started` for `guides/getting-started/installation`. Every crumb is a
-// folder page, so each links where that folder resolves, never to the folder URL -- a click
-// that redirects strands the view transition on a document it computed no direction for.
+// Every crumb is a folder page linked where it resolves, never its own URL: a redirecting click
+// strands the view transition on a document it computed no direction for.
 export async function crumbs(slug: string): Promise<{ label: string; href?: string }[]> {
   const targets = await linkTargets()
   const parts = slug.split('/')

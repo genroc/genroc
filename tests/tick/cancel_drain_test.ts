@@ -1,14 +1,5 @@
-/**
- * What "cancelling" actually means: a task already executing runs to completion.
- *
- * A worker mid-fetch cannot be interrupted -- the request is out, and genroc does not know
- * whether it took effect -- so a cancel arriving then is only RECORDED ('cancelling'), and
- * lands when that task's own write releases the lease. These tests hold a fetch open, cancel
- * underneath it, and watch the drain finish.
- *
- * The tick is what makes it observable: one tick runs one task, so "the held task finishes
- * but the next one never starts" is two separate, checkable facts.
- */
+/** A task already executing when a cancel arrives runs to completion: the cancel is only RECORDED
+ *  ('cancelling') and lands on that task's own write. One tick runs one task, so each step is checkable. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -78,10 +69,8 @@ test("cancel waits for an in-flight fetch, then lands — and the next task neve
   expect(next.requestCount()).toBe(0);
 });
 
-// The mirror of the pause rule "a real outcome is never hidden": the landing CASE only fires
-// when the task's own write says 'running'. A task that FAILS terminally under a pending
-// cancel is reporting an outcome, and that outcome stands -- the work genuinely broke, and
-// recording it as a clean stop would lose why.
+// The landing CASE fires only when the task's own write says 'running', so a terminal failure
+// under a pending cancel stands as the outcome.
 test("a task that fails terminally while cancelling reports the failure, not the cancel", async () => {
   const name = `drain_fail_${crypto.randomUUID().slice(0, 8)}`;
   const { held, next } = await heldProcess(name, { firstStatus: 500 });
@@ -101,10 +90,8 @@ test("a task that fails terminally while cancelling reports the failure, not the
   expect(await ctx.env.tick()).toBe(0);
 });
 
-// The case an operator most needs cancel for, and the one that would fail silently: an
-// instance stuck in a retry loop. A retry is NOT an outcome -- the engine writes 'running'
-// with a wake_at -- so the landing CASE fires and the cancel wins. If it did not, the row
-// would keep re-arming and the tree could never be stopped at all.
+// A retry writes 'running' with a wake_at, so the landing CASE fires and the cancel wins;
+// otherwise the row would keep re-arming and never stop.
 test("a cancel breaks a retry loop rather than being re-armed by it", async () => {
   const boom = await startMockService(0, { statusCode: 500, firstRequestDelayMs: Infinity });
   const prev = stopMocks;

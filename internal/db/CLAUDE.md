@@ -113,9 +113,8 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   `parent_id`: a listing with children in it is uninterpretable without it. That column
   list and `scanInstanceSummary` are a pair, in order.
 - **Adding a column here means three lists**, not one: `instanceColumns`, `scanInstance`, and
-  the separate destination list in the Postgres branch of `ClaimInstances` (which cannot use
-  `scanInstance` because of its trailing `prev_worker`). Missing the third fails only on
-  Postgres, and only at runtime.
+  `scanInstanceWithPrevHolder`, which both Postgres claims use because of their trailing
+  prior-holder column. Missing the third fails only on Postgres, and only at runtime.
 
 ### Ids are minted, not random
 
@@ -204,6 +203,8 @@ Both read as zero, and a retry budget that never advances never terminates.
 `process_instances` is a high-churn queue table: every instance passes through `status='running'` and then completes, leaving a dead tuple in `idx_instances_runnable` (the partial index over runnable rows that `ClaimInstances` walks — see migration 010). `ClaimInstances` runs on every poll by every worker and must skip those dead entries, so a burst of completions outruns the default autovacuum (`scale_factor=0.2`, i.e. 20% dead) and claim latency drifts up until it catches up — visible as the benchmark getting slower as finished instances accumulate, and fast again on a fresh DB. The bootstrap sets `autovacuum_vacuum_scale_factor=0.02` + unthrottled so dead tuples are reclaimed ~10× sooner. This is Postgres-only: SQLite updates rows in place (no MVCC dead tuples), so it has no equivalent bloat. A different index does not help — dead entries follow the rows into whatever index covers the runnable set; only vacuum reclaims them.
 
 Pool size is set by `--pg-max-open-conns` (default 50, idle = half). Size a worker fleet so `workers × pg-max-open-conns` stays under the server's `max_connections`.
+
+`Flush`'s Postgres path (`SELECT pg_current_xact_id()`, no row) has no automated disk test: `pg_stat_wal` is async and cluster-wide, so a before/after assertion passes with the flush removed. Check by hand (PG ≤ 17): after `select pg_stat_reset_shared('wal')`, twenty `begin; select pg_current_xact_id(); commit;` must move `pg_stat_wal.wal_sync` (0 → 7 when measured) and twenty `begin; select 1; commit;` must not.
 
 ### Adding a query
 

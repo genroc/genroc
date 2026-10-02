@@ -1,10 +1,7 @@
 package validation
 
-// The static half of a declared slot schema. specs/declared-slot-schemas.md.
-//
-// One rule decides every site: where a declaration exists it IS the slot's type, so the check
-// runs against it and the declaration is what the slot publishes. Two answers to "what is this
-// slot" is the drift `SlotContexts` already paid for once.
+// The static half of a declared slot schema: where a declaration exists it IS the slot's type,
+// checked against and published. specs/declared-slot-schemas.md.
 
 import (
 	"fmt"
@@ -15,9 +12,8 @@ import (
 	"genroc/internal/shape"
 )
 
-// declaredShape builds the shape check for a slot carrying a declaration. Conformed selects
-// the relation paired with the runtime conform; the hook words the failure, since the default
-// message says only that something does not conform and a reader needs the key.
+// The hook words the failure: the default says only that something does not conform, and a
+// reader needs the key.
 func declaredShape(raw any, declared *schema.Schema, label string) (shape.Shape, shape.CheckHooks) {
 	sh := shape.Shape{Raw: raw, Name: label, Schema: declared, Conformed: declared != nil}
 	hooks := shape.CheckHooks{}
@@ -30,9 +26,8 @@ func declaredShape(raw any, declared *schema.Schema, label string) (shape.Shape,
 	return sh, hooks
 }
 
-// published is what a slot the definition HANDS BACK publishes: its declaration. That is the
-// contract a consumer reads and `$process` spreads, and it is stable across a refactor inside —
-// which is the whole reason to declare one on an output.
+// published: a slot the definition HANDS BACK publishes its declaration, which is what a consumer
+// reads and `$process` spreads.
 func published(inferred schema.Schema, declared *schema.Schema) schema.Schema {
 	if declared == nil {
 		return inferred
@@ -40,11 +35,9 @@ func published(inferred schema.Schema, declared *schema.Schema) schema.Schema {
 	return *declared
 }
 
-// sent is the type of a slot the definition SENDS: what this definition produces, conformed to
-// the declaration where there is one (schema.Conformed). Not the declaration — that is the far
-// side's contract, with its own address — and not the raw inferred type either, which still
-// carries the nulls the conform removes. This is computed ONCE, here, and the CLI, the resolver
-// manifest and the language server all read the result; none may carry a rule of its own.
+// sent: the inferred type conformed to the declaration — not the declaration (the far side's
+// contract), nor the raw inferred type (it keeps nulls the conform removes). Computed ONCE, here;
+// the CLI, resolver manifest and language server may not carry a rule of their own.
 func sent(inferred schema.Schema, declared *schema.Schema) schema.Schema {
 	if declared == nil {
 		return inferred
@@ -52,9 +45,8 @@ func sent(inferred schema.Schema, declared *schema.Schema) schema.Schema {
 	return inferred.Conformed(*declared)
 }
 
-// declaredBreaks words every place the inferred type fails its declaration. `undeclared` is
-// the kind worth its own sentence: a reader who mistyped a key needs to be told that, not that
-// a type did not match.
+// `undeclared` gets its own sentence: a reader who mistyped a key needs to be told that, not
+// that a type did not match.
 func declaredBreaks(inferred, declared schema.Schema) string {
 	breaks := inferred.ExplainConformsExactlyTo(declared)
 	parts := make([]string, 0, len(breaks))
@@ -83,10 +75,8 @@ func at(path string) string {
 	return path
 }
 
-// checkDeclaredQuery checks a fetch's query map against its declaration, and the declaration
-// itself against the fixed target above it (`queryValueSchema`: a scalar, null, or an array of
-// scalars). The declaration is checked FIRST so a schema that could never be satisfied is
-// reported as a bad declaration rather than as a shape doing what it was told.
+// The declaration is checked against querySchema FIRST, so an unsatisfiable one reports as a bad
+// declaration rather than as a shape doing what it was told.
 func checkDeclaredQuery(s *model.Task, ctx schema.Schema) (schema.Schema, error) {
 	declared := *s.Action.QuerySchema
 	if !declared.IsSubset(querySchema) {
@@ -102,16 +92,14 @@ func checkDeclaredQuery(s *model.Task, ctx schema.Schema) (schema.Schema, error)
 	return sent(inferred, s.Action.QuerySchema), nil
 }
 
-// checkDeclaredListElement checks a child_list's declaration against ONE ELEMENT of `over`.
-// The slot has no `input` shape — each element is one child's input — so without this the
-// declaration would be compared against an empty object and accept anything.
+// checkDeclaredListElement checks a child_list's declaration against ONE ELEMENT of `over`; against
+// the absent `input` it would compare an empty object and accept anything.
 func checkDeclaredListElement(s *model.Task, arr schema.Schema, defs schema.Defs) error {
 	declared := s.Action.InputSchema
 	if declared == nil {
 		return nil
 	}
-	// Resolve through a $ref first: an array reached via a shared definition still has an
-	// item type, and reading `Items` off the ref node finds nothing.
+	// Reading `Items` off a $ref node finds nothing.
 	if arr.HasRef() {
 		if resolved, err := arr.Resolve(); err == nil {
 			arr = resolved
@@ -132,10 +120,8 @@ func checkDeclaredListElement(s *model.Task, arr schema.Schema, defs schema.Defs
 		s.ID, declaredBreaks(elem, *declared))
 }
 
-// checkDeclaredAgainstChild is the registration-time half of a declared child input: what the
-// call site says it sends must fit what the child accepts. It runs OPEN — the child's own
-// schema is not ours to close, and closing it would refuse a declaration that is perfectly
-// good. specs/declared-slot-schemas.md §5.
+// Runs OPEN: the child's schema is not ours to close, and closing it refuses a good declaration.
+// specs/declared-slot-schemas.md §5.
 func checkDeclaredAgainstChild(prefix string, declared schema.Schema, child *model.ProcessDefinition, childVersion int) error {
 	if declared.IsSubset(*child.InputSchema) {
 		return nil
@@ -144,8 +130,7 @@ func checkDeclaredAgainstChild(prefix string, declared schema.Schema, child *mod
 		prefix, child.Name, childVersion, narrowBreaks(declared, *child.InputSchema))
 }
 
-// checkInputShapeAgainstChild is the undeclared path, unchanged: the inferred type of the
-// input shape against the child's schema, since nothing conforms it on the way out.
+// The undeclared path: the inferred type, since nothing conforms it on the way out.
 func checkInputShapeAgainstChild(prefix string, p model.ChildEntry, ctx schema.Schema, defs schema.Defs, child *model.ProcessDefinition, childVersion int) error {
 	var raw any = map[string]any{}
 	if p.Input.Present() {

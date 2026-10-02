@@ -13,10 +13,8 @@ import (
 	"genroc/internal/model"
 )
 
-// sharedPgDB is opened once in TestMain and reused across all tests.
-// nil when POSTGRES_DSN is not set. sharedPgRaw is a plain connection to the
-// same database, used only to wipe tables between tests (the db package keeps
-// its connection unexported, so the black-box tests open their own).
+// sharedPgDB is opened once in TestMain (nil without POSTGRES_DSN). sharedPgRaw is a plain
+// connection to the same database, used only to wipe tables between tests.
 var (
 	sharedPgDB  *dbpkg.DB
 	sharedPgRaw *sql.DB
@@ -31,8 +29,7 @@ func TestMain(m *testing.M) {
 		sharedPgDB = pg
 		defer pg.Close()
 
-		// The stress tests use sharedPgDB directly and only wipe process_instances, but their
-		// fixtures reference process "test" v1 — and the `stress` CI job runs -run TestStress, which
+		// The stress tests' fixtures reference "test" v1, and the `stress` CI job's -run TestStress
 		// skips every testBackends test that would otherwise register it.
 		def := &model.ProcessDefinition{Name: "test", Tasks: []*model.Task{{ID: "step1"}}}
 		if err := pg.SaveDefinition(def, 1, nil, "test-hash", "", ""); err != nil {
@@ -86,10 +83,8 @@ func testBackends(t *testing.T) []backend {
 		out = append(out, backend{sharedPgDB, "postgres"})
 	}
 
-	// Register the baseline definition the fixtures reference (process "test" v1 with a
-	// single task "step1"). Instances store only their current task id now, so the task
-	// list is resolved from the definition — a fixture with no backing definition is
-	// malformed. Tests needing different task shapes (e.g. only_once) register their own.
+	// Instances store only their current task id, so every fixture needs a backing definition:
+	// "test" v1 with task "step1". Tests needing other shapes register their own.
 	for _, b := range out {
 		saveDef(t, b.db, "test", 1, []*model.Task{{ID: "step1"}})
 	}
@@ -122,8 +117,6 @@ func insertRunning(t *testing.T, db *dbpkg.DB, id string) {
 	}
 }
 
-// TestClaimInstances_Basic verifies that an unclaimed instance is returned with
-// the claiming worker's ID and a set lease expiry (RETURNING gives post-update state).
 func TestClaimInstances_Basic(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -146,8 +139,6 @@ func TestClaimInstances_Basic(t *testing.T) {
 	}
 }
 
-// TestClaimInstances_SkipsLiveLease verifies that a second worker cannot steal
-// an instance whose lease has not yet expired.
 func TestClaimInstances_SkipsLiveLease(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -168,8 +159,6 @@ func TestClaimInstances_SkipsLiveLease(t *testing.T) {
 	}
 }
 
-// TestClaimInstances_ReclaimsExpiredLease verifies that after a lease expires a new
-// worker can reclaim the instance.
 func TestClaimInstances_ReclaimsExpiredLease(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -195,10 +184,8 @@ func TestClaimInstances_ReclaimsExpiredLease(t *testing.T) {
 	}
 }
 
-// TestClaimInstances_SkipTakeover verifies the claim mode a worker uses after it
-// discovers it was not running: expired leases are left alone (their owners are about to
-// repair them) while rows nobody holds are still picked up, so a worker in a grace window
-// keeps working instead of idling.
+// Expired leases are left to their owners' repair while unheld rows are still taken, so a worker
+// in its grace window keeps working.
 func TestClaimInstances_SkipTakeover(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -243,8 +230,6 @@ func TestClaimInstances_SkipTakeover(t *testing.T) {
 	}
 }
 
-// TestRenewLease_Extends verifies that a successful renewal pushes the expiry
-// far enough forward that a competing worker cannot reclaim the instance.
 func TestRenewLease_Extends(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -311,10 +296,8 @@ func TestRenewLease_ReportsWhatItWrote(t *testing.T) {
 	}
 }
 
-// TestClaimInstances_CutoffIsTheCallersNotTheClaims verifies that a caller's takeover
-// cutoff is honoured verbatim: a lease that expires between the caller deciding and this
-// claim running is not swept in. That is what lets a worker holding leases of its own claim
-// safely however long it is delayed in between — see Engine.leaseGate.
+// A lease expiring between the caller's decision and the claim is not swept in, so a delayed
+// worker holding leases of its own still claims safely. See Engine.leaseGate.
 func TestClaimInstances_CutoffIsTheCallersNotTheClaims(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -337,7 +320,6 @@ func TestClaimInstances_CutoffIsTheCallersNotTheClaims(t *testing.T) {
 	}
 }
 
-// TestRenewLease_WrongWorker verifies that renewal by a non-owner is a no-op.
 func TestRenewLease_WrongWorker(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -364,8 +346,6 @@ func TestRenewLease_WrongWorker(t *testing.T) {
 	}
 }
 
-// TestUpdateInstance_ClearsLease verifies that UpdateInstance always releases the
-// lease so the next worker can reclaim freely.
 func TestUpdateInstance_ClearsLease(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

@@ -1,6 +1,5 @@
-# A child may leave a value untyped ({}, the top type) and let the parent restate its shape
-# in result_schema; collect conforms the value at runtime, which is what makes that sound.
-# Changing the child must therefore not report the parent's narrowing as a break.
+# The child's output is `{}` and the parent restates it in result_schema (collect conforms it
+# at runtime), so changing the child must not report the parent's narrowing as a break.
 apply:
   - channel: unknown_a
     definitions:

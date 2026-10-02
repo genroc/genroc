@@ -1,8 +1,6 @@
-// Package errcode is the single source of truth for genroc's engine-produced error codes, stored
-// in an instance's error_code and matched by on_error rules. It has no genroc dependencies, so
-// every layer references the same constants without an import cycle. Authored codes (raise /
-// panic) are NOT here: those are lower_snake_case and may not contain a dot, which is what keeps
-// them distinct from the dotted engine codes. See specs/child-error-handling.md.
+// Package errcode is the single source of truth for engine-produced error codes, and imports
+// nothing from genroc. Authored raise/panic codes are not here: they are lower_snake_case and
+// never contain a dot. See specs/child-error-handling.md.
 package errcode
 
 import (
@@ -10,15 +8,11 @@ import (
 	"strings"
 )
 
-// Code is the value stored in an instance's error_code: an engine code from this package,
-// or an author's raise/panic code. A defined type rather than a bare string so a plain
-// string cannot drift into a slot expecting a code — an untyped constant still converts
-// implicitly, so an explicit conversion marks exactly where a non-code becomes one.
+// Code is an engine code or an author's raise/panic code. A defined type, so an explicit
+// conversion marks exactly where a plain string becomes one.
 type Code string
 
-// Call codes — reported by an action's call, and CATCHABLE by on_error on the action task.
-// What each one means, and which task reports it, is `catchable` in catchable.go: one home for
-// the prose, so an editor and a doc cannot describe a code the engine does not.
+// Call codes, catchable by on_error. Their prose lives only in `catchable` (catchable.go).
 const (
 	HTTPTimeout      Code = "http.timeout"
 	HTTPDisconnected Code = "http.disconnected"
@@ -35,38 +29,31 @@ const (
 // unbounded, so this family is a function rather than a constant — the only dynamic code.
 func HTTP(status int) Code { return Code(fmt.Sprintf("http.%d", status)) }
 
-// Catchable engine codes — produced by the engine rather than by a call, but routed
-// through on_error like a call code. There is exactly one, and the family is named after
-// the declaration that produces it rather than after a subject, because that is the only
-// thing that can produce it: see specs/only-once-interrupted.md.
+// The one catchable engine code, named after the only declaration that can produce it.
+// specs/only-once-interrupted.md.
 const (
-	// OnlyOnceInterrupted means an only_once task's previous attempt was interrupted, so the
-	// engine will not re-run it. Catchable — unlike every other engine code — because whether
-	// the call took effect is unknown here and often knowable to the definition.
+	// OnlyOnceInterrupted: the engine will not re-run an interrupted only_once task. Catchable
+	// because whether the call took effect is often knowable to the definition.
 	OnlyOnceInterrupted Code = "only_once.interrupted"
 )
 
-// NotReached is the prefix of the codes that mean the remote was never reached (the call
-// failed before the request left). A retry of such a code is safe even for an only_once
-// task, since nothing happened remotely.
+// NotReached prefixes the codes where the request never left: retrying them is safe even
+// on an only_once task.
 const NotReached = "pre."
 
 // IsNotReached reports whether c is in the pre.* "call never reached the remote" family.
 func (c Code) IsNotReached() bool { return strings.HasPrefix(string(c), NotReached) }
 
-// unknowable is NotReached's opposite pole: the request left, nothing came back, so the
-// outcome is undeterminable — never retryable on only_once, not_reached does not override.
-// Enforced at registration AND runtime (pre-rule definitions never re-validate). A slice:
-// validation iterates it and order shows in messages.
+// unknowable: the request left and nothing came back, so never retryable on only_once. A
+// slice because validation iterates it and the order shows in messages.
 var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, HTTPDisconnected, ExternalTimeout, ExternalLost}
 
 // Unknowable returns the codes whose outcome cannot be determined either way. The
 // returned slice must not be modified.
 func Unknowable() []Code { return unknowable }
 
-// IsUnknowable reports whether c is one of the codes where the request left and no
-// response came back. The mirror of IsNotReached: "definitely did not happen" versus
-// "cannot be known either way".
+// IsUnknowable is the mirror of IsNotReached: "cannot be known either way" versus
+// "definitely did not happen".
 func (c Code) IsUnknowable() bool {
 	for _, u := range unknowable {
 		if c == u {
@@ -103,10 +90,8 @@ func MatchCode(p, s string) bool {
 	return len(s) == 0
 }
 
-// Engine-internal codes — the engine failed the instance itself, not a call. These are
-// TERMINAL: they go straight to failInstance and are never routed through on_error, so they
-// cannot be caught. Every terminal failure still carries one so error_code is uniformly
-// queryable.
+// Engine-internal codes are TERMINAL: never routed through on_error. Every terminal failure
+// carries one so error_code is uniformly queryable.
 const (
 	EngineDefinition Code = "engine.definition" // definition unusable: missing, or names a task/goto not in it
 	EngineExpression Code = "engine.expression" // an expression could not be evaluated against this context

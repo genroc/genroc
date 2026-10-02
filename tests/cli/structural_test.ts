@@ -4,9 +4,8 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// A REGISTERED structural resolver: the same manifest the code phase sends, minus types (it runs
-// before inference), answered with one value per site instead of one string. `$process` is the
-// built-in instance; this is any other. specs/source-resolution.md §Registered structural resolvers.
+// A registered structural resolver: the code phase's manifest minus types, answered with one value
+// per site. specs/source-resolution.md §Registered structural resolvers.
 
 let bin: string;
 beforeAll(() => {
@@ -22,9 +21,8 @@ function resolved(t: any): any {
   return t?.$defs?.[name] ?? t;
 }
 
-/** A fragment loader: each site's argument names a JSON file beside the definition. The file's
- *  text is spliced into the reply VERBATIM, since JSON.parse would round a big number here, in
- *  the resolver, before genctl ever saw it. */
+/** Splices each site's JSON file into the reply VERBATIM: JSON.parse would round a big number
+ *  here, before genctl ever saw it. */
 const FRAG_RESOLVER = `
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -57,8 +55,7 @@ function project(registry = REGISTRY): Project {
   };
 }
 
-// Written as text, not stringified: the default is past float64, and it must reach the type
-// view exact the way any authored number does.
+// Text, not stringified: the default is past float64.
 const INPUT = '{"type":"object","properties":{"n":{"type":"number","default":12345678901234567890}}}';
 
 test("a slot directive is filled with the value the resolver answers", () => {

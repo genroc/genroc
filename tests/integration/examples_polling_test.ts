@@ -5,12 +5,8 @@ import { load as loadYaml } from "js-yaml";
 import { expect, test } from "vitest";
 import { childrenOfTask, client, outputsOf, waitForInstance } from "../helpers/client.ts";
 
-// The definitions under test are the real example files in examples/polling-task/, loaded
-// and applied verbatim — so this doubles as an executable check that the shipped example
-// works end to end. The poller returns the job's payload as `unknown` plus a typed
-// `attempts`, and the parent narrows the payload with a result_schema; running out of
-// attempts is RAISED as `poll_timeout` and caught on the child task. (Vitest's bundler
-// can't `import` a .yaml file, so we read + parse the source instead.)
+// Applies examples/polling-task verbatim, so this doubles as a check that the shipped example works.
+// (Vitest's bundler cannot `import` a .yaml file, so the source is read and parsed.)
 const EXAMPLES = new URL("../../examples/polling-task/", import.meta.url);
 function loadDef(file: string): any {
   return loadYaml(readFileSync(new URL(file, EXAMPLES), "utf8"));
@@ -18,16 +14,8 @@ function loadDef(file: string): any {
 const poller = loadDef("poller.genroc.yaml");
 const parent = loadDef("parent.genroc.yaml");
 
-// startJobService stands in for the remote server the poller talks to. It signals
-// progress with the HTTP STATUS, not a body field — which is what lets the poller treat
-// both response bodies as opaque.
-//   POST /jobs   -> 200 { job_id }  starts a job (the poller never reads this body)
-//   POST /status -> 202 {}          still running, for the first `pendingPolls` checks
-//                -> 200 result      done
-// Jobs are keyed by the caller-supplied `ref`, since the poller cannot carry a
-// server-assigned id from one request to the other. Every request must carry
-// `expectedAuth` or it's rejected 401 — so a completed run proves the auth header the
-// parent set reached the service on each call.
+// Progress is the HTTP STATUS (/status: 202 for the first `pendingPolls`, then 200), so the poller
+// treats bodies as opaque. Jobs key on the caller's `ref`; a request without `expectedAuth` gets 401.
 async function startJobService(
   pendingPolls: number,
   result: Record<string, unknown>,
@@ -108,8 +96,7 @@ async function startExample(port: number, extra: Record<string, unknown> = {}): 
   return data!.id;
 }
 
-// A single `child` task's placeholder is the bare child id, keyed by the task that spawned it.
-// Poll until it appears and return the child instance id.
+// A single `child` task's placeholder is the bare child id.
 async function waitForChildId(parentId: string, timeoutMs = 10_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -122,9 +109,8 @@ async function waitForChildId(parentId: string, timeoutMs = 10_000): Promise<str
 
 test("examples/polling-task: the poller returns the job's answer to the parent", async () => {
   const pendingPolls = 2; // two "pending" replies, then "done" on the third check
-  // The payload carries a field the parent's result_schema does not declare, proving the
-  // poller really is agnostic: it forwards whatever the job produced, and narrowing at the
-  // parent strips the surplus rather than rejecting it.
+  // `debug` is undeclared by the parent's result_schema: the poller forwards it, and the parent's
+  // narrowing strips it rather than rejecting.
   const mock = await startJobService(pendingPolls, { answer: 42, debug: "ignored" }, `Bearer ${AUTH_TOKEN}`);
 
   try {
@@ -133,9 +119,7 @@ test("examples/polling-task: the poller returns the job's answer to the parent",
 
     expect(await waitForInstance(id, 20_000)).toBe("completed");
 
-    // The payload travelled up opaque and came out typed: `answer` is readable only
-    // because the parent narrowed it, `attempts` was typed by the child all along, and
-    // `debug` was dropped by the narrowing conform. The error path was never taken.
+    // `answer` is readable only because the parent narrowed it; `attempts` was typed by the child.
     const outputs = await outputsOf(id);
     expect(outputs.run).toEqual({ answer: 42, attempts: pendingPolls + 1 });
     expect(outputs.report).toBeUndefined();
@@ -151,10 +135,8 @@ test("examples/polling-task: the poller returns the job's answer to the parent",
   }
 });
 
-// The trade-off `unknown` makes: because the poller never inspects the payload, a
-// malformed one is not caught where it is produced (the child's fetch accepts it — the
-// slot is unknown) but where it is consumed, when the parent's result_schema conforms the
-// collected child output. Later, and outside the child's own on_error scope.
+// The poller never inspects the payload, so a malformed one is caught where it is consumed (the
+// parent's collect), outside the child's own on_error scope.
 test("examples/polling-task: a payload that fails the parent's narrowing is caught at the parent", async () => {
   const pendingPolls = 1;
   // `answer` is a string; the parent's result_schema declares it a number.

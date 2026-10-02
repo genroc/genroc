@@ -1,17 +1,9 @@
 import { expect, test } from "vitest";
 import { client, runToEnd } from "../helpers/client.ts";
 
-// The paths that reach a child task WITHOUT going through advance's ordinary switch, plus
-// the one batch shape child_loop_test.ts does not cover. Each is a distinct enterTask call
-// site (or a distinct collect path), and a site that forgets to move task_epoch re-spawns
-// into the batch its predecessor already claimed.
-//
-// Only the third of these DISCRIMINATES on its own -- measured, by removing the bump and
-// watching which fail. child_map merges duplicate keys with no error (buildMapChildOutput
-// overwrites, and GetChildrenForTask has no ORDER BY), and a raised batch picks raised[0]
-// the same way, so both would pass or fail by luck. Their deterministic assertion is on the
-// batch numbers in tests/tick/task_epoch_test.ts. These two earn their place by running on
-// BOTH engines -- the tick tests read SQLite directly and are single-engine.
+// Each is a distinct enterTask site; one that forgets to move task_epoch re-spawns into its
+// predecessor's batch. Only the third discriminates alone (the others pass or fail by luck; see
+// tests/tick/task_epoch_test.ts) — they earn their place by running on BOTH engines.
 
 async function define(name: string, body: Record<string, unknown>) {
   const { error } = await client.PUT("/definitions", { body: { name, ...body } as never });

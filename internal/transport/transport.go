@@ -17,17 +17,12 @@ import (
 	"genroc/internal/model"
 )
 
-// MaxResponseBytes caps the body a fetch reads into memory. A worker holds leases on every
-// instance it claimed, so an OOM here strands all of them until those leases expire — one
-// endpoint streaming an unbounded body must not be able to do that. Far above the 2 KiB at
-// which a value externalizes to the object store, so it bounds the pathological case
-// without capping a legitimately large result.
+// MaxResponseBytes caps the body a fetch reads into memory: an OOM here strands every lease
+// the worker holds. specs/resource-limits.md.
 const MaxResponseBytes = 8 << 20
 
-// Shared by every fetch; deliberately NO Client.Timeout — the per-attempt budget is the
-// caller's context deadline, and a second ceiling would silently override declared
-// timeouts. Idle limits raised: stdlib's MaxIdleConnsPerHost=2 re-dials (and re-handshakes
-// TLS) nearly every call.
+// Deliberately NO Client.Timeout: the budget is the caller's context deadline. Idle limits
+// raised: stdlib's 2 per host re-handshakes TLS nearly every call. CLAUDE.md.
 var client = func() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConns = 512
@@ -35,19 +30,15 @@ var client = func() *http.Client {
 	return &http.Client{Transport: t}
 }()
 
-// Identity headers genroc stamps on every fetch request so the receiving service can
-// correlate a call back to the instance/task that made it — the context the request
-// body used to carry as an envelope before fetch switched to a raw body.
+// Identity headers stamped on every fetch, so the receiver can correlate a call to its
+// instance and task.
 const (
 	HeaderInstanceID = "X-Genroc-Instance-Id"
 	HeaderTaskID     = "X-Genroc-Task-Id"
 )
 
-// Response carries the result of a Send call. Body holds the decoded JSON body on an unaccepted
-// status as much as on an accepted one -- whether an error body is readable is the caller's
-// decision. BodyCode says why Body is absent and is NOT a verdict, since a status nobody declared
-// a schema for may answer with HTML; ErrorCode is non-empty ONLY when the status was not
-// accepted, so the caller can tell "the remote refused" from "the body was unreadable".
+// Response decodes Body on any status. BodyCode says why Body is absent and is NOT a verdict
+// (an undeclared status may answer with HTML); ErrorCode is set ONLY for an unaccepted status.
 type Response struct {
 	Body         any
 	Headers      map[string]string
@@ -57,14 +48,12 @@ type Response struct {
 	Status       int
 }
 
-// errorMessageBytes is how much of an unaccepted response is kept as human-readable text.
-// The whole body is still decoded into Body; this is the operator's copy, and it stays short
-// because it lands in an audit row.
+// errorMessageBytes is the operator's copy of an unaccepted body, short because it lands in
+// an audit row.
 const errorMessageBytes = 512
 
-// Send dispatches a fetch HTTP request. url, method, acceptedStatus, and headers are
-// pre-resolved (accepted_status is a shape evaluated by the engine); body is the raw
-// payload — an object is marshaled to JSON, a string sent as-is, nil sends no body.
+// Send takes every slot pre-resolved. An object body is marshaled to JSON, a string sent
+// as-is, and nil sends no body.
 func Send(ctx context.Context, call *model.Action, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
 	switch call.Type {
 	case model.ActionTypeFetch:
@@ -74,24 +63,19 @@ func Send(ctx context.Context, call *model.Action, url, method string, acceptedS
 	}
 }
 
-// notSent marks a failure that never even acquired a connection — the positive evidence
-// pre.* asserts. Anything weaker than that is a guess: pre.* licenses a retry on an
-// only_once task, so "we did not observe a write" is not enough, only "there was nothing
-// to write to".
+// notSent marks a failure that never acquired a connection, the positive evidence pre.*
+// asserts: "we did not observe a write" is not enough. CLAUDE.md.
 type notSent struct{ err error }
 
 func (e notSent) Error() string { return e.err.Error() }
 func (e notSent) Unwrap() error { return e.err }
 
-// sendHTTP wraps doHTTP solely to apply that mark in ONE place: every failure before the
-// request hits the wire is caught here, so a new early return in doHTTP cannot silently
-// inherit the unknowable default.
+// sendHTTP wraps doHTTP solely to apply that mark in ONE place, so a new early return in
+// doHTTP cannot silently inherit the unknowable default.
 func sendHTTP(ctx context.Context, c *http.Client, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
 	var mayHaveSent atomic.Bool
-	// GotConn is the load-bearing half: it is delivered before the request is handed to the
-	// write goroutine, so "no connection" is stable by the time Do returns, whereas
-	// WroteRequest races that return. No connection, no bytes. WroteRequest is kept as the
-	// belt to that braces — it can only widen the answer, never narrow it.
+	// GotConn is the load-bearing half; WroteRequest races Do's return and can only widen the
+	// answer.
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
 		GotConn:      func(httptrace.GotConnInfo) { mayHaveSent.Store(true) },
 		WroteRequest: func(httptrace.WroteRequestInfo) { mayHaveSent.Store(true) },
@@ -164,9 +148,8 @@ func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedSta
 		}, nil
 	}
 
-	// One byte past the cap, so draining the allowance is itself the proof the body
-	// exceeded it — checked on both exits, since a body over the limit may equally well
-	// parse (a huge but valid value) or fail (a value truncated mid-token).
+	// One byte past the cap: draining the allowance is the proof, checked before the decode
+	// error. CLAUDE.md.
 	limited := &io.LimitedReader{R: resp.Body, N: MaxResponseBytes + 1}
 	var b any
 	err = numeric.DecodeReader(limited, &b)
@@ -189,9 +172,8 @@ func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedSta
 	return &Response{Body: b, Headers: responseHeaders(resp.Header), Status: resp.StatusCode}, nil
 }
 
-// decodeBytes decodes an already-buffered body, reporting why it could not be read rather
-// than failing: the caller pairs this with the declaration to decide whether it matters.
-// len(raw) is past the cap only because the reader was given MaxResponseBytes+1.
+// decodeBytes reports rather than fails: the caller pairs it with the declaration. len(raw)
+// is past the cap only because the reader was given MaxResponseBytes+1.
 func decodeBytes(raw []byte) (any, errcode.Code) {
 	if len(raw) > MaxResponseBytes {
 		return nil, errcode.ResultTooLarge
@@ -206,11 +188,8 @@ func decodeBytes(raw []byte) (any, errcode.Code) {
 	return v, ""
 }
 
-// responseHeaders flattens a response's headers into the flat object<string> a definition
-// reads. Keys are LOWERCASED: Go canonicalises to `Retry-After`, so a canonicalised map would
-// make `self.headers['retry-after']` silently null — predictability beats fidelity, and
-// browsers lowercase too. Repeated headers are comma-joined so the type stays flat; Set-Cookie
-// is the accepted casualty of that.
+// responseHeaders LOWERCASES keys, or `self.headers['retry-after']` reads a silent null.
+// Repeats are comma-joined to keep the type flat; Set-Cookie is the accepted casualty.
 func responseHeaders(h http.Header) map[string]string {
 	if len(h) == 0 {
 		return nil
@@ -230,10 +209,8 @@ func methodAllowsBody(method string) bool {
 	return true
 }
 
-// ClassifyGoError maps a transport-level Go error (a REST call that never got an HTTP response)
-// to an error code. The split is retry safety, not diagnosis: pre.* asserts the remote CANNOT
-// have seen the request, so only a failure sendHTTP marked notSent earns it. Everything else is
-// unknowable — a connection breaking once the bytes are out cannot say whether the remote acted.
+// ClassifyGoError splits by retry safety, not diagnosis: pre.* asserts the remote CANNOT have
+// seen the request, so only a failure sendHTTP marked notSent earns it.
 func ClassifyGoError(err error) errcode.Code {
 	var unsent notSent
 	sent := !errors.As(err, &unsent)

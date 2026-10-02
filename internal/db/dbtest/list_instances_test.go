@@ -37,9 +37,7 @@ func summaryIDs(items []*model.InstanceSummary) []string {
 	return out
 }
 
-// TestListInstances_SortAndSummary covers the listing's two index-backed sorts and
-// confirms the summary projection carries the scalar fields. The default sort is
-// created (newest first, a stable/immutable key); updated is opt-in.
+// The default sort is created (newest first, immutable); updated is opt-in.
 func TestListInstances_SortAndSummary(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -99,9 +97,8 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 				t.Errorf("status filter = %v, want [%s]", summaryIDs(completed), a.ID)
 			}
 
-			// The two bounds are independent columns, and 'a' (created first, updated last) is the row
-			// that tells them apart. Read the bound off a DB row, not saveInstance's argument — that
-			// struct never carries the stamped timestamps, so a zero would skip the filter entirely.
+			// 'a' (created first, updated last) tells the bounds apart. Read the bound off a
+			// DB row: saveInstance's argument lacks the stamped timestamps, and 0 skips the filter.
 			at := got[1].CreatedAt.UnixMilli() // b's created_at (got is c, b, a)
 			byCreated, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Created: dbpkg.Window{After: at}})
 			if err != nil {
@@ -144,8 +141,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 	}
 }
 
-// TestUpdatedAt_Advances documents the guarantee the updated sort relies on: every
-// state-changing write bumps updated_at while created_at stays fixed.
+// The updated sort relies on every state-changing write bumping updated_at, never created_at.
 func TestUpdatedAt_Advances(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -190,9 +186,7 @@ func equalStrs(a, b []string) bool {
 	return true
 }
 
-// TestListInstances_ProcessFilter covers the process-name filter and, with it, that the
-// filters intersect rather than the last one winning. The empty-string case is the one
-// that matters most: it must mean "every process", not "a process named empty".
+// Filters intersect rather than the last winning, and "" means every process, not one named "".
 func TestListInstances_ProcessFilter(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -236,9 +230,8 @@ func TestListInstances_ProcessFilter(t *testing.T) {
 	}
 }
 
-// TestListInstances_VersionAndRootFilters covers the two filters an upgrade sweep iterates
-// on: instances of one process still on the version being moved from, and only the roots --
-// a child is not a unit of upgrade, so a sweep that returned them would collect refusals.
+// An upgrade sweep's filters: a child is not a unit of upgrade, so a sweep returning children
+// would collect refusals.
 func TestListInstances_VersionAndRootFilters(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -283,9 +276,8 @@ func TestListInstances_VersionAndRootFilters(t *testing.T) {
 	}
 }
 
-// TestListInstances_PhaseFilter covers the filter the external-task listing is built on.
-// phase is orthogonal to status — every row here is running — so a filter that fell back
-// to status would return all four.
+// phase is orthogonal to status (every row here is running), so a filter falling back to status
+// would return all four.
 func TestListInstances_PhaseFilter(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -335,9 +327,8 @@ func TestListInstances_PhaseFilter(t *testing.T) {
 	}
 }
 
-// TestListInstances_TaskFilter covers the task filter. A task id is a position, not an
-// identity: the same spelling in two definitions is two different tasks, so the filter spans
-// them until --process narrows it — which is the behaviour the pairing advice rests on.
+// A task id is a position, not an identity: the filter spans definitions until --process narrows
+// it, which the pairing advice rests on.
 func TestListInstances_TaskFilter(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -384,9 +375,7 @@ func TestListInstances_TaskFilter(t *testing.T) {
 	}
 }
 
-// TestListInstances_StatusSet covers the several-statuses form. One value must behave exactly as
-// it did when this filter took a single string -- that is the compatibility the set has to keep --
-// and the set must be a union rather than the last value winning.
+// One value must behave as the single-string filter did, and the set is a union, not last-wins.
 func TestListInstances_StatusSet(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

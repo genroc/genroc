@@ -1,20 +1,15 @@
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-// Exercises the `delay` action: it parks the instance by stamping next_retry_at
-// (releasing the worker) and the normal claim loop resumes it once the server
-// clock advances past the resolved instant. Driven in manual-tick mode with
-// /tick advance_ms. These use the bare-number form of `for` (milliseconds); the
-// literal grammars are covered by internal/delayspec.
+// `delay` parks by stamping next_retry_at and resumes once the server clock passes it. `for` is
+// bare milliseconds here; the literal grammars are covered by internal/delayspec.
 const ctx = useTickEnv();
 
-// The `delay_armed` audit rows, oldest first: each carries "<spec> -> <RFC3339 wake>", and
-// its own time is when the delay armed. Rows are flushed off the hot path (logFlushInterval
-// = 5ms), so they are not guaranteed readable the instant /tick returns — poll for `want`.
+// delay_armed rows read "<spec> -> <RFC3339 wake>", timestamped at arming. They flush on a 5ms
+// ticker, so poll for `want`.
 async function armLogs(id: string, want: number) {
   for (let attempt = 0; ; attempt++) {
-    // order=asc: the endpoint sorts newest-first like every list, but these assertions
-    // read the trail in the order it happened, and arms.at(-1) means the latest arm.
+    // order=asc: the endpoint defaults newest-first, and arms.at(-1) must be the latest arm.
     const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
       params: { path: { id }, query: { limit: 100, order: "asc" } },
     });
@@ -53,10 +48,8 @@ test("delay parks the instance until the clock advances past ms", async () => {
   expect(await ctx.env.status(id)).toBe("completed");
 });
 
-// The literal grammar has to reach wake_at, not just pass registration: "2h30m" must park
-// for ~9,000,000ms. Bracketing it a minute either side rules out the ways a literal can go
-// wrong (resolving to zero, dropping the "30m", or reading "m" as milliseconds) without
-// racing the real time that elapses between arming and the advance.
+// Bracketing 2h30m a minute either side rules out zero, a dropped "30m", or "m" read as ms,
+// without racing the real time that elapses between arming and the advance.
 test("a `for` literal resolves to its stated duration", async () => {
   await ctx.env.define("delay_literal", [
     { id: "wait", action: { type: "delay", for: "2h30m" }, switch: "end" },
@@ -75,11 +68,8 @@ test("a `for` literal resolves to its stated duration", async () => {
   expect(await ctx.env.status(id)).toBe("completed");
 });
 
-// A stepped `until` has to reach wake_at aligned, which no status check can see — the
-// instance parks either way. The armed instant is in the audit log (delay_armed carries
-// "spec -> RFC3339"), so the assertion is made there: on the grid, and no more than one
-// period away. A `for: "5s"` — the drifting stand-in this syntax replaces — passes neither
-// half from an off-grid arm time.
+// Alignment is invisible to status, so it is asserted on the delay_armed log: on the grid, and
+// within one period of the arm.
 test("a stepped `until` arms on the field's grid, not on the arm time", async () => {
   await ctx.env.define("delay_step", [
     { id: "wait", action: { type: "delay", until: "*:*:0/5" }, switch: "end" },
@@ -104,10 +94,8 @@ test("a stepped `until` arms on the field's grid, not on the arm time", async ()
   expect(wait).toBeGreaterThan(0);
   expect(wait).toBeLessThanOrEqual(5000);
 
-  // And it is a real timer: parked until the clock reaches it, then done. The server clock
-  // is real time plus the /tick offset, so an arm that landed just short of a grid point is
-  // legitimately due by the time the requests above return — assert "still parked" only
-  // while the grid point is demonstrably still ahead of the elapsed wall clock.
+  // The server clock is real time plus the /tick offset, so an arm just short of a grid point
+  // may already be due; assert "still parked" only while the point is demonstrably ahead.
   if (wait - (Date.now() - wallBeforeArm) > 1000) {
     expect(await ctx.env.tick()).toBe(0);
   }
@@ -115,10 +103,8 @@ test("a stepped `until` arms on the field's grid, not on the arm time", async ()
   expect(await ctx.env.status(id)).toBe("completed");
 });
 
-// Drift is a property of the *loop*, not of one resolution: every single arm above can be
-// correct and the schedule still walk off the grid once the task re-arms behind its own
-// runtime. This runs the loop the way a process does — the task routes back to itself — and
-// checks the whole sequence, which is the shape the weather playground actually uses.
+// Drift is a property of the loop: each arm can be right and the schedule still walk off the
+// grid once the task re-arms behind its own runtime.
 test("re-arming in a loop stays on the grid instead of drifting", async () => {
   await ctx.env.define("delay_loop", [
     {
@@ -130,10 +116,8 @@ test("re-arming in a loop stays on the grid instead of drifting", async () => {
   ]);
   const id = await ctx.env.start("delay_loop");
 
-  // Each round: one tick arms the delay, then the clock advances by that arm's own
-  // remaining wait. A flat period would instead carry the real time each round's requests
-  // took into the next round, and once that carry outgrew the first arm's sub-period offset
-  // a round would overshoot a grid point — a skipped period, read below as drift.
+  // Advance by each arm's own remaining wait: a flat period would carry each round's real request
+  // time forward until a round overshoots a grid point, which reads below as drift.
   for (let round = 1; round <= 5; round++) {
     await ctx.env.tick();
     const arms = await armLogs(id, round);
@@ -149,9 +133,7 @@ test("re-arming in a loop stays on the grid instead of drifting", async () => {
   for (const [n, at] of armed.entries()) {
     expect(new Date(at).getSeconds() % 5, `arm ${n} landed at ${new Date(at).toISOString()}`).toBe(0);
   }
-  // Consecutive arms exactly one period apart: the clock is advanced by exactly a period
-  // each round, so anything that anchored on arm time instead of on the grid would show up
-  // here as a gap that grows.
+  // Anchoring on arm time instead of the grid would show here as a growing gap.
   for (let n = 1; n < armed.length; n++) {
     expect(armed[n]! - armed[n - 1]!, `arms ${n - 1}→${n}`).toBe(5000);
   }
@@ -197,11 +179,9 @@ test("delay does not resume before the full ms has elapsed", async () => {
 
   expect(await ctx.env.tick()).toBe(1); // arm
 
-  // Advancing only part of the way leaves it parked.
   await ctx.env.client.POST("/tick", { body: { advance_ms: 30000 } });
   expect(await ctx.env.status(id)).toBe("running");
 
-  // Advancing the remainder resumes and completes it.
   await ctx.env.client.POST("/tick", { body: { advance_ms: 30000 } });
   expect(await ctx.env.status(id)).toBe("completed");
 });
@@ -221,13 +201,10 @@ test("resume continues a delay toward its original deadline", async () => {
   expect(await ctx.env.status(id)).toBe("paused");
 
   await ctx.env.resume(id);
-  // Resumed toward the original (still-future) deadline, NOT re-armed: a plain tick
-  // claims nothing because the preserved timer has not elapsed. (A from-scratch
-  // re-arm would instead claim it once to re-stamp the timer — i.e. tick() === 1.)
+  // Resumed toward the original deadline, NOT re-armed: a re-arm would claim it once (tick() === 1).
   expect(await ctx.env.tick()).toBe(0);
   expect(await ctx.env.status(id)).toBe("running");
 
-  // Reaching the original deadline completes it.
   await ctx.env.client.POST("/tick", { body: { advance_ms: 60000 } });
   expect(await ctx.env.status(id)).toBe("completed");
 });
@@ -246,15 +223,11 @@ test("a delay whose deadline passes while paused is due the moment it resumes", 
   await ctx.env.pause(id);
   expect(await ctx.env.status(id)).toBe("paused");
 
-  // Pausing suspends execution, not time: the clock keeps running against the
-  // preserved wake_at, so this deadline elapses while the instance sits paused.
-  // Ticking there still does nothing — a paused instance is never claimed.
+  // Pausing suspends execution, not time: the deadline elapses while paused.
   await ctx.env.client.POST("/tick", { body: { advance_ms: 10000 } });
   expect(await ctx.env.status(id)).toBe("paused");
 
-  // On resume the timer is already in the past, so it runs straight through with no
-  // further clock advance. (Freezing the remaining duration instead would park it
-  // 5s into the future and never settle here.)
+  // Freezing the remaining duration on pause would park it 5s out and never settle here.
   await ctx.env.resume(id);
   await ctx.env.tickUntilIdle();
   expect(await ctx.env.status(id)).toBe("completed");

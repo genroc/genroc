@@ -2,10 +2,8 @@ package schema
 
 import "strconv"
 
-// One spelling of an access path shared by error messages, shape labels and guard keys —
-// the expression language's own accessor syntax, so authors can paste it back. Dots alone
-// name the wrong thing (headers.retry-after is a subtraction; a.a.b ambiguates a["a.b"]);
-// bracket-quoting keeps the rendering injective, which is what lets guards key off it.
+// One access-path spelling for error messages, shape labels and guard keys — expression syntax,
+// so authors can paste it back. Bracket-quoting keeps it injective, which guards key off.
 
 // identifierKey reports whether name can be spelled with dot access. Deliberately
 // narrower than the lexer's identifier rule — bracket-quoting a key that did not
@@ -41,10 +39,8 @@ func JoinIndex(path string, i int) string {
 	return path + "[" + strconv.Itoa(i) + "]"
 }
 
-// renderPath renders navigation steps as an access path. A computed key renders
-// as the accessor it came from, `a[k]` — still valid expression syntax, though not
-// something parsePath reads back: parsePath handles static paths only, and a
-// computed step never arises from one.
+// renderPath renders a computed key as `a[k]` — valid expression syntax, but not something
+// parsePath reads back (static paths only).
 func renderPath(steps []pathStep) string {
 	path := ""
 	for _, st := range steps {
@@ -67,10 +63,8 @@ type Segment struct {
 	IsIndex bool
 }
 
-// ParsePath reads back the syntax JoinPath and JoinIndex emit, for a caller addressing
-// something that is NOT a schema — a slot address is this same path grammar over a definition
-// (specs/schema-command.md). One parser for one syntax: a second reader of it is a drift that
-// shows up the day the two disagree.
+// ParsePath reads back what JoinPath and JoinIndex emit, for addressing something that is NOT
+// a schema (a slot address, specs/schema-command.md). Do not write a second reader of it.
 func ParsePath(path string) ([]Segment, error) {
 	steps, err := parsePath(path)
 	if err != nil {

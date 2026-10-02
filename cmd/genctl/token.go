@@ -1,7 +1,7 @@
 package main
 
-// genctl token: API credentials managed over the API, which is why this needs an admin
-// credential of its own. The break-glass equivalent that needs none is `genroc token`.
+// genctl token: API credentials managed over the API, so it needs an admin credential; the
+// break-glass `genroc token` needs none. specs/api-auth.md §5.3.
 
 import (
 	"crypto/rand"
@@ -26,13 +26,9 @@ func maskToken(t string) string {
 	return t[:len(tokenPrefix)+keep] + "…"
 }
 
-// tokenPrefix mirrors db.TokenPrefix. Duplicated rather than imported: genctl is a client and
-// must not depend on the server's internal packages.
+// tokenPrefix mirrors db.TokenPrefix: genctl may not import internal/db.
 const tokenPrefix = "genroc_sk_"
 
-// `genctl token` manages API credentials over the API, which means it needs an admin
-// credential of its own. The break-glass equivalent that needs none is `genroc token`, run
-// against the database by whoever can read it. specs/api-auth.md §5.3.
 func runTokenCmd(server string, args []string) {
 	if len(args) == 0 {
 		missingSubcommand("token")
@@ -54,10 +50,8 @@ func runTokenCmd(server string, args []string) {
 
 	switch sub {
 	case "generate":
-		// Offline: no server, no credential. This is what makes "the operator supplies the
-		// token" possible at all — `create` needs an authenticated server, so it cannot make
-		// the FIRST one. Generated here, the secret never originates inside genroc, never
-		// reaches its logs, and never rests in its container.
+		// Offline: `create` needs an authenticated server, so it cannot make the FIRST token.
+		// The secret never originates inside genroc.
 		secret, err := generateTokenSecret()
 		if err != nil {
 			fatal("%v", err)
@@ -82,7 +76,6 @@ func runTokenCmd(server string, args []string) {
 		if err := call(*serverFlag+"/api/tokens", http.MethodPost, body, &resp); err != nil {
 			fatal("%v", err)
 		}
-		// The secret alone on stdout, so it composes: TOKEN=$(genctl token create --perms read -q).
 		if *quietFlag {
 			fmt.Println(resp.Token)
 			return
@@ -129,8 +122,7 @@ func runTokenCmd(server string, args []string) {
 		fmt.Fprintln(w, "ID\tLABEL\tPERMS\tACTOR\tCREATED\tLAST USED\tEXPIRES\tSTATUS")
 		now := time.Now().UTC()
 		for _, t := range rows {
-			// Expiry is a status, not just a column: a lapsed token reported as "live" is the
-			// row an operator skips while wondering why the caller gets 401.
+			// Expiry is a status: a lapsed token shown "live" is skipped while chasing a 401.
 			status := "live"
 			switch {
 			case t.RevokedAt != "":
@@ -140,8 +132,7 @@ func runTokenCmd(server string, args []string) {
 					status = "expired"
 				}
 			}
-			// Who revoked it displaces who minted it once revoked: that is the newer fact, and
-			// it is the one an operator staring at a dead credential wants.
+			// Once revoked, the revoker displaces the minter: the newer fact.
 			who := t.Actor
 			if t.RevokedBy != "" {
 				who = t.RevokedBy
@@ -176,10 +167,8 @@ func orDash(s string) string {
 	return s
 }
 
-// generateTokenSecret mirrors the server's db.NewTokenSecret. Duplicated rather than imported:
-// genctl is a client and must not depend on the server's internal packages. The SERVER
-// validates the format regardless (db.ValidateTokenSecret), so this is a convenience, not the
-// guarantee — an operator can always set the env var by hand.
+// generateTokenSecret mirrors db.NewTokenSecret (no internal/db import). A convenience: the
+// server validates the format regardless (db.ValidateTokenSecret).
 func generateTokenSecret() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

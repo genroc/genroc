@@ -6,9 +6,7 @@ import (
 	"testing"
 )
 
-// Registration rules for raise/panic and the derived raise set (specs/child-error-handling.md
-// §2.3, §3). R1/R2 keep a code usable as a filterable discriminator and a message unable to
-// carry data across a boundary; R3/R6 stop a definition saying two things at once.
+// Registration rules for raise/panic and the raise set: specs/child-error-handling.md §2.3, §3.
 
 // def wraps tasks in a minimal valid definition.
 func def(tasks ...*Task) ProcessDefinition {
@@ -62,11 +60,8 @@ func TestFault_R1_CodeShapeAndMessage(t *testing.T) {
 	}
 }
 
-// R2 covers the CODE alone: a computed code would make the raise set uncomputable and
-// error_code unqueryable. Applying it to the message too was an oversight
-// (specs/child-error-handling.md R2), and the substring test that implemented it missed a
-// leaf-leading `$:` while matching `$${` — the escape for a literal `${`, so the one way to
-// write that text was refused along with the thing being banned.
+// R2 covers the code alone (specs/child-error-handling.md R2). `$${` is the escape for a
+// literal `${`, so refusing it in a message would leave no way to write that text.
 func TestFault_R2_OnlyTheCodeMustBeLiteral(t *testing.T) {
 	for _, code := range []string{"$: input.code", "${ input.code }", "$${code}", "a${b}", "$$"} {
 		t.Run("code rejected: "+code, func(t *testing.T) {
@@ -77,9 +72,7 @@ func TestFault_R2_OnlyTheCodeMustBeLiteral(t *testing.T) {
 		})
 	}
 
-	// The permission, pinned. A message is free text that nothing reads back, so none of
-	// these is a reason to refuse a definition — including the escaped form, which a
-	// substring test could never have let through.
+	// A message is free text nothing reads back, so none of these may be refused.
 	for _, msg := range []string{"reason: ${ input.why }", "write $${x} to escape", "$: literal"} {
 		t.Run("message allowed: "+msg, func(t *testing.T) {
 			d := def(raiseTask("t", &Fault{Code: "declined", Message: msg}))
@@ -90,9 +83,8 @@ func TestFault_R2_OnlyTheCodeMustBeLiteral(t *testing.T) {
 	}
 }
 
-// R3 differs by site, deliberately. A switch case must do exactly one thing — it is the
-// routing decision. An on_error rule may do none: exhausting retries and then failing
-// with the engine's own code is a long-standing, meaningful shape.
+// R3 differs by site: a switch case must do exactly one thing, an on_error rule may do none
+// (retry, then fail with the engine's own code).
 func TestFault_R3_TerminalClauseArity(t *testing.T) {
 	f := &Fault{Code: "declined", Message: "m"}
 
@@ -143,10 +135,8 @@ func TestFault_R3_TerminalClauseArity(t *testing.T) {
 	})
 }
 
-// R4: on a child task the on_error codes are LIKE patterns matched against the child's
-// raised codes (same syntax as an action task's), so wildcards and dots are allowed; only
-// the parent-side-retry fields (retries, not_reached) are rejected (D7). Reachability of a
-// pattern against the child raise set is R5, tested in the validation package.
+// R4: a child task's on_error patterns match the child's raised codes with the usual syntax.
+// Reachability against the raise set is R5, tested in the validation package.
 func TestFault_R4_ChildTaskOnError(t *testing.T) {
 	childTask := func(onError []ErrorCase) *Task {
 		return &Task{
@@ -183,8 +173,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 		}
 	})
 	t.Run("retry accepted — a child is a call, and a call retries", func(t *testing.T) {
-		// D7 reversed 2026-08-26: retrying a raised slot re-spawns it, which re-runs the
-		// upstream tasks that produced the decision. specs/child-error-handling.md R4.
+		// Retrying a raised slot re-spawns it. specs/child-error-handling.md R4.
 		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: Retries(3), Goto: GotoEnd}}))
 		if err := d.Validate(); err != nil {
 			t.Fatalf("retry must be legal on a child task: %v", err)
@@ -222,9 +211,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 	})
 }
 
-// R6: error_code must mean one thing per process. The same value appearing on 'raised'
-// and 'failed' instances of the same definition would make it ambiguous for exactly the
-// observers it exists to serve.
+// R6: error_code must mean one thing per process.
 func TestFault_R6_CodeIsRaisedOrPanicked(t *testing.T) {
 	d := def(
 		raiseTask("poll", &Fault{Code: "timeout", Message: "gave up waiting"}),
@@ -244,10 +231,8 @@ func TestFault_R6_CodeIsRaisedOrPanicked(t *testing.T) {
 	}
 }
 
-// §2.3: the raise set is a syntactic scan, so it is sorted, deduped, and terminates on
-// a self-referencing definition. Panic codes are excluded because no on_error rule can
-// ever match one — a panicking child is 'failed' and never reaches its parent's
-// resolution at all.
+// §2.3. Panic codes are excluded: a panicking child is 'failed' and never reaches its parent's
+// on_error at all.
 func TestRaises_SortedDedupedAndPanicFree(t *testing.T) {
 	d := def(
 		&Task{ID: "a", Switch: SwitchMap{

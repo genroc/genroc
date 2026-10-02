@@ -1,29 +1,6 @@
-/**
- * Tests that observe how errors interact with pausing in a 3-level process tree:
- *
- *   grandparent
- *     └─ parent  (child call)
- *          ├─ a  (child_map)  ← always calls failWorker → HTTP 500 → fails
- *          └─ b  (child_map)  ← calls successWorker → HTTP 200 → completes
- *
- * Key invariants:
- *   - Ancestors drain through 'failing' (keeping phase) and settle to
- *     'failed' one level per tick, bottom-up — a root is 'failed' only once
- *     its whole tree is inactive, which is what makes it retryable.
- *   - A failure is an outcome and a pause is not, so failures propagate through
- *     paused ancestors: FailAncestors marks them 'failing' rather than letting a
- *     suspension hide a dead branch.
- *   - But a failing parent still waits for every child, and a paused child counts
- *     as active, so a tree that loses a branch while suspended sits at 'failing'
- *     until it is resumed. Resuming is what lets it settle — and only then is it
- *     retryable. That is why resume keys on the subtree rather than the root's own
- *     status: here the root is 'failing' while its descendants are paused.
- *
- * Same server/tick/ordering conventions as tree_pause_test.ts; see that file for details.
- *
- * buildTree() leaves the tree at:
- *   gp="running children", parent="running children", a="running", b="running"
- */
+/** Errors × pausing in a gp → parent → {a: fails, b: succeeds} tree; conventions as tree_pause_test.ts.
+ *  A failure propagates through paused ancestors, but a failing parent waits on a paused child, so
+ *  the tree settles to 'failed' (and becomes retryable) only after resume. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -105,8 +82,6 @@ beforeAll(async () => {
 
 afterAll(() => stopMocks?.());
 
-// Builds the full tree and leaves it at:
-//   gp="running children", parent="running children", a="running", b="running"
 async function buildTree() {
   const gp = await ctx.env.start(gpName);
 
@@ -131,9 +106,8 @@ async function buildTree() {
 test("a fails — ancestors drain through 'failing' and settle to 'failed' one level per tick", async () => {
   const { gp, parent, a, b } = await buildTree();
   try {
-    // tick: a (smaller created_at) is claimed and executed; its REST call returns 500.
-    // failInstance(a) → FailInstanceAndAncestors: a is failed (terminal), parent
-    // and gp become 'failing' but keep phase='children' — b is still active.
+    // tick: a (smaller created_at) runs first and 500s; ancestors go 'failing' but keep
+    // phase='children' while b is active.
     await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "failing children",
@@ -142,9 +116,8 @@ test("a fails — ancestors drain through 'failing' and settle to 'failed' one l
       b: "running",
     });
 
-    // tick: b runs and completes normally. FinishChild(b): all batch children
-    // terminal → parent woken (phase '', now claimable). Never
-    // 'collecting' — a failing parent must not merge outputs.
+    // tick: b completes and wakes parent (phase ''). Never 'collecting' — a failing parent
+    // must not merge outputs.
     await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "failing children",
@@ -178,9 +151,7 @@ test("a fails — ancestors drain through 'failing' and settle to 'failed' one l
 });
 
 test("a fails while the tree is paused — failure propagates, and resume unblocks the settle", async () => {
-  // A separate tree whose failing worker holds its first request open, so the
-  // root can be paused while a's call is still in flight. The failure then
-  // lands on paused ancestors and must override them to 'failing'.
+  // The failing worker holds its first request open, so the root can be paused mid-call.
   const uid = crypto.randomUUID().slice(0, 8);
   const holdMock = await startMockService(0, {
     statusCode: 500,
@@ -233,9 +204,7 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
     const tickPromise = ctx.env.tick();
     await holdMock.firstRequestReceived;
 
-    // Pause the root while a's call is in flight. a is leased, so it is the one
-    // node that lands in 'pausing' — it still has a task to finish. Everyone else
-    // has nothing in flight and is suspended outright.
+    // a is leased, so it alone lands in 'pausing'; the rest have nothing in flight.
     await ctx.env.pause(gp);
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "paused children",
@@ -244,9 +213,6 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
       b: "paused",
     });
 
-    // The audit trail distinguishes the two: the nodes suspended outright say
-    // inst_paused, the in-flight one says only inst_pausing (it is not paused yet),
-    // and the root's request records how many were left draining.
     const eventsOn = async (id: string) => {
       const { data } = await ctx.env.client.GET("/instances/{id}/logs", {
         params: { path: { id }, query: { limit: 100 } },
@@ -263,16 +229,12 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
       rootLogs!.items!.find((l) => l.event === "inst_pause_requested")!.meta,
     ).toMatchObject({ instances: 4, pausing: 1 });
 
-    // Pausing again while a is still draining reports `accepted`, not `unchanged`. Nothing
-    // is left to write -- the whole tree is already paused or pausing -- so the difference
-    // comes entirely from CountDrainingInTree, and a caller told "unchanged" would read a
-    // tree with a worker still inside a task as stopped.
+    // Nothing is left to write, so `accepted` comes entirely from CountDrainingInTree;
+    // "unchanged" would read a tree with a worker mid-task as stopped.
     expect(await ctx.env.pause(gp)).toBe("accepted");
 
-    // Release the held 500. The engine still holds a as in-memory 'running', so the
-    // failure path runs: failInstance(a) → FailAncestors, whose predicate includes
-    // paused rows — a failure is a real outcome and must not be hidden by a
-    // suspension. The ancestors become 'failing', keeping phase='children'.
+    // a is still in-memory 'running', so FailAncestors runs, and its predicate includes
+    // paused rows: a failure must not be hidden by a suspension.
     holdMock.release();
     await tickPromise;
 
@@ -283,9 +245,7 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
       b: "paused",
     });
 
-    // The tree is now wedged, and legitimately so: parent is failing but still
-    // waiting on b, and b is paused, so it will never settle on its own. Ticking
-    // changes nothing, and retry is rejected — the root is draining, not failed.
+    // Wedged, legitimately: parent waits on b, which is paused. The root is draining, not failed.
     expect(await ctx.env.tick()).toBe(0);
     const { error: earlyRetryErr } = await ctx.env.client.POST(
       "/instances/{id}/retry",
@@ -294,9 +254,8 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
     expect(earlyRetryErr).toBeDefined();
     expect(JSON.stringify(earlyRetryErr)).toContain("not retryable");
 
-    // Resume is what unblocks it. The root's own status is 'failing', not paused,
-    // so this only works because resume looks for paused rows anywhere in the
-    // subtree — here just b.
+    // The root itself is 'failing', so this works only because resume finds paused rows
+    // anywhere in the subtree.
     await ctx.env.resume(gp);
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "failing children",

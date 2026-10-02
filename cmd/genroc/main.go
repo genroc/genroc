@@ -131,10 +131,9 @@ func main() {
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
 
-	// The two credential types compose: genroc-ui's JWT identifies people, genroc's own tokens
-	// identify machines, and both arrive on `Authorization: Bearer`. humanAuthOn suppresses the
-	// exposure warning and the bootstrap mint -- either means an operator already has a way in
-	// that needs no printed credential. specs/ui-issued-tokens.md.
+	// genroc-ui's JWTs (people) and genroc's tokens (machines) compose on the bearer header.
+	// humanAuthOn suppresses the exposure warning and the bootstrap mint: an operator already
+	// has a way in. specs/ui-issued-tokens.md.
 	humanAuthOn := false
 	var auths []api.Authenticator
 	if secret := os.Getenv("GENROC_JWT_SECRET"); secret != "" || *jwtSecretFile != "" {
@@ -161,11 +160,9 @@ func main() {
 
 	switch *authMode {
 	case "none":
-		// The pre-auth default. Loud rather than silent when it is also reachable off-host:
-		// `docker run -p` puts an unauthenticated PUT /definitions on the network, and that
-		// should be a decision. specs/api-auth.md §6.
-		// Keyed on a human mode actually being ON, not on a config file existing: an
-		// attribution-only config leaves every endpoint as open as it was.
+		// Loud when reachable off-host: an unauthenticated PUT /definitions on the network
+		// should be a decision (specs/api-auth.md §6). Keyed on a human mode being ON, not on
+		// a config file existing.
 		if exposedAddr(*httpAddr) && !humanAuthOn {
 			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use -auth token, or bind to localhost.",
 				"addr", *httpAddr)
@@ -204,10 +201,8 @@ func main() {
 		if secret == "" {
 			secret = os.Getenv("GENROC_BOOTSTRAP_TOKEN")
 		}
-		// A deployment running jwt mode already has a way in — genroc-ui identifies an operator
-		// and resolves their permissions — so minting a bootstrap credential nobody asked for,
-		// and printing it to a log, is pure exposure. `genroc token create` stays the
-		// break-glass path either way. specs/api-auth.md s5.3.
+		// jwt mode already gives an operator a way in, so a printed bootstrap credential is pure
+		// exposure; `genroc token create` stays the break-glass path. specs/api-auth.md s5.3.
 		if humanAuthOn && secret == "" {
 			log.Info("skipping bootstrap token", "reason", "jwt mode provides an operator path")
 			auths = append(auths, api.NewTokenAuth(database))
@@ -243,9 +238,8 @@ func main() {
 
 	var wg sync.WaitGroup
 	var fatalErr error
-	// fatal records the first fatal error from any subsystem and winds the process
-	// down (cancelling ctx shuts down every listener and the engine). Reads happen
-	// after wg.Wait(), which is ordered after these writes.
+	// fatal records the first fatal error and cancels ctx. fatalErr is read only after
+	// wg.Wait(), which orders it after these writes.
 	fatal := func(what string, err error) {
 		if fatalErr == nil {
 			fatalErr = err
@@ -277,10 +271,8 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// A listener that cannot bind (e.g. the port is still held) returns a
-			// non-nil error here — graceful shutdown returns nil. A server that can't
-			// serve its API is useless, so treat it as fatal instead of running on
-			// headless; the supervisor then restarts it (or a test fails loudly).
+			// Graceful shutdown returns nil; a bind failure is fatal rather than running
+			// headless, so the supervisor restarts it.
 			if err := srv.ListenHTTP(ctx, *httpAddr); err != nil {
 				fatal("HTTP server failed", err)
 			}
@@ -332,9 +324,8 @@ func newLogger(level string, mode logview.Mode) *slog.Logger {
 	return slog.New(logview.NewHandler(os.Stderr, l, mode))
 }
 
-// envOr is the fallback for the flags a container sets. A container passes environment, not
-// argv: an `environment:` block is one key per line and composes, where a `command:` array has
-// to restate every flag whenever one changes. The flag still wins when both are given.
+// envOr lets a container set flags by environment, which composes per key where a `command:`
+// array restates every flag. The flag wins when both are given.
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -359,10 +350,8 @@ func exposedAddr(addr string) bool {
 	return true
 }
 
-// seedSuppliedTokens stores credentials the operator generated. The format is deliberately
-// flat — `label=perms=secret`, perms joined by `+` — because it has to survive a compose
-// `environment:` value and a shell, where anything richer needs quoting nobody gets right.
-// Token bodies are base64url without padding, so they carry no `=` of their own.
+// seedSuppliedTokens parses `label=perms=secret`, perms joined by `+`: flat to survive a compose
+// `environment:` value and a shell. Token bodies are unpadded base64url, so they hold no `=`.
 func seedSuppliedTokens(database *db.DB, spec string) (created int, skipped []string, err error) {
 	for _, entry := range strings.Split(spec, ",") {
 		entry = strings.TrimSpace(entry)
@@ -374,11 +363,8 @@ func seedSuppliedTokens(database *db.DB, spec string) (created int, skipped []st
 			return 0, nil, fmt.Errorf("bad entry %q: want label=perms=secret", redactSeed(entry))
 		}
 		label, permSpec, secret := parts[0], parts[1], parts[2]
-		// An entry whose SECRET is empty is one the operator removed after first start —
-		// which is the intended lifecycle for an admin credential they have since stored
-		// elsewhere. Seeding is idempotent, so the row is already there; skipping is the
-		// no-op that keeps a restart working. A malformed entry (fewer than three parts) is
-		// still an error, so this cannot swallow a typo.
+		// An empty SECRET is one the operator removed after first start, as intended; the row
+		// already exists. Fewer than three parts is still an error, so a typo is not swallowed.
 		if secret == "" {
 			skipped = append(skipped, label)
 			continue

@@ -10,11 +10,8 @@ import (
 	"genroc/internal/shape"
 )
 
-// One definition reaching every phase: an action with typed responses (so `self.status` and
-// `self.headers` exist), an output map, a switch, three on_error rules with different declared
-// payloads, a handler an error edge enters, a loop back to it, and a config namespace. Every
-// clause kind is written once — a `retry`, a `raise`, a `panic` — because each is addressed
-// below its case or rule and only a fixture that carries one can pair it.
+// One definition reaching every phase, with every clause kind written once: each is addressed
+// below its case or rule, and only a fixture carrying one can pair it.
 const slotFixture = `{
   "name": "p",
   "input_schema": {"type": "object", "properties": {"amount": {"type": "number"}}, "required": ["amount"]},
@@ -40,10 +37,8 @@ const slotFixture = `{
   "output": {"fee": "$: outputs.call.fee ?? 0"}
 }`
 
-// Both `genctl schema context` and the checker go through taskScopes; what can still drift is
-// what each FEEDS it -- SlotContexts reads a finished SchemaFile where buildInputs reads the pool
-// mid-flight. This runs the checker's own preparation and compares slot for slot, so a
-// substitution that stops meaning the same thing fails here rather than reaching an author.
+// What can still drift is what each side FEEDS taskScopes: SlotContexts reads a finished
+// SchemaFile, buildInputs the pool mid-flight.
 func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(slotFixture), &def); err != nil {
@@ -74,9 +69,8 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 		t.Fatalf("inferOutputs: %v", err)
 	}
 
-	// Not byte-identical: SlotContexts reads the pool after Generate hoisted the task inputs
-	// and process output into it, so it is a superset. The claim tested is that it may GROW,
-	// but a name that resolved during the check still resolves to the same thing.
+	// Not byte-identical: SlotContexts reads the pool after Generate hoisted into it. It may GROW,
+	// but a name that resolved during the check must resolve to the same thing.
 	same := func(address string, want schema.Schema) {
 		t.Helper()
 		got, ok := reported[address]
@@ -100,14 +94,11 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 			t.Fatalf("switchScope %s: %v", task.ID, err)
 		}
 		same("tasks."+task.ID+".switch", switchCtx)
-		// One per case, as on_error is one per rule: reaching case k means every earlier one
-		// was false, so each reads a different context. An editor asking about case k must
-		// get the same answer the checker used, or it underlines what registration accepts.
+		// An editor asking about case k must get the context the checker used, or it underlines
+		// what registration accepts.
 		for i, c := range task.Switch {
 			same(caseSlot(task.ID, i), checker.switchCase(task, i, switchCtx))
-			// The clauses beside it read the scope the case PROVED, so they are addressed a
-			// level down. An editor resolving `panic` to the case slot would hover the type
-			// the guard already ruled out.
+			// Resolving `panic` to the case slot would hover the type the guard already ruled out.
 			if c.Panic != nil || c.Raise != nil {
 				same(caseSlot(task.ID, i)+"."+slotPanic, checker.switchClause(task, i, switchCtx))
 			}
@@ -164,11 +155,8 @@ func countClauses(panics, raise *model.Fault, retry *model.Retry) int {
 	return n
 }
 
-// The process output's context is one arm per way the process can end, and the arms are what
-// carry the correlation between path-exclusive outputs: where a path does not set one, its arm
-// types it null. That is why `(outputs.left.v ?? outputs.right.v) + 1` types — under each arm
-// the recovery is non-null. It used to be refused here while the checker accepted it, because
-// the checker walked the paths itself and the context it handed out had been flattened.
+// The arms carry the correlation between path-exclusive outputs, so
+// `(outputs.left.v ?? outputs.right.v) + 1` types under each one.
 func TestProcessOutputContextCarriesEveryEnding(t *testing.T) {
 	const twoPaths = `{
 	  "name": "p",
@@ -248,9 +236,8 @@ func sameContext(t *testing.T, label string, got, want schema.Schema) {
 	}
 }
 
-// One ending, one context — and the join over a single terminal IS that path, so the reported
-// answer is not merely the same scope there but the very context the checker walked. That is
-// the common shape; the qualification in the test above only bites where a process branches.
+// With one terminal the join IS that path, so the reported context is the very one the checker
+// walked.
 func TestProcessOutputSingleTerminalIsTheCheckersPath(t *testing.T) {
 	const oneEnd = `{
 	  "name": "p",
@@ -294,9 +281,8 @@ func TestProcessOutputSingleTerminalIsTheCheckersPath(t *testing.T) {
 	sameContext(t, "output", reported[SlotProcessOutput], checker.processOutputAt(terminals[0], everMay))
 }
 
-// splitPool separates a context document from the `$defs` it carries, each as JSON. The pool
-// travels with every arm of a union, not only with the root, so this strips it wherever it
-// appears and compares the definitions once.
+// The pool travels with every arm of a union, not only the root, so splitPool strips it wherever
+// it appears and compares it once.
 func splitPool(t *testing.T, s schema.Schema) (body string, pool map[string]string) {
 	t.Helper()
 	var doc any
@@ -347,10 +333,8 @@ func marshal(t *testing.T, v any) string {
 	return string(b)
 }
 
-// The type view reports what the checker CHECKED, but nothing guarantees that by construction
-// the way taskScopes does for contexts. Every pair below is one value read twice — once as a
-// type, once out of the context the checker typed expressions against — so a drifting second
-// computation fails here rather than an author generating a client from an unchecked shape.
+// Nothing makes the type view the checker's own by construction, as taskScopes does for
+// contexts: each pair reads one value twice, as a type and out of the checked context.
 func TestTypeSlotsAreTheCheckersOwn(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(slotFixture), &def); err != nil {
@@ -394,9 +378,8 @@ func TestTypeSlotsAreTheCheckersOwn(t *testing.T) {
 	same("tasks.handler.output", "tasks.handler.switch", "self.output")
 	// The process input, as every expression reads it.
 	same("input", "tasks.call.action", "input")
-	// The payload of the failure that routed here. Read through the context it comes back
-	// NULLABLE — `data` is optional there, because a failure may carry none — so the null the
-	// read adds is stripped before comparing. What is being pinned is the payload either way.
+	// Read through the context the payload comes back NULLABLE (`data` is optional there), so
+	// that null is stripped before comparing.
 	reportedErr, ok := types["tasks.handler.last_error"]
 	if !ok {
 		t.Fatal("tasks.handler.last_error is not addressable")

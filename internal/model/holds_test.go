@@ -2,10 +2,6 @@ package model
 
 import "testing"
 
-// Holds is read by the version comparison to decide what may change under a running
-// instance, and the zero value means "nothing can be sitting here". A new action type that
-// forgets to declare itself gets that answer by default and the comparison silently stops
-// reporting type changes under it — so the omission has to fail loudly here instead.
 func TestHolds_EveryActionTypeIsDecided(t *testing.T) {
 	decided := map[ActionType]bool{
 		ActionTypeFetch:     true, // runs inside one advance: the zero value is the answer

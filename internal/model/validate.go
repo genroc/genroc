@@ -45,9 +45,8 @@ func (d *ProcessDefinition) Validate() error {
 				"an expression and as `$%s` in a routing slot, and neither spelling survives a dot, "+
 				"a colon or a space", s.ID, s.ID, s.ID))
 		}
-		// A duplicate is invisible from here down — this set collapses it, and so does every
-		// map keyed by task id after it: `outputs.<id>` names one of them, a `goto` reaches one
-		// of them, and nothing says which.
+		// Only catchable here: this set, and every map keyed by task id below, collapses a
+		// duplicate silently.
 		if _, dup := taskIDs[s.ID]; dup {
 			return atPath("tasks."+s.ID, fmt.Errorf("task ID %q is used more than once", s.ID))
 		}
@@ -62,9 +61,8 @@ func (d *ProcessDefinition) Validate() error {
 	return d.validateFaultCodeKinds()
 }
 
-// validateFaultCodeKinds enforces R6: within one definition a code is a raise code or a
-// panic code, never both — the same value on 'raised' and 'failed' instances would mean
-// two things to the dashboards error_code exists for. Runs after per-task validation.
+// validateFaultCodeKinds enforces R6: a code is raised or panicked, never both, or error_code
+// would mean two things. Runs after per-task validation.
 func (d *ProcessDefinition) validateFaultCodeKinds() error {
 	raisedBy := map[string]string{} // code → first task that raises it
 	for _, s := range d.Tasks {
@@ -135,9 +133,8 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	return validateActionSchemas(s, pool)
 }
 
-// validateTimeout: which action types honour a timeout at all — a silently unapplied
-// deadline is the failure this check exists for — and `until` confined to external, the
-// one type where a past deadline coherently means "due now". CLAUDE.md has the asymmetry.
+// validateTimeout refuses a timeout where it would silently not apply, and `until` off
+// external. CLAUDE.md, timeout §3.
 func validateTimeout(s *Task) error {
 	if s.Action == nil || s.Action.Timeout.IsZero() {
 		return nil
@@ -202,43 +199,32 @@ func validateActionRequiredFields(s *Task) error {
 			}
 		}
 	case ActionTypeExternal:
-		// No required action fields: input and result_schema are both optional
-		// (mirroring fetch). The wait is bounded by the task's timeout, absent = forever;
-		// validateTimeout owns its rules, including that this is the one type taking `until`.
+		// No required fields; its timeout rules are validateTimeout's.
 	default:
 		return fmt.Errorf("task %q: action.type must be one of: fetch, child, child_map, child_list, delay, external", s.ID)
 	}
 	return nil
 }
 
-// faultCodeRe is the R1 shape for an authored error code: lower_snake_case. The two excluded
-// characters are load-bearing — '.' spells engine codes, keeping the namespaces distinct, and
-// '%' is the on_error wildcard, so no pattern ever needs escaping. It also enforces R2, since no
-// expression can be spelled in lower_snake_case.
-// taskIDRe is a C identifier, and the two spellings an id is READ BACK through are why:
-// `outputs.<id>` cannot address one holding a dot, and `$<id>` in a routing slot cannot hold a
-// colon without reading as a resolution directive. specs/source-resolution.md.
+// taskIDRe is a C identifier because an id is read back as `outputs.<id>` (no dot) and as
+// `$<id>` in a routing slot (no colon). specs/source-resolution.md.
 var taskIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// faultCodeRe is R1, and enforces R2 since no expression is lower_snake_case. '.' is excluded
+// because it spells engine codes, '%' because it is the on_error wildcard.
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// ValidFaultCode reports whether s is a well-formed authored error code. Exported for the
-// external-tasks fail API, whose submitter is an outside worker rather than a definition:
-// without this check a worker could send "http.500" or "external.timeout" and impersonate an
-// engine code, including the unknowable ones an only_once task can never retry.
+// ValidFaultCode reports whether s is a well-formed authored error code. The external-tasks
+// fail API needs it so a worker cannot submit an engine code such as "http.500".
 func ValidFaultCode(s string) bool { return faultCodeRe.MatchString(s) }
 
-// validateFault enforces R1 (code shape, message present) on one raise or panic clause; where
-// and clause locate it, so the message points at the offending line. R2 needs no check -- no
-// expression survives faultCodeRe -- and the MESSAGE and DATA are type-checked where their scope
-// is known, in validation.checkFaultClauses. specs/child-error-handling.md R2.
+// validateFault enforces R1 on one raise or panic clause. R2 needs no check (no expression
+// survives faultCodeRe); message and data are type-checked in validation.checkFaultClauses.
 func validateFault(f *Fault, taskID, where, clause string) error {
 	if f == nil {
 		return nil
 	}
-	// '.' and '%' get their own messages: each is not merely an invalid character but one
-	// with a specific meaning (an engine-code separator; the on_error wildcard), so the
-	// message says why rather than a generic "invalid code".
+	// Before the generic check, so '.' and '%' get a message naming what they mean.
 	if strings.Contains(f.Code, ".") {
 		return fmt.Errorf("task %q %s: %s: %q must not contain '.' — dots are reserved for engine-produced codes; give the error a semantic lower_snake_case name of its own rather than re-raising a system code", taskID, where, clause, f.Code)
 	}
@@ -254,9 +240,8 @@ func validateFault(f *Fault, taskID, where, clause string) error {
 	return nil
 }
 
-// validateRetry checks a retry policy's internal coherence. The decoder rejects the same
-// shapes on the JSON path; this is the half that covers definitions built in Go and, more
-// importantly, the half whose message can name the task and the rule.
+// validateRetry repeats the decoder's checks so Go-built definitions are covered and the
+// message can name the task and the rule.
 func validateRetry(r Retry, taskID, where string) error {
 	if r.IsZero() {
 		return nil
@@ -349,13 +334,9 @@ func validateSwitch(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int) 
 	return nil
 }
 
-// isChildTask reports whether the task's action spawns child processes, which is what
-// makes its on_error a list of raised codes rather than engine codes (R4/M1).
 // CatchableKinds is which entries of errcode's catchable table a task of this shape can
-// report. One definition because two callers must agree on it: registration refuses a rule
-// naming something the set cannot produce, and the editor offers exactly what it admits.
-// `only_once` adds nothing without an action to protect, and nothing on a child task, whose
-// rules R5 bounds by the child's raise set instead.
+// report. Registration and the editor share it so they cannot disagree; a child task's rules
+// are bounded by its child's raise set instead (R5).
 func CatchableKinds(actionType ActionType, onlyOnce bool) errcode.Kind {
 	var kinds errcode.Kind
 	switch actionType {
@@ -374,11 +355,8 @@ func CatchableKinds(actionType ActionType, onlyOnce bool) errcode.Kind {
 	return kinds
 }
 
-// catchableVocabulary is the concrete set a pattern is matched against, and the list a
-// rejection shows. Two families are not in errcode's table: the http statuses, unbounded so
-// the probe stands in for them with the range `ValidStatusPattern` admits, and an external's
-// declared `raises` — authored codes a worker submits, which are exactly the set an error
-// outcome may carry. The editor offers both the same way.
+// catchableVocabulary returns the codes a pattern is matched against and the list a rejection
+// shows, including the two families outside errcode's table: internal/model/CLAUDE.md §2.
 func catchableVocabulary(s *Task, kinds errcode.Kind) (probe []errcode.Code, display []string) {
 	if kinds&errcode.KindFetch != 0 {
 		for status := 100; status <= 599; status++ {
@@ -415,19 +393,16 @@ func matchesAnyCode(pattern string, probe []errcode.Code) bool {
 	return false
 }
 
+// isChildTask decides whether on_error names raised codes rather than engine codes (R4/M1).
 func isChildTask(s *Task) bool {
 	return s.Action != nil && (s.Action.Type == ActionTypeChild || s.Action.Type == ActionTypeChildMap || s.Action.Type == ActionTypeChildList)
 }
 
-// validateOnError checks a task's on_error rules: terminal-clause arity (R3), pattern shape,
-// catch-all last, goto targets, and the task-kind rules. Both kinds share the pattern syntax;
-// only what codes are checked against differs — a child's raise set (R5) vs an open code space.
 func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	onlyOnce := s.OnlyOnce != nil && *s.OnlyOnce
 	child := isChildTask(s)
-	// What this task can report, and so what its rules may name. A child's codes are its
-	// child's raise set, checked where the child resolves (R5), so the vocabulary is empty
-	// here. Asked as though `only_once` were set — internal/model/CLAUDE.md §2 says why.
+	// A child's vocabulary is its child's raise set, checked where the child resolves (R5).
+	// Asked as though `only_once` were set — internal/model/CLAUDE.md §2.
 	var probe []errcode.Code
 	var offered []string
 	if !child {
@@ -444,10 +419,8 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 		if err := atPath("on_error."+strconv.Itoa(i), func() error {
 			where := fmt.Sprintf("on_error[%d]", i)
 
-			// R3, in its at-most-one form. Unlike a switch case, a rule setting none of the
-			// three is meaningful and long-standing: on an action task it exhausts its retries
-			// and then fails the instance with the engine's own code. What must not happen is
-			// two answers to "what does this rule do".
+			// R3 as at-most-one: unlike a switch case, a rule setting none is meaningful — it
+			// exhausts its retries, then fails with the engine's own code.
 			set := 0
 			for _, on := range []bool{ec.Goto != "", ec.Raise != nil, ec.Panic != nil} {
 				if on {
@@ -470,10 +443,8 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 				if !validLikePattern(pat) {
 					return fmt.Errorf("task %q %s: code pattern must not be empty", s.ID, where)
 				}
-				// Reachability, the fetch/external counterpart of R5. The editor offers this
-				// same set, so a pattern outside it is one no completion suggested and no
-				// failure can match — most sharply `only_once.interrupted` on a task that
-				// never declared `only_once`, which reads as handled and is not.
+				// Reachability, the fetch/external counterpart of R5: a pattern no failure can
+				// match reads as handled and is not.
 				if len(probe) > 0 && !matchesAnyCode(pat, probe) {
 					return fmt.Errorf("task %q %s: %q is not a code a %q task can report, so the rule can never fire — it can report %s",
 						s.ID, where, pat, s.Action.Type, strings.Join(offered, ", "))
@@ -494,40 +465,32 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			}
 
 			if child {
-				// R4, reversed: a child task retries like any other, because a child is a call
-				// (specs/child-error-handling.md R4, D7). What stays refused is `not_reached`,
-				// and it is load-bearing rather than tidy -- see the only_once check below.
+				// A child task retries like any other (specs/child-error-handling.md R4, D7), but
+				// `not_reached` stays refused: every code it catches means the child ran.
 				if ec.NotReached != nil {
 					return fmt.Errorf("task %q %s: not_reached has no meaning on a child task", s.ID, where)
 				}
-				// Refused at registration rather than dropped at runtime. isRetryAllowed would
-				// decline this silently: every code a child task can catch means the child ran,
-				// so nothing here is ever `not_reached`. A policy that can never fire is what D7
-				// meant by "rejecting beats silently ignoring".
+				// Refused here because isRetryAllowed would decline it silently at runtime: nothing
+				// a child task catches is ever `not_reached` (D7).
 				if onlyOnce && !ec.Retry.IsZero() {
 					return fmt.Errorf("task %q %s: retry cannot run on an only_once child task -- every code a child task catches means the child already ran, so no attempt is safe to repeat", s.ID, where)
 				}
 				return nil
 			}
 
-			// only_once retries in three tiers (specs/only-once-interrupted.md): pre.*-only patterns
-			// are safe; anything else needs not_reached AND exact codes; the unknowable set is refused
-			// however named. Per pattern, not per rule; tier 3 first so http.timeout gets the truth.
 			if err := validateRetry(ec.Retry, s.ID, where); err != nil {
 				return err
 			}
 
-			// An expression-valued `retries` counts as retrying: its value is unknown here, and
-			// the conservative reading is the one that keeps the tiers below in force.
+			// The only_once tiers, per pattern: internal/model/CLAUDE.md §1. An expression-valued
+			// `retries` counts as retrying, which keeps them in force.
 			if onlyOnce && (ec.Retry.Retries.IsExpr() || ec.Retry.Retries.Literal() > 0) {
 				notReached := ec.NotReached != nil && *ec.NotReached
 				if len(ec.Code) == 0 {
 					return fmt.Errorf("task %q %s: a catch-all rule cannot have retries on an only_once task; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes that are safe to retry", s.ID, where)
 				}
 				for _, pat := range ec.Code {
-					// Checked first, and irrespective of not_reached, so that naming one of
-					// these gets the reason it is hopeless rather than advice that leads
-					// nowhere.
+					// Tier 3 first, irrespective of not_reached (CLAUDE.md §1).
 					if errcode.Code(pat).IsUnknowable() {
 						return fmt.Errorf("task %q %s: %s can never be retried on an only_once task, with or without not_reached: the request left and no response came back, so whether the call took effect is unknowable. Catch it with a goto and check the system of record instead", s.ID, where, pat)
 					}
@@ -550,10 +513,8 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	return nil
 }
 
-// validateDelayOnlySlots is validateFetchOnlySlots mirrored. `Action` EMBEDS DelaySpec so the
-// wire form of a delay stays flat, which also makes `for` a real field of every action type —
-// decoded, then read by nobody. Say so: the editor schema's variants already refuse it, and a
-// fetch wanting a deadline writes `timeout`, whose object form takes the same slots.
+// validateDelayOnlySlots: `Action` embeds DelaySpec, so `for`/`until`/`tz` decode on every
+// action type and are read only on a delay.
 func validateDelayOnlySlots(s *Task) error {
 	if s.Action == nil || s.Action.Type == ActionTypeDelay {
 		return nil
@@ -573,10 +534,7 @@ func validateDelayOnlySlots(s *Task) error {
 	return nil
 }
 
-// validateFetchOnlySlots refuses the request slots on an action that has no request to make.
-// Nothing reads them there, and a field nothing reads is dropped in silence — the same reason
-// a fetch refuses `result_schema`. `responses` has its own check below, because its message
-// names the alternative.
+// `responses` is checked in validateResponses instead, whose message names the alternative.
 func validateFetchOnlySlots(s *Task) error {
 	if s.Action == nil || s.Action.Type == ActionTypeFetch {
 		return nil
@@ -600,11 +558,8 @@ func validateFetchOnlySlots(s *Task) error {
 	return nil
 }
 
-// validateResponses checks a fetch's `responses` map: the slot belongs to no other action
-// type, its keys are status patterns, and no status is declared twice — an overlap at equal
-// specificity has no answer, and picking one silently would make the report a guess. It also
-// refuses `result_schema` on a fetch: nothing reads it there, and a field nothing reads is
-// dropped in silence. See specs/fetch-http-surface.md §2.
+// validateResponses also refuses `result_schema` on a fetch. A status declared twice is refused
+// because an overlap at equal specificity has no answer. specs/fetch-http-surface.md §2.
 func validateResponses(s *Task, pool schema.Defs) error {
 	if s.Action == nil {
 		return nil
@@ -647,18 +602,14 @@ func sortedResponseKeys(m map[string]*schema.Schema) []string {
 	return keys
 }
 
-// validateRaises places the `raises` slot exactly where result_schema sits: on the action for
-// child/child_list, on each entry for a child_map, whose entries can be different processes
-// with different payloads for one code. Whether the child can raise a declared code at all is
-// checked where the child is resolved (validation.checkDeclaredRaises).
+// validateRaises puts `raises` where result_schema sits: per entry on a child_map. Whether the
+// child can raise a declared code is validation.checkDeclaredRaises's question.
 func validateRaises(s *Task, pool schema.Defs) error {
 	if s.Action == nil {
 		return nil
 	}
 	switch s.Action.Type {
-	// External declares the same slot for a different producer: the code arrives from a
-	// worker's error outcome rather than from a child, so the declared set is a
-	// contract rather than a knowable set — which is why no reachability rule (R5) applies.
+	// On external, `raises` is a worker's contract, not a knowable set, so R5 does not apply.
 	case ActionTypeChild, ActionTypeChildList, ActionTypeExternal:
 	case ActionTypeChildMap:
 		if len(s.Action.Raises) > 0 {
@@ -688,11 +639,8 @@ func validateRaises(s *Task, pool schema.Defs) error {
 	return nil
 }
 
-// checkRaisesDoc validates one raises map: R1-shaped keys, and a real schema document under
-// each key that has one. A nil value is `null` — a code declared to carry nothing — and has
-// no document to check.
-// The path argument is `where`'s machine half: a reader reads `task "a" action.raises["x"]`
-// and a client looks up `action.raises.x`.
+// checkRaisesDoc: a nil value is `null`, a code declared to carry nothing. path is `where`'s
+// machine half — `action.raises.x` beside `task "a" action.raises["x"]`.
 func checkRaisesDoc(where, path string, r Raises, pool schema.Defs) error {
 	for _, code := range sortedRaiseCodes(r) {
 		if !faultCodeRe.MatchString(code) {
@@ -719,10 +667,8 @@ func sortedRaiseCodes(r Raises) []string {
 	return codes
 }
 
-// validateActionSchemas checks that any attached result_schema documents (task-level and
-// child_map entries) are valid schemas. accepted_status is a shape (evaluating to an array
-// of status patterns), so — like headers — it is not statically pattern-checked here; an
-// unrecognized pattern simply never matches at runtime (matchAcceptedStatus).
+// validateActionSchemas leaves accepted_status unchecked: it is a shape, and an unrecognized
+// pattern simply never matches at runtime (matchAcceptedStatus).
 func validateActionSchemas(s *Task, pool schema.Defs) error {
 	if err := atPath("output_schema", checkDeclaredSlotSchema(fmt.Sprintf("task %q output_schema", s.ID), s.OutputSchema, pool)); err != nil {
 		return err
@@ -761,10 +707,8 @@ func validateActionSchemas(s *Task, pool schema.Defs) error {
 	return validateInputSchemaPlacement(s)
 }
 
-// checkDeclaredSlotSchema is checkSchemaDoc plus the one restriction a DECLARED SLOT schema
-// carries: no `additionalProperties`. The slot's value is conformed to this document, so an
-// undeclared key is refused at registration rather than stripped in silence.
-// specs/declared-slot-schemas.md §3.
+// checkDeclaredSlotSchema adds no `additionalProperties`, so an undeclared key is refused at
+// registration rather than stripped in silence. specs/declared-slot-schemas.md §3.
 func checkDeclaredSlotSchema(label string, s *schema.Schema, pool schema.Defs) error {
 	if err := checkSchemaDoc(label, s, pool); err != nil {
 		return err
@@ -778,9 +722,6 @@ func checkDeclaredSlotSchema(label string, s *schema.Schema, pool schema.Defs) e
 	return nil
 }
 
-// validateInputSchemaPlacement: `input_schema` types the `input` slot, so it belongs to the
-// action types that HAVE one. A fetch's request payload is `body`, and naming its schema
-// `input_schema` there would type a slot the action does not carry.
 func validateInputSchemaPlacement(s *Task) error {
 	if s.Action == nil || s.Action.InputSchema == nil {
 		return nil
@@ -801,10 +742,7 @@ func validLikePattern(p string) bool {
 	return strings.TrimSpace(p) != ""
 }
 
-// patternOnlyMatchesPre reports whether a code pattern can only match error codes in the
-// not-reached (pre.*) namespace: its constant prefix (before the first % wildcard) must
-// start with errcode.NotReached. '%' is the only wildcard (see errcode.MatchCode), so it
-// is the only boundary.
+// patternOnlyMatchesPre assumes '%' is errcode.MatchCode's only wildcard.
 func patternOnlyMatchesPre(p string) bool {
 	for i := 0; i < len(p); i++ {
 		if p[i] == '%' {
@@ -814,16 +752,11 @@ func patternOnlyMatchesPre(p string) bool {
 	return strings.HasPrefix(p, errcode.NotReached)
 }
 
-// configNameRe matches a valid config var name; it is used in the
-// GENROC_<PROCESS>_<NAME> / GENROC_GLOBAL_<NAME> environment variable names, so it
-// must be an identifier.
+// configNameRe must stay an identifier: a name becomes the suffix of GENROC_<PROCESS>_<NAME>.
 var configNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// validateConfigSchema enforces the config_schema shape: a flat "object" whose properties
-// each declare a single scalar type (string/integer/number/boolean) with no nested
-// object/array, combinators, or $ref. Property names must be identifiers that don't
-// collide once normalized to their env var suffix. A required property may not carry a
-// default either, but that is `schema.CheckDoc`'s rule now, applied to every schema.
+// validateConfigSchema leaves required-with-default to schema.CheckDoc, which applies it to
+// every schema.
 func validateConfigSchema(cs *schema.Schema) error {
 	if cs == nil {
 		return nil
@@ -872,10 +805,8 @@ func checkSchemaDoc(field string, s *schema.Schema, pool schema.Defs) error {
 	if err := checkSchemaDocAllowingSecrets(field, s, pool); err != nil {
 		return err
 	}
-	// `secret: true` lives in config_schema and nowhere else. It keeps a value out of the
-	// server's stdout, and the scrubber finds values by knowing them verbatim -- which it does
-	// for config and cannot for anything a process computes. Accepting the marker elsewhere
-	// would promise a protection nothing delivers. specs/object-store.md.
+	// config_schema only: the scrubber can hide only values it knows verbatim, which it cannot
+	// for anything a process computes. specs/object-store.md.
 	if s != nil && s.ContainsSecret() {
 		return fmt.Errorf("%s: secret: true is only valid in config_schema — it keeps a value out of the server's stdout, which the log scrubber can only do for values it knows verbatim; everything else is returned and stored as it is", field)
 	}
@@ -892,9 +823,8 @@ func checkSchemaDocAllowingSecrets(field string, s *schema.Schema, pool schema.D
 	return nil
 }
 
-// validateDefs checks each process-level $defs definition is well-formed, resolving $refs
-// against the whole pool (definitions may reference each other). Collisions with generated
-// schema names need no check — generation renames the colliding user definition.
+// validateDefs needs no check for collisions with generated schema names: generation renames
+// the colliding user definition.
 func (d *ProcessDefinition) validateDefs() error {
 	if d.Defs.IsZero() {
 		return nil
@@ -922,18 +852,15 @@ var v = func() *validator.Validate {
 	return val
 }()
 
-// atPath and PathOf are schema's, reused: a definition's failures and a schema document's are
-// read by the same consumer, so they cannot have two ideas of what a location is. Wrapping is
-// done at the few structural boundaries rather than at the ~60 messages, so a new rule
-// inherits its path. specs/language-server.md §2.
+// Schema's, reused: definition and schema failures share a consumer and one idea of a location.
+// Wrap at structural boundaries only (CLAUDE.md); specs/language-server.md §2.
 func atPath(path string, err error) error { return schema.AtPath(path, err) }
 
 // PathOf returns the slot a validation failure came from, or "" when the rule reported none.
 func PathOf(err error) string { return schema.PathOf(err) }
 
-// FieldError is one failed struct-tag rule, located by its path within the submitted
-// document. Field is the JSON path with the root struct name stripped, so it reads as
-// the client wrote it: "tasks[0].id", not "ProcessDefinition.tasks[0].id".
+// FieldError is one failed struct-tag rule. Field is the JSON path as the client wrote it:
+// "tasks[0].id", not "ProcessDefinition.tasks[0].id".
 type FieldError struct {
 	Field   string `json:"field"`
 	Rule    string `json:"rule"`
@@ -941,11 +868,7 @@ type FieldError struct {
 	Message string `json:"message"`
 }
 
-// ValidationError is a definition-validation failure that keeps the per-field detail
-// the validator produced instead of flattening it to prose. A client submitting a
-// process definition is the main consumer of this API, so "which field" has to survive
-// the trip; Error() still renders the joined human form, which is what every existing
-// caller that only prints the error continues to get.
+// ValidationError keeps the validator's per-field detail; Error() joins it into prose.
 type ValidationError struct {
 	Fields []FieldError
 }
@@ -978,9 +901,6 @@ func fmtValidationErr(err error) error {
 	return &ValidationError{Fields: fields}
 }
 
-// trimRootNamespace drops the leading struct-type segment from a validator namespace
-// ("ProcessDefinition.tasks[0].id" → "tasks[0].id"); a namespace with no dot is the
-// root struct itself and is returned unchanged.
 func trimRootNamespace(ns string) string {
 	if i := strings.IndexByte(ns, '.'); i >= 0 {
 		return ns[i+1:]

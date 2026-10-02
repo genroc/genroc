@@ -10,10 +10,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// Inference tests: what Generate derives for a task's input, a task's output and
-// the switch expressions in between. The definitions are assembled by the
-// inferTask / inferDef builders in mapcases_test.go, so each test shows only the
-// fields that matter to it.
+// What Generate derives for a task's input, output and switch. The definitions come from the
+// inferTask / inferDef builders in mapcases_test.go.
 
 // --- task input inference ---------------------------------------------------
 
@@ -202,9 +200,8 @@ func TestGenerate_InvalidRef(t *testing.T) {
 
 // --- self namespace scoping -------------------------------------------------
 
-// self is the task's transient scope: self.result and (for a looping output task) self.previous
-// are in the output map and the switch; self.output only in the switch, and only with an
-// output. The next six tests walk those boundaries — crossing one is an error.
+// self.result and self.previous exist in the output map and switch; self.output only in the
+// switch, with an output. The next six tests walk those boundaries.
 
 func TestGenerate_Self_OutputInSwitchWithoutProjectionRejected(t *testing.T) {
 	def := inferDef("", inferTask{
@@ -277,9 +274,7 @@ func TestGenerate_Self_PreviousInLoopingSwitchAccepted(t *testing.T) {
 
 // --- output cycles ----------------------------------------------------------
 
-// A task that references its own output but never loops back to itself has no
-// prior iteration (it is not its own predecessor), so the self-reference must be
-// rejected — through outputs.<id> here, and through self.previous below.
+// No loop, no prior iteration: refused through outputs.<id> here and self.previous below.
 func TestGenerate_SelfReferenceViaOutputsRequiresLoop(t *testing.T) {
 	def := inferDef("", inferTask{
 		id:     "loop",
@@ -303,9 +298,7 @@ func TestGenerate_SelfReferenceViaPreviousRequiresLoop(t *testing.T) {
 }
 
 func TestGenerate_ForwardCrossStepRefRequiresCycle(t *testing.T) {
-	// a reads outputs.b, but b runs strictly after a and never loops back — b is not
-	// a predecessor of a, so its output is unavailable. The cross-task analogue of
-	// the self-reference-requires-loop rule.
+	// b runs strictly after a and never loops back: the cross-task analogue of the rule above.
 	def := inferDef("",
 		inferTask{id: "a", output: `{"n":"$: outputs.b.n"}`, sw: inferNext},
 		inferTask{id: "b", output: `{"n":"$: 1"}`, sw: `[{"goto":"end"}]`},
@@ -316,9 +309,7 @@ func TestGenerate_ForwardCrossStepRefRequiresCycle(t *testing.T) {
 }
 
 func TestGenerate_AcyclicOutputChain(t *testing.T) {
-	// A linear chain of output-map tasks (first -> second -> third), each reading the
-	// previous one's output. No cycle, so Tarjan emits singletons in dependency order
-	// and each finalizes (non-null) before the next reads it.
+	// No cycle, so each output finalizes (non-null) before the next reads it.
 	const intN = `{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}`
 	out := runGenerate(t, inferDef("",
 		inferTask{id: "first", output: `{"n":"$: 1"}`, sw: inferNext},
@@ -331,10 +322,8 @@ func TestGenerate_AcyclicOutputChain(t *testing.T) {
 }
 
 func TestGenerate_CrossStepMutualRecursion(t *testing.T) {
-	// start and loop reference each other's output through a goto loop — a
-	// cross-task (mutual) recursion. The joint SCC fixpoint resolves both: loop's
-	// output is a plain integer; start mirrors loop and is nullable (null before
-	// loop has run on the first pass).
+	// Mutual recursion through a goto loop: loop's output is a plain integer; start mirrors it
+	// and is nullable (null before loop first runs).
 	out := runGenerate(t, inferDefWithOutput(
 		inferObjSchema(`"ttl":{"type":"integer"}`, "ttl"),
 		`{"num":"$: outputs.start.num"}`,
@@ -347,10 +336,8 @@ func TestGenerate_CrossStepMutualRecursion(t *testing.T) {
 }
 
 func TestGenerate_ThreeStepMutualRecursion(t *testing.T) {
-	// A three-node output cycle (a reads c, b reads a, c reads b; closed by a goto
-	// loop a->b->c->a) — exercises the joint SCC fixpoint beyond two members. c is
-	// the base case (?? 0) so resolves to a plain integer; a and b mirror through
-	// the cycle and are nullable (null before the cycle has produced a value).
+	// A three-node cycle a->b->c->a: c is the base case (?? 0), a plain integer; a and b mirror
+	// it and are nullable.
 	out := runGenerate(t, inferDef(inferObjSchema(`"ttl":{"type":"integer"}`, "ttl"),
 		inferTask{id: "a", output: `{"n":"$: outputs.c.n"}`, sw: inferNext},
 		inferTask{id: "b", output: `{"n":"$: outputs.a.n"}`, sw: inferNext},
@@ -363,9 +350,8 @@ func TestGenerate_ThreeStepMutualRecursion(t *testing.T) {
 }
 
 func TestGenerate_StructuralRecursionKeptAsRecursiveType(t *testing.T) {
-	// `result: self.previous ?? input` nests one level deeper per iteration. It used to diverge (the
-	// materialized estimate grew past the widening cap); with references honored it is a finite
-	// recursive schema. The timeout guards against regressing to non-terminating inference.
+	// Nests one level deeper per iteration, yet is a finite recursive schema. The timeout guards
+	// against non-terminating inference.
 	def := inferDefWithOutput(
 		`{"type":"object",
 		  "properties":{"ttl":{"type":"integer"},"rec":{"$ref":"#/$defs/recursive"}},

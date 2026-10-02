@@ -7,17 +7,14 @@ import (
 	dbgen "genroc/internal/db/gen"
 )
 
-// Durability is the ladder from specs/durability-levels.md §5, ordered weakest to
-// strongest. It is read two ways, and the inversion is deliberate: an operator picks a
-// LEVEL (a ceiling they lower to buy throughput), while each write declares a FLOOR (the
-// weakest level at which it still fsyncs). A write syncs when level >= floor.
+// Durability is the ladder from specs/durability-levels.md §5, weakest first. An operator picks a
+// LEVEL (a ceiling lowered for throughput); each write declares a FLOOR (the weakest level at
+// which it still fsyncs). A write syncs when level >= floor.
 type Durability int
 
 const (
-	// DurabilityOnlyOnce keeps the guarantees that cannot be replayed: work handed in
-	// from outside is never forgotten, and an only_once task never runs twice. Ordinary
-	// task writes are not flushed, so a power cut replays them — which is what
-	// at-least-once already sells.
+	// DurabilityOnlyOnce keeps what cannot be replayed: inbound work is never forgotten and an
+	// only_once task never runs twice. Ordinary task writes may replay after a power cut.
 	DurabilityOnlyOnce Durability = iota
 	// DurabilityTerminal adds: a finished process stays finished. It is what stops a
 	// poller seeing `completed` and then `running` again after a power cut.
@@ -26,10 +23,8 @@ const (
 	DurabilityStrict
 )
 
-// Floors a write declares. syncAlways is DurabilityOnlyOnce because it is the weakest
-// level: `level >= syncAlways` holds everywhere, so it fsyncs whatever the operator chose.
-// It is also the zero value, which is the point — a write that declares no floor gets it,
-// so forgetting to classify a new write path costs throughput and never a guarantee.
+// syncAlways is the weakest level, so it fsyncs at every level, and the zero value: forgetting
+// to classify a new write path costs throughput, never a guarantee.
 const (
 	syncAlways   = DurabilityOnlyOnce
 	syncTerminal = DurabilityTerminal
@@ -51,9 +46,7 @@ func (d Durability) String() string {
 	return fmt.Sprintf("Durability(%d)", int(d))
 }
 
-// ParseDurability maps the operator-facing name onto a level. The names are the ladder's,
-// not the engines': what `strict` costs differs per engine and per disk, and the guarantee
-// is what an operator is choosing between.
+// ParseDurability maps the operator-facing name onto a level.
 func ParseDurability(s string) (Durability, error) {
 	switch s {
 	case "only-once":
@@ -63,9 +56,8 @@ func ParseDurability(s string) (Durability, error) {
 	case "strict":
 		return DurabilityStrict, nil
 	case "":
-		// Not the CLI default (that is only-once, supplied explicitly by the flag). The
-		// empty string reaches here only from a programmatic caller that named no level,
-		// and an unnamed level must be the safe one.
+		// Not the CLI default (the flag supplies only-once): only a programmatic caller naming
+		// no level gets here, and an unnamed level must be the safe one.
 		return DurabilityStrict, nil
 	}
 	return 0, fmt.Errorf("invalid durability %q (want only-once, terminal, or strict)", s)
@@ -77,9 +69,8 @@ func (db *DB) SetDurability(d Durability) { db.durability.Store(int64(d)) }
 
 func (db *DB) level() Durability { return Durability(db.durability.Load()) }
 
-// instanceWriteFloor derives a write's floor from what it writes rather than from which
-// caller made it: a terminal status IS the "a finished process stays finished" guarantee,
-// so a new terminal status is classified correctly without anyone remembering to.
+// instanceWriteFloor derives the floor from what is written, not who writes it, so a new
+// terminal status is classified correctly without anyone remembering to.
 func instanceWriteFloor(status interface{ Terminal() bool }) Durability {
 	if status.Terminal() {
 		return syncTerminal
@@ -87,10 +78,8 @@ func instanceWriteFloor(status interface{ Terminal() bool }) Durability {
 	return syncStrict
 }
 
-// Flush makes every commit made so far durable, whatever level the write paths ran at. Both
-// engines append to one WAL, so one flushed commit hardens the commits behind it -- which is
-// why writing an otherwise meaningless row is enough and the caller names nothing. The
-// only_once bracket is the caller; at `strict` this is a no-op.
+// Flush makes every commit so far durable, whatever level it ran at: both engines append to one
+// WAL, so one flushed commit hardens those behind it. A no-op at `strict`.
 // specs/durability-levels.md s3.
 func (db *DB) Flush(ctx context.Context) error {
 	if db.level() == DurabilityStrict {
@@ -98,10 +87,8 @@ func (db *DB) Flush(ctx context.Context) error {
 	}
 	err := db.withTxAt(ctx, syncAlways, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		if db.dialect == "postgres" {
-			// Assigning an XID is what makes the commit real, and a real commit at
-			// synchronous_commit=on flushes. No row is written, so concurrent workers do not
-			// queue behind one another on a shared row held across the fsync -- which is
-			// exactly what a marker row would cost here, plus a dead tuple per flush.
+			// An XID makes the commit real, and a real commit flushes. No marker row: it would
+			// queue concurrent workers on its lock across the fsync, plus a dead tuple each.
 			_, err := exec.ExecContext(ctx, "SELECT pg_current_xact_id()")
 			return err
 		}
@@ -115,8 +102,6 @@ func (db *DB) Flush(ctx context.Context) error {
 	return err
 }
 
-// FlushCount is how many times Flush has committed on this process's DB handle. It is the
-// observable for the only_once bracket, and it is kept in memory rather than read from
-// durability_marker so it means the same thing on both engines -- the marker row only moves
-// on SQLite. Resets with the process; it answers "did this run flush", not "how many ever".
+// FlushCount is how many times Flush has committed in this process: "did this run flush", not
+// "how many ever".
 func (db *DB) FlushCount() int64 { return db.flushes.Load() }

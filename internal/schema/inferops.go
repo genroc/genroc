@@ -6,9 +6,7 @@ import (
 	"fmt"
 )
 
-// inferBinaryOps maps each supported binary operator to its type-inference
-// rule. The runtime halves live in internal/expression (evalBinary); the two
-// must accept the same operator set.
+// inferBinaryOps must accept the same operator set as internal/expression's evalBinary.
 var inferBinaryOps = map[string]func(left, right Schema) (Schema, error){
 	"==": inferEquality,
 	"!=": inferEquality,
@@ -47,10 +45,8 @@ func isStructured(s Schema) bool {
 	return s.IsType("array") || s.IsType("object")
 }
 
-// binOperands runs the guard every binary numeric/comparison op shares — reject a
-// nullable operand, then resolve both to a single concrete type, rejecting an ambiguous
-// one — returning the two operand types. nullErr/ambiguousErr are already-resolved
-// messages (pass a literal "%", not "%%").
+// binOperands rejects a nullable or ambiguous operand and returns both concrete types.
+// nullErr/ambiguousErr are already-resolved messages (a literal "%", not "%%").
 func binOperands(left, right Schema, nullErr, ambiguousErr string) (lt, rt string, err error) {
 	if left.HasNull() || right.HasNull() {
 		return "", "", errors.New(nullErr)
@@ -166,10 +162,8 @@ func numericPassthrough(operand Schema) (Schema, error) {
 	return operand, nil
 }
 
-// inferNullCoalesce types `a ?? b`. It is a union-shaped (symbolic) operator: a $ref
-// operand is preserved in the result rather than expanded, which keeps a recursive
-// output type finite. Refs are resolved for analysis only (nullability, the null seed,
-// scalar merging) via resolveTolerant, so the result keeps the symbolic form.
+// inferNullCoalesce keeps a $ref operand symbolic, which keeps a recursive output type finite;
+// refs resolve for analysis only (resolveTolerant).
 func inferNullCoalesce(left, right Schema) (Schema, error) {
 	if left.IsNull() {
 		return right, nil
@@ -177,10 +171,8 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 	nonNullLeft := left.StripNull()
 	leftWrapperNullable := !schemasEqual(left, nonNullLeft)
 
-	// Resolve the (possibly $ref) left for analysis. Mid-solve, a reference to
-	// a definition being computed lands on its running estimate — the null
-	// seed on the first pass, which must take the `?? default` arm exactly
-	// like a structural null.
+	// Mid-solve, a ref to a definition being computed lands on its estimate — the null seed
+	// on the first pass, which must take the `?? default` arm like a structural null.
 	analysisLeft := resolveTolerant(nonNullLeft)
 	if analysisLeft.IsNull() {
 		return right, nil
@@ -189,11 +181,9 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 		return left, nil // left can never be null; ?? is a no-op
 	}
 	if !leftWrapperNullable {
-		// StripNull follows references, so it leaving one alone means the target is a definition
-		// still being SOLVED: the read is served a running estimate, wrapped nullable at the use
-		// site (estimateNode). Unwrap that — the estimate is the type, the wrapper is the seed.
-		// Only MUTUAL output recursion gets here; `self.previous` carries its own wrapper, which
-		// the strip above already removed. TestGenerate_MutualOutputRecursionUnwrapsTheEstimate.
+		// StripNull leaving a ref means a definition still being SOLVED, served wrapped nullable
+		// (estimateNode): the estimate is the type, the wrapper the seed. Only MUTUAL recursion
+		// gets here. TestGenerate_MutualOutputRecursionUnwrapsTheEstimate.
 		nonNullLeft = analysisLeft.StripNull()
 	}
 	if schemasEqual(nonNullLeft, right) {
@@ -202,10 +192,8 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 	if merged, ok := absorbEmptyArray(nonNullLeft, right); ok {
 		return merged, nil
 	}
-	// Scalar merging analyzes the resolved left stripped of its estimate
-	// wrapper (a mid-solve estimate is served nullable): a numeric accumulator
-	// materializes to its scalar type so arithmetic on the result works. A
-	// non-scalar left keeps the symbolic (possibly $ref) form below.
+	// A numeric accumulator materializes to its scalar so arithmetic on the result works; a
+	// non-scalar left keeps the symbolic form below.
 	lct, lOK := concreteTypeOf(analysisLeft.StripNull())
 	rct, rOK := concreteTypeOf(right)
 	if lOK && rOK && isNumeric(lct) && isNumeric(rct) {
@@ -214,15 +202,13 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 		}
 		return Type("number"), nil
 	}
-	// Canonicalize or the union is unsatisfiable, not verbose: oneOf means EXACTLY one, and
-	// `boolean ?? boolean|null` builds overlapping arms that reject every value they describe.
-	// A $ref arm blocks the merge (isSimpleType requires Ref==""), keeping recursion finite.
+	// Canonicalize or the union is unsatisfiable: `boolean ?? boolean|null` builds overlapping
+	// oneOf arms. A $ref arm blocks the merge (isSimpleType), keeping recursion finite.
 	return OneOf(nonNullLeft, right).Canonicalize(), nil
 }
 
-// absorbEmptyArray collapses array ∪ empty-array to the informative arm. Keeping both is
-// WRONG, not verbose: [] matches both arms and oneOf demands exactly one, so the union
-// rejects the very value `xs ?? []` produces. The survivor returns untouched ($refs stay symbolic).
+// absorbEmptyArray: keeping both arms is WRONG — [] matches both and oneOf demands exactly one.
+// The survivor returns untouched ($refs stay symbolic).
 func absorbEmptyArray(a, b Schema) (Schema, bool) {
 	if isProvablyEmpty(b) && resolveTolerant(a).IsType("array") {
 		return a, true
@@ -257,17 +243,13 @@ func tryNullable(self, other Schema) (Schema, bool) {
 		return Schema{}, false
 	}
 	if t := self.Type(); len(t) == 1 && t[0] != "null" {
-		// WithNull widens the type list in place ({type:[T,"null"]}), preserving
-		// any other constraints on the schema.
 		return self.WithNull(), true
 	}
 	return Schema{}, false
 }
 
-// resolveTolerant follows a $ref operand to its target for analysis — the concrete
-// type once solved, the running (nullable) estimate mid-solve. A resolution failure
-// returns the schema unchanged, so the caller's structural analysis still runs (and the
-// underlying failure surfaces via a look-inside path).
+// resolveTolerant follows a $ref for analysis (mid-solve, to the nullable estimate). A failure
+// returns s unchanged; the error surfaces via a look-inside path.
 func resolveTolerant(s Schema) Schema {
 	if !s.HasRef() {
 		return s
@@ -279,9 +261,8 @@ func resolveTolerant(s Schema) Schema {
 	return r
 }
 
-// concreteTypeOf extracts a single effective type string from a schema, resolving $refs
-// (top-level and per union variant) so referenced scalar types participate in operator
-// typing. An all-numeric union widens to "number".
+// concreteTypeOf resolves $refs (top-level and per variant) so referenced scalars take part in
+// operator typing; an all-numeric union widens to "number".
 func concreteTypeOf(s Schema) (string, bool) {
 	s = resolveTolerant(s)
 	if t := s.Type(); len(t) == 1 {

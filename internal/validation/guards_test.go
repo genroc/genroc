@@ -2,11 +2,8 @@ package validation
 
 import "testing"
 
-// A guard is written in one task's frame and read in another's. Every row that translates is
-// a proof that survives the hop; every row that does not is one the target would otherwise
-// read as a fact about a DIFFERENT value under the same name — which is the whole cost of
-// getting this wrong, since a wrong refinement turns a registration error into an
-// uncatchable engine.expression. specs/guard-narrowing.md.
+// A wrong translation makes the target read a fact about a DIFFERENT value under the same name,
+// turning a registration error into an uncatchable engine.expression. specs/guard-narrowing.md.
 func TestTranslateGuard(t *testing.T) {
 	for _, tc := range []struct {
 		name          string

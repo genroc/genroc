@@ -1,9 +1,6 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, Lsp, useWorkspace } from "./helpers.ts";
 
-// Where a reference points. `definition()` answers `<file>:<line>`, so the assertion reads as
-// the jump a reader would make.
-
 let lsp: Lsp;
 beforeAll(async () => {
   useWorkspace();
@@ -11,9 +8,7 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => lsp?.stop());
 
-// `goto: "$review"` is written twice — once routed to, once escalated to. The quoted fragment
-// carries the line above so the cursor is never ambiguous; the helper refuses a fragment that
-// matches more than one place rather than picking.
+// `goto: "$review"` is written twice, so the fragment carries the line above it.
 test("a goto in a switch case jumps to the task it names", async () => {
   expect(
     await lsp.definition(
@@ -34,14 +29,11 @@ test("a goto written as the catch-all case jumps too", async () => {
   expect(await lsp.definition(at(`      - goto: "$<^fulfil>"`))).toBe("orders.genroc.yaml:50");
 });
 
-// `end` terminates the instance and `next` is positional: neither names a task, and a jump to
-// somewhere arbitrary is worse than no jump.
 test("`end` names no task, so there is nowhere to go", async () => {
   expect(await lsp.definition(at(`      - goto: <^end>`))).toBe("");
 });
 
-// The reference that leaves the file. It resolves through the workspace the editor named at
-// startup, not through `.genroc` — which answers which files DEPLOY, a different question.
+// Resolved through the editor's workspace, not `.genroc`, which answers which files DEPLOY.
 test("a child action's process jumps to the file that defines it", async () => {
   expect(await lsp.definition(at(`      name: <^shipment>`))).toBe("shipment.genroc.yaml:1");
 });

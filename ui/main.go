@@ -1,7 +1,5 @@
-// genroc-ui serves the genroc web UI, logs a person in, and mints the token the genroc server
-// verifies. It ISSUES: it authenticates against an OIDC provider or a password in its own config,
-// resolves groups to permissions through the role map, and signs a short-lived token carrying
-// them. The server verifies and applies them, and never learns what a group is.
+// genroc-ui serves the genroc web UI, logs a person in, and mints the token the server verifies:
+// it resolves groups to permissions and signs them, so the server never learns what a group is.
 // specs/ui-component.md, specs/ui-issued-tokens.md.
 package main
 
@@ -30,9 +28,8 @@ const (
 	stateCookie   = "genroc_oidc_state"
 	nonceCookie   = "genroc_oidc_nonce"
 	returnCookie  = "genroc_oidc_return"
-	// providerCookie remembers WHICH provider a login is with, so the callback can verify the
-	// token against the right issuer. It cannot go in the URL: the callback is one registered
-	// address shared by every provider.
+	// providerCookie carries which provider a login is with: the callback is one registered
+	// address shared by every provider, so it cannot be in the URL.
 	providerCookie = "genroc_oidc_provider"
 )
 
@@ -168,9 +165,8 @@ func (s *uiServer) routes() http.Handler {
 			s.forward(w, r)
 			return
 		}
-		// A real file in the bundle is served to anyone. It has to be: the login page is one of
-		// them, and so are the script and stylesheet it needs to render. A built bundle
-		// discloses nothing -- what it can DO is decided by the credential it obtains.
+		// Bundle files are public: the login page and its assets are among them, and a built
+		// bundle discloses nothing.
 		if _, err := fs.Stat(s.assets, strings.TrimPrefix(r.URL.Path, "/")); err == nil {
 			files.ServeHTTP(w, r)
 			return
@@ -194,10 +190,8 @@ func isUpstream(p string) bool {
 	return isOpen(p) || strings.HasPrefix(p, "/api/")
 }
 
-// isOpen names the paths the SERVER serves without a credential, and genroc-ui must not gate what
-// the server does not: a probe has to answer before any identity exists. Gating these once made
-// `/healthz` return 401 through the UI while answering 200 on the server -- the shape that gets a
-// container marked unhealthy for reasons nobody can find. api-auth.md §1.
+// isOpen: paths the SERVER serves without a credential, which genroc-ui must not gate either:
+// gating made `/healthz` 401 through the UI while the server said 200 (api-auth.md §1).
 func isOpen(p string) bool {
 	return p == "/healthz" || strings.HasPrefix(p, "/public/")
 }
@@ -346,10 +340,8 @@ func (s *uiServer) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	groups := claims.Groups
 	if s.directory != nil && s.providerType(pc.Value) == "google" {
-		// The login FAILS if this does not answer. Signing someone in with fewer permissions
-		// than they have looks like a broken role map and is diagnosed as one, where a refused
-		// login says what went wrong once, in the log. Same rule the server's jwt mode follows
-		// for an unreachable JWKS.
+		// The login FAILS if this does not answer: signing someone in with fewer permissions
+		// would be misdiagnosed as a broken role map. The server's jwt mode does the same.
 		if groups, err = s.directory.groups(r.Context(), tok.Access, claims.Subject); err != nil {
 			s.log.Error("google groups", "subject", claims.Subject, "err", err)
 			http.Error(w, "login failed: could not read your Google groups", http.StatusBadGateway)
@@ -378,9 +370,8 @@ func (s *uiServer) claimNames(providerID string) (string, string) {
 	return "", ""
 }
 
-// setSession mints the session and sets the cookie. Separate from any response, because the two
-// login paths answer differently: the OIDC callback redirects a browser, the password endpoint
-// answers a fetch.
+// setSession is separate from any response: the OIDC callback redirects a browser, the password
+// endpoint answers a fetch.
 func (s *uiServer) setSession(w http.ResponseWriter, r *http.Request, id identity) error {
 	tok, exp, err := s.sign.mintSession(id)
 	if err != nil {
@@ -413,18 +404,15 @@ func (s *uiServer) establish(w http.ResponseWriter, r *http.Request, id identity
 	http.Redirect(w, r, rd, http.StatusFound)
 }
 
-// logout clears the session. POST, not GET: its whole job is changing state, and a GET would be
-// reachable from any page that can make the browser follow a link. It is also how a person picks
-// up a change to their own GROUPS, which are captured at login and carried in the cookie -- unlike
-// the role map, read from config on every request. specs/ui-issued-tokens.md §4.
+// logout is POST, so no followed link can trigger it. It is also how a person picks up changed
+// GROUPS, captured at login, unlike the role map (specs/ui-issued-tokens.md §4).
 func (s *uiServer) logout(w http.ResponseWriter, r *http.Request) {
 	s.clearTemp(w, r, sessionCookie)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// safeReturn sanitises where a login lands, and refuses two things: an ABSOLUTE target would be
-// an open redirect any site could point at itself, and one under /auth/ would nest, because
-// needLogin builds `?rd=<the request>` and would wrap its own redirect forever.
+// safeReturn refuses an ABSOLUTE target (an open redirect) and one under /auth/ (needLogin's
+// `?rd=` would wrap its own redirect forever).
 func safeReturn(rd string) string {
 	if !strings.HasPrefix(rd, "/") || strings.HasPrefix(rd, "//") || strings.HasPrefix(rd, "/auth/") {
 		return "/"
@@ -432,10 +420,8 @@ func safeReturn(rd string) string {
 	return rd
 }
 
-// secure reports whether cookies should carry the Secure attribute. Derived from the request
-// rather than configured: over HTTP a Secure cookie is silently dropped, over HTTPS its absence is
-// a downgrade, and the request already knows. `secure_cookie` overrides it for the one case the
-// request cannot see -- a proxy terminating TLS that does not set X-Forwarded-Proto.
+// secure follows the request: a Secure cookie over HTTP is dropped, its absence over HTTPS a
+// downgrade. `secure_cookie` overrides it for a TLS proxy that sets no X-Forwarded-Proto.
 func (s *uiServer) secure(r *http.Request) bool {
 	if s.cfg.SecureCookie != nil {
 		return *s.cfg.SecureCookie
@@ -450,10 +436,8 @@ func isHTTPS(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-// callbackURL is where a provider sends the browser back, derived from the request so a deployment
-// states its address once -- at the provider, where it must be registered anyway. The Host header
-// is the client's to set and is not trusted here: it goes to the provider, which accepts only
-// pre-registered redirect URIs. `redirect_url` pins it behind a proxy that rewrites Host.
+// callbackURL derives from the request. Host is client-set, but it only reaches the provider,
+// which accepts registered redirect URIs alone. `redirect_url` pins it behind a proxy.
 func (s *uiServer) callbackURL(r *http.Request) string {
 	if s.cfg.RedirectURL != "" {
 		return s.cfg.RedirectURL

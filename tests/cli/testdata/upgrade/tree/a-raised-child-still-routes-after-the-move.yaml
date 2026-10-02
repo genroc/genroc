@@ -1,15 +1,6 @@
-# A child that RAISED is terminal like one that completed, but its answer travels the other
-# channel: the payload is conformed against the parent's raises[code], and routed by on_error.
-# Nothing else exercises that across a version change.
-#
-# Position 2 is the one worth having — the child has raised and the parent has NOT collected
-# yet. The child stays on the version that ran it (terminal descendants do not move), so its
-# stored payload was produced under v1 and is conformed under v2. The finished output is that
-# payload, which is what says it survived the migration and still reached the handler.
-#
-# The two versions differ only by an added optional input property, so nothing about the stored
-# state has any reason to move — what is being asserted is that a move which SHOULD be
-# invisible to a raised child is in fact invisible.
+# A raised child stays on v1 like a completed one, but its payload is conformed against the
+# parent's raises[code] and routed by on_error. Position 2 (raised, uncollected) is the one
+# worth having. Versions differ by one optional input.
 apply:
   - definitions:
       - name: kid

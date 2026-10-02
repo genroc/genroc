@@ -8,10 +8,8 @@ import (
 	"genroc/internal/template"
 )
 
-// The top type is "carried, never read", and putting it in a UNION must not launder that away. A
-// miss on an ordinary variant is an answer, folded in as a null arm; an unknown variant is not one,
-// and reading through it would be reading INTO undeclared data. Reachable from an ordinary
-// definition, since a fetch may declare one status `{}` and another a real shape.
+// A miss on an ordinary variant is an answer (a null arm); an unknown variant is not, and
+// reading through it reads INTO undeclared data. A fetch may declare one status `{}`.
 // specs/unknown-type.md.
 func TestNavigate_UnknownVariantRefusesEveryAccess(t *testing.T) {
 	parse := func(raw string) schema.Schema {
@@ -83,11 +81,8 @@ func TestNavigate_UnknownVariantRefusesEveryAccess(t *testing.T) {
 	}
 }
 
-// The two spellings must agree. `$: x` refuses an unknown because it is not a subset of the
-// slot's target type; `${ x }` used to accept it, since the stringify guard fires only on a
-// type that PROVABLY cannot render and the top type proves nothing. But interpolating is
-// reading, which is what {} forbids — and the runtime failure is a terminal
-// engine.expression, not something on_error can catch.
+// `${ x }` must refuse an unknown as `$: x` does: interpolating is reading, and the runtime
+// failure is a terminal engine.expression that on_error cannot catch.
 func TestTemplate_UnknownCannotBeInterpolated(t *testing.T) {
 	raw, err := schema.Parse([]byte(`{}`))
 	if err != nil {
@@ -121,10 +116,8 @@ func TestTemplate_UnknownCannotBeInterpolated(t *testing.T) {
 	}
 }
 
-// `anyOf[{}, T]` denotes the same set as `{}`, so the relation must recognise it in BOTH
-// directions or a change that turns nobody away is reported as a break. genroc keeps the union in
-// the document and answers at the relation instead. oneOf is deliberately not absorbed: there a
-// value matching two arms is REJECTED, so `T ⊆ oneOf[{}, T]` is genuinely false.
+// `anyOf[{}, T]` denotes `{}`, so it must absorb in BOTH directions. Not oneOf: a value matching
+// two arms is REJECTED, so `T ⊆ oneOf[{}, T]` is genuinely false.
 func TestIsSubset_TopTypeArmAbsorbs(t *testing.T) {
 	parse := func(raw string) schema.Schema {
 		t.Helper()

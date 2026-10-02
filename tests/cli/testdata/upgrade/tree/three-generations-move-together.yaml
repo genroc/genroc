@@ -1,13 +1,6 @@
-# Three levels. `PlanUpgrade` walks the tree breadth-first, and a grandchild is only reached
-# through its parent's TARGET definition — top v2 names mid, mid v2 names gc — so a walk that
-# stopped at the first generation would leave gc behind on a version its parent no longer names.
-#
-# Only the GRANDCHILD's arithmetic changes between the versions, so the finished number says
-# whether the walk reached the bottom: 10 if gc moved, 2 if it was left behind. Nothing shallower
-# distinguishes them — the tree looks identical either way while it is still running.
-#
-# The positions are the generations coming into existence, one per tick, and then settling back
-# up. Tick 3 is the one where the bottom has already finished under v1 and stays there.
+# A grandchild is reached only through its parent's TARGET definition, so a walk stopping at
+# the first generation leaves it behind: 10 if gc moved, 2 if not. At tick 3 gc has already
+# finished under v1 and stays.
 apply:
   - definitions:
       - name: gc

@@ -1,8 +1,7 @@
 package lsp
 
-// The server loop. One goroutine, one document store, no shared state — a language server's
-// work is per-document and fast enough here (parse plus inference on one file) that
-// concurrency would buy latency nobody would notice and a class of races nobody wants.
+// The server loop: one goroutine, one document store, no shared state. The work is one file's
+// parse and inference, so concurrency would buy races and no latency anyone notices.
 
 import (
 	"encoding/json"
@@ -44,9 +43,8 @@ func (s *Server) Run() int {
 				_ = s.conn.replyErr(nil, codeParseError, "%s", err)
 				continue
 			}
-			// stderr, never stdout: stdout is the protocol. A session that ends on a read
-			// error said nothing at all, which reads as a server that simply stopped — and is
-			// how a non-blocking stdin cost an afternoon to find.
+			// stderr, never stdout: stdout is the protocol. A session ending in silence reads
+			// as a server that simply stopped.
 			fmt.Fprintf(os.Stderr, "genroc: reading from the editor: %v\n", err)
 			return 1
 		}
@@ -74,9 +72,8 @@ func (s *Server) handle(req *request) {
 		var res initializeResult
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
 		res.Capabilities.HoverProvider = true
-		// `/` is here for a path: every directory step is a fresh question, and without it a
-		// client filters the list it already has — which after `./` matches nothing, so a
-		// reader sees an empty popup where the directory listing should be.
+		// `/` re-asks at each directory step: a client otherwise filters the list it holds,
+		// which after `./` matches nothing.
 		res.Capabilities.CompletionProvider = &completionOpts{TriggerCharacters: []string{".", "$", "/"}}
 		res.Capabilities.DefinitionProvider = true
 		res.Capabilities.SemanticTokens = &semanticOpts{Full: true}
@@ -168,9 +165,8 @@ func (s *Server) set(uri, text string, version *int) {
 	})
 }
 
-// pathOf is the document's file on disk, "" for a URI that names none. Every answer that
-// depends on another file needs it: a structural directive's argument is relative to the file
-// holding it.
+// pathOf is the document's file on disk, "" for a URI that names none. A structural directive's
+// argument is relative to it.
 func (s *Server) pathOf(uri string) string {
 	path, _ := uriToPath(uri)
 	return path
@@ -283,9 +279,8 @@ func (s *Server) definition(p hoverParams) any {
 	return location{URI: uri, Range: toRange(splitLines(target), r)}
 }
 
-// workspaceRoots reads the roots out of the handshake. workspaceFolders is the current field
-// and rootUri the one before it; an editor sends one or the other and older ones send only
-// rootUri, so both are read and duplicates collapse.
+// workspaceRoots reads both workspaceFolders and the older rootUri, since an editor may send
+// either, and collapses duplicates.
 func workspaceRoots(p initializeParams) []string {
 	seen := map[string]bool{}
 	var out []string

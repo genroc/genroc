@@ -6,28 +6,23 @@ import (
 	"strings"
 )
 
-// How the server accepts JWTs. FLAGS, not a config file: api-auth.md §4 argued for a file
-// because the auth config held the role map, and that moved to genroc-ui. What is left is four
-// scalars. specs/ui-issued-tokens.md.
+// How the server accepts JWTs, as flags: four scalars need no config file now that the role
+// map lives in genroc-ui. specs/ui-issued-tokens.md.
 type JWTModeConfig struct {
-	// Issuer and Audience are pinned. Unpinned, a token minted for a different application by
-	// the same issuer verifies here too, which is the most common real-world JWT bug.
-	// specs/api-auth.md §2.4. Both default to what genroc-ui uses, so a deployment that runs
-	// the pair as shipped configures neither.
+	// Pinned, or a token the same issuer minted for another application verifies here too.
+	// Both default to genroc-ui's. specs/api-auth.md §2.4.
 	Issuer   string
 	Audience string
-	// Secret or SecretFile. The algorithm is HS256 and is not configurable: with a single issuer
-	// and a symmetric key there is no set to get wrong, which closes `alg: none` and RS256/HS256
-	// confusion by construction rather than by pinning.
+	// Secret or SecretFile. HS256 only, not configurable: that closes `alg: none` and
+	// RS256/HS256 confusion by construction.
 	Secret     string
 	SecretFile string
 	Leeway     string
 }
 
 const (
-	// minSecretBytes is the floor for the shared secret. HMAC's strength is the key's entropy,
-	// so a short one is a forgeable one — and forging a token here mints any identity with any
-	// permissions. Refused at startup rather than warned about.
+	// minSecretBytes: a short HMAC key is forgeable, and a forged token mints any identity, so
+	// a shorter secret is refused at startup, not warned about.
 	minSecretBytes = 32
 
 	DefaultJWTIssuer   = "genroc-ui"

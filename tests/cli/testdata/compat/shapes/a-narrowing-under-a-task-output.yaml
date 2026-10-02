@@ -1,8 +1,5 @@
-# A constraint narrowed on the INPUT surfaces again inside a task's context, because
-# inference carries constraints through navigation: `$: input.rows` puts the item's bounds
-# into `$defs[go_output]`, and the context comparison finds them there. That is the whole
-# reason inference must not drop them — and the path is what makes the second row worth
-# printing rather than a duplicate of the first.
+# Inference carries constraints through navigation: `$: input.rows` puts the item bounds into
+# `$defs[go_output]`, so the input narrowing surfaces again in a task's context, at its own path.
 apply:
   - channel: deeppath_a
     definitions:

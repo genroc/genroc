@@ -10,20 +10,16 @@ import (
 	"genroc/internal/validation"
 )
 
-// The task scope, pinned slot by slot. `self` has three members and they come into existence
-// at different moments — previous when the task is entered, result when the action answers,
-// output when the output map has run — so each slot may name only the ones that already
-// exist. outputs.<own id> is previous everywhere, the switch included. specs/task-scopes.md.
+// The task scope, pinned slot by slot: each slot may name only the `self` members that already
+// exist there. specs/task-scopes.md.
 
 // loopingTask wraps a slot fragment in a task that gotos itself, so `previous` exists.
 func loopingTask(taskJSON string) string {
 	return fmt.Sprintf(`{"name":"p","tasks":[%s]}`, taskJSON)
 }
 
-// preOutputCases are the slots evaluated before the task's own output exists — every one of
-// them, so a slot that quietly acquires a scope it should not have fails here. `form` says how
-// the expression under test is spelled in that slot: a $: leaf, a ${ } interpolation, or the
-// bare boolean an on_error case takes.
+// preOutputCases lists EVERY pre-output slot, so one quietly acquiring a scope fails here. `form`
+// is how the expression is spelled there: a $: leaf, a ${ } interpolation, or a bare case.
 type slotForm int
 
 const (
@@ -40,10 +36,8 @@ const loop = `"output":{"n":"$: 1","text":"$: 'x'","list":"$: [1]"},` +
 var preOutputCases = map[string]struct {
 	tmpl string
 	form slotForm
-	// ok wraps the member under test so it satisfies the slot's own type rule — a number for
-	// a delay, a boolean for a case, an array for `over`. %[1]s is the base (self.previous or
-	// outputs.t). Without it the positive cases would fail on nullability and prove nothing
-	// about scope.
+	// ok makes the member satisfy the slot's own type rule (%[1]s is the base); without it the
+	// positive cases fail on nullability and prove nothing about scope.
 	ok string
 }{
 	"input":          {`{"id":"t","action":{"type":"external","input":{"v":"%s"}},` + loop, leaf, "%[1]s.n"},
@@ -159,9 +153,7 @@ func TestScopes_SelfPreviousReadableInEverySlot(t *testing.T) {
 	eachPreOutputSlotAccepts(t, "self.previous")
 }
 
-// outputs.<own id> is the SAME value as self.previous, in every slot. The two names must
-// therefore be accepted and rejected together — a slot where one works and the other does
-// not is the ambiguity this rule exists to remove.
+// A slot where only one of the two names works is the ambiguity this rule removes.
 func TestScopes_OwnOutputsIsPrevious(t *testing.T) {
 	eachPreOutputSlotAccepts(t, "outputs.t")
 
@@ -175,9 +167,8 @@ func TestScopes_OwnOutputsIsPrevious(t *testing.T) {
 	})
 }
 
-// Without a path back to the task there is never a previous output, so both names for it are
-// refused — and the message says why rather than reading as a typo. A task that DOES loop but
-// declares no output fails for the other reason, and must not be told it never loops.
+// The message says why rather than reading as a typo, and a looping task with no output must
+// not be told it never loops.
 func TestScopes_NoPreviousWithoutALoop(t *testing.T) {
 	nonLooping := map[string]string{
 		"self.previous in input":  `{"id":"t","action":{"type":"external","input":{"v":"$: self.previous.n"}},"output":{"n":"$: 1"},"switch":"end"}`,
@@ -212,9 +203,8 @@ func TestScopes_NoPreviousWithoutALoop(t *testing.T) {
 	}
 }
 
-// The pre-output scope must reach a CHILD task's input, which a second pass re-checks against
-// the child's declared input_schema. That pass rebuilds the context from scratch, so it is
-// where an uninferred placeholder silently replaces a task's real output type.
+// The child-input pass rebuilds the context from scratch, which is where a placeholder could
+// silently replace a task's real output type.
 func TestScopes_ChildInputSeesInferredOutputTypes(t *testing.T) {
 	child := childDef(t, "kid", `{"type":"object","properties":{"x":{"type":"integer"}},"required":["x"]}`)
 	assertChildRefsOK(t, child, `{"name":"parent","tasks":[
@@ -248,10 +238,8 @@ func assertChildRefsOK(t *testing.T, child *model.ProcessDefinition, defJSON str
 	}
 }
 
-// A migration layer is the shape of the stored ROW, and `self` is never in it: previous,
-// result and output are transient scopes the engine builds per slot. If contextSchema ever
-// grew a `self`, MigrateState would try to conform a value no row carries — and compat would
-// report a difference in something that is not stored. specs/version-compatibility.md.
+// A migration layer is the stored ROW, and `self` is never in it: with one, MigrateState would
+// conform a value no row carries. specs/version-compatibility.md.
 func TestScopes_MigrationLayersCarryNoSelf(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(`{"name":"p","tasks":[

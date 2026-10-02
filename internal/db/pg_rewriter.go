@@ -62,19 +62,16 @@ func (db *DB) beginTx(ctx context.Context, opts *sql.TxOptions) (*syncTx, *dbgen
 	return db.beginTxAt(ctx, syncAlways, opts)
 }
 
-// beginTxAt starts a transaction whose commit is flushed only when the configured level is at
-// or above floor, returning the raw handle, a *dbgen.Queries, and a DBTX executor. Use the
-// returned executor, not the raw *sql.Tx, for hand-written SQL so ? placeholders work on both
-// engines. Postgres relaxes a commit with SET LOCAL inside the transaction and SQLite with a
-// PRAGMA on the connection, which is why SQLite pins one. specs/durability-levels.md §5.
+// beginTxAt starts a transaction flushed only when the level is at or above floor. Use the
+// returned DBTX, not the raw *sql.Tx, for hand-written SQL so ? placeholders work on both
+// engines. specs/durability-levels.md §5.
 func (db *DB) beginTxAt(ctx context.Context, floor Durability, opts *sql.TxOptions) (*syncTx, *dbgen.Queries, dbgen.DBTX, error) {
 	relaxed := !db.level().syncs(floor)
 
 	s := &syncTx{db: db}
 	if relaxed && db.dialect == "sqlite" {
-		// Pinned, not set through the pool: with one connection a PRAGMA issued separately
-		// could be overtaken by another goroutine's write, which would then commit at this
-		// transaction's level instead of its own.
+		// Pinned, not set through the pool: a separately issued PRAGMA could be overtaken by
+		// another goroutine's write, which would then commit at this level.
 		conn, err := db.sqldb.Conn(ctx)
 		if err != nil {
 			return nil, nil, nil, err
@@ -151,10 +148,8 @@ func (db *DB) withTx(ctx context.Context, fn func(qtx *dbgen.Queries, exec dbgen
 	return db.withTxAt(ctx, syncAlways, fn)
 }
 
-// withTxAt runs fn inside a transaction flushed only at or above floor, committing on
-// success and rolling back on error. fn receives the pgRewriter-wrapped *dbgen.Queries and
-// DBTX executor — use those, never the raw *sql.Tx, for hand-written SQL so ? placeholders
-// keep working on both engines.
+// withTxAt runs fn in a transaction flushed only at or above floor. Use fn's rewriter-wrapped
+// qtx/exec, never a raw *sql.Tx, for hand-written SQL.
 func (db *DB) withTxAt(ctx context.Context, floor Durability, fn func(qtx *dbgen.Queries, exec dbgen.DBTX) error) error {
 	tx, qtx, exec, err := db.beginTxAt(ctx, floor, nil)
 	if err != nil {

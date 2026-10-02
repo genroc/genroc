@@ -22,8 +22,7 @@ import (
 // It is part of the token, not decoration: HashToken hashes the whole string.
 const TokenPrefix = "genroc_sk_"
 
-// APIToken is a token as an operator sees it. Secret is set ONLY by MintToken, on the one
-// occasion the plaintext exists; every later read leaves it empty because the row cannot
+// APIToken is a token as an operator sees it. Secret is set ONLY by MintToken; no later read can
 // produce it.
 type APIToken struct {
 	ID         string
@@ -41,9 +40,8 @@ type APIToken struct {
 	RevokedBy string
 }
 
-// The actor for each path that mints outside any request, so the row records HOW a credential
-// entered the system -- §5.3's root-of-trust ranking, made readable. An API mint carries the
-// calling principal's actor instead.
+// Actors for the mint paths outside any request, recording HOW a credential entered (§5.3's
+// root-of-trust ranking). An API mint carries the caller's actor instead.
 const (
 	ActorSeedTokens     = "startup:seed-tokens"
 	ActorBootstrapToken = "startup:bootstrap-token"
@@ -62,9 +60,8 @@ func NewTokenSecret() (string, error) {
 	return TokenPrefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// HashToken is what the database stores. SHA-256 rather than a password KDF on purpose: the
-// input is 256 bits of uniform randomness, so there is nothing to slow an attacker down about
-// — a KDF would only add latency to every request.
+// HashToken is what the database stores. SHA-256, not a password KDF: the input is 256 random
+// bits, so a KDF would only add latency to every request.
 func HashToken(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
@@ -76,15 +73,13 @@ func nullMillis(ms int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: ms, Valid: ms != 0}
 }
 
-// minSecretBody is the shortest credential body accepted from an operator. NewTokenSecret
-// produces 43 base64url characters (256 bits); this floor allows a different generator while
-// refusing anything a person could have typed.
+// minSecretBody (NewTokenSecret makes 43) allows another generator while refusing anything a
+// person could have typed.
 const minSecretBody = 32
 
-// ValidateTokenSecret refuses a secret genroc could never authenticate. LookupToken requires
-// the prefix, so a prefix-less row can never be used while still counting as a live admin token
-// -- a silent lockout that permanently satisfies the bootstrap condition. Refusing at the
-// boundary is the only place that cannot be forgotten.
+// ValidateTokenSecret refuses a secret genroc could never authenticate: a prefix-less row is never
+// usable yet counts as a live admin token, a silent lockout that permanently satisfies the
+// bootstrap condition.
 func ValidateTokenSecret(secret string) error {
 	if !strings.HasPrefix(secret, TokenPrefix) {
 		return fmt.Errorf("a token must start with %q (generate one with `genctl token generate`)", TokenPrefix)
@@ -96,10 +91,8 @@ func ValidateTokenSecret(secret string) error {
 	return nil
 }
 
-// MintToken returns the token with its plaintext — the only time it exists anywhere.
-//
-// expiresAt is millis, or 0 for never. Required rather than optional because a machine
-// credential and a browser session want opposite answers.
+// MintToken returns the token with its plaintext, the only time it exists. expiresAt is millis,
+// or 0 for never; required because machine credentials and browser sessions want opposite answers.
 func (db *DB) MintToken(ctx context.Context, label string, perms []string, expiresAt int64, actor string) (APIToken, error) {
 	secret, err := NewTokenSecret()
 	if err != nil {
@@ -124,10 +117,9 @@ func (db *DB) MintToken(ctx context.Context, label string, perms []string, expir
 	return tok, nil
 }
 
-// LookupToken resolves a presented secret to the permissions it grants. ok=false covers both
-// "no such token" and "revoked" without saying which, so an unauthenticated caller learns
-// nothing about the deployment. The constant-time compare is belt-and-braces over an indexed
-// lookup on a hash: it stops a later change to how the row is found introducing a timing leak.
+// LookupToken resolves a presented secret to the permissions it grants. ok=false covers both "no
+// such token" and "revoked" without saying which. The constant-time compare guards against a later
+// change to how the row is found.
 func (db *DB) LookupToken(ctx context.Context, secret string) (APIToken, bool, error) {
 	if !strings.HasPrefix(secret, TokenPrefix) {
 		return APIToken{}, false, nil
@@ -176,9 +168,8 @@ func (db *DB) ListTokens(ctx context.Context) ([]APIToken, error) {
 	return out, nil
 }
 
-// RevokeToken marks a token dead. Reports ErrNotFound when nothing changed, so revoking twice
-// is distinguishable from revoking an id that never existed — an operator running the wrong
-// command should not be told it worked.
+// RevokeToken marks a token dead, or reports ErrNotFound when nothing changed: an operator running
+// the wrong command must not be told it worked.
 func (db *DB) RevokeToken(ctx context.Context, id string, actor string) error {
 	n, err := db.q.RevokeAPIToken(ctx, dbgen.RevokeAPITokenParams{
 		ID: id, RevokedAt: sql.NullInt64{Int64: nowMillis(), Valid: true}, RevokedBy: actor,
@@ -192,24 +183,17 @@ func (db *DB) RevokeToken(ctx context.Context, id string, actor string) error {
 	return nil
 }
 
-// EnsureBootstrapToken mints an admin token when the deployment has no live ADMIN one (a
-// deployment holding only worker tokens has locked its operators out). created reports whether
-// this call minted, so only the winner prints a credential. specs/api-auth.md §5.3.
-//
-// SERIALIZABLE is the mechanism, and a plain transaction is not enough: under READ COMMITTED a
-// COUNT takes no lock on rows that do not exist yet, so N starting replicas all see zero and
-// all insert. A loser fails at COMMIT and must retry rather than exit -- the next pass counts
-// the winner's row and reports created=false.
+// EnsureBootstrapToken mints an admin token when no live ADMIN one exists; created reports whether
+// this call minted, so only the winner prints it. SERIALIZABLE, not READ COMMITTED: a COUNT locks
+// no unborn rows, so N replicas would all insert. A loser retries. specs/api-auth.md §5.3.
 func (db *DB) EnsureBootstrapToken(ctx context.Context, label string, secret string) (APIToken, bool, error) {
-	// Bounded: a loser needs one more pass to see the winner's row. More attempts than
-	// replicas would be a busy-wait on a contended row for no gain.
-	// Validated once, before the retry loop: a malformed secret is not transient, and retrying
-	// it five times only delays the same refusal.
+	// Validated once, outside the retry loop: a malformed secret is not transient.
 	if secret != "" {
 		if err := ValidateTokenSecret(secret); err != nil {
 			return APIToken{}, false, err
 		}
 	}
+	// A loser needs one more pass to see the winner's row; more would only busy-wait.
 	const attempts = 5
 	var err error
 	for i := 0; i < attempts; i++ {
@@ -265,11 +249,9 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	return tok, true, nil
 }
 
-// SeedToken ensures a token with this exact secret exists, granting perms under label -- how an
-// operator supplies credentials genroc never generated and so never logs. Idempotent by SECRET,
-// not by label: changing the value mints a second token rather than mutating the first, so
-// rotation is additive and a fleet can roll without a window where half the workers are
-// refused. created reports whether this call inserted.
+// SeedToken ensures a token with this exact secret exists, granting perms under label. Idempotent
+// by SECRET, not label: a new value mints a second token, so rotation is additive and a fleet
+// rolls without refusals. created reports whether this call inserted.
 func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secret string) (created bool, err error) {
 	if err := ValidateTokenSecret(secret); err != nil {
 		return false, fmt.Errorf("seed token %q: %w", label, err)

@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// A process-level $defs definition shared by two result_schemas: output maps read
-// typed fields through the shared $ref, so inference must resolve it in every
-// task's context.
+// A $def shared by two result_schemas: inference must resolve it in every task's context.
 const sharedDefsProcess = `{
 	"name": "orders",
 	"$defs": {
@@ -58,8 +56,7 @@ func TestGenerate_SharedDefsAcrossResults(t *testing.T) {
 }
 
 func TestGenerate_SharedDefUsedByInputAndResults(t *testing.T) {
-	// When the input schema uses the same shared def, its baked copy is hoisted
-	// under the definition's own name and the pool merge must not duplicate it
+	// The input schema's baked copy of the same def is hoisted under its own name, not duplicated
 	// (no User_1).
 	out := runGenerate(t, `{
 		"name": "p",
@@ -86,10 +83,7 @@ func TestGenerate_SharedDefUsedByInputAndResults(t *testing.T) {
 }
 
 func TestGenerate_GeneratedNamesTakePrecedenceByRenaming(t *testing.T) {
-	// A user definition named like a generated schema (here s1_output, colliding
-	// with task s1's output def) is renamed with a unique suffix and every $ref
-	// to it rewritten — the generated name keeps its meaning, and inference
-	// through the renamed definition still types correctly.
+	// A user def named like a generated one (s1_output) is renamed, its $refs rewritten.
 	out := runGenerate(t, `{
 		"name": "p",
 		"$defs": {"s1_output": {"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}},
@@ -113,9 +107,8 @@ func TestGenerate_GeneratedNamesTakePrecedenceByRenaming(t *testing.T) {
 	}
 	assertJSON(t, gen, `{"type":"object","properties":{"num":{"type":"integer"}},"required":["num"]}`)
 
-	// The user's definition survived under a suffixed name, and the inference
-	// above (num: integer, read through the renamed ref) proves the embedded
-	// result schema's $refs were rewritten to it.
+	// The inference above (num: integer, through the renamed ref) proves the embedded $refs were
+	// rewritten.
 	userDef, ok := out.Defs.Get("s1_output_1")
 	if !ok {
 		t.Fatalf("renamed user def s1_output_1 missing: %v", out.Defs.Names())

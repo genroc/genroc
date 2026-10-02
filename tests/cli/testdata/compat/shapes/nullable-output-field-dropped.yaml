@@ -1,8 +1,5 @@
-# The output contract does NOT get the relaxation, and this is the pair that shows it: the
-# very shape nullable-output-field-added.yaml tolerates on the read side is breaking here.
-# A consumer conforms this value — a waiting parent against its result_schema — and a conform
-# rejects an absent required key however nullable its type, so tolerating it would promise
-# what the runtime refuses. The task keeps projecting note, so only the contract moves.
+# The output contract gets no relaxation: a consumer's conform rejects an absent required key
+# however nullable its type. Only the contract moves; the task keeps projecting `note`.
 apply:
   - channel: nullout_a
     definitions:

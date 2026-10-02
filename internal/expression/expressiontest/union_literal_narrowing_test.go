@@ -2,10 +2,8 @@ package expressiontest
 
 import "testing"
 
-// Literal narrowing — equality against a non-nil literal narrows x to the
-// literal's type in the matching branch.
-//
-// Schemas (nullableString, nullableInteger) are defined in helpers_test.go.
+// Equality against a non-nil literal narrows x to the literal's type in the matching branch.
+// Schemas are in helpers_test.go.
 
 func TestConditionalLiteralNarrowing_EqStrThenConcat(t *testing.T) {
 	testNullableNarrowValid(t, `x == "hi" ? x + "!" : ""`, nullableString)

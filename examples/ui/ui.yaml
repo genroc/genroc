@@ -1,16 +1,10 @@
-# genroc-ui. specs/ui-issued-tokens.md §5.
-#
-# Everything omitted here has a default, and the defaults are the point: `listen` is :8448, the
-# token's issuer and audience match what the genroc server pins, its lifetime is 60s, the
-# callback URL is derived from the request, and cookies are Secure exactly when the request is
-# HTTPS. What is left is what a deployment actually has to decide.
+# genroc-ui (specs/ui-issued-tokens.md §5). Everything omitted defaults: listen :8448, issuer and
+# audience matching the server, 60s tokens, derived callback URL, Secure cookies on HTTPS.
 
 server: http://genroc:8448
 
 login:
-  # Passwords in a file: one config, no directory, no registration, no reset. The right trade for
-  # a demo and the wrong one for a deployment, where `providers:` is the answer.
-  #
+  # Passwords in a file: right for a demo; a deployment uses `providers:`.
   # Hash with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
   passwords:
     - email: alice@genroc.test        # password: demo
@@ -23,8 +17,9 @@ login:
       hash: "$2a$10$QRz1D8GwpXluI19IzzkBmOHMMJDsfAKs3P9zCMOi6ElVbXybUD5Y2"
       groups: []                      # no group: falls through to the "*" rule
 
-  # WHAT A DEPLOYMENT USES INSTEAD. `type` names an IdP whose quirks genroc-ui already knows, so
-  # `google` needs nothing but a client. Anything else is a generic `oidc` entry with an issuer.
+  # A deployment uses `providers:` instead. `type: google` needs only a client; any other IdP is
+  # a generic `oidc` entry with an issuer, and non-OIDC ones (GitHub, LDAP) need a broker such
+  # as Dex. One provider and no passwords skips the chooser (specs/ui-component.md §5.1).
   #
   # providers:
   #   - id: google
@@ -33,25 +28,17 @@ login:
   #     client_id: ...
   #     client_secret: ...
   #
-  # A Google ID token carries no groups, so genroc-ui reads Workspace membership from Cloud
-  # Identity at login, with the person's own token -- no service account, nothing stored. Grant
-  # the OAuth client `cloud-identity.groups.readonly` and key `roles:` on the group's EMAIL:
+  # Google tokens carry no groups: genroc-ui reads Workspace membership at login, with the
+  # person's own token. Grant `cloud-identity.groups.readonly` and key roles on group EMAIL:
   #
   #   roles:
   #     platform@example.com: [admin]
-  #
-  # A provider that is not OIDC at all (GitHub, LDAP, SAML) still needs a broker such as Dex in
-  # front, which genroc-ui then treats as a plain `oidc` entry.
-  #
-  # With exactly one provider and no passwords the chooser is skipped and the browser is sent
-  # straight there. specs/ui-component.md §5.1.
 
 token:
   # The one thing both components must agree on. Everything else about the token defaults.
   secret_file: /data/jwt-secret
 
-# THE ROLE MAP. It used to live in the genroc server; it is here because the token carries the
-# ANSWER (permissions) rather than the question (groups).
+# THE ROLE MAP lives here, not in the server: the token carries permissions, not groups.
 roles:
   genroc-admins:    [admin]
   genroc-operators: [operate, read]

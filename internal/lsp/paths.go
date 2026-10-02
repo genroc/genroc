@@ -1,12 +1,8 @@
 package lsp
 
-// The PATH a `$<resolver>:` directive names: offering one, and following one.
-//
-// Resolution never treats the argument as a path — `findSites` passes it verbatim, because
-// genroc does not know that a resolver's argument is a file, let alone which one. So this is the
-// editor GUESSING, shell-style: an argument that begins `/` or `.` is one someone is typing a
-// path into, and nothing else is offered. Nothing here changes what a resolver accepts.
-// specs/source-resolution.md.
+// The PATH a `$<resolver>:` directive names: offering one, and following one. Resolution never
+// treats the argument as a path, so this is the editor GUESSING, shell-style — nothing here
+// changes what a resolver accepts. specs/source-resolution.md.
 
 import (
 	"os"
@@ -19,19 +15,12 @@ import (
 	"genroc/internal/sources"
 )
 
-// directiveArgRe finds `$name:` on a raw line. The name must start with a LETTER, and the colon
-// must be followed by a space — the same two rules defdoc.Directive follows, so the editor and
-// the resolver agree on what a directive is. The letter keeps `$:` (an expression) and `${` (an
-// interpolation) out; the space keeps a routing target out, `$a:b` being a task id and not a
-// resolver call. The cost is that paths are offered once the space is typed rather than on the
-// colon, which is one keystroke and the price of not offering them over a `goto`.
+// directiveArgRe: a name starting with a LETTER and a space after the colon — defdoc.Directive's
+// two rules, which keep `$:`, `${` and a `$a:b` routing target out.
 var directiveArgRe = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_-]*):[ \t]+`)
 
 // directiveArgAt reads the directive argument the cursor sits in: the resolver's name, the text
 // typed so far, and the 1-based byte column that text starts at.
-//
-// It works on the RAW line, like every other completion source here, because the document a
-// reader is typing into does not parse.
 func directiveArgAt(src string, col int) (name, typed string, from int, ok bool) {
 	for _, m := range directiveArgRe.FindAllStringSubmatchIndex(src, -1) {
 		start := m[1] // just past `$name:` and its spaces
@@ -54,31 +43,21 @@ func argEnd(src string) int {
 	return end
 }
 
-// looksLikePath is the shell-style guess: `/`, `./` or `../` begins a path. A bare NAME does
-// not — a resolver's argument may be a package, a URL or a key, and offering files for
-// `$import: lodash` would invent a meaning the resolver never gave it.
-//
-// A lone `.` is deliberately NOT enough, though it is a prefix of two spellings that are. `.`
-// is a trigger character (a member list needs it), so accepting it put a directory listing on
-// screen the instant anyone typed a dot — dotfiles and all, unasked. One more keystroke says
-// which of the two a reader meant, and until then there is nothing worth guessing at.
+// looksLikePath: `/`, `./` or `../` begins a path; a bare name may be a package or a URL. A lone
+// `.` is deliberately not enough — it is a trigger character, so every typed dot would list a
+// directory.
 func looksLikePath(typed string) bool {
 	return strings.HasPrefix(typed, "/") ||
 		strings.HasPrefix(typed, "./") ||
 		strings.HasPrefix(typed, "../")
 }
 
-// offersPaths adds the one case looksLikePath cannot cover: an EMPTY argument, where there is
-// no meaning yet to invent and a reader has nothing to go on. Without it the first keystroke
-// has to be guessed blind — `$process: ` answered with nothing at all, which is where this
-// started. Type a name and the offer stops; type `.` or `/` and it continues.
+// offersPaths adds an EMPTY argument to looksLikePath: there is no meaning yet to invent.
 func offersPaths(typed string) bool {
 	return typed == "" || looksLikePath(typed)
 }
 
 // directivePathValues offers the files and folders that could continue the path being typed.
-// The file's own directory is what a relative path resolves against, which is the rule the
-// resolver follows when it joins the two.
 func directivePathValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
 	name, typed, from, ok := directiveArgAt(src, col)
@@ -86,9 +65,7 @@ func directivePathValues(text, file string, line, col int) ([]completionItem, bo
 		return nil, false
 	}
 	dir, base := path.Split(typed)
-	// A relative path is written `./name`. Explicit is clearer than a bare name, and a bare
-	// name is also the one spelling a resolver may read as something that is not a path at all
-	// — so what is offered must not produce one.
+	// Offer `./name`, never a bare name: a resolver may read that as something other than a path.
 	prefix := ""
 	if dir == "" {
 		prefix = "./"
@@ -127,9 +104,8 @@ func directivePathValues(text, file string, line, col int) ([]completionItem, bo
 	return out, true
 }
 
-// suffixesFor reads the accepted suffixes out of the project's `.genroc`. A name no resolver
-// carries is left UNFILTERED rather than emptied: the registry is the reader's to fix, and an
-// empty list at the moment they are typing reads as a server that does not work.
+// suffixesFor reads the accepted suffixes from the project's `.genroc`. A name no resolver carries
+// is left UNFILTERED: an empty list mid-typing reads as a server that does not work.
 func suffixesFor(file, name string) ([]string, bool) {
 	cfg, err := sources.FindProjectConfig(filepath.Dir(file))
 	if err != nil {
@@ -149,9 +125,8 @@ func acceptsSuffix(suffixes []string, name string) bool {
 	return false
 }
 
-// resolveDir is where a directive's `dir` part points. Relative is against the FILE holding the
-// directive, never the workspace root — that is the rule resolveProcessDirective joins by, and
-// a second answer here would send the editor somewhere an apply never looks.
+// resolveDir: relative is against the FILE holding the directive, never the workspace root —
+// resolveProcessDirective's rule, so the editor looks where an apply does.
 func resolveDir(dir, file string) string {
 	if filepath.IsAbs(dir) {
 		return filepath.Clean(dir)

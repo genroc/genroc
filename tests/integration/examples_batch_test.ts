@@ -5,13 +5,8 @@ import { load as loadYaml } from "js-yaml";
 import { expect, test } from "vitest";
 import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
 
-// The definitions under test are the real example files in examples/batch-invoices/,
-// applied verbatim — so this doubles as an executable check that the shipped example
-// works. It covers both fan-out shapes (child_map for a fixed pair of named branches,
-// child_list for one child per array element) and, more importantly, the distinction the
-// example is built to teach: a per-item problem is a RESULT the batch reports, a run-wide
-// problem is a RAISE that abandons the batch.
-// (Vitest's bundler can't `import` a .yaml file, so we read + parse the source instead.)
+// Applies examples/batch-invoices verbatim (read and parsed: Vitest cannot `import` .yaml). A
+// per-item problem is a RESULT the batch reports; a run-wide one is a RAISE that abandons it.
 const EXAMPLES = new URL("../../examples/batch-invoices/", import.meta.url);
 function loadDef(file: string): any {
   return loadYaml(readFileSync(new URL(file, EXAMPLES), "utf8"));
@@ -20,12 +15,8 @@ const invoice = loadDef("invoice.genroc.yaml");
 const rate = loadDef("rate.genroc.yaml");
 const run = loadDef("run.genroc.yaml");
 
-// startBillingService stands in for the invoicing API. The invoice id selects the
-// outcome, so one mock drives every branch:
-//   bad-*    -> 422  permanently unsendable  (child completes with ok:false)
-//   locked-* -> 423  billing period locked   (child raises period_closed)
-//   flaky-*  -> 503 twice, then 200          (child retries internally)
-//   else     -> 200 { delivery_id }
+// The invoice id picks the outcome: bad-* 422 (ok:false), locked-* 423 (raises period_closed),
+// flaky-* 503 twice then 200, else 200 { delivery_id }.
 async function startBillingService() {
   let sendCount = 0;
   const rateRequests: string[] = [];
@@ -141,9 +132,8 @@ test("examples/batch-invoices: a run-wide failure is raised, and the parent catc
 
     expect(await waitForInstance(id, 30_000)).toBe("completed");
 
-    // The batch produced NO output — a raise abandons it, so there is no partially
-    // populated array. What the parent gets instead is the identity of the slot that
-    // raised, which is the whole of `error` for a fan-out: code and position, no data.
+    // A raise abandons the batch, so there is no partial array; the parent gets only the raising
+    // slot's code and position.
     const outputs = await outputsOf(id);
     expect(outputs.send_all).toBeUndefined();
     expect(outputs.halted).toEqual({
@@ -164,9 +154,8 @@ test("examples/batch-invoices: a transient failure is retried inside the child, 
 
     expect(await waitForInstance(id, 30_000)).toBe("completed");
 
-    // Two 503s then a 200: the child's own on_error absorbed them, so the parent saw a
-    // plain success. `retries` is not available on a child_list task, which is exactly
-    // why per-item retry policy has to live in the child.
+    // The child's own on_error absorbed the 503s: `retries` is not available on a child_list task,
+    // so per-item retry policy lives in the child.
     expect(mock.attemptsFor("flaky-1")).toBe(3);
     const outputs = await outputsOf(id);
     expect(outputs.send_all).toEqual([

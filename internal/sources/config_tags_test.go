@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// The `.genroc` schema is reflected from these structs through their json tags, and the file is
-// read through their yaml tags. A name spelled differently in the two makes the editor accept a
-// key the reader ignores, or underline one it honours -- silently, since each half is right on
-// its own terms.
 func TestConfigTagsAgree(t *testing.T) {
 	for _, typ := range []reflect.Type{reflect.TypeOf(projectConfig{}), reflect.TypeOf(resolverConfig{})} {
 		for i := 0; i < typ.NumField(); i++ {

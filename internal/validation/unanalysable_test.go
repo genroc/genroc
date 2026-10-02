@@ -8,10 +8,8 @@ import (
 	"genroc/internal/model"
 )
 
-// The one row the CLI fixtures cannot produce. A stored version that fails its own
-// inference has to have been registered before the rule that now rejects it, and nothing a
-// test can apply is in that state — so the `from` side of `unanalysable`, and §5's rule
-// that it cannot be excused, live here.
+// The one row CLI fixtures cannot produce: a stored version failing its own inference predates
+// the rule rejecting it. So `unanalysable`'s `from` side, and §5's no-excuse rule, live here.
 
 func definitionFromJSON(t *testing.T, src string) *model.ProcessDefinition {
 	t.Helper()
@@ -22,9 +20,8 @@ func definitionFromJSON(t *testing.T, src string) *model.ProcessDefinition {
 	return &def
 }
 
-// legacyDefinition is a document that passed under the rules of its day and no longer
-// analyses: it reads an output no task produces. Deliberately not run through Validate,
-// which is what would refuse it today.
+// Reads an output no task produces. Deliberately not run through Validate, which would refuse
+// it today.
 func legacyDefinition(t *testing.T, name string) *model.ProcessDefinition {
 	return definitionFromJSON(t, `{"name":"`+name+`","tasks":[
 		{"id":"go","action":{"type":"fetch","method":"post","url":"http://x/go"},
@@ -79,9 +76,8 @@ func TestCompareSet_AnUnanalysableFromSideIsNamedAndCannotBeExcused(t *testing.T
 	}
 }
 
-// The other side of the same switch: a version that fails to analyse must drag down only
-// the pair it belongs to. A registry accumulates definitions validated under the rules of
-// their day, so a report about two OTHER versions cannot inherit their failure.
+// A registry holds definitions validated under the rules of their day, so a report about two
+// OTHER versions must not inherit one's failure.
 func TestCompareSet_AnUnanalysableVersionNobodyAskedAboutIsNotAnalysed(t *testing.T) {
 	report, err := CompareSet(
 		map[string]SideEntry{

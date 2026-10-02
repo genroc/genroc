@@ -1,7 +1,5 @@
-# The same edit undone breaks the other way, and in the other column: dropping the default
-# widens every read to T|null, which a stored row can only gain — so continuation is fine —
-# while a consumer written against this output was promised a number. Two opposite-direction
-# checks are exactly why one boolean would say nothing.
+# Dropping the default widens reads to T|null: continuation is fine, but the output contract
+# breaks.
 apply:
   - channel: defdrop_a
     definitions:

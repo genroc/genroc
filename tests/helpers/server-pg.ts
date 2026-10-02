@@ -18,9 +18,8 @@ export async function setup(project: TestProject) {
   server = await startGenroc({ bin, port: PG_PORT, pg: dsn });
 }
 
-// Awaited on purpose: the stress project runs as a second vitest invocation right
-// after this one, and a worker still draining against the same database would be a
-// foreign processor in suites that require the database to themselves.
+// Awaited: the stress project runs right after, and a worker still draining here would be a
+// foreign processor in suites that need the database to themselves.
 export async function teardown() {
   await server?.stop();
 }

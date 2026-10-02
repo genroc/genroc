@@ -2,10 +2,8 @@ package expressiontest
 
 import "testing"
 
-// A guard on the left of `&&` narrows the right, because the evaluator short-circuits:
-// `&&` on false never evaluates its right operand (eval.go, evalLogical). The mirror holds
-// for `||`, whose right operand runs only when the left is FALSE. Without this the only way
-// to read a nullable is `??`, and the idiom every author writes first is refused.
+// The right of `&&`/`||` runs on exactly one outcome of the left (evalLogical), so a guard
+// there narrows it.
 var guardCtx = mustSchema(`{
 	"properties": {
 		"n": {"type": ["integer", "null"]},
@@ -58,10 +56,8 @@ func TestLogicalNarrowing_OnlyPerReferenceFacts(t *testing.T) {
 	inferErr(t, `(n != null && n > 2) == true && n > 3`, guardCtx, "")
 }
 
-// The runtime pairing: every expression the narrowing now admits must also survive the value
-// it was narrowed against. A type system that accepts `n != null && n > 2` and an evaluator
-// that then compares null to 2 would have traded a registration error for an uncatchable
-// engine.expression at runtime, which is worse than no feature.
+// Every expression the narrowing admits must survive the value it was narrowed against, or a
+// registration error became an uncatchable engine.expression.
 func TestLogicalNarrowing_RuntimeAgreesWithTheNarrowing(t *testing.T) {
 	for _, tc := range []struct {
 		expr string

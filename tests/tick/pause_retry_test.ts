@@ -1,29 +1,5 @@
-/**
- * Tests that observe how pausing interacts with on_error retries.
- *
- * The point of these is the difference between resuming and retrying. Pausing an
- * instance that is sitting on a scheduled retry does not spend, skip or reset that
- * retry — the attempt the definition granted is still there when the process resumes.
- * Retrying, by contrast, is only for a process that already failed, and hands it an
- * attempt beyond its on_error budget.
- *
- * Three scenarios:
- *
- *   1. Pause issued while a retry is still pending
- *      → the instance parks in 'paused' with its retry intact; ticks do nothing while
- *        it is paused; resuming runs exactly that pending attempt.
- *
- *   2. All retries exhausted before any pause
- *      → the final failed attempt calls failInstance(); status is 'failed', and
- *        pausing a settled process reports `unchanged` and touches nothing.
- *
- *   3. retry on a paused process is rejected
- *      → the two verbs are not interchangeable; the error points at resume.
- *
- * Both processes run as root instances (no tree) so the timing is straightforward.
- * The server is started with --immediate-retries so retries are claimable on the
- * very next tick, with no backoff delay to wait for.
- */
+/** Pausing on a scheduled retry neither spends, skips nor resets it; retry is only for a failed process.
+ *  The server runs --immediate-retries, so a pending retry is claimable on the very next tick. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -90,9 +66,7 @@ test("pause while a retry is pending — the retry waits, and resume runs it", a
     await ctx.env.pause(id);
     expect(await ctx.env.status(id)).toBe("paused");
 
-    // The retry backoff is 0 (--immediate-retries), so this instance would be
-    // claimable right now if it were running. Paused, it is not: ticking does not
-    // fire the pending attempt, and the retry budget is left exactly as it was.
+    // Backoff is 0 (--immediate-retries), so only the pause keeps the attempt from firing here.
     await ctx.env.tick();
     expect(await ctx.env.status(id)).toBe("paused");
     expect(await ctx.env.retryCount(id)).toBe(1);
@@ -139,9 +113,7 @@ test("retry is rejected on a paused process — it points at resume instead", as
     await ctx.env.pause(id);
     expect(await ctx.env.status(id)).toBe("paused");
 
-    // Retry exists to grant a failed process an attempt beyond its on_error budget.
-    // A paused process has not failed and is owed nothing, so the two are not
-    // interchangeable.
+    // A paused process has not failed, so it is owed no extra attempt.
     await expect(ctx.env.retry(id)).rejects.toThrow(/paused, not failed/);
     expect(await ctx.env.status(id)).toBe("paused");
 

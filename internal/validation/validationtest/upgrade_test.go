@@ -1,8 +1,7 @@
 package validationtest
 
-// Moving an instance uses ONE of compat's per-task layers -- the one for the task it is
-// sitting on -- and conforms the stored state through it. The validator's answer is the
-// verdict. specs/version-compatibility.md s1.
+// An upgrade conforms the stored state through the ONE compat layer of the task the instance
+// sits on. specs/version-compatibility.md s1.
 
 import (
 	"encoding/json"
@@ -13,10 +12,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// twoTaskDef has a task before and after `work`, so the layer chosen actually matters:
-// `first` has produced an output by the time an instance reaches `work`, and `later` has
-// not. noteRequired flips the input's `note` between optional-and-nullable and required,
-// which is the null-versus-missing gap a migration has to close.
+// At `work`, `first` has produced an output and `later` has not, so the layer chosen matters.
+// noteRequired toggles the null-versus-missing gap a migration must close.
 func twoTaskDef(noteRequired bool) string {
 	req := ``
 	if noteRequired {
@@ -37,9 +34,8 @@ func stateAtWork() map[string]any {
 }
 
 func TestMigrateState_ClosesTheNullGap(t *testing.T) {
-	// `note` is absent, required on the target, and admits null: the migration writes the
-	// null in. Permitting the gap is not enough -- the state that gets written has to
-	// satisfy the version it is written for.
+	// Permitting the gap is not enough: the written state must satisfy the version it is
+	// written for.
 	to := defFrom(t, twoTaskDef(true))
 
 	got, err := validation.MigrateState(to, "work", stateAtWork(), nil)
@@ -56,10 +52,8 @@ func TestMigrateState_ClosesTheNullGap(t *testing.T) {
 	}
 }
 
-// The layer is PARTIAL at the top and complete below it, and the migration treats the two halves
-// oppositely. Inside `outputs` a task the schema does not name is gone -- nothing on the new
-// version can read it, and keeping it stores weight that only grows. At the top the layer names
-// only a definition's own slots, so the engine's bookkeeping is simply none of its business.
+// Inside `outputs` a task the schema does not name is pruned; at the top, the engine's
+// bookkeeping is none of the layer's business.
 func TestMigrateState_PrunesDeadOutputsAndKeepsBookkeeping(t *testing.T) {
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
@@ -86,10 +80,8 @@ func TestMigrateState_PrunesDeadOutputsAndKeepsBookkeeping(t *testing.T) {
 }
 
 func TestMigrateState_UsesTheLayerForThisTaskOnly(t *testing.T) {
-	// The layer is why one instance can move where another cannot. At `work`, `first` has
-	// run and `later` has not -- so a state carrying no `later` output migrates cleanly,
-	// and the same state is judged against `later`'s own layer differently. If every task
-	// shared one schema this would not discriminate.
+	// At `work`, `later` has not run: the same state migrates there and is judged differently
+	// against `later`'s own layer. One shared schema would not discriminate.
 	to := defFrom(t, twoTaskDef(false))
 
 	if _, err := validation.MigrateState(to, "work", stateAtWork(), nil); err != nil {
@@ -115,13 +107,8 @@ func TestMigrateState_RefusesWhatCannotBeReconciled(t *testing.T) {
 }
 
 func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
-	// A real state holds more than input/outputs: external_input for a parked task, and the spawn
-	// discriminants for a live child. compat's layers describe none of it -- they are about the
-	// data a definition can see -- so the migration must carry it through untouched. Losing
-	// external_input unparks an instance from a task it is still waiting on.
-	//
-	// Carry-through is "the layer does not describe this key", not "the key starts with _", so
-	// external_input is safe only while no layer declares a property of that name.
+	// Losing external_input unparks an instance still waiting. Carry-through is "the layer does
+	// not describe this key", not "starts with _": safe only while no layer declares one.
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
 	state[model.StateExternalInput] = map[string]any{"n": float64(1)}
@@ -140,11 +127,8 @@ func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
 	}
 }
 
-// A context slot large enough to live in the object store is a MARKER on the row, not the value.
-// The conform cannot read one — it strips undeclared keys and fills defaults, neither of which it
-// can do inside content it would have to load to see — so a migration resolves the context first.
-// Without that, every instance holding an externalized value is unmovable, and the refusal blames
-// the type ("expected type array, got *model.ObjectRef") rather than naming the reason.
+// The conform cannot normalize inside a MARKER it has not loaded; unresolved, the refusal blames
+// the type ("got *model.ObjectRef") instead of the reason.
 func TestMigrateState_MovesAnInstanceHoldingAnExternalizedValue(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(`{"name":"acc","tasks":[

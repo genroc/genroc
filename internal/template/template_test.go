@@ -7,8 +7,7 @@ import (
 )
 
 // --- Splitting: where does a ${ } interpolation end? ---
-// The nested- and string-literal cases are the ones "scan to the next }" or brace counting get
-// wrong; they motivated the candidate-and-reparse design, so each is named separately.
+// Nested and string-literal cases are named separately: they are what brace counting gets wrong.
 
 func TestSplit_EmptySource(t *testing.T) {
 	assertSplit(t, ``, ``)
@@ -18,8 +17,6 @@ func TestSplit_PlainTextOnly(t *testing.T) {
 	assertSplit(t, `plain text`, `LIT("plain text")`)
 }
 
-// A single interpolation makes the whole template one expression chunk.
-
 func TestSplit_SingleExpressionPadded(t *testing.T) {
 	assertSplit(t, `${ input.x }`, `EXPR(" input.x ")`)
 }
@@ -27,8 +24,6 @@ func TestSplit_SingleExpressionPadded(t *testing.T) {
 func TestSplit_SingleExpressionUnpadded(t *testing.T) {
 	assertSplit(t, `${input.x}`, `EXPR("input.x")`)
 }
-
-// Mixed templates.
 
 func TestSplit_LiteralsAroundExpression(t *testing.T) {
 	assertSplit(t, `Hello ${ input.name }!`, `LIT("Hello ") EXPR(" input.name ") LIT("!")`)
@@ -64,9 +59,7 @@ func TestSplit_ObjectLiteralAbuttingCloseDelimiter(t *testing.T) {
 	assertSplit(t, `${ {a: 1}}`, `EXPR(" {a: 1}")`)
 }
 
-// A "}" inside any supported string form must not end the block. Byte literals
-// (b'...') are rejected by the grammar, but the lexer still treats them as one
-// token, so a candidate cutting through one still fails.
+// A "}" inside any supported string form must not end the block.
 
 func TestSplit_DelimiterInsideDoubleQuotedString(t *testing.T) {
 	assertSplit(t, `${ "x}y" }`, `EXPR(" \"x}y\" ")`)
@@ -84,18 +77,15 @@ func TestSplit_DelimiterAfterEscapedQuote(t *testing.T) {
 	assertSplit(t, `${ "esc\"}" }`, `EXPR(" \"esc\\\"}\" ")`)
 }
 
-// An unbalanced brace inside a string desynchronizes a brace counter; this
-// template parses today and must keep parsing.
+// An unbalanced brace inside a string is what desynchronizes a brace counter.
 func TestSplit_UnbalancedBraceInsideString(t *testing.T) {
 	assertSplit(t, `${ "a{b" }`, `EXPR(" \"a{b\" ")`)
 }
 
-// Trailing "}" with no opening block is literal text.
 func TestSplit_TrailingDelimiterIsLiteral(t *testing.T) {
 	assertSplit(t, `${ a } b }`, `EXPR(" a ") LIT(" b }")`)
 }
 
-// Shortest match: the first candidate that parses wins.
 func TestSplit_ShortestMatchWins(t *testing.T) {
 	assertSplit(t, `${ a } + b`, `EXPR(" a ") LIT(" + b")`)
 }
@@ -114,13 +104,9 @@ func TestParseError_EmptyBlock(t *testing.T) {
 	assertParseError(t, `${}`, "expression")
 }
 
-// TestParseErrorReportsLongestCandidate pins the diagnostic rule: when no candidate
-// parses, the error must come from the full body, not from a truncated prefix whose
-// failure ("unexpected EOF") tells the author nothing.
 func TestParseErrorReportsLongestCandidate(t *testing.T) {
-	// The first "}" candidate closes the nested literal, so its body
-	// `map(xs, {a: {b: 1}` is merely truncated. The real error — the missing
-	// lambda — is only visible in the full body.
+	// The first "}" closes the nested literal, leaving a merely truncated body; the real
+	// error (the missing lambda) shows only in the full body.
 	_, err := Parse(`${ map(xs, {a: {b: 1}}) }`)
 	if err == nil {
 		t.Fatal("expected a parse error")
@@ -140,7 +126,6 @@ func TestEvalAny_EmptySource(t *testing.T) {
 	assertEvalAny(t, ``, "")
 }
 
-// A $: expression preserves the value as given, rather than stringifying it.
 func TestEvalAny_ExprPreservesInt(t *testing.T) {
 	assertEvalAny(t, `$: input.n`, 3)
 }
@@ -149,7 +134,6 @@ func TestEvalAny_ExprPreservesBool(t *testing.T) {
 	assertEvalAny(t, `$: input.ok`, true)
 }
 
-// Interpolation stringifies.
 func TestEvalAny_MixedWithLiteralStringifies(t *testing.T) {
 	assertEvalAny(t, `n=${ input.n }`, "n=3")
 }
@@ -158,12 +142,10 @@ func TestEvalAny_TwoInterpolationsStringify(t *testing.T) {
 	assertEvalAny(t, `${ input.name }-${ input.n }`, "ann-3")
 }
 
-// Even a lone interpolation stringifies — only $: preserves type.
 func TestEvalAny_LoneInterpolationStringifies(t *testing.T) {
 	assertEvalAny(t, `${ input.n }`, "3")
 }
 
-// Arithmetic yields an exact decimal as json.Number, not a Go int.
 func TestEvalAny_ArithmeticYieldsJSONNumber(t *testing.T) {
 	assertEvalAny(t, `$: input.n + 1`, json.Number("4"))
 }
@@ -174,12 +156,10 @@ func TestInferType_PlainTextIsString(t *testing.T) {
 	assertInferType(t, `plain`, "string")
 }
 
-// A $: expression preserves its type.
 func TestInferType_ExprPreservesType(t *testing.T) {
 	assertInferType(t, `$: input.n`, "integer")
 }
 
-// Interpolation is always a string.
 func TestInferType_MixedWithLiteralIsString(t *testing.T) {
 	assertInferType(t, `n=${ input.n }`, "string")
 }
@@ -188,7 +168,6 @@ func TestInferType_TwoInterpolationsIsString(t *testing.T) {
 	assertInferType(t, `${ input.name }${ input.n }`, "string")
 }
 
-// A lone interpolation is still a string (no type preservation).
 func TestInferType_LoneInterpolationIsString(t *testing.T) {
 	assertInferType(t, `${ input.n }`, "string")
 }
@@ -231,9 +210,7 @@ func TestRootRefs_DetectsSelfPrevious(t *testing.T) {
 	}
 }
 
-// SelfResult and SelfPrevious must both survive the merge across blocks. The
-// engine's shape roots previously dropped SelfResult, so an externalized
-// self.result read from a shape came back nil.
+// Dropping SelfResult in the merge makes an externalized self.result read from a shape nil.
 func TestRootRefs_MergesSelfRootsAcrossBlocks(t *testing.T) {
 	r := mustParse(t, `${ self.result.x }/${ self.previous.y }`).RootRefs()
 	if !r.SelfResult || !r.SelfPrevious {
@@ -268,8 +245,6 @@ func TestGetMemoisesParseFailure(t *testing.T) {
 
 // --- map and literals inside templates ---
 
-// A $: expression preserves the array a map produces; it is only interpolation
-// that must flatten to text.
 func TestExprMapPreservesArray(t *testing.T) {
 	env := map[string]any{"input": map[string]any{
 		"rows": []any{
@@ -291,10 +266,7 @@ func TestExprMapPreservesArray(t *testing.T) {
 	}
 }
 
-// A value that stringify cannot render is a guaranteed runtime failure, so it
-// must be rejected when the definition is registered rather than when the
-// process runs. Object and array literals make this trivially reachable, but the
-// same hole existed for any array-typed field.
+// stringify cannot render these, so they must fail at registration rather than at runtime.
 func TestInterpolationRejectsUnstringifiable(t *testing.T) {
 	for _, c := range []struct{ name, src string }{
 		{"array_typed_field", `x=${ input.tags }`},
@@ -306,8 +278,6 @@ func TestInterpolationRejectsUnstringifiable(t *testing.T) {
 	}
 }
 
-// The same values are fine as a $: expression, where the type is preserved
-// rather than stringified.
 func TestExprAllowsUnstringifiable(t *testing.T) {
 	for _, c := range []struct{ name, src string }{
 		{"array_typed_field", `$: input.tags`},
@@ -318,7 +288,6 @@ func TestExprAllowsUnstringifiable(t *testing.T) {
 	}
 }
 
-// Interpolating a scalar still works — the guard must not over-reject.
 func TestInterpolationAllowsScalars(t *testing.T) {
 	for _, c := range []struct{ name, src string }{
 		{"integer_field", `n=${ input.n }`},
@@ -338,16 +307,12 @@ func TestRootRefs_LambdaParamShadowingInputRoot(t *testing.T) {
 	}
 }
 
-// ...and, worse, the shadowing must not hide a genuine read either.
 func TestRootRefs_GenuineInputReadInsideMapSource(t *testing.T) {
 	if r := mustParse(t, `$: map(input.rows, r => r.x)`).RootRefs(); !r.Input {
 		t.Error("a genuine input read inside a map source must still be reported")
 	}
 }
 
-// Static reports the constant value for a pure literal and false for any dynamic leaf
-// (a ${ } interpolation or a $: expression), so callers can format-check hand-written
-// literals while leaving dynamic values to runtime. $$ unescapes in a literal.
 func TestStatic(t *testing.T) {
 	cases := []struct {
 		src        string

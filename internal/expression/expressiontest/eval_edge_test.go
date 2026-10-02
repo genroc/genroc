@@ -16,10 +16,8 @@ import (
 
 // ---- ?? distinguishes null from falsy ----
 
-// The classic way to break ??: implement it as "left if truthy". Every falsy but
-// non-null value must survive, or `?? 0` style defaults silently overwrite real
-// data (a false flag becoming true, an empty list becoming a populated one).
-// expr-lang agrees on all of these, so the oracle pins it too.
+// The classic way to break ??: "left if truthy". A falsy non-null left must survive, or a
+// default silently overwrites real data.
 func TestEvalEdge_CoalesceKeepsFalsyNonNullLeft(t *testing.T) {
 	edgeOracleAll(t, []edgePair{
 		{"false", `false ?? true`, `false ?? true`},
@@ -113,10 +111,8 @@ func TestEvalEdge_NonShortCircuitPropagatesRightError(t *testing.T) {
 
 // ---- null propagation ----
 
-// Optional-chaining semantics: a chain that hits null, a missing key, or a
-// non-object keeps returning null instead of erroring, so a partially populated
-// context degrades to a default rather than failing the whole tick. This is a
-// deliberate divergence from expr-lang, which errors on every case here.
+// A deliberate divergence from expr-lang, which errors on every case here: a partial context
+// degrades to a default rather than failing the tick.
 func TestEvalEdge_MemberChainYieldsNull(t *testing.T) {
 	edgeNullAll(t, []edgeCase{
 		{"missing_leaf", `deep.b.c.missing`},
@@ -164,10 +160,7 @@ func TestEvalEdge_IndexInBoundsReturnsElement(t *testing.T) {
 	})
 }
 
-// The parser rejects `xs[-1]`, but IndexNode is a plain struct: template code or
-// a future parser change could hand the evaluator a negative index. It must
-// yield null like any other out-of-range index rather than panic on a negative
-// slice offset.
+// The parser rejects `xs[-1]`, but a hand-built IndexNode can carry one; it must not panic.
 func TestEvalEdge_NegativeIndexFromASTYieldsNull(t *testing.T) {
 	node := &syntax.IndexNode{Base: &syntax.IdentNode{Name: "ys"}, Index: -1}
 	got, err := expression.EvalNode(node, edgeEnv)
@@ -377,10 +370,8 @@ func TestEvalEdge_LargeIntArithmeticIsExact(t *testing.T) {
 
 // ---- conditional condition ----
 
-// A non-boolean or null condition takes the else branch silently: mustBool
-// (ops.go) type-asserts and discards the failure, unlike !, && and || which all
-// error on a non-boolean operand. Pinned because the asymmetry is invisible from
-// the call site — `flag ? a : b` on a null flag quietly yields b.
+// mustBool discards a failed assertion, unlike !, && and || which error on a non-boolean --
+// pinned because the asymmetry is invisible at the call site.
 func TestEvalEdge_NonBooleanConditionTakesElseBranch(t *testing.T) {
 	edgeExactAll(t, []edgeValueCase{
 		{"number", `1 ? "y" : "n"`, "n"},
@@ -449,10 +440,7 @@ func TestEvalEdge_MapCoalescedSource(t *testing.T) {
 	})
 }
 
-// Elements that are themselves null: member access inside the body follows the
-// same optional-chaining rule as anywhere else, so one hole does not fail the
-// whole map. expr-lang errors here ("cannot fetch n from <nil>"), so this is a
-// deliberate divergence and has no oracle.
+// A deliberate divergence from expr-lang (which errors here), so no oracle.
 func TestEvalEdge_MapOverArrayWithNullElements(t *testing.T) {
 	edgeJSONAll(t, []edgeJSONCase{
 		{"member_of_null_element", `map(holes, x => x.n)`, `[null, 1]`},
@@ -507,10 +495,7 @@ func TestEvalEdge_MapInnerParamShadowsOuterParam(t *testing.T) {
 	})
 }
 
-// Cross-element leakage guard: every inner iteration must see the *current*
-// outer element. If bind mutated a shared map, later elements would overwrite
-// the binding earlier iterations still reference and every row would collapse to
-// the last one.
+// If bind mutated a shared map, every row would collapse to the last element.
 func TestEvalEdge_MapNoCrossElementLeakage(t *testing.T) {
 	edgeOracle(t,
 		`map(xs, x => map(ys, y => x.n))`,
@@ -532,10 +517,8 @@ func TestEvalEdge_MapNestedIndexParamsStayIndependent(t *testing.T) {
 
 // ---- map: source errors ----
 
-// Inference rejects a null or non-array source at registration, so these only
-// fire for a hand-built context or a definition registered before the check.
-// They must be errors rather than a silent empty array: a null source usually
-// means an upstream task produced nothing, which is worth failing on.
+// Inference rejects these at registration, so only hand-built contexts reach them. Errors, not
+// a silent []: a null source usually means an upstream task produced nothing.
 func TestEvalEdge_MapNullSourceErrors(t *testing.T) {
 	edgeErrContainsAll(t, []edgeCase{
 		{"null_root", `map(nul, x => x)`},

@@ -1,6 +1,6 @@
-// Package syntax defines the genroc expression AST and its parser. Every construct is an
-// expression — there are no statements — which is what lets `{...}` mean an object literal
-// everywhere, including directly as a lambda body.
+// Package syntax is the expression AST and parser. Everything is an expression, which lets
+// `{...}` be an object literal everywhere, a lambda body included. Lexing is expr-lang's; nodes
+// carry no source positions, so anything pointing into the source reads Tokens.
 //
 //	literals    1, 1.5, "s", 'r', true, false, null
 //	identifier  input, outputs, config, self, error
@@ -11,20 +11,13 @@
 //	unary       ! - +
 //	binary      ?? || && == != < > <= >= + - * / %
 //	ternary     c ? a : b
-//
-// Lexing is delegated to expr-lang's lexer, so string, number and escape rules cannot drift; only
-// the grammar is ours, diverging in lambdas and in `{...}` as an object literal in every position.
-// expr-lang's `#` pointer and `.x` shorthand are rejected — a lambda names its parameter, which is
-// also the only way to reach an outer element from a nested one. Nodes carry no source positions:
-// parse errors report from the token stream, everything else against the whole expression.
 package syntax
 
 type Node interface{ isNode() }
 
 type (
-	// IntNode is an integer literal carrying its exact decimal text, not a Go int: an id past
-	// int64 is an ordinary value here, and parsing rejected it while the same value arriving as
-	// data stayed exact. Radix prefixes are normalised away, so Text is always valid JSON.
+	// IntNode carries exact decimal text, not a Go int: an id past int64 is an ordinary value.
+	// Radix prefixes are normalised away, so Text is always valid JSON.
 	IntNode   struct{ Text string }
 	FloatNode struct{ Text string }
 	// StringNode holds the already-unescaped value.
@@ -36,9 +29,8 @@ type (
 	// error) or a lambda parameter.
 	IdentNode struct{ Name string }
 
-	// MemberNode is property access: a.b, or a["b"] when the key is not spellable as an
-	// identifier. Both forms parse here — the brackets are pure surface syntax. Access on a
-	// null base yields null (optional chaining), so a missing field is never a hard error.
+	// MemberNode is a.b, or a["b"] for a key no identifier spells (pure surface syntax). A null
+	// base yields null (optional chaining).
 	MemberNode struct {
 		Base Node
 		Name string

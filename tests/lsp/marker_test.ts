@@ -33,8 +33,7 @@ test("a fragment that matches nothing is refused, not guessed at", () => {
   expect(() => at(`      method: <^put>`)).toThrow(/not in/);
 });
 
-// Two `goto: "$review"` lines are written identically. Picking either would make the test mean
-// something other than what it reads as.
+// Two `goto: "$review"` lines are written identically.
 test("a fragment that matches twice is refused", () => {
   expect(() => at(`        goto: "$<^review>"`)).toThrow(/more than once/);
 });

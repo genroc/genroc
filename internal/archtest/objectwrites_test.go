@@ -9,19 +9,14 @@ import (
 	"testing"
 )
 
-// Object content and its claim must be written by claimObjects, inside a transaction. The content
-// upsert's ON CONFLICT DO UPDATE exists to take a row lock, which lasts exactly as long as its
-// statement: content written and claimed in two transactions sits committed and held by nobody in
-// between, where the sweep is entitled to take it. The mistake has been made twice, both times by
-// copying the loop that now has one home. specs/object-store.md.
+// The upsert's row lock lasts one statement: content claimed in a second transaction sits
+// held by nobody in between, where the sweep may take it. specs/object-store.md.
 func TestObjectWritesGoThroughClaimObjects(t *testing.T) {
 	const (
 		file   = "internal/db/db_objects.go"
 		helper = "claimObjects"
 	)
-	// The two release paths stamp a grace claim, which is a removal's second half rather than an
-	// addition: an instance letting go of a value, and the sweep letting go on behalf of a log
-	// row that no longer exists.
+	// The two release paths stamp a grace claim: a removal's second half, not an addition.
 	allowed := map[string]bool{
 		helper:                   true,
 		"applyContextObjectDiff": true,

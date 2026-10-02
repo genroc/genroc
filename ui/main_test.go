@@ -103,9 +103,8 @@ type harness struct {
 	lastAuth chan string
 }
 
-// newHarnessWithPasswords is the local-login shape: one user, no provider. Kept separate from
-// the OIDC harness because adding a password there would stop it redirecting straight through,
-// which is the behaviour those tests are checking.
+// Separate from the OIDC harness: a password there would stop it redirecting straight through,
+// which is what those tests check.
 func newHarnessWithPasswords(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{lastAuth: make(chan string, 32)}
@@ -307,10 +306,8 @@ func TestForward_WithoutASessionAnswersByWhatTheCallerCanDoAboutIt(t *testing.T)
 	}
 }
 
-// Isolated so that ONLY the state can be the reason it fails: the login is started properly and
-// the provider is told the real nonce, so the token that comes back is entirely valid. An
-// earlier version of this test skipped that and passed on a nonce mismatch instead -- green
-// while the state check was deleted, which is worse than having no test.
+// The login is started properly and the provider told the real nonce, so ONLY the state can fail
+// it: an earlier version passed on a nonce mismatch with the state check deleted.
 func TestCallback_RefusesAStateItDidNotIssue(t *testing.T) {
 	h := newHarness(t, true)
 
@@ -437,9 +434,7 @@ func mustURL(s string) *url.URL {
 	return u
 }
 
-// A login must never be sent back to a login. needLogin builds `?rd=<the request>`, so without
-// this an /auth/ target nests one redirect inside the next until the browser gives up -- which
-// is what a stray redirect chain produced before the guard existed.
+// needLogin builds `?rd=<the request>`, so an /auth/ target would nest redirects forever.
 func TestSafeReturn_RefusesOffSiteAndAuthPaths(t *testing.T) {
 	cases := map[string]string{
 		"/instances":            "/instances",
@@ -520,9 +515,7 @@ func has(list []string, want string) bool {
 	return false
 }
 
-// genroc-ui must not gate what the server serves openly. A probe has to answer before any
-// identity exists; gating it made /healthz 401 through the UI while the server answered 200,
-// which gets a container marked unhealthy for reasons nobody can find. api-auth.md §1.
+// Gating made /healthz 401 through the UI while the server answered 200 (api-auth.md §1).
 func TestForward_DoesNotGateWhatTheServerServesOpenly(t *testing.T) {
 	h := newHarness(t, true) // a login IS configured, so everything else is gated
 	for _, path := range []string{"/healthz", "/public/openapi.json"} {
@@ -541,9 +534,7 @@ func TestForward_DoesNotGateWhatTheServerServesOpenly(t *testing.T) {
 	}
 }
 
-// The login page is its own bundle, and it needs two things before any session exists: the page
-// itself, and the list of ways in. Both must answer unauthenticated -- and the assets they pull
-// must too, or the page renders blank at exactly the moment nobody can do anything about it.
+// The assets the page pulls must answer too, or it renders blank exactly when nobody can act.
 func TestLoginPage_AndItsOptionsAnswerWithoutASession(t *testing.T) {
 	h := newHarness(t, true)
 
@@ -659,9 +650,7 @@ func TestDerived_CallbackURLAndCookieSecurityFollowTheRequest(t *testing.T) {
 	}
 }
 
-// A password is the only guessable secret reachable from outside, so failures are throttled.
-// bcrypt slows a guess; it does not limit one, and an attacker parallelises the constant factor
-// away.
+// bcrypt slows a guess but does not limit one; an attacker parallelises it away.
 func TestPasswordLogin_ThrottlesFailures(t *testing.T) {
 	h := newHarnessWithPasswords(t)
 	post := func(email, pw string) int {
@@ -837,9 +826,8 @@ func TestLogout_ClearsTheSessionAndIsNotAGET(t *testing.T) {
 	}
 }
 
-// The whole point of `type: google`: membership comes from the API, not from the ID token. The
-// fake IdP here asserts `groups: [admins]` the way any OIDC provider would; Google never does,
-// so what the directory says has to win outright rather than being merged.
+// The fake IdP asserts `groups: [admins]` as any OIDC provider would; Google never does, so the
+// directory's answer must replace it, not merge with it.
 func TestGoogleType_TheFetchedGroupsReplaceTheTokensOwn(t *testing.T) {
 	h := newHarness(t, true)
 	h.srv.cfg.Login.Providers[0].Type = "google"

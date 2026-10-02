@@ -2,13 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { startGenroc, startSupervisedWorker, type GenrocProcess } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
-// Single-worker lease pressure + crash recovery, on real Postgres processes. Phase 1:
-// one crippled worker (tiny lease, starved pool) churns under pressure that used to be
-// the fatal overwhelm exit; the gate repairs and the fence refuses, so its supervisor
-// must record ZERO restarts. Phase 1b: two SIGKILLs (how a worker still dies) exercise
-// abandon -> expiry -> reclaim across process boundaries. Phase 2: one normal worker
-// drives every tree green, each aggregating to exactly its size. Runs alone against the
-// DSN -- a foreign poller voids the single-processor premise. specs/lease-fencing.md.
+// Phase 1: a crippled worker (tiny lease, starved pool) must record ZERO restarts. 1b: SIGKILLs
+// exercise abandon -> expiry -> reclaim. 2: one normal worker drives every tree green. Runs alone
+// against the DSN: a foreign poller voids the single-processor premise. specs/lease-fencing.md.
 
 const DSN = process.env.POSTGRES_DSN;
 
@@ -20,9 +16,7 @@ const CRASHES = 2;
 const SETTLE_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// `paused`/`pausing` are deliberately absent: a pause is not an outcome, only a tree
-// that has stopped being advanced, so it never counts as settled. Nothing here pauses
-// anything, so a paused instance would be a bug, not a state to wait out.
+// Not `paused`/`pausing`: nothing here pauses, so a paused instance is a bug, not a state to wait out.
 const isTerminal = (s?: string) => s === "completed" || s === "failed";
 
 describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
@@ -96,10 +90,8 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
         },
       });
 
-      // Phase 1: a single pressure-prone worker — tiny lease, huge concurrency, starved
-      // pool — so advances routinely outlive their leases. Before the fence this
-      // configuration was built to die (the overwhelm exit); now the gate repairs what
-      // it can and the fence refuses the rest, and the process must simply keep going.
+      // Phase 1: advances routinely outlive their leases; the gate repairs what it can and the
+      // fence refuses the rest, so the process must simply keep going.
       const worker = await startSupervisedWorker({
         pgDSN: DSN!,
         pollMs: 1,
@@ -125,9 +117,7 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
         "lease pressure must not be fatal: the gate repairs and the fence refuses stale writes, the worker never exits",
       ).toBe(0);
 
-      // Phase 1b: the one way a worker still dies — killed from outside. Each kill
-      // abandons whatever leases were in flight; the supervisor's replacement reclaims
-      // them once they expire.
+      // Phase 1b: each kill abandons in-flight leases; the replacement reclaims them once expired.
       for (let i = 1; i <= CRASHES; i++) {
         worker.crash();
         const deadline = Date.now() + 10_000;

@@ -9,10 +9,8 @@ import (
 	"testing"
 )
 
-// markerN reads the row itself, which is the point of these tests: they are about SQLite's
-// half of Flush, where a page HAS to change for there to be anything to fsync. Everything
-// asking the engine-level question "did the bracket fire" uses FlushCount instead, which
-// means the same thing on both engines.
+// markerN reads the row itself: these tests are about SQLite's half of Flush, where a page HAS
+// to change. "Did the bracket fire" questions use FlushCount, which holds on both engines.
 func markerN(t *testing.T, db *DB) int64 {
 	t.Helper()
 	var n int64

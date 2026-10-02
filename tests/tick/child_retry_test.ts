@@ -2,12 +2,8 @@ import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 import { startMockService } from "../helpers/client.ts";
 
-// Per-slot retry of a raised child: specs/child-error-handling.md §5.5, and the operator's
-// counterpart in §12. Ticking rather than polling, and raising from a `switch` rather than
-// through a mock service, so every case is deterministic and reads as input → output.
-//
-// The unit of evidence throughout is `allChildrenOf(parent, task)`: it is unscoped by epoch
-// and returns one row per ATTEMPT, so "how many times did this slot run" is a length.
+// Per-slot retry of a raised child: specs/child-error-handling.md §5.5; operator retry is §12.
+// allChildrenOf is unscoped by epoch and returns one row per ATTEMPT, so a run count is a length.
 const ctx = useTickEnv();
 
 const uid = () => crypto.randomUUID().slice(0, 8);
@@ -21,7 +17,6 @@ async function defineRaiser(code: string): Promise<string> {
   return name;
 }
 
-/** A child that always completes. */
 async function defineCompleter(): Promise<string> {
   const name = `ok_${uid()}`;
   await ctx.env.define(name, [{ id: "go", switch: [{ goto: "end" }] }]);
@@ -76,12 +71,8 @@ test("the parent keeps the epoch that addresses its batch across a retry round",
   const id = await ctx.env.start(parent);
   await ctx.env.tickUntilIdle(40);
 
-  // Every attempt lands in the SAME batch. A moved epoch would orphan the siblings the
-  // parent kept, and the collect that followed would merge nothing while reporting success.
-  // A child stamps parent_task_epoch from the parent's task_epoch at spawn time, so two
-  // attempts sharing a batch IS the proof the parent did not bump between them. (The parent's
-  // own epoch does move afterwards, when it routes to $gave_up — that is a task transition,
-  // which is exactly what the epoch counts.)
+  // A child stamps parent_task_epoch at spawn, so attempts sharing a batch prove the parent did
+  // not bump between them; a moved epoch would orphan the kept siblings.
   const attempts = ctx.env.allChildrenOf(id, "call");
   expect(attempts).toHaveLength(2);
   expect(new Set(attempts.map((a) => a.batch)).size, "one batch, two attempts").toBe(1);
@@ -150,8 +141,7 @@ test("only the raised slot is replaced — a completed sibling is never re-run",
   const id = await ctx.env.start(parent);
   await ctx.env.tickUntilIdle(60);
 
-  // 1 completed sibling + 3 attempts at the raised slot. A batch-wide re-spawn would have
-  // re-run `good` too, and a shared budget could not have kept them independent.
+  // A batch-wide re-spawn would have re-run `good` too.
   const rows = ctx.env.query<{ process_name: string }>(
     "SELECT process_name FROM process_instances WHERE parent_id = ?",
     id,
@@ -177,9 +167,7 @@ test("a defect in the batch cancels the retry that had not happened yet", async 
   const id = await ctx.env.start(parent);
   await ctx.env.tickUntilIdle(60);
 
-  // The defect poisons the parent, so it settles without resolving and admission never runs.
-  // Retrying eagerly — the moment a slot raised — would have spent attempts, and their side
-  // effects, on a batch already doomed. specs/child-error-handling.md §5.4, E3.
+  // The defect poisons the parent, so admission never runs (specs/child-error-handling.md §5.4, E3).
   expect(ctx.env.allChildrenOf(id, "fanout")).toHaveLength(2);
   expect(await ctx.env.status(id)).toBe("failed");
 });
@@ -249,9 +237,7 @@ test("retry grants one extra attempt, not a fresh budget", async () => {
   await ctx.env.retry(id);
   await ctx.env.tickUntilIdle(40);
 
-  // 3 = the operator's one override. 4 would mean the replacement came back on a zeroed
-  // counter and the definition's budget ran a second time — a retry command silently
-  // multiplying the policy.
+  // 4 would mean the replacement came back on a zeroed counter and re-ran the whole budget.
   expect(ctx.env.allChildrenOf(id, "call"), "one more run, then the count declines it again").toHaveLength(3);
   expect(await ctx.env.status(id)).toBe("failed");
 });
@@ -269,13 +255,8 @@ test("a raised ROOT is refused — there is no parent to re-spawn it from", asyn
 
 // ---- the conform that decides which rule a slot matches ---------------------------------
 
-/**
- * A child that raises `card_declined` carrying whatever payload its caller passed in.
- *
- * The payload comes through an OPAQUE input slot rather than as a literal on the clause: a
- * declaration a caller could be judged against at registration is refused there now, and this
- * test is about the conform at collect. `{}` is the one shape that reaches it.
- */
+/** Raises `card_declined` with its caller's payload via an OPAQUE (`{}`) input: a literal would be
+ *  judged at registration, and these tests are about the conform at collect. */
 async function defineDecliner(): Promise<string> {
   const name = `decliner_${uid()}`;
   await ctx.env.define(
@@ -319,10 +300,8 @@ test("each slot is conformed, so a bad payload takes its own code away", async (
   const id = await ctx.env.start(name);
   await ctx.env.tickUntilIdle(60);
 
-  // `a_ok` is raised[0] in slot order. If only IT were conformed — the shipped behaviour
-  // before §5.5 — `b_bad` would still have read as card_declined and retried alongside it.
-  // Its payload failing the declaration is what replaces its code with result.invalid, and
-  // the rule that catches result.invalid names no retry.
+  // `a_ok` is raised[0]; if only it were conformed, `b_bad` would read as card_declined and
+  // retry too. Its failed payload becomes result.invalid, whose rule names no retry.
   const rows = ctx.env.query<{ process_name: string }>(
     "SELECT process_name FROM process_instances WHERE parent_id = ?",
     id,
@@ -356,10 +335,8 @@ test("a replacement carries the input its attempt was given", async () => {
   const id = await ctx.env.start(parent);
   await ctx.env.tickUntilIdle(40);
 
-  // A re-spawn re-sends the stored input rather than rebuilding it. This pins that the input
-  // TRAVELS — dropping it would leave the replacement running on nothing. It cannot tell
-  // copying from re-evaluating, which only differ when the parent's context has moved, and
-  // the one live input (`config`) is fixed for the life of the server.
+  // Pins only that the input TRAVELS; it cannot tell copying from re-evaluating, which differ
+  // only when the parent's context has moved.
   const inputs = ctx.env.query<{ input_data: string }>(
     "SELECT input_data FROM process_instances WHERE parent_id = ? ORDER BY created_at",
     id,
@@ -399,9 +376,7 @@ test("budgets multiply: a parent's retry runs the child's own budget again", asy
     const id = await ctx.env.start(parent);
     await ctx.env.tickUntilIdle(60);
 
-    // 2 child instances × 2 attempts each. Nesting means the budgets compose, which is what
-    // anyone would expect on reflection and nobody expects in the moment — a parent's
-    // `retry: 1` over a child's `retry: 1` is FOUR calls to the thing that is down.
+    // 2 child instances × 2 attempts each: budgets compose.
     expect(ctx.env.allChildrenOf(id, "call"), "the parent spent its budget").toHaveLength(2);
     expect(mock.requestCount(), "each attempt at the slot ran the child's whole budget").toBe(4);
   } finally {
@@ -446,9 +421,8 @@ test("a handler task revived by retry still has the error it was reached through
   await ctx.env.retry(id);
   await ctx.env.tickUntilIdle(30);
 
-  // Retry revives the instance AT `classify`. Clearing the caught error there would hand the
-  // handler a null the analysis says it can never see: it takes the wrong branch, and the
-  // panic message — which interpolates `error` — degrades to its own source text.
+  // Retry revives AT `classify`; clearing the caught error there would hand the handler a null
+  // the analysis says it never sees.
   const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id } } });
   expect(data!.error_message, "the message renders, so the handler still had its error").toBe("threw Error");
   expect(String(data!.error_message)).not.toContain("${");
@@ -487,9 +461,8 @@ test("upgrade then retry runs the child with the NEW input, not the one it faile
   await ctx.env.retry(id);
   await ctx.env.tickUntilIdle(30);
 
-  // The replacement's input is REBUILT from the parent as it now stands. Re-sending what the
-  // failed attempt was given would hand it "broken-v1" forever, and no amount of fixing,
-  // applying and upgrading could ever reach the child.
+  // The replacement's input is REBUILT from the parent as it now stands; re-sending the stored
+  // one would make the fix unreachable.
   const inputs = ctx.env
     .query<{ input_data: string }>(
       "SELECT input_data FROM process_instances WHERE parent_id = ? ORDER BY created_at",
@@ -543,9 +516,8 @@ test("a case that fails leaves the error unmatched, on the task that failed", as
   const id = await ctx.env.start(await defineGuardedCaller(await defineNamedRaiser("Bug")));
   await ctx.env.tickUntilIdle(30);
 
-  // The rule named the code but declined, so nothing caught it: the raise degrades to a
-  // defect (§5.2) and the instance stops STANDING ON the child call. That is the whole point
-  // — a handler task would have taken it out of retry's reach (§11.1).
+  // Uncaught, the raise degrades to a defect (§5.2) and the instance stays ON the child call;
+  // a handler task would take it out of retry's reach (§11.1).
   const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id } } });
   expect(data!.status).toBe("failed");
   expect(data!.error_code, "the parent inherits the child's raised code").toBe("boom");
@@ -572,8 +544,6 @@ test("a declined rule falls through to the next one", async () => {
   const id = await ctx.env.start(proc);
   await ctx.env.tickUntilIdle(30);
 
-  // Same code, two rules, the predicate choosing between them — without fall-through the
-  // first rule's decline would have ended the match and the second would be dead.
   const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect((data?.state?.outputs as any)?.permanent).toEqual({ took: "permanent" });
   expect((data?.state?.outputs as any)?.transient).toBeUndefined();
@@ -601,8 +571,7 @@ test("the case decides per slot, against that slot's own error", async () => {
   const id = await ctx.env.start(proc);
   await ctx.env.tickUntilIdle(60);
 
-  // Only the slot whose OWN payload satisfies the predicate is admitted. Evaluating the case
-  // once for raised[0] would have decided the whole batch on one slot's data.
+  // Evaluating the case once for raised[0] would decide the whole batch on one slot's data.
   const rows = ctx.env.query<{ error_code: string; engine_state: string }>(
     "SELECT error_code, engine_state FROM process_instances WHERE parent_id = ?",
     id,

@@ -2,15 +2,7 @@ import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { load } from "js-yaml";
 
-// One case per file, with its expected output in the file. A case declares the definitions
-// to apply and the command to run; the assertion is the whole rendered report, because
-// what an operator reads IS the deliverable — a verdict they cannot act on is not a
-// feature.
-//
-// Process and channel names are written out literally rather than generated, so the
-// expected block reads as real output. The suites share one server, so those names must be
-// unique across every fixture; assertUniqueNames enforces that, because the failure it
-// prevents is two cases silently comparing each other's definitions.
+// Names are literal rather than generated so the expected block reads as real output.
 
 const ROOT = new URL("../cli/testdata/compat/", import.meta.url).pathname;
 
@@ -44,11 +36,7 @@ export function loadGroup(group: string): CompatCase[] {
   return cases;
 }
 
-/**
- * assertUniqueNames fails if two fixtures anywhere claim the same process or channel name.
- * They share a server, so a collision does not error — it silently makes one case compare
- * the other's definitions, and the expected block is then recorded from that.
- */
+/** On the shared server a name collision does not error: one case compares the other's definitions. */
 export function assertUniqueNames(groups: string[]): void {
   const owner = new Map<string, string>();
   const claim = (kind: string, name: string, id: string) => {
@@ -70,11 +58,7 @@ export function assertUniqueNames(groups: string[]): void {
   }
 }
 
-/**
- * writeExpected rewrites a fixture's expected block in place, leaving everything above it —
- * the prose explaining why the case exists — untouched. `expect: |` must therefore be the
- * file's last key.
- */
+/** Replaces everything from the last `expect: |` on, so it must be the file's last key. */
 export function writeExpected(c: CompatCase, output: string): void {
   const text = readFileSync(c.file, "utf8");
   const marker = text.lastIndexOf("\nexpect: |");

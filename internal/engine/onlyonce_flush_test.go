@@ -1,9 +1,7 @@
 package engine
 
-// The at-most-once bracket: below `strict` a claim's own commit is not flushed, so the engine
-// flushes once per claim batch when something in it is about to run an only_once task, and again
-// after the write that records the result. Keyed on the CLAIMED task, because that is what the
-// row records and the row is all recovery can read. specs/durability-levels.md s4.
+// The at-most-once bracket, keyed on the CLAIMED task: the row is all recovery can read.
+// specs/durability-levels.md s4.
 
 import (
 	"context"
@@ -46,9 +44,8 @@ func TestOnlyOnce_ClaimAndResultAreHardened(t *testing.T) {
 }
 
 func TestOnlyOnce_OneFlushPerBatchNotPerInstance(t *testing.T) {
-	// The opening half is a property of the batch: prefix durability means one flush
-	// hardens every claim behind it, so three only_once instances claimed together must
-	// still cost one. Per-instance would multiply the fsync that dominates this workload.
+	// Prefix durability: one flush hardens every claim behind it, so three claimed together
+	// still cost one.
 	database := openTestDB(t)
 	database.SetDurability(db.DurabilityOnlyOnce)
 	eng := tickEngine(t, database)
@@ -103,10 +100,8 @@ func TestOnlyOnce_NoFlushAtStrict(t *testing.T) {
 }
 
 func TestOnlyOnce_UnsetFlagFlushes(t *testing.T) {
-	// The reason the column stores "replayable" rather than "only_once": Go's zero value
-	// and the column default both land on false, and false must mean "flush". An instance
-	// built by a caller that never set the flag is the case this protects -- it costs an
-	// fsync it may not need, instead of silently losing at-most-once.
+	// Why the column stores "replayable": the zero value and the column default land on false,
+	// and false must mean "flush".
 	database := openTestDB(t)
 	database.SetDurability(db.DurabilityOnlyOnce)
 	eng := tickEngine(t, database)
@@ -131,10 +126,8 @@ func TestOnlyOnce_UnsetFlagFlushes(t *testing.T) {
 }
 
 func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
-	// The denormalisation's one invariant: the flag describes the task the row NAMES, recomputed
-	// in persist so a task change cannot leave it behind. The instance must still be RUNNABLE
-	// afterwards for this to mean anything, which is why the only_once task is followed by a
-	// delay -- `goto: end` would leave Task naming it forever on an instance never claimed again.
+	// The delay keeps the instance RUNNABLE afterwards: `goto: end` would leave Task naming the
+	// only_once task forever.
 	database := openTestDB(t)
 	database.SetDurability(db.DurabilityOnlyOnce)
 	eng := tickEngine(t, database)
@@ -190,11 +183,8 @@ func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
 }
 
 func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
-	// Two writes build UpdateInstanceParams by hand instead of going through
-	// updateInstanceParams, so they do not get the flag unless someone remembers. Forgetting
-	// zeroes it to "needs flush", which is safe and therefore silent: no test fails, the
-	// guarantee still holds, and every parked parent and every revived instance quietly pays
-	// an fsync forever. That is what this pins.
+	// Two writes build UpdateInstanceParams by hand. Forgetting the flag is safe and therefore
+	// silent: every parked parent and revived instance would pay an fsync forever.
 	database := openTestDB(t)
 	database.SetDurability(db.DurabilityOnlyOnce)
 	eng := tickEngine(t, database)
@@ -240,9 +230,8 @@ func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
 	}
 }
 
-// onlyOnceBehindSwitch registers a definition whose only_once action sits behind a
-// call-less switch, so reaching it means collapsing a chain. Returns the instance id and a
-// counter of how many times the action's endpoint was hit.
+// onlyOnceBehindSwitch puts the only_once action behind a call-less switch, so reaching it
+// collapses a chain. The counter is endpoint hits.
 func onlyOnceBehindSwitch(t *testing.T, database *db.DB, name string) (string, *atomic.Int32) {
 	t.Helper()
 	var hits atomic.Int32
@@ -279,10 +268,8 @@ func onlyOnceBehindSwitch(t *testing.T, database *db.DB, name string) (string, *
 }
 
 func TestOnlyOnce_NeverRunsInTheAdvanceThatMovedToIt(t *testing.T) {
-	// The row's `task` is all recovery has. If a collapsed chain ran the only_once action
-	// while the row still named the switch it started from, a crash mid-request would look
-	// exactly like "never started" and prepareAdvance would re-run it -- the one thing
-	// at-most-once forbids, and silently, with no error code raised.
+	// Run while the row still named the switch, a crash mid-request would look like "never
+	// started" and re-run silently.
 	database := openTestDB(t)
 	database.SetDurability(db.DurabilityOnlyOnce)
 	eng := tickEngine(t, database)

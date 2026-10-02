@@ -77,9 +77,7 @@ func TestTimeout_RoundTripsCanonically(t *testing.T) {
 	}
 }
 
-// An absent timeout must stay absent on the wire. Marshalling it as anything else would
-// hand the engine a timeout of zero, which it rejects — turning "no deadline" into a task
-// that can never run.
+// Marshalled as anything else, "no deadline" becomes a zero timeout the engine refuses.
 func TestTimeout_AbsentOmittedFromDefinition(t *testing.T) {
 	task := Task{ID: "t", Switch: SwitchMap{{Goto: GotoEnd}}}
 	out, err := json.Marshal(task)
@@ -91,9 +89,7 @@ func TestTimeout_AbsentOmittedFromDefinition(t *testing.T) {
 	}
 }
 
-// Action embeds DelaySpec, so a decoder promoted from it would be handed the whole action
-// object and every other field would decode to nothing. This is the regression test for
-// that: if DelaySpec ever gains an UnmarshalJSON, url and type below go empty.
+// If DelaySpec ever gains an UnmarshalJSON, url and type below go empty.
 func TestAction_DelaySpecDoesNotHijackDecode(t *testing.T) {
 	var a Action
 	if err := json.Unmarshal([]byte(`{"type":"fetch","method":"post","url":"http://x/y","for":"1h"}`), &a); err != nil {
@@ -107,11 +103,8 @@ func TestAction_DelaySpecDoesNotHijackDecode(t *testing.T) {
 	}
 }
 
-// Which action types honour a timeout, and where `until` is legal. Both rules exist because
-// the alternative is silent: a timeout on a child task is simply never applied, and an
-// `until` on a fetch reports http.timeout for a request that was never sent. A timeout with
-// no call to bound needs no case: the slot lives on the action, so there is nowhere to write
-// one — which is why the field sits there rather than on the task.
+// No case for a timeout with no call to bound: the slot lives on the action, so it cannot be
+// written. Why both rules exist: internal/model/CLAUDE.md, timeout §3.
 func TestProcessDefinition_Validate_Timeout(t *testing.T) {
 	def := func(a *Action, timeout Timeout) ProcessDefinition {
 		withTimeout := *a
@@ -165,9 +158,7 @@ func TestProcessDefinition_Validate_Timeout(t *testing.T) {
 	}
 }
 
-// `Action` embeds DelaySpec, so `for` / `until` / `tz` decode on EVERY action type and are
-// then read by nobody — a deadline the author wrote that never applies. The editor schema's
-// variants have always refused them; this is the server agreeing.
+// Off a delay these decode and are read by nobody; the editor schema already refuses them.
 func TestProcessDefinition_Validate_DelaySlotsAreDelayOnly(t *testing.T) {
 	def := func(a Action) ProcessDefinition {
 		return ProcessDefinition{Name: "p", Tasks: []*Task{

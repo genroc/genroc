@@ -12,11 +12,8 @@ import (
 	"genroc/internal/model"
 )
 
-// A log's object and its claim must be written in ONE transaction, so no observer -- and no sweep
-// -- can ever see the object unclaimed. Unlike the resurrection race this needs no luck: two
-// autocommit statements are two transactions on any engine, and polling caught the gap 452 times
-// across 200 log writes. Postgres only for the INSTRUMENT (the observer needs a second
-// connection), not the bug. specs/object-store.md.
+// Needs no luck: two autocommit statements are two transactions on any engine. Postgres only for
+// the INSTRUMENT (the observer needs a second connection), not the bug. specs/object-store.md.
 func TestLogObjects_ContentAndClaimAreWrittenAtomically(t *testing.T) {
 	if sharedPgDB == nil || sharedPgRaw == nil {
 		t.Skip("needs POSTGRES_DSN for the second connection the observer needs")
@@ -66,11 +63,8 @@ func TestLogObjects_ContentAndClaimAreWrittenAtomically(t *testing.T) {
 	}
 }
 
-// A log's object lives exactly as long as its log ROW, and then gets the grace window. The claim's
-// owner IS the row, so nothing about the object's life is expressed in time: prune the row and the
-// sweep notices the owner is gone and releases. With the INSTANCE as owner, the object's life had
-// to be guessed with a retention horizon instead.
-// specs/object-store.md.
+// The claim's owner IS the row, so the object's life is expressed in rows, not time: prune the row
+// and the sweep releases. specs/object-store.md.
 func TestLogObjects_LiveAsLongAsTheirRowThenGetGrace(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

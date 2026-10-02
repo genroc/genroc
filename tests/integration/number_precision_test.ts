@@ -2,10 +2,7 @@ import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// These assertions read the RAW response body rather than parsed JSON on purpose:
-// JavaScript numbers are float64 too, so JSON.parse would corrupt the very values
-// under test before the assertion ran. Comparing the bytes is the only honest
-// check that the server preserved them.
+// Raw bytes, not JSON.parse: JS numbers are float64 too and would corrupt the values under test.
 async function rawOutput(id: string): Promise<string> {
   // The detail endpoint, because the values under test live in STATE: the status endpoint
   // reports where an instance ended, not what it holds.
@@ -13,8 +10,6 @@ async function rawOutput(id: string): Promise<string> {
   return await res.text();
 }
 
-// A workflow that merely forwards a value must not change it. Under the old
-// float64 pipeline this failed at json.Unmarshal, before any expression ran.
 test("numbers — large integers survive a round trip untouched", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const name = `numpass_${uid}`;
@@ -49,8 +44,6 @@ test("numbers — large integers survive a round trip untouched", async () => {
   expect(raw).toContain("123456789.123456789");
 });
 
-// Arithmetic is exact base-10, so the classic binary-float artefacts do not
-// appear: 0.1 + 0.2 is 0.3, not 0.30000000000000004.
 test("numbers — decimal arithmetic is exact", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const name = `nummath_${uid}`;

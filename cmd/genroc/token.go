@@ -12,11 +12,8 @@ import (
 	"genroc/internal/db"
 )
 
-// `genroc token …` — credential management against the DATABASE, not the API: the break-glass
-// path for an operator who revoked or lost the last admin token. Its root of trust is filesystem
-// access, which grants nothing whoever can read the database did not already have. `genctl token`
-// is the everyday tool and goes over HTTP; this one is deliberately awkward.
-// specs/api-auth.md §5.3, path 1.
+// `genroc token …` works against the DATABASE, not the API: the break-glass path for a lost
+// last admin token, trusted via filesystem access. specs/api-auth.md §5.3, path 1.
 func runTokenCmd(args []string) {
 	if len(args) == 0 {
 		tokenUsage()

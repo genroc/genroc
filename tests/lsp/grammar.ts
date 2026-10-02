@@ -7,12 +7,8 @@ import yamlLangs from "@shikijs/langs/yaml";
 import markdownLangs from "@shikijs/langs/markdown";
 import mdxLangs from "@shikijs/langs/mdx";
 
-// Tokenizing a definition the way an editor does: the extension's own grammar files, wired up
-// from its own package.json, against a real YAML grammar and a real oniguruma.
-//
-// The YAML grammar comes from npm rather than an installed VS Code, so this runs on CI — it is
-// not byte-identical to the one VS Code ships, but the injection is anchored to `string` and
-// `source.genroc`, which both spell the same way.
+// The extension's own grammars, wired from its package.json. The YAML grammar comes from npm, not
+// VS Code's, but the injection anchors (`string`, `source.genroc`) are spelled the same in both.
 
 export const EXTENSION = join(dirname(fileURLToPath(import.meta.url)), "../../editors/vscode");
 
@@ -48,8 +44,7 @@ export function siteGrammars(): Contribution[] {
 }
 
 async function loadGrammar(root: string, contributions: Contribution[], langs: unknown[]): Promise<IGrammar> {
-  // `injectTo` is half of what a set means — the site and the extension load the same three
-  // files aimed at different scopes — so a key without it hands one of them the other's grammar.
+  // The site and the extension load the same files aimed at different scopes, so `injectTo` is keyed.
   const key = `${root}:${contributions.map((g) => `${g.scopeName}>${g.injectTo ?? ""}`).join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -65,11 +60,8 @@ async function loadGrammar(root: string, contributions: Contribution[], langs: u
       createOnigScanner: (sources: string[]) => engine.createScanner(sources),
       createOnigString: (s: string) => engine.createString(s),
     },
-    // Read the wiring the way VS Code does, rather than assuming it: an injection is a
-    // contribution naming its target in `injectTo`, and the selector inside that grammar
-    // decides where within the target it applies. Simulating this is how a package.json that
-    // injected nothing at all still passed. The scope asked for is the ROOT's, never an
-    // embedded one — which is why a fence needs its injections aimed at markdown.
+    // Read the wiring as VS Code does rather than assuming it. Injections are asked for the ROOT
+    // scope only, which is why a fence needs its injections aimed at markdown.
     getInjections: (scope: string) =>
       contributions.filter((g) => (g.injectTo ?? []).includes(scope)).map((g) => g.scopeName),
     loadGrammar: (scope: string) => byScope.get(scope) ?? null,

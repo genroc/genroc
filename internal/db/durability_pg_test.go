@@ -1,9 +1,7 @@
 package db
 
-// Postgres relaxes a commit with SET LOCAL, whose scope is the transaction. If it were ever
-// written without LOCAL it would ride the pooled connection into unrelated writes and
-// silently relax them — the Postgres twin of the SQLite pragma leak.
-// specs/durability-levels.md §5.
+// SET LOCAL must stay LOCAL: without it the relaxation rides the pooled connection into
+// unrelated writes. specs/durability-levels.md §5.
 
 import (
 	"context"
@@ -80,19 +78,6 @@ func TestDurability_PostgresStrictNeverRelaxes(t *testing.T) {
 	}
 }
 
-// Postgres flushes without writing a row: assigning an XID is what makes the commit real,
-// and a real commit at synchronous_commit=on is flushed. Verified against the server's own
-// fsync counter, because "it committed" is not the same claim as "it reached the disk" --
-// and if it did not, the only_once bracket silently stops protecting anything.
-
-// A test that Flush's Postgres path reaches the disk is deliberately absent: pg_stat_wal is
-// published asynchronously AND counts the whole cluster, so the obvious before/after assertion
-// passes unchanged with the flush removed. The path rests on a Postgres guarantee rather than
-// genroc behaviour, and TestDurability_PostgresStrictNeverRelaxes pins the half that is ours.
-// Verified by hand instead, and reproducible:
-//
-//	psql -c "select pg_stat_reset_shared('wal')"
-//	for i in $(seq 1 20); do psql -c "begin; select pg_current_xact_id(); commit;"; done
-//	psql -c "select wal_sync from pg_stat_wal"   # moved: 0 -> 7
-//	# and the control, which must not move it:
-//	for i in $(seq 1 20); do psql -c "begin; select 1; commit;"; done
+// A test that Flush's Postgres path reaches the disk is deliberately absent: pg_stat_wal is async
+// and cluster-wide, so the obvious assertion passes with the flush removed. Manual check:
+// internal/db/CLAUDE.md, "PostgreSQL runtime setup".

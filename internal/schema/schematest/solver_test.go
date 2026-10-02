@@ -9,10 +9,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// inferAgainst returns a compute closure inferring expr against ctx, stripping
-// the attached resolution context from the result the way the validation
-// layer's inferShape does (a solved definition must not carry a copy of the
-// defs map it lives in).
+// inferAgainst strips the result's defs as validation's inferShape does: a solved definition
+// must not carry a copy of the defs map it lives in.
 func inferAgainst(ctx schema.Schema, expr string) func() (schema.Schema, error) {
 	return func() (schema.Schema, error) {
 		res, err := ctx.Infer(expr)
@@ -67,9 +65,8 @@ func TestSolverSelfRecursionScalar(t *testing.T) {
 	assertRaw(t, mustGet(t, defs, "S"), `{"type":"integer"}`)
 }
 
-// TestSolverStructuralKeep: passing the previous value through whole keeps the
-// reference — the solved definition is a genuine recursive type, converging
-// without widening.
+// Passing the previous value through whole keeps the reference: a genuine recursive type,
+// converging without widening.
 func TestSolverStructuralKeep(t *testing.T) {
 	defs := schema.NewDefs()
 	ctx := schema.Object().
@@ -113,9 +110,7 @@ func TestSolverDegenerateSelfCollapse(t *testing.T) {
 	assertRaw(t, mustGet(t, defs, "X"), `{"type":"integer"}`)
 }
 
-// TestSolverDegenerateMutualCollapse: X = Y ∨ int, Y = X ∨ string — every
-// member of a bare cycle collapses to the union of the cycle's non-cyclic
-// remainders (here int|string), identically.
+// X = Y ∨ int, Y = X ∨ string: both collapse to the remainders, int|string.
 func TestSolverDegenerateMutualCollapse(t *testing.T) {
 	defs := schema.NewDefs()
 	solver := schema.NewSolver(defs)
@@ -153,10 +148,7 @@ func TestSolverNoBaseCase(t *testing.T) {
 	}
 }
 
-// TestSolverClusterExpansion: the cycle is only discoverable through a chain of
-// demands (A→B→C→A), and grows while already mid-fixpoint. All members are
-// computational (object shapes with accumulator fields, like real output maps)
-// and must converge jointly.
+// The cycle is discoverable only through a chain of demands (A→B→C→A) and grows mid-fixpoint.
 func TestSolverClusterExpansion(t *testing.T) {
 	defs := schema.NewDefs()
 	ctx := schema.Object().

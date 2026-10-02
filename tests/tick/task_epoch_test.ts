@@ -1,19 +1,6 @@
-/**
- * The task-epoch mechanism, observed one tick at a time and read straight out of SQL.
- *
- * `tests/integration/child_loop_test.ts` covers the SYMPTOM (a loop over a child task
- * completes). These assert the mechanism it rests on, which no API surface exposes:
- *
- *   - task_epoch does not move while an instance is parked, nor when it resumes;
- *   - a child records the parent's task_epoch at spawn as parent_task_epoch;
- *   - a second pass through the same task produces a DIFFERENT batch number, which is what
- *     lets the collect pick one batch out of the several living under (parent, task).
- *
- * The first is the load-bearing one. advance points inst.Task at the task about to run on
- * every claim, including the one where a parked parent resumes to collect; if the bump lived
- * there instead of in enterTask, a parent would collect against an epoch none of its own
- * children carry, and every child task would hang.
- */
+/** The task-epoch mechanism, read from SQL (child_loop_test.ts covers the symptom). The bump lives in
+ *  enterTask, not advance: advance repoints inst.Task on every claim, including a parked parent resuming
+ *  to collect, and a bump there would collect against an epoch none of its children carry. */
 import { parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
@@ -64,9 +51,8 @@ test("task_epoch — parking, settling and resuming all leave the parent's epoch
   await env.tick();
   expect(env.epochs(id).task, "settling a child must not move the parent's epoch").toBe(atSpawn);
 
-  // The collect tick resumes the parked task and this definition ends there, so no
-  // transition happens at all. Any movement here would be the resume being miscounted as an
-  // entry — the failure that makes a parent collect against an epoch its children lack.
+  // The collect tick resumes and ends with no transition: any movement is a resume miscounted
+  // as an entry.
   await env.tick();
   expect(await env.status(id)).toBe("completed");
   expect(env.epochs(id).task, "resuming to collect is not a task entry").toBe(atSpawn);
@@ -82,8 +68,7 @@ test("task_epoch — a second pass spawns into a different batch", async () => {
   await env.tickUntilIdle(30);
   expect(await env.status(id)).toBe("completed");
 
-  // Both passes' children still live under the same (parent_id, spawn_task_id) — nothing is
-  // deleted. They are told apart only by the batch number, which is the whole mechanism.
+  // Both passes' children live under the same (parent_id, spawn_task_id); only the batch tells them apart.
   const children = env.allChildrenOf(id, "call");
   expect(children).toHaveLength(2);
   expect(children[0].batch).toBe(firstBatch);
@@ -112,14 +97,8 @@ test("task_epoch — a child's own epoch advances; the batch it belongs to never
   );
 });
 
-/**
- * Batch-level coverage of the paths child_loop_test.ts cannot pin behaviourally.
- *
- * buildMapChildOutput overwrites by key and GetChildrenForTask has no ORDER BY, so an
- * unscoped child_map collect merges duplicate slots with NO error and a nondeterministic
- * winner; resolveRaisedBatch picks raised[0] the same way. A test asserting on the merged
- * output would pass or fail by luck. The batch numbers are the deterministic signal.
- */
+/** Batch numbers are the deterministic signal: an unscoped collect merges duplicate slots silently with
+ *  a nondeterministic winner (no ORDER BY), so asserting on merged output would pass or fail by luck. */
 async function batchesPerPass(env: Env, parent: string, taskId: string, expectedPerPass: number) {
   const id = await env.start(parent);
   await env.tickUntilIdle(40);
@@ -178,18 +157,9 @@ test("task_epoch — a loop re-entered through a RAISED child's route gets a fre
   expect(r.batches, "each raised pass spawns into its own batch").toHaveLength(3);
 });
 
-/**
- * RetryProcess reconstructs a parent onto ITS OWN batch — a failed child is revived in place
- * — so the epoch that ADDRESSES that batch must not move. Bumping it orphans every child the
- * parent kept, and the collect that follows finds none of them: a child_map then merges {}
- * and reports 'completed'. specs/child-error-handling.md §12.
- *
- * The re-spawn this once guarded against cannot happen now that the walk scopes its lookup to
- * the current epoch: children at that epoch mean reconstruct-never-respawn, and no children
- * there means a spawn collides with nothing. The one revive that DOES move the epoch — a task
- * with no batch, which re-arms an external task on a token derived from it — is pinned by
- * TestRetryProcess_BumpsEpochWithoutABatch.
- */
+/** Retry reconstructs onto the parent's OWN batch, so its epoch must not move: a bump orphans the kept
+ *  children and a child_map merges {} (specs/child-error-handling.md §12). The no-batch revive that DOES
+ *  bump is pinned by TestRetryProcess_BumpsEpochWithoutABatch. */
 test("task_epoch — an operator retry reconstructs the existing batch", async () => {
   const env = ctx.env;
   // Nothing listens on port 1, so this leaf fails every time and poisons its parent.
@@ -230,12 +200,8 @@ test("task_epoch — an operator retry reconstructs the existing batch", async (
   );
 });
 
-/**
- * The external token IS the task epoch. A submitted result must land on the arming it was
- * issued for, and a re-arm (after an external.timeout retry) is a new occurrence — so the
- * token has to change even though nothing transitioned. That is why the retry branch moves
- * the epoch: without it the token is identical across armings and a stale result is accepted.
- */
+/** The external token IS the task epoch, so a re-arm must move the epoch even though nothing
+ *  transitioned; otherwise a stale result is accepted. */
 test("task_epoch — a re-arm issues a new external token, and the stale one is refused", async () => {
   const env = ctx.env;
   const name = `epoch_ext_${crypto.randomUUID()}`;
@@ -249,8 +215,6 @@ test("task_epoch — a re-arm issues a new external token, and the stale one is 
   ]);
   const id = await env.start(name);
 
-  // The token is derived from the row's task_epoch, never stored — which is the whole point
-  // here: it must MOVE when the epoch moves, and a stale one must stop resolving.
   const tokenOf = async () => (await parkedTask(id, env.client))?.token ?? "";
 
   await env.tick();
@@ -265,13 +229,11 @@ test("task_epoch — a re-arm issues a new external token, and the stale one is 
   expect(second).toBe(`${id}.${env.epochs(id).task}`);
   expect(second, "a re-arm is a new occurrence, so a new token").not.toBe(first);
 
-  // The guarantee itself: the previous arming's token must no longer resolve this task.
   const stale = await env.client.POST("/external-tasks/resolve", {
     body: { token: first, result: { late: true } } as never,
   });
   expect(stale.error, "a stale token must be refused").toBeDefined();
 
-  // ...while the current one still does.
   const fresh = await env.client.POST("/external-tasks/resolve", {
     body: { token: second, result: { late: false } } as never,
   });

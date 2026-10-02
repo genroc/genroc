@@ -96,10 +96,8 @@ func TestRetryProcess_RaisedChildIsKept(t *testing.T) {
 	}
 }
 
-// The §11.4 bug: revive asks "after revival, is anything still active?" to rebuild the
-// parent's phase. A raised child is settled, so the answer must be no — otherwise
-// the parent is parked in 'children' forever on a child that has already concluded, and
-// nothing logs why. This is the one failure mode here that is silent and unrecoverable.
+// §11.4: a raised child is settled, so nothing is active after revival; otherwise the parent
+// waits in 'children' forever on a concluded child, silently and unrecoverably.
 func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -122,10 +120,8 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 	}
 }
 
-// Reviving clears the REPORTED error and keeps the CAUGHT one. Leaving error_code behind
-// fails quietly: the instance goes on to complete and still reports having died of the old
-// code, corrupting exactly the column the code exists to serve. Clearing the caught error
-// fails just as quietly in the other direction — see the assertion below.
+// A leftover error_code makes a completed instance still report the old code; clearing the
+// CAUGHT error fails as quietly the other way (see below).
 func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -201,10 +197,8 @@ func TestFinishChild_RaisedSiblingWakesParent(t *testing.T) {
 	}
 }
 
-// A settled outcome is never reopened. FailAncestors deliberately omits 'raised' from
-// the statuses it can flip to 'failing' — the asymmetry with CountActiveSiblings above
-// is the point: 'raised' is terminal for "is the batch done" but is not a failure, so
-// it neither poisons upward nor is poisoned from above.
+// 'raised' is terminal for "is the batch done" but is not a failure: it neither poisons upward
+// nor is poisoned from above.
 func TestFailInstanceAndAncestors_DoesNotReopenRaised(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

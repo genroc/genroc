@@ -10,14 +10,9 @@ import (
 	"testing"
 )
 
-// Import boundaries inside the ROOT module. `ui` and `jwks` are fenced by go.mod instead -- NOT
-// by the internal rule, which is path-prefix and not module-scoped.
-//
-// The rule here: genctl is a CLIENT. It speaks HTTP and infers the types a source resolver
-// typechecks against, so it legitimately depends on the definition language, and has no business
-// linking the engine, the database, the API server or the outbound transport -- each of which
-// arrives with dependencies a CLI has no use for. A `genctl` module would relocate the dependency
-// rather than remove it. specs/ui-component.md, specs/language-server.md §4.
+// Import boundaries inside the ROOT module (`ui` and `jwks` are fenced by go.mod). genctl is a
+// CLIENT; a `genctl` module would relocate the dependency rather than remove it.
+// specs/ui-component.md, specs/language-server.md §4.
 var forbiddenImports = map[string][]string{
 	"cmd/genctl": {
 		"genroc/internal/db",
@@ -25,10 +20,8 @@ var forbiddenImports = map[string][]string{
 		"genroc/internal/engine",
 		"genroc/internal/transport",
 	},
-	// The language server behind `genctl lsp`. Same rule for the same reason: it reads the
-	// definition language and speaks to no server at all. A module of its own was measured
-	// and rejected -- it would have fenced nothing it does not already inherit, and could
-	// not reach the project config in cmd/genctl. specs/language-server.md §4.
+	// `genctl lsp`, same rule. A module of its own was measured and rejected: it fenced nothing.
+	// specs/language-server.md §4.
 	"internal/lsp": {
 		"genroc/internal/db",
 		"genroc/internal/api",

@@ -2,11 +2,8 @@ package template
 
 import "testing"
 
-// Evidence for the `cache` package var: Get is the runtime path (shape.Eval resolves
-// every templated leaf through it on every advance), so if Parse were cheap the cache
-// would not be worth a global. On an M1 it is not close — Parse costs 630ns/8 allocs for
-// a bare expression up to 3.2us/38 allocs for a four-chunk string, against ~12ns and
-// ZERO allocations cached. Re-run before proposing the cache be removed.
+// Evidence for the `cache` package var: on an M1 Parse costs 630ns/8 allocs to 3.2us/38 allocs
+// against ~12ns and zero allocs cached. Re-run before proposing the cache be removed.
 var benchSrcs = []string{
 	`${ input.order_id }`,
 	`https://api.example.com/v1/orders/${ input.order_id }/items?since=${ outputs.fetch.cursor }`,

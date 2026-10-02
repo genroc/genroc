@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// These tests exercise the unified path-aware Schema API purely from JSON — no
-// process object involved — which is the whole point: the class is testable in
-// isolation.
-
 const nestedSchema = `{
 	"type":"object",
 	"properties":{
@@ -79,10 +75,7 @@ func TestValidateAtRejectsBadSubpathValue(t *testing.T) {
 	}
 }
 
-// A property that is optional but has a default is guaranteed present after
-// validation (conformObject fills the default), so navigation and inference must
-// treat it as non-nullable — usable directly in a comparison. An optional property
-// with no default stays nullable.
+// conformObject fills the default, so the property is always present.
 func TestOptionalWithDefaultIsNonNullable(t *testing.T) {
 	sc := mustParse(t, `{
 		"type":"object",

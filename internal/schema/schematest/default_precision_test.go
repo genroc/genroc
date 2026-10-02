@@ -7,9 +7,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// Schema documents carry numbers too, in `default` and `enum` (both any-typed), which used to
-// decode through float64 while runtime data did not. beyondFloat64 is 2^53+1; neighbour is the
-// value it collapses to.
+// `default` and `enum` carry any-typed numbers. beyondFloat64 is 2^53+1; neighbour is the value
+// it collapses to through float64.
 const (
 	beyondFloat64 = "9007199254740993"
 	neighbour     = "9007199254740992"
@@ -143,9 +142,7 @@ func TestEnumRejectsFloat64Neighbour(t *testing.T) {
 	}
 }
 
-// Matching stays by value, not by literal: an enum written 1 must still accept an
-// input that arrives as 1.0, which is how it behaved before exact literals and
-// what a byte comparison would have broken.
+// By value, not literal: a byte comparison would reject 1.0 against an enum written 1.
 func TestEnumMatchesAcrossEquivalentLiterals(t *testing.T) {
 	for _, in := range []string{"1", "1.0", "1.000"} {
 		t.Run(in, func(t *testing.T) {

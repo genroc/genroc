@@ -1,7 +1,5 @@
-# The declaration is what makes last_error.data readable, so DROPPING it takes the slot away from
-# the handler. A definition that still read it could not register at all — the read is a
-# registration error without the declaration — so the edit that reaches compat is the one that
-# drops both, and the question is whether an instance parked in the child call can continue.
+# Dropping `raises` takes last_error.data from the handler. A read of it cannot register
+# without the declaration, so the edit compat sees drops both.
 apply:
   - channel: dropped_a
     definitions:

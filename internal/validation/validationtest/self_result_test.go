@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// A fetch with no `responses` has no self.result at all, so referencing it -- in an output or a
-// switch -- is a "not in schema" error. The message must name the slot that would FIX it, which
-// differs by action type: a fetch is sent to `responses`, and result_schema is a field it refuses.
+// The message must name the slot that would FIX it: a fetch is sent to `responses`, since it
+// refuses result_schema.
 func TestGenerate_OutputOfUntypedResult_Errors(t *testing.T) {
 	// Bare self.result in an output, no result_schema → error mentioning result_schema.
 	err := runGenerateErr(t, `{
@@ -46,9 +45,7 @@ func TestGenerate_OutputOfUntypedResult_Errors(t *testing.T) {
 	}
 }
 
-// The same rule for an external task: with no result_schema the submitted result is untyped
-// and does not exist in the context — referencing it in an output OR a switch is an error;
-// declaring a result_schema types it and makes it accessible.
+// For an external task, result_schema is what makes the submitted result readable.
 func TestGenerate_ExternalUntypedResult_Errors(t *testing.T) {
 	// Output export of the raw result → error.
 	if err := runGenerateErr(t, `{"name":"p","tasks":[
@@ -73,9 +70,7 @@ func TestGenerate_ExternalUntypedResult_Errors(t *testing.T) {
 	}
 }
 
-// A process-level output is not a task slot: it has no `self` at all, whatever the last task
-// declared. The task's output is reachable there only under its own id.
-// docs reference/definition/expressions.mdx.
+// The last task's output is reachable only under its id. docs reference/definition/expressions.mdx.
 func TestGenerate_ProcessOutputHasNoSelf(t *testing.T) {
 	const task = `{"id":"call","action":{"type":"fetch","method":"post","url":"http://x",
 		"responses":{"200":{"type":"object","properties":{"ok":{"type":"boolean"}}}}},

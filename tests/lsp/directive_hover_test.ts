@@ -4,10 +4,8 @@ import { join } from "path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { at, Doc, Lsp, useWorkspace } from "./helpers.ts";
 
-// Hover over a `$<resolver>:` directive, for every kind of resolver. A STRUCTURAL one shows what
-// it yields, from the same call the pass makes — so a registered fragment loader answers like
-// the built-in `$process` does. A CODE one is never run by the editor, so it says only that it
-// fills the slot with a string at apply. specs/source-resolution.md.
+// A STRUCTURAL directive's hover shows what it yields, from the same call the pass makes; a CODE
+// one is never run by the editor. specs/source-resolution.md.
 
 let lsp: Lsp;
 beforeAll(async () => {

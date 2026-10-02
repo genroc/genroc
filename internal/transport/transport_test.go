@@ -14,9 +14,8 @@ import (
 	"genroc/internal/errcode"
 )
 
-// serveBody starts a server answering every request with exactly n bytes of a valid JSON
-// string value, so a body can be sized either side of MaxResponseBytes without the size
-// depending on how the payload happens to encode.
+// serveBody answers with exactly n bytes of a valid JSON string, so a body can be sized
+// either side of MaxResponseBytes regardless of encoding.
 func serveBody(t *testing.T, n int) string {
 	t.Helper()
 	if n < 2 {
@@ -87,10 +86,8 @@ func TestSendHTTP_ShortBodyStillParses(t *testing.T) {
 	}
 }
 
-// A pin, not a behaviour test: connection reuse is only observable through timing, and the
-// failure this guards against is silent and textual — someone reaching for
-// http.DefaultClient again, whose per-host idle cap of 2 makes a worker re-dial and
-// re-handshake TLS for nearly every call to the same endpoint.
+// A pin, not a behaviour test: reuse is only observable through timing, and reverting to
+// http.DefaultClient is a silent, textual change.
 func TestClient_PoolsConnectionsPerHost(t *testing.T) {
 	if client == http.DefaultClient {
 		t.Fatal("fetch is using http.DefaultClient again")
@@ -136,9 +133,7 @@ func TestSendHTTP_EmptyBodyDecodesToNull(t *testing.T) {
 	}
 }
 
-// An unaccepted status carries its body through as a decoded value AND as text: error.data
-// needs the value, the operator reading an audit row needs the text, and dropping either
-// leaves one of them with nothing.
+// error.data needs the decoded value and the audit row needs the text.
 func TestSendHTTP_UnacceptedStatusKeepsBodyAndText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -189,10 +184,8 @@ func TestSendHTTP_UnreadableErrorBodyIsNotAVerdict(t *testing.T) {
 	}
 }
 
-// killAfterRead reads a whole request off the socket and then destroys the connection
-// without answering. The remote demonstrably received the call — the case that separates
-// http.disconnected from pre.error. rst picks whether the close emits RST or FIN; both
-// reach the client as a post-write failure, so both must classify the same.
+// killAfterRead drops the connection after reading the whole request. rst picks RST or FIN;
+// both are post-write failures and must classify the same.
 func killAfterRead(t *testing.T, rst bool) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -283,9 +276,8 @@ func deadPort(t *testing.T) string {
 	return "http://" + addr + "/eval"
 }
 
-// TestClassifyGoError_PreOnlyWhenTheRequestNeverLeft pins the retry-safety split, not the
-// diagnosis: pre.* licenses a retry on an only_once task (isRetryAllowed), so claiming it
-// for a call the remote may have run is the one misclassification that can double-charge.
+// pre.* licenses a retry on an only_once task, so claiming it for a call the remote may
+// have run is the one misclassification that can double-charge.
 func TestClassifyGoError_PreOnlyWhenTheRequestNeverLeft(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -379,10 +371,8 @@ func TestClassifyGoError_PreOnlyWhenTheRequestNeverLeft(t *testing.T) {
 	}
 }
 
-// TestClassifyGoError_HTTP2RequestThatReachedTheRemote covers the OTHER write path in
-// net/http. h2 serialises a request as HEADERS frames rather than through Request.write, so
-// if WroteRequest did not fire there every h2 failure would classify pre.* — and genroc
-// speaks h2 to any real HTTPS endpoint, the shared transport keeping ForceAttemptHTTP2.
+// The OTHER write path: h2 serialises through HEADERS frames, not Request.write, and the
+// shared transport speaks h2 to every real HTTPS endpoint.
 func TestClassifyGoError_HTTP2RequestThatReachedTheRemote(t *testing.T) {
 	read := make(chan struct{}, 1)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {

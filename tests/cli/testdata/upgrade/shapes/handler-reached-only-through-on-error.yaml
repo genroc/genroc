@@ -1,13 +1,5 @@
-# A child raises a declared code and the parent routes it to a handler task that reads
-# `error.data`. `classify` there is reachable ONLY through on_error, which is why the layer
-# calls the error slot guaranteed at that task — and the instance is upgraded while it is
-# still resting there, before the handler has run.
-#
-# The sibling case a-fault-that-carried-no-data covers the position one tick later, where the
-# handler concludes; this one pins that arriving at the handler is already a fitting state.
-#
-# The two versions differ only by an added optional input property, so nothing about the
-# stored state has any reason to move.
+# `classify` is reachable only through on_error, so `error` is guaranteed there; the instance is
+# upgraded resting at the handler, before it runs. Versions differ by one optional input.
 apply:
   - definitions:
       - name: raiser

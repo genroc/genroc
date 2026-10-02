@@ -8,9 +8,7 @@ import (
 	"genroc/internal/model"
 )
 
-// statusByCode already carries "every Code must appear here"; the prose needs the same rule and
-// gets no help from the compiler. A code with no line reaches the reference as a blank cell,
-// which reads as an omission in the docs rather than as the missing entry it is.
+// The prose needs statusByCode's "every Code appears" rule and gets no help from the compiler.
 func TestEveryCodeIsDocumented(t *testing.T) {
 	if len(statusByCode) < 5 {
 		t.Fatalf("statusByCode carries %d codes, which cannot be right", len(statusByCode))
@@ -30,10 +28,7 @@ func TestEveryCodeIsDocumented(t *testing.T) {
 	}
 }
 
-// The status filter's values used to be a string in a struct tag beside the model, and a copy
-// is how `cancelling` and `cancelled` went undocumented for as long as they did: a status added
-// after the tag was written changed nothing that could fail. They are derived now, and this is
-// what says so — a hand-written enum tag on that parameter would pass every other test.
+// A hand-written enum tag on the status parameter would pass every other test.
 func TestTheStatusFilterOffersEveryStatus(t *testing.T) {
 	var doc struct {
 		Components struct {

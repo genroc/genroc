@@ -19,11 +19,9 @@ const (
 	DefaultRetryMaxDelay = 5 * time.Minute
 )
 
-// Retry is an on_error rule's retry policy: how many retries, and the backoff curve between
-// them. The scalar form desugars to `retries`; every slot is optional and also accepts a "$:"
-// expression, which has no value until the rule fires. Nothing may read a slot for its number --
-// call Resolve once per error and read the ResolvedRetry, which carries the defaults. Nothing may
-// EMBED this type: the promoted UnmarshalJSON would silently eat the whole outer object.
+// Retry is an on_error rule's retry policy. Any slot may be a "$:" expression, so call Resolve
+// once per error rather than reading a slot for its number. Never embed it: the promoted
+// UnmarshalJSON would silently eat the outer object.
 type Retry struct {
 	Retries  RetryNumber
 	Delay    RetryDuration
@@ -48,9 +46,8 @@ type ResolvedRetry struct {
 	Ceiling time.Duration
 }
 
-// Resolve reduces every slot to a number, evaluating the "$:" ones through eval. The bounds
-// validateRetry checks at registration are re-checked here with the same wording, because a
-// slot that is an expression has no value to check until now.
+// Resolve re-checks validateRetry's bounds, same wording: an expression slot has no value to
+// check until now.
 func (r Retry) Resolve(eval func(expr string) (any, error)) (ResolvedRetry, error) {
 	retries, _, err := r.Retries.resolve(eval)
 	if err != nil {
@@ -127,9 +124,8 @@ func (r *Retry) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if data[0] != '{' {
-		// json.Number accepts a quoted number, which would let `retry: "3"` through — but
-		// the published schema types the shorthand as an integer, so an editor flags what
-		// the server would take. The rest of the grammar refuses quoted numbers too.
+		// json.Number would take `retry: "3"`, which the published schema and the rest of
+		// the grammar refuse.
 		if data[0] == '"' {
 			return fmt.Errorf("retry: %s is quoted; the retry count is a bare number (write the long form for an expression: {retries: %s})", data, data)
 		}
@@ -188,9 +184,8 @@ func (Retry) JSONSchemaBytes() ([]byte, error) {
 	}`), nil
 }
 
-// RetryNumber is a retry policy's attempt count or growth factor: a literal number, or a
-// "$:" expression evaluated when the rule fires. A literal zero and an absent slot are the
-// same thing, which is what makes `retry: 0` the absent key.
+// RetryNumber is a literal or a "$:" expression. A literal zero is an absent slot, which is
+// what makes `retry: 0` the absent key.
 type RetryNumber struct {
 	n    float64
 	expr string // non-empty when the slot is an expression; n is then meaningless
@@ -277,19 +272,15 @@ func (RetryNumber) JSONSchemaBytes() ([]byte, error) {
 	}`), nil
 }
 
-// RetryDuration is a fixed duration in a retry policy: "30s", "2h30m", a bare number of
-// milliseconds, or a "$:" expression evaluating to milliseconds. It keeps the literal it was
-// written as, so a stored definition round-trips as authored. Calendar units are refused: the
-// backoff curve scales and compares this value, and "1mo" is not a length until a timezone says so.
+// RetryDuration keeps the literal it was written as, so a stored definition round-trips as
+// authored. Calendar units are refused: the curve scales and compares it, and "1mo" has no length.
 type RetryDuration struct {
 	src  any
 	d    time.Duration
 	expr string // non-empty when the slot is an expression; d is then meaningless
 }
 
-// ParseRetryDuration accepts the wire forms of a retry duration — a duration string, a
-// number of milliseconds, or a "$:" expression — and is the only place any of them is
-// turned into a length.
+// ParseRetryDuration is the only place a retry duration's wire forms become a length.
 func ParseRetryDuration(v any) (RetryDuration, error) {
 	switch x := v.(type) {
 	case string:
@@ -400,9 +391,8 @@ func (RetryDuration) JSONSchemaBytes() ([]byte, error) {
 	}`), nil
 }
 
-// retryExpr accepts only a whole-value "$:" leaf. A "${ }" interpolation is rejected BY
-// NAME because it produces a string at runtime — the same failure checkDelaySlot removes
-// from the delay grammar.
+// retryExpr rejects "${ }" BY NAME: it produces a string at runtime, as checkDelaySlot also
+// refuses.
 func retryExpr(src string) (string, error) {
 	tmpl, err := template.Parse(src)
 	if err != nil {

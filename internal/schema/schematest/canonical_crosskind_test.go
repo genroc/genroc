@@ -6,9 +6,7 @@ import (
 	"genroc/internal/schema"
 )
 
-// Compositions nested inside one another (oneOf-in-anyOf, allOf-in-oneOf, …)
-// must canonicalize without cross-kind flattening: only same-kind nesting
-// flattens, and each level is order-insensitive with its members canonicalized.
+// Only same-kind nesting flattens; each level is order-insensitive.
 func TestCanonicalize_CrossKindNesting_EqualPairs(t *testing.T) {
 	objA := objP("a", prim("integer"))
 	objB := objP("b", prim("string"))

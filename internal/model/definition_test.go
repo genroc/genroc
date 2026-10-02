@@ -188,9 +188,8 @@ func TestProcessDefinition_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			// accepted_status is a shape; model.Validate accepts it structurally. Its
-			// array<string> conformance and per-literal format are enforced at registration
-			// (validation package) — see validationtest/accepted_status_test.go.
+			// Conformance and literal format are checked at registration:
+			// validationtest/accepted_status_test.go.
 			name: "accepted_status shape is accepted by model validation",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{{
 				ID:     "call",
@@ -417,9 +416,8 @@ func TestProcessDefinition_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			// The `$` sigil is what a routing slot reads to tell a task from a keyword, which is
-			// the whole reason it is there — so `end` and `next` need no reserving. `goto: $end`
-			// reaches the task and `goto: end` terminates, in the same definition.
+			// The `$` sigil tells a task from a keyword: `goto: $end` reaches the task and
+			// `goto: end` terminates.
 			name: "'end' and 'next' are usable as task IDs",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{
 				{ID: "first", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: "$end"}}},
@@ -436,10 +434,7 @@ func TestProcessDefinition_Validate(t *testing.T) {
 			wantErr: `"$end" is not a known task`,
 		},
 		{
-			// The id doc has always CLAIMED uniqueness and nothing enforced it, so two tasks
-			// could share a name: `outputs.<id>` then names one of them and a `goto` reaches
-			// one of them, with nothing in the definition saying which. Reported from a hover
-			// that read "Unique task identifier" over a document where it was not true.
+			// `outputs.<id>` and a `goto` would each reach one of them, and nothing says which.
 			name: "a task ID used twice is rejected",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{
 				{ID: "tick", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: GotoNext}}},
@@ -500,9 +495,8 @@ func TestProcessDefinition_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			// A catch-all matches the unknowable codes too, and not_reached cannot
-			// assert anything about an error that never came back — so unlike the
-			// http.422 case above, this one is refused however it is annotated.
+			// A catch-all matches the unknowable codes too, which not_reached cannot vouch
+			// for.
 			name: "only_once:true — not_reached:true does not rescue a catch-all retry",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{
 				{
@@ -632,9 +626,7 @@ func TestProcessDefinition_Validate(t *testing.T) {
 	}
 }
 
-// A delay carries exactly one of for / until, and a tz that resolves. The slot contents
-// themselves are checked at registration (validationtest/delay_test.go) — this is only the
-// structural arity, which is what stops "no slot set" from ever reaching the engine.
+// Structural arity only; slot contents are checked at registration (validationtest/delay_test.go).
 func TestProcessDefinition_Validate_DelaySlots(t *testing.T) {
 	delay := func(a *Action) ProcessDefinition {
 		return ProcessDefinition{Name: "p", Tasks: []*Task{{ID: "wait", Action: a, Switch: SwitchMap{{Goto: GotoEnd}}}}}

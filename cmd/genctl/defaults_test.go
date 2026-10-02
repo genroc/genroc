@@ -8,8 +8,6 @@ import (
 	"genroc/internal/sources"
 )
 
-// `genctl apply` with no paths reads `definitions:` from the nearest .genroc, and resolves it
-// against THAT file — so the command behaves the same from any directory in the project.
 func TestDefaultDefinitionPaths_ResolveAgainstTheConfig(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".genroc"), []byte("definitions: [definitions/]\n"), 0o600); err != nil {

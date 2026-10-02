@@ -256,10 +256,8 @@ func assertLexErrorContains(t *testing.T, src, want string) {
 // Robustness
 // -----------------------------------------------------------------------------
 
-// assertEveryPrefixHandled parses every prefix of src. Each is malformed in some
-// way; none may panic, hang, or come back as a nil node with a nil error. This
-// is the cheapest guard against a production reaching for a token that is not
-// there.
+// assertEveryPrefixHandled: every prefix of src is malformed; none may panic, hang, or return
+// a nil node with a nil error.
 func assertEveryPrefixHandled(t *testing.T, src string) {
 	t.Helper()
 	for i := 0; i <= len(src); i++ {

@@ -10,26 +10,14 @@ import { expect, test, beforeAll } from "vitest";
 import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
 import { startGenroc } from "../helpers/server.ts";
 
-// The definition under test is the real example file in examples/expense-approval/,
-// applied verbatim — so this doubles as an executable check that the shipped example
-// works. It exercises the whole external-task contract: the park, both submission routes
-// (queue token and instance signal), result_schema validation at the API boundary, and
-// the timeout that escalates.
-// (Vitest's bundler can't `import` a .yaml file, so we read + parse the source instead.)
+// Applies examples/expense-approval verbatim, so this doubles as a check that the shipped example
+// works. (Vitest's bundler cannot `import` a .yaml file, so the source is read and parsed.)
 const EXAMPLES = new URL("../../examples/expense-approval/", import.meta.url);
 const approval: any = loadYaml(
   readFileSync(new URL("approval.genroc.yaml", EXAMPLES), "utf8"),
 );
 
-// The sqlite and postgres vitest projects run this file in parallel, so offset the
-// dedicated server's port per project to keep the two from colliding.
-//
-// The base must be unique across the WHOLE suite, not just this file: vitest runs files
-// concurrently, and a shared base means the loser talks to the winner's server and fails on
-// state it never created. 20091 belonged to crash_recovery_test first.
-
-// startExpenseService stands in for whatever the org uses to notify people and move
-// money. genroc parks the process; it does not deliver the notification.
+// Stands in for the org's notification and payment services; genroc only parks the process.
 async function startExpenseService() {
   const notified: string[] = [];
   let paidCount = 0;
@@ -97,9 +85,7 @@ async function startApproval(
   return data!.id;
 }
 
-// Poll the external-task queue until this instance's entry for `taskId` is armed, and
-// return it. The queue is the resolver's whole view of the process: an input snapshot,
-// the schema the answer must satisfy, and a token — never the process context.
+// The queue is the resolver's whole view: an input snapshot and a token, never the process context.
 async function waitForQueued(
   marker: string,
   taskId: string,

@@ -1,18 +1,5 @@
-/**
- * Cancel through the same 3-level tree tree_pause_test.ts uses:
- *
- *   grandparent
- *     └─ parent  (child call)
- *          ├─ a  (child_map)
- *          └─ b  (child_map)
- *
- * Manual-tick mode (--poll 0) so every transition is inspectable between ticks.
- *
- * The contrast with pause is the whole point of the file. Pause changes the status column
- * and nothing else, so the tree stays structurally mid-flight and resume is the same flip
- * in reverse. Cancel is terminal: the tree stops, no tick advances it again, and there is
- * no verb that takes it back.
- */
+/** Cancel through tree_pause_test.ts's gp → parent → {a, b} tree. Unlike pause, cancel is terminal:
+ *  no tick advances the tree again, and no verb takes it back. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -90,9 +77,7 @@ test("cancel grandparent — the whole tree stops at once, and no tick revives i
     b: "cancelled",
   });
 
-  // The wait states survive, exactly as under a pause: cancel writes the status column and
-  // nothing else, so a stopped tree still records what each node was doing. gp and parent
-  // were mid child-process cycle and still say so.
+  // Cancel writes only the status column, so the wait states survive as under a pause.
   expect(await ctx.env.phase(gp)).toBe("children");
   expect(await ctx.env.phase(parent)).toBe("children");
 

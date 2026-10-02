@@ -11,23 +11,16 @@ import (
 	"genroc/internal/model"
 )
 
-// claimableWhere is the external-task claim predicate: parked on an external wait, tree running,
-// no live claim, and its own deadline not already fired -- handing out work the engine is about
-// to time out spends a worker on an answer that can no longer be accepted. It reads NONE of the
-// engine's lease columns, which is what keeps the two claims independent.
-// specs/external-task-queue.md.
+// claimableWhere reads NONE of the engine's lease columns, which keeps the two claims
+// independent. The wake_at clause skips a fired deadline, whose answer could no longer be
+// accepted. specs/external-task-queue.md.
 const claimableWhere = `phase = 'external' AND status = 'running'
 		  AND (external_worker_id IS NULL OR external_lease_expires_at <= ?)
 		  AND (wake_at IS NULL OR wake_at > ?)`
 
-// ClaimExternalTasks atomically leases up to limit parked external tasks to workerID, oldest
-// park first (FIFO), filtered by process name, version and task id (each empty/0 for any).
-// Claiming is the only way to enumerate the queue.
-//
-// The ONLY place external_claim_epoch moves, fencing out the previous holder. Three things it
-// must not do, each breaking silently: touch task_epoch (invalidating every handle given out),
-// touch the engine's lease columns, or clear external_worker_id on expiry (the evidence a lost
-// claim is recognised by).
+// ClaimExternalTasks atomically leases up to limit parked external tasks to workerID, oldest park
+// first, filtered by name/version/task (empty/0 = any). The ONLY place external_claim_epoch moves;
+// it must touch neither task_epoch (every handle out) nor the engine's lease columns.
 func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit int, processName string, processVersion int, task string) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
@@ -49,8 +42,6 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	}
 
 	if db.dialect == "postgres" {
-		// One statement, as ClaimInstances does it: a CTE picks the candidates under
-		// FOR UPDATE SKIP LOCKED so concurrent workers never block on each other.
 		query := `
 			WITH cand AS (
 				SELECT id AS cand_id, external_worker_id AS prev_holder
@@ -156,25 +147,18 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	return result, tx.Commit()
 }
 
-// RenewOutcome is what one renewal round decided about each id the worker asked about; every
-// requested id lands in exactly one list, because a worker holding several claims cannot act on
-// a count. Lost and Cancelled are different instructions: Lost means the claim is someone
-// else's -- stop, do NOT release, or the new holder's epoch is bumped out from under it --
-// while Cancelled means stop and DO release. specs/external-task-queue.md.
+// RenewOutcome sorts every requested id into exactly one list. Lost: the claim is someone else's;
+// stop and do NOT release, or the new holder's epoch is bumped from under it. Cancelled: stop and
+// DO release. specs/external-task-queue.md.
 type RenewOutcome struct {
 	Renewed   []string
 	Lost      []string
 	Cancelled []string
 }
 
-// RenewExternalClaims re-stamps this worker's claims on the listed instances to now+leaseDur, in
-// chunks so one contended row stalls only its chunk. Two rules that break silently: it must NOT
-// bump external_claim_epoch (which would fence the worker out of its own answer) and must NOT
-// clear external_worker_id (an unlisted row expires with the holder intact -- the hand-back).
-//
-// Renew is the only channel that reaches a worker, so cancellation rides it: the classifying
-// read shares the renewal's transaction, or a row turning cancelled between the two is reported
-// renewed.
+// RenewExternalClaims re-stamps this worker's claims on ids to now+leaseDur. It must NOT bump
+// external_claim_epoch (fencing the worker out of its own answer) nor clear external_worker_id (the
+// hand-back). The status read shares the chunk's transaction, or a cancel in between reads renewed.
 func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []string, leaseDur time.Duration) (RenewOutcome, error) {
 	out := RenewOutcome{}
 	if len(ids) == 0 {
@@ -213,9 +197,7 @@ func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []st
 		}
 	}
 
-	// Driven by the REQUESTED ids rather than the rows read back, so an id the query never
-	// saw still gets an answer. That is the lost case, and it is the one a worker cannot
-	// discover any other way.
+	// Driven by the REQUESTED ids: one the query never saw is Lost, which nothing else reports.
 	for _, id := range ids {
 		switch status, ok := held[id]; {
 		case !ok:
@@ -229,10 +211,9 @@ func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []st
 	return out, nil
 }
 
-// ReleaseExternalClaim hands a claimed task straight back to the queue rather than waiting out
-// its lease -- the nack. It bumps the claim epoch, unlike an expiry: a deliberate hand-back must
-// stop the releasing worker's own handle immediately. The holder is verified by claim epoch, so
-// a fenced-out worker cannot release the new holder's work.
+// ReleaseExternalClaim hands a claimed task straight back to the queue (the nack). Unlike an
+// expiry it bumps the claim epoch, voiding the releaser's handle at once; claimEpoch must name the
+// current grant, so a fenced-out worker cannot release the new holder's work.
 func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskEpoch, claimEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 		res, err := raw.ExecContext(ctx,
@@ -256,9 +237,8 @@ func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskE
 	})
 }
 
-// scanInstanceWithPrevHolder scans instanceColumns plus the trailing prev_holder the Postgres
-// claim returns. Kept beside the claim rather than in db_instances.go because that trailing
-// column exists only here.
+// scanInstanceWithPrevHolder scans instanceColumns plus the prior holder the Postgres claims
+// append; its destination list must track scanInstance's.
 func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, sql.NullString, error) {
 	var r dbgen.ProcessInstance
 	var prev sql.NullString
@@ -275,16 +255,12 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 	return r, prev, err
 }
 
-// MarkExternalClaimLost records that an only_once task's holder let its claim lapse without
-// answering, INSTEAD of handing the work out again. wake_at moves to now (never later than a
-// deadline already set) so the engine's next poll turns the marker into external.lost --
-// without it a task with no timeout would sit unclaimable forever, with nothing reporting why.
+// MarkExternalClaimLost records that an only_once task's holder let its claim lapse unanswered,
+// INSTEAD of handing the work out again. wake_at moves to now so the next poll raises
+// external.lost; without it a task with no timeout would sit unclaimable forever.
 func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, taskEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-		// A column of its own, so the marker is set without reading the row first: there is no
-		// payload to decode and re-encode, and external_input is left untouched rather than
-		// rewritten -- which is what keeps a targeted write from disturbing the references the
-		// parked task's input still holds.
+		// Leaves external_input untouched: rewriting it would disturb the references it holds.
 		now := nowMillis()
 		res, err := raw.ExecContext(ctx,
 			`UPDATE process_instances
@@ -307,10 +283,8 @@ func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, task
 	})
 }
 
-// ClaimExternalTaskDirect puts a claim on one row by id, bypassing the queue predicate. It
-// exists for tests that need a holder on a task ClaimExternalTasks would not offer — an
-// already-due one, for instance, where the point is the holder rather than how it was granted.
-// It writes exactly the three claim columns, so it cannot prove a property by touching more.
+// ClaimExternalTaskDirect claims one row by id, bypassing the queue predicate, for tests needing a
+// holder ClaimExternalTasks would not grant. It writes only the three claim columns.
 func (db *DB) ClaimExternalTaskDirect(ctx context.Context, instanceID, workerID string, leaseDur time.Duration) error {
 	_, err := db.exec.ExecContext(ctx,
 		`UPDATE process_instances

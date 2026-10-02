@@ -1,6 +1,5 @@
-// Static type inference for the genroc expression language, evaluated against a Schema context.
-// The grammar lives in internal/expression/syntax and the matching runtime evaluator in
-// internal/expression (Eval); the two must accept the same constructs.
+// Static type inference for the expression language: it must accept exactly the constructs
+// internal/expression's Eval does.
 package schema
 
 import (
@@ -21,19 +20,16 @@ func (e ErrUnsupported) Error() string {
 	return "unsupported expression: " + e.Detail
 }
 
-// inferCtx: the immutable inference context — s (context schema carrying root $defs),
-// guards (path → schema overrides for narrowed branches, shallow-copied), vars (lambda
-// params in scope, shadowing context roots).
+// inferCtx is immutable: withGuard/withParams copy the maps. vars (lambda params) shadow the
+// context's roots.
 type inferCtx struct {
 	s      Schema
 	guards map[string]guard
 	vars   map[string]Schema
 }
 
-// guard is one narrowed path. roots holds every identifier the path depends on,
-// kept so a lambda that shadows any of them can drop the entry without decoding
-// the key. There is more than one because a computed key contributes its own: the
-// narrowing of `m[k]` is void once `k` means something else.
+// guard is one narrowed path. roots holds every identifier it depends on — a computed key adds
+// its own — so a lambda shadowing any drops the entry: `m[k]` is void once `k` rebinds.
 type guard struct {
 	roots []string
 	s     Schema
@@ -71,9 +67,8 @@ func guardKey(steps []pathStep) string { return renderPath(steps) }
 // identKey is guardKey for a bare identifier — the root of every guarded path.
 func identKey(name string) string { return JoinPath("", name) }
 
-// withParams binds a lambda's parameters to the element type. Guards rooted at a
-// name the lambda shadows are dropped: a narrowing established outside says
-// nothing about the parameter that now owns that name.
+// withParams drops guards rooted at a name the lambda shadows: they say nothing about the
+// parameter that now owns it.
 func (c inferCtx) withParams(lam *syntax.LambdaNode, elem Schema) inferCtx {
 	vars := make(map[string]Schema, len(c.vars)+2)
 	for k, v := range c.vars {
@@ -104,11 +99,8 @@ func (s Schema) Infer(expression string) (Schema, error) {
 	return s.inferNodeWithGuards(node, s.guards)
 }
 
-// InferWithGuards is Infer with facts already proved about some references before the
-// expression runs — the narrowing a `switch` case established on the edge that routed here.
-// Keys are rendered access paths (`outputs.a.v`), exactly what `JoinPath` emits and what a
-// read of the same path is keyed by, so an element path narrows that element and no other.
-// A key naming something this context does not have is ignored. specs/guard-narrowing.md.
+// InferWithGuards is Infer with refinements already proved, keyed by rendered access path
+// (`outputs.a.v`, as JoinPath emits). A key this context lacks is ignored. specs/guard-narrowing.md.
 func (s Schema) InferWithGuards(expression string, narrowed map[string]Schema) (Schema, error) {
 	return s.WithGuards(narrowed).Infer(expression)
 }
@@ -130,11 +122,8 @@ func seedGuards(narrowed map[string]Schema) map[string]guard {
 	return out
 }
 
-// InferNode is Infer over an already-parsed expression, for callers holding a parsed tree.
-// A UNION context is one of several possible states, so the expression is typed under each arm
-// and the results joined -- flattening instead destroys the CORRELATION that types `a ?? b`
-// non-null when `a` is null exactly where `b` is not. Every arm must type, since nothing says
-// which state the expression runs in. specs/path-sensitive-output.md.
+// InferNode is Infer over a parsed tree. A union context is typed per arm and joined, keeping
+// the correlations flattening destroys; every arm must type. specs/path-sensitive-output.md.
 func (s Schema) InferNode(node syntax.Node) (Schema, error) {
 	return s.inferNodeWithGuards(node, s.guards)
 }
@@ -151,9 +140,7 @@ func (s Schema) inferNodeWithGuards(node syntax.Node, guards map[string]guard) (
 		failedIn string
 	)
 	for _, arm := range arms {
-		// Seeded guards hold under every arm: the edge proved them before the context was
-		// split, so an arm that drops them would type the expression against less than the
-		// definition established.
+		// Seeded guards hold under every arm: the edge proved them before the split.
 		t, err := inferNode(node, inferCtx{s: arm, guards: guards, vars: s.vars})
 		if err != nil {
 			if firstErr == nil {
@@ -169,9 +156,7 @@ func (s Schema) inferNodeWithGuards(node syntax.Node, guards map[string]guard) (
 		ok++
 	}
 	if firstErr != nil {
-		// Name the state only when another one typed: an expression that is simply wrong fails
-		// under every arm and deserves its plain message, unprefixed. The name comes off the
-		// arm's own description, so nothing outside the schema has to carry it.
+		// Name the state only when another typed: one failing under every arm is just wrong.
 		if ok > 0 && failedIn != "" {
 			return Schema{}, fmt.Errorf("%s: %w", failedIn, firstErr)
 		}
@@ -180,9 +165,8 @@ func (s Schema) inferNodeWithGuards(node syntax.Node, guards map[string]guard) (
 	return joined, nil
 }
 
-// contextStates returns the alternative states a union context describes, each carrying the
-// pool so a `$ref` inside an arm still resolves. A context that is not a union has one state,
-// itself, and the caller takes the fast path.
+// contextStates returns a union context's arms, each carrying the pool so a `$ref` in an arm
+// still resolves.
 func (s Schema) contextStates() []Schema {
 	if s.n == nil || len(s.n.AnyOf) == 0 {
 		return nil
@@ -247,13 +231,10 @@ func inferBase(node syntax.Node, ictx inferCtx) (base Schema, ok bool, err error
 	if err != nil {
 		return Schema{}, false, err
 	}
-	// The base may be a composed result (an operator-built union) that carries no
-	// resolution context of its own — re-anchor it to the context's root $defs so
-	// any $refs inside still resolve.
+	// A composed result (operator-built union) carries no defs: re-anchor so $refs resolve.
 	base = base.WithDefs(ictx.s.DefsHandle())
-	// Access on a known-null base is null (runtime optional chaining does the same) — and it
-	// seeds recursive inference: self.previous is null on iteration one, so `?? default` can
-	// fire. A $ref base resolves for this check; the mid-solve null seed behaves identically.
+	// Access on a known-null base is null, as at runtime — and it seeds recursive inference:
+	// self.previous is null on iteration one, so `?? default` can fire.
 	if base.IsNull() {
 		return Schema{}, false, nil
 	}
@@ -297,9 +278,8 @@ func inferIndexNode(n *syntax.IndexNode, ictx inferCtx) (Schema, error) {
 	return base.Index()
 }
 
-// inferKeyNode types a computed key, a[expr]. The key must be a string (into a
-// map) or an integer (into an array); which one is required follows from the base,
-// so the error names the mismatch rather than the key type in isolation.
+// inferKeyNode: the key type a[expr] needs follows from the base, so the error names the
+// mismatch rather than the key type alone.
 func inferKeyNode(n *syntax.KeyNode, ictx inferCtx) (Schema, error) {
 	if steps, ok := nodeSteps(n); ok {
 		if g, ok := ictx.guards[guardKey(steps)]; ok {
@@ -333,9 +313,8 @@ func nullOr(err error) (Schema, error) {
 	return Type("null"), nil
 }
 
-// inferArray types an array literal as an array of the joined element types. An
-// empty literal is an itemless array, which is what makes `?? []` usable as a
-// default without asserting an element type.
+// inferArray: an empty literal is itemless, which makes `?? []` a default without asserting an
+// element type.
 func inferArray(n *syntax.ArrayNode, ictx inferCtx) (Schema, error) {
 	if len(n.Items) == 0 {
 		return emptyArray(), nil
@@ -351,9 +330,8 @@ func inferArray(n *syntax.ArrayNode, ictx inferCtx) (Schema, error) {
 	return ArrayLiteral(elems).WithDefs(ictx.s.DefsHandle()), nil
 }
 
-// inferObject types an object literal as a closed object with every key required,
-// mirroring how a Shape's object node is inferred. Keys are emitted in sorted
-// order so the generated schema is deterministic.
+// inferObject: a closed object with every key required, as a Shape's object node infers;
+// sorted keys keep the schema deterministic.
 func inferObject(n *syntax.ObjectNode, ictx inferCtx) (Schema, error) {
 	type entry struct {
 		key string
@@ -375,10 +353,8 @@ func inferObject(n *syntax.ObjectNode, ictx inferCtx) (Schema, error) {
 	return out.WithDefs(ictx.s.DefsHandle()), nil
 }
 
-// inferCall types a builtin. map's source position is a look-inside construct: it
-// must resolve the operand to read its element type. The lambda body is inferred
-// in a child scope and may itself stay symbolic, so a $ref surviving into the
-// result sits under `items`, which the productivity rule counts as productive.
+// inferCall: a $ref the lambda body leaves symbolic sits under `items`, which the productivity
+// rule counts as productive.
 func inferCall(n *syntax.CallNode, ictx inferCtx) (Schema, error) {
 	if n.Name != "map" {
 		return Schema{}, ErrUnsupported{Detail: fmt.Sprintf("function %q", n.Name)}
@@ -417,22 +393,19 @@ func mapElement(n *syntax.CallNode, ictx inferCtx) (Schema, error) {
 	return elementOf(resolveTolerant(src))
 }
 
-// errNoElement is returned when a source array declares no element type. Binding
-// an unconstrained element would turn a typo in the lambda body into a runtime
-// null instead of a registration error.
+// errNoElement: binding an unconstrained element would turn a typo in the lambda body into a
+// runtime null instead of a registration error.
 var errNoElement = errors.New("map source array has no element type")
 
-// emptyArray types the `[]` literal. maxItems 0 records that it can never hold an
-// element, which is what lets `xs ?? []` keep xs's element type: the union the
-// coalesce builds has a provably-empty variant that elementOf can discard.
+// emptyArray: maxItems 0 marks `[]` provably empty, so elementOf can discard that arm and
+// `xs ?? []` keeps xs's element type.
 func emptyArray() Schema {
 	zero := 0
 	return Schema{n: &node{Type: SchemaType{"array"}, MaxItems: &zero}}
 }
 
-// elementOf reads an array source's element type; a union source (`xs ?? []`, ternaries)
-// joins its variants', skipping provably-empty arms. Items, not Index: Index is nullable
-// because a constant index may be out of bounds — map only visits real elements.
+// elementOf joins a union source's variants, skipping provably-empty arms. Items, not Index:
+// Index is nullable for out-of-bounds, and map only visits real elements.
 func elementOf(src Schema) (Schema, error) {
 	variants := src.Variants()
 	if variants == nil {
@@ -477,10 +450,8 @@ func inferBinary(n *syntax.BinaryNode, ictx inferCtx) (Schema, error) {
 	if err != nil {
 		return Schema{}, err
 	}
-	// `&&` and `||` short-circuit (expression/eval.go evalLogical), so the right operand is
-	// reached on exactly one outcome of the left — infer it under the context that outcome
-	// proves. This is what lets `n != null && n > 2` typecheck; without it `??` is the only
-	// way to read a nullable, and the guard an author writes first is refused.
+	// The right operand runs on exactly one outcome of the left (evalLogical short-circuits),
+	// so it is typed under what that outcome proves.
 	rightCtx := ictx
 	switch n.Op {
 	case "&&":
@@ -537,11 +508,8 @@ func inferConditional(n *syntax.CondNode, ictx inferCtx) (Schema, error) {
 	return OneOf(t, f), nil
 }
 
-// guardFact is one comparison a guard performs, as it holds on one branch: the reference
-// compared, the literal it was compared against, and whether this is the branch where the
-// two are equal. What a fact PROVES is left to the consumer — narrowing to the literal's
-// type inside an expression, a symbolic non-null across a task edge — so the structural
-// walk is shared and the semantics are not. specs/guard-narrowing.md.
+// guardFact is one comparison as it holds on one branch (equal: the equal branch). What it
+// PROVES is the consumer's: the walk is shared, the semantics are not. specs/guard-narrowing.md.
 type guardFact struct {
 	subject syntax.Node
 	steps   []pathStep
@@ -549,10 +517,8 @@ type guardFact struct {
 	equal   bool
 }
 
-// guardFacts is the catalogue, and nothing but the walk: what cond proves when it holds and
-// when it fails. A conjunction proves both halves when true and NEITHER when false — the
-// negation of `A && B` says only that one of them failed, which is not a fact about either
-// reference. `||` is the mirror, and `!` swaps the pair exactly.
+// guardFacts is the walk only. `A && B` proves both halves when true and NEITHER when false;
+// `||` mirrors it and `!` swaps the pair.
 func guardFacts(cond syntax.Node) (whenTrue, whenFalse []guardFact) {
 	switch n := cond.(type) {
 	case *syntax.UnaryNode:
@@ -598,10 +564,8 @@ func concatFacts(a, b []guardFact) []guardFact {
 	return append(append(out, a...), b...)
 }
 
-// narrowCondition returns then/else contexts narrowed by cond, applying the facts the
-// catalogue extracts. Equality narrows to the literal's own type; only a `!= null` narrows
-// the other way, since knowing a value is not one particular non-null literal says nothing
-// about its type.
+// narrowCondition: equality narrows to the literal's type; only `!= null` narrows the other
+// way, since not being one non-null literal says nothing about type.
 func narrowCondition(cond syntax.Node, ictx inferCtx) (thenCtx, elseCtx inferCtx) {
 	whenTrue, whenFalse := guardFacts(cond)
 	return applyGuardFacts(ictx, whenTrue), applyGuardFacts(ictx, whenFalse)
@@ -635,9 +599,8 @@ func isLiteralNode(n syntax.Node) bool {
 	return false
 }
 
-// nodeSteps renders a member/index chain as steps rooted at a bare identifier (ok=false
-// otherwise). Steps, never a rendered dot-path: a["a.b"] and a.a.b render identically as
-// dots, and the guard map and the secret walk must not confuse them.
+// nodeSteps renders a chain rooted at a bare identifier as steps, never a dot-path: a["a.b"]
+// and a.a.b would collide in the guard map and the secret walk.
 func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 	switch n := node.(type) {
 	case *syntax.IdentNode:
@@ -651,10 +614,8 @@ func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 			return append(base, indexStep(n.Index)), true
 		}
 	case *syntax.KeyNode:
-		// Only when the key is itself a static path, which is what makes two reads
-		// of a[k] the same access and so safely narrowable. A computed key built by
-		// an operator (a[x + "s"]) yields no path — it loses narrowing, never
-		// soundness, and the secret walk covers it separately.
+		// Only a static-path key makes two reads of a[k] the same access. An operator-built
+		// key loses narrowing, never soundness; the secret walk covers it separately.
 		base, ok := nodeSteps(n.Base)
 		if !ok {
 			return nil, false
@@ -668,10 +629,9 @@ func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 	return nil, false
 }
 
-// GuardFact is one comparison a guard performs, as it holds on one branch: the reference,
-// whether it was compared against `null`, and whether this is the branch where the two are
-// equal. Path is the rendered access path a READ of the same reference is keyed by, so a
-// caller can hand it straight back to WithGuards. specs/guard-narrowing.md.
+// GuardFact is one comparison as it holds on one branch: IsNull if against `null`, Equal on the
+// equal branch. Path is keyed as a read of it is, so it goes straight back to WithGuards.
+// specs/guard-narrowing.md.
 type GuardFact struct {
 	Path   string
 	IsNull bool

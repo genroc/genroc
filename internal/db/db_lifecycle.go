@@ -11,10 +11,9 @@ import (
 	"genroc/internal/model"
 )
 
-// FinishChild atomically saves the child as terminal and, if all siblings are now done, wakes
-// the waiting parent — to 'collecting' if healthy, to ” if draining. The parent row is locked
-// first to serialize concurrent sibling completions, the same lock order as PauseProcess.
-// Root instances only save the child; failed children use FailAncestors instead.
+// FinishChild atomically saves the child as terminal and, if all siblings are now done, wakes the
+// waiting parent ('collecting' if healthy, the empty phase if draining). A root only saves itself;
+// failed children use FailInstanceAndAncestors instead.
 func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	if child.ParentID == "" {
 		return db.UpdateInstance(child)
@@ -23,10 +22,8 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	ctx := context.Background()
 	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
-		// Acquire row locks (oldest-first) and read the parent's phase in one shot.
-		// The locking CTE keeps the same lock order as PauseProcess and
-		// FailInstanceAndAncestors, preventing deadlocks; the FOR UPDATE is appended only
-		// on PostgreSQL — SQLite serialises via its single writer and runs the CTE without it.
+		// The global id order shared with lockTree and FailInstanceAndAncestors, or Postgres
+		// deadlocks.
 		var parentPhase string
 		err := raw.QueryRowContext(ctx, `
 		WITH locked AS (
@@ -43,8 +40,7 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		}
 		parentFound := err == nil
 
-		// Save child as terminal. The fence sits here; the parent wake below rolls
-		// back with a refused child write.
+		// The fence sits here; a refused child write rolls back the parent wake too.
 		now := nowMillis()
 		cols, err := db.persistState(ctx, qtx, child, now)
 		if err != nil {
@@ -58,7 +54,6 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 			return fmt.Errorf("save child: %w", err)
 		}
 
-		// If the parent was found and is waiting, check whether all siblings are terminal.
 		if parentFound && model.Phase(parentPhase) == model.PhaseChildren {
 			active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
 				ParentID:        child.ParentID,
@@ -82,10 +77,9 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	})
 }
 
-// FailInstanceAndAncestors atomically marks a child failed, propagates 'failing' to all
-// ancestors in its call stack, and — when the child was the last active member of its
-// spawn batch — wakes the parent (to ”, it is failing by then) so the engine settles it
-// next tick. One transaction; the safe replacement for UpdateInstance + FailAncestors.
+// FailInstanceAndAncestors atomically marks a child failed, propagates 'failing' up its call stack
+// and, if it was its batch's last active member, wakes the parent to the empty phase (it is
+// failing). Use it instead of UpdateInstance + FailAncestors.
 func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	ctx := context.Background()
 	// The child is terminal; the ancestors this poisons are not, and the max of the two is
@@ -93,10 +87,8 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 		now := nowMillis()
 
-		// Lock child and all ancestors oldest-first — consistent with FinishChild and
-		// PauseProcess. This task exists only to take FOR UPDATE locks, so it runs on
-		// PostgreSQL alone; SQLite serialises via its single writer. Ancestors are read
-		// from the child's call_stack in the DB; no Go-side ID list needed.
+		// The global id order shared with lockTree and FinishChild, or Postgres deadlocks. It
+		// exists only to take the locks, so SQLite skips it.
 		if db.dialect == "postgres" {
 			lockRows, lockErr := raw.QueryContext(ctx, `
 			SELECT id FROM process_instances
@@ -121,15 +113,13 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 			return err
 		}
 
-		// Bulk-mark all ancestors as failing in a single UPDATE via json_each.
 		if len(child.CallStack) > 0 {
 			idsJSON, err := json.Marshal(child.CallStack)
 			if err != nil {
 				return err
 			}
-			// Ancestors inherit the child's code as well as its message: a poisoned tree
-			// then filters by the code of the failure that actually started it, not just
-			// at the single instance that observed it.
+			// Ancestors inherit the code too, so a poisoned tree filters by the failure that
+			// started it.
 			if err := qtx.FailAncestors(ctx, dbgen.FailAncestorsParams{
 				ErrorMessage: child.ErrorMessage,
 				ErrorCode:    child.ErrorCode,
@@ -140,10 +130,7 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 			}
 		}
 
-		// If this failure settled the last active child of the batch, wake the
-		// waiting parent (mirrors FinishChild) so the engine can claim it and
-		// transition failing → failed. WakeParent picks '' here — the parent is
-		// failing, so it must never enter the collect phase.
+		// Mirrors FinishChild. WakeParent picks '' here: a failing parent must never collect.
 		if child.ParentID != "" {
 			parentPhase, err := qtx.GetPhase(ctx, child.ParentID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -173,10 +160,8 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	})
 }
 
-// inTree selects a whole tree by the root id stored on every row (migration 040). It takes NO
-// row locks: mutating callers lock the enumerated rows in a separate step, ORDER BY id FOR
-// UPDATE (the shared global order), or Postgres deadlocks. The bound id must be a ROOT -- a
-// child matches nothing, which is why every caller is gated by requireRoot.
+// inTree takes NO row locks: a mutating caller goes through lockTree, or Postgres deadlocks. The
+// bound id must be a ROOT -- a child matches nothing -- hence requireRoot on every caller.
 const inTree = `root_id = ?`
 
 // forUpdate is the lock clause appended to the subtree-locking SELECT on Postgres;
@@ -188,14 +173,9 @@ func (db *DB) forUpdate() string {
 	return ""
 }
 
-// lockTree locks the rows of the tree under the root id that satisfy `where`, in id order — the
-// global lock order every tree-wide operation shares, which is what keeps pause, cancel and a
-// child's completion from deadlocking against each other on Postgres — and hands each row to
-// scan. The cursor is closed before this returns on EVERY path: the caller's next statement is
-// an UPDATE, and SQLite serves both on one connection. database/sql closes a cursor it has
-// drained, so the deferred Close is for the paths that leave early — the ones each of the four
-// copies this replaced remembered by hand. `columns` and `where` are SQL fragments; `args` fill
-// their placeholders in text order, the root id last.
+// lockTree locks the tree's rows matching `where` in id order — the global order every tree-wide
+// verb shares, or Postgres deadlocks — and closes the cursor on EVERY path, since SQLite serves the
+// caller's next UPDATE on the same connection. args fill placeholders in order, the root id last.
 func (db *DB) lockTree(ctx context.Context, exec dbgen.DBTX, columns, where string, scan func(*sql.Rows) error, args ...any) error {
 	rows, err := exec.QueryContext(ctx, `SELECT `+columns+` FROM process_instances WHERE `+inTree+` AND `+where+` ORDER BY id`+db.forUpdate(), args...)
 	if err != nil {
@@ -210,10 +190,8 @@ func (db *DB) lockTree(ctx context.Context, exec dbgen.DBTX, columns, where stri
 	return rows.Err()
 }
 
-// heldColumns is a row's id and whether a worker holds its lease at `?` (now). held is what
-// splits "stopped in this call" from "asked to stop": a worker mid-task cannot be stopped, so a
-// leased row only records the request and reaches the terminal status on the write that ends its
-// task.
+// heldColumns: whether a worker holds the row's lease at `?` (now). A leased row cannot be stopped
+// mid-task, so it only records the request and settles on the write that ends its task.
 const heldColumns = `id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ? THEN 1 ELSE 0 END AS held`
 
 // scanHeld sorts each row into settled or leased by its held flag.
@@ -233,11 +211,9 @@ func scanHeld(settled, leased *[]string) func(*sql.Rows) error {
 	}
 }
 
-// PauseProcess atomically suspends a process tree (root + every running descendant), leaving
-// phase, wake_at, retry_count and context untouched. Root-only, and an assertion: an
-// already-stopped tree is OutcomeUnchanged, not an error. Only a *leased* row may be marked
-// 'pausing'; a parked one is excluded from ClaimInstances and must go straight to 'paused'.
-// See specs/pause-resume.md and specs/id-list-commands.md.
+// PauseProcess atomically suspends a root's tree, leaving phase, wake_at, retry_count and context
+// untouched; an already-stopped tree is OutcomeUnchanged, not an error. Only a *leased* row goes
+// to 'pausing'. specs/pause-resume.md, specs/id-list-commands.md.
 func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -247,9 +223,8 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 		return LifecycleResult{}, err
 	}
 
-	// settled is the ids that reached 'paused' in this call; leased is those left draining
-	// in 'pausing'. They are logged as different events because they are different facts:
-	// a leased row is not paused yet, it has only been asked to stop.
+	// settled reached 'paused' in this call; leased is left draining in 'pausing'. Logged as
+	// different events: a leased row has only been asked to stop.
 	var settled, leased []string
 	// Rows a previous pause left mid-task. Nothing to write for them, but they are the
 	// difference between a tree that has stopped and one still draining.
@@ -263,14 +238,11 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 			return err
 		}
 
-		// Nothing running anywhere in the tree: it has already settled, is already paused,
-		// or a previous pause is still draining it. Reported as an outcome rather than an
-		// error -- the report is the point, and a no-op that fails cannot converge on a
-		// re-run. specs/id-list-commands.md.
+		// Nothing running: settled, paused, or still draining. An outcome, not an error -- a no-op
+		// that fails cannot converge on a re-run. specs/id-list-commands.md.
 		if len(settled)+len(leased) == 0 {
-			// 'pausing' is excluded from the selector above (it matches 'running' only), so
-			// without this a second pause on a draining tree would report it as stopped while
-			// a worker was still inside a task.
+			// The selector matches 'running' only, so without this a second pause would report a
+			// draining tree as stopped while a worker is still inside a task.
 			n, err := qtx.CountDrainingInTree(ctx, dbgen.CountDrainingInTreeParams{
 				Root: id, Draining: string(model.StatusPausing),
 			})
@@ -281,8 +253,6 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 			return nil
 		}
 
-		// A worker mid-task cannot be stopped, so a leased row only records the request
-		// ('pausing') and lands in 'paused' on the write that finishes its task.
 		if err := updateStatusIn(ctx, qtx, settled, string(model.StatusPaused), now); err != nil {
 			return fmt.Errorf("pause process: %w", err)
 		}
@@ -307,9 +277,8 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 	db.logInstances(settled, model.EventPaused, "paused", actor)
 	db.logInstances(leased, model.EventPausing, "pause requested while a task was in flight", actor)
 
-	// A leased row is not paused, only asked to stop: the tree still has a task running
-	// until that worker's write lands. Reporting it as applied would claim the tree had
-	// stopped -- see specs/id-list-commands.md §202.
+	// A leased row has only been asked to stop; reporting applied would claim the tree had
+	// stopped. specs/id-list-commands.md §202.
 	outcome := model.OutcomeApplied
 	if len(leased) > 0 {
 		outcome = model.OutcomeAccepted
@@ -317,18 +286,16 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 	return db.lifecycleResult(ctx, id, outcome, written)
 }
 
-// LifecycleResult is what a pause or resume did, in the terms the API reports: the
-// outcome, the root's status once the transaction committed, and how many rows were
-// written. specs/id-list-commands.md.
+// LifecycleResult is what a tree verb did: the outcome, the root's status once committed, and
+// how many rows were written. specs/id-list-commands.md.
 type LifecycleResult struct {
 	Outcome   model.Outcome
 	Status    model.Status
 	Instances int
 }
 
-// lifecycleResult re-reads the root for its post-commit status. Deliberately outside the
-// transaction: the value reported is what the row says once the write is visible, and a
-// status captured inside would describe a tree no other reader can see yet.
+// lifecycleResult re-reads the root outside the transaction, deliberately: the status reported
+// is what other readers see once the write is visible.
 func (db *DB) lifecycleResult(ctx context.Context, id string, outcome model.Outcome, written int) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -351,9 +318,8 @@ func updateStatusIn(ctx context.Context, qtx *dbgen.Queries, ids []string, statu
 	})
 }
 
-// logTreeAction records an operator's pause on the root at info level — the counts are
-// the value (how much was live, how much could not stop mid-task). Written after commit,
-// so a rejected call leaves no trace; best-effort like every audit write.
+// logTreeAction is the root's info-level entry, written after commit so a rejected call leaves
+// no trace.
 func (db *DB) logTreeAction(rootID, event, msg, actor string, instances int64, extra map[string]any) {
 	meta := map[string]any{"instances": instances}
 	for k, v := range extra {
@@ -370,9 +336,8 @@ func (db *DB) logTreeAction(rootID, event, msg, actor string, instances int64, e
 	})
 }
 
-// logInstances records the per-instance consequence of a tree-wide pause/resume, at debug
-// level: one call fans out over the whole subtree, so a big tree would put a row per member
-// in front of an operator who asked for one thing. The root's own entry is the info one.
+// logInstances writes at debug level: one call fans out over the whole tree, and the root's own
+// entry is the info one.
 func (db *DB) logInstances(ids []string, event, msg, actor string) {
 	for _, instID := range ids {
 		_ = db.AppendLog(&model.LogEntry{
@@ -385,10 +350,9 @@ func (db *DB) logInstances(ids []string, event, msg, actor string) {
 	}
 }
 
-// ResumeProcess atomically un-suspends a paused tree — a plain status flip, because
-// PauseProcess preserved everything else. 'pausing' rows are included, so a resume issued
-// before a pause landed un-requests it. The precondition is on the subtree, not the root's own
-// status: a failing root over paused descendants is exactly what an operator resumes.
+// ResumeProcess atomically un-suspends a paused tree — a plain status flip, since PauseProcess
+// preserved everything else. 'pausing' rows are included, so a resume before a pause landed
+// un-requests it. Keyed on the subtree, not the root: a failing root over paused rows resumes.
 func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -416,10 +380,8 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 		}
 
 		if len(resumed) == 0 {
-			// Nothing paused, so either the tree is already advancing (the assertion holds)
-			// or it has settled and never will. Split here rather than letting the caller
-			// re-read: this transaction holds the tree, and an answer derived afterwards
-			// describes one that may have moved. specs/id-list-commands.md.
+			// Nothing paused: still advancing (the assertion holds) or settled. Split here, under
+			// the tree lock; an answer derived afterwards describes a tree that may have moved.
 			status, err := qtx.GetInstanceStatus(ctx, id)
 			if err != nil {
 				return fmt.Errorf("read root status: %w", err)
@@ -455,10 +417,7 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 	return db.lifecycleResult(ctx, id, model.OutcomeApplied, len(resumed))
 }
 
-// loadInstanceRow reads the row a tree-wide operation (pause/resume/retry) was asked
-// to act on. It exists so an absent instance comes back as ErrNotFound: the generated
-// db.q.GetInstance returns a bare sql.ErrNoRows, which callers above the db package
-// have no business inspecting.
+// loadInstanceRow maps an absent row to ErrNotFound; callers outside db must not see sql.ErrNoRows.
 func (db *DB) loadInstanceRow(ctx context.Context, id string) (dbgen.ProcessInstance, error) {
 	row, err := db.q.GetInstance(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -483,13 +442,8 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 	return fmt.Errorf("instance %q is not a root instance; %s root instance %q instead: %w", row.ID, op, stack[0], ErrInvalid)
 }
 
-// CancelProcess stops a process tree for good: root + every live descendant, terminal, with no
-// way back. Root-only, same lock order as PauseProcess. The selector is every LIVE status, not
-// pause's 'running' alone -- a paused or draining tree is exactly what an operator disposes of
-// -- while terminal rows are left alone.
-//
-// Nothing here clears external_worker_id: a claim is released by the worker's next renewal
-// reporting the row cancelled, and a cleared id would answer "lost" instead, which stops the
+// CancelProcess stops a root's tree for good: every LIVE row, paused and draining included, goes
+// terminal. It must not clear external_worker_id: a cleared id renews as "lost", which stops the
 // worker WITHOUT releasing. specs/external-task-queue.md.
 func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
@@ -501,8 +455,6 @@ func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleRes
 	}
 
 	// settled reached 'cancelled' in this call; leased is left draining in 'cancelling'.
-	// Different events for the same reason pause logs two: a leased row is not stopped yet,
-	// it has only been asked to stop.
 	var settled, leased []string
 	var draining int64
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
@@ -558,10 +510,9 @@ func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleRes
 	return db.lifecycleResult(ctx, id, outcome, written)
 }
 
-// RetryProcess revives a failed root from where its tree died: failed nodes on the current
-// path are revived in place (leaves re-run their pending task, parents are reconstructed as
-// waiting or collecting) and completed work is never redone. force overrides only_once.
-// Root-only, failed-only. See specs/pause-resume.md.
+// RetryProcess revives a failed root's tree in place from where it died: leaves re-run their
+// pending task, parents are reconstructed as waiting or collecting, completed work is never
+// redone. force overrides only_once. specs/pause-resume.md.
 func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor string) (LifecycleResult, error) {
 	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -574,16 +525,14 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		if status == model.StatusPaused || status == model.StatusPausing {
 			return LifecycleResult{}, fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
 		}
-		// The refusal cancel exists to make: retry revives a tree whose DEFINITION ran out of
-		// attempts, and an operator's stop was never an attempt. Reviving one would restore the
-		// merged verb whose removal is the whole of specs/pause-resume.md.
+		// Retry revives a tree whose DEFINITION ran out of attempts; an operator's stop was
+		// never an attempt. specs/pause-resume.md.
 		if status == model.StatusCancelled || status == model.StatusCancelling {
 			return LifecycleResult{}, fmt.Errorf("process was cancelled (status: %s); a cancel is final -- "+
 				"start a new instance instead: %w", status, ErrConflict)
 		}
-		// A raised root is settled, not interrupted: retry could only re-run the very task whose
-		// switch DECIDED to raise, against state a retry cannot change — re-raising identically
-		// after possibly repeating a side effect. Special-cased so the error can say that.
+		// A raised root is settled, not interrupted: retry would re-run the task whose switch
+		// DECIDED to raise, re-raising identically after possibly repeating a side effect.
 		if status == model.StatusRaised {
 			return LifecycleResult{}, fmt.Errorf("process concluded with error %q (status: raised); a raised error is "+
 				"a declared outcome, not a fault -- start a new instance, or publish a new version "+
@@ -629,9 +578,8 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		return LifecycleResult{}, fmt.Errorf("instance not found")
 	}
 
-	// loadTask resolves via the transaction's own connection: the pooled db.GetDefinition
-	// would block on the single SQLite connection this transaction holds — a deadlock.
-	// Definitions are immutable, so a per-call cache avoids re-reads.
+	// Through the transaction's own connection: the pooled db.GetDefinition would deadlock on
+	// the single SQLite connection this transaction holds.
 	defCache := map[string]*model.ProcessDefinition{}
 	loadDef := func(name string, version int) (*model.ProcessDefinition, error) {
 		key := fmt.Sprintf("%s\x00%d", name, version)
@@ -665,35 +613,28 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		return nil, fmt.Errorf("task %q not found in %s v%d", node.Task, node.ProcessName, node.ProcessVersion)
 	}
 
-	// Walk the tree top-down, reviving the interrupted path. Only the root and
-	// the front-task children of revived nodes are visited, so completed tasks
-	// and finished side branches are never touched.
+	// Top-down over the interrupted path only: the root and the front-task children of revived
+	// nodes, so completed tasks and finished side branches are never touched.
 	var dirty []*model.ProcessInstance
 	var overriddenID string // the node whose batch holds a raised slot, marked for the engine
 	var revive func(node *model.ProcessInstance) error
 	revive = func(node *model.ProcessInstance) error {
 		switch node.Status {
 		case model.StatusCompleted, model.StatusRaised, model.StatusCancelled:
-			// Settled work is kept, raised included: a raise concluded by design, and the
-			// status means the same at every depth. (One case retry cannot help: a parent
-			// that failed on an unmatched child code re-resolves identically, since the
-			// missing rule lives in a version-pinned definition. The fix is a new version.)
+			// Settled work is kept, raised included: a raise concluded by design, at every depth.
 			return nil
 		case model.StatusRunning, model.StatusFailing, model.StatusPausing, model.StatusPaused,
 			model.StatusCancelling:
-			// Unreachable under a failed root: it settles only once every child is
-			// terminal, and paused children count as active (CountActiveSiblings), so
-			// a tree holding one stays 'failing'. Kept as defense — a live or
-			// suspended node belongs to the engine, or to ResumeProcess.
+			// Unreachable under a failed root (paused children count as active, so the tree stays
+			// 'failing'); kept as defense — a live node belongs to the engine or ResumeProcess.
 			return nil
 		}
 		// node is failed
 		newPhase := model.PhaseNone
 		hasBatch := false
 		if node.Task != "" {
-			// Scoped to the epoch that identifies THIS batch: a spawn task re-entered by a
-			// loop reuses (parent_id, spawn_task_id), so an unscoped lookup hands the walk
-			// two generations at once.
+			// Scoped to THIS batch's epoch: a loop re-entering the spawn task reuses (parent_id,
+			// spawn_task_id), so an unscoped lookup hands the walk two generations.
 			var kids []*model.ProcessInstance
 			for _, k := range children[node.ID][node.Task] {
 				if k.ParentTaskEpoch == node.TaskEpoch {
@@ -702,15 +643,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			}
 			if len(kids) > 0 {
 				hasBatch = true
-				// Interrupted inside this spawn task's wait/collect cycle —
-				// revive the batch and reconstruct the wait state. (Kids exist
-				// only for spawn tasks: SpawnChildrenAndWait is atomic.)
+				// Interrupted inside this task's wait/collect cycle: revive the batch.
 				anyActive := false
 				for _, k := range kids {
-					// A raise concluded by design, so the slot needs a FRESH child rather
-					// than a revival. The replacement's input must be re-evaluated against
-					// the parent's current definition, which this layer cannot do -- mark the
-					// parent and let the engine re-spawn on its next collect (s12).
+					// A raised slot needs a FRESH child, whose input only the engine can
+					// evaluate: mark the parent and let its next collect re-spawn (s12).
 					if k.Status == model.StatusRaised {
 						overriddenID = node.ID
 						continue
@@ -728,9 +665,8 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 					newPhase = model.PhaseCollecting // re-run the lost collect
 				}
 			} else if !force {
-				// Reviving with phase none re-executes the front task, so a
-				// only_once task that may already have run is rejected unless forced.
-				// (force skips the lookup — it overrides the check regardless.)
+				// Phase none re-executes the front task, so an only_once task that may already
+				// have run is refused unless forced.
 				front, err := loadTask(node)
 				if err != nil {
 					return err
@@ -745,17 +681,14 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		node.Status = model.StatusRunning
 		node.Phase = newPhase
 		node.ErrorMessage = ""
-		// A task re-entered from the top is a fresh occurrence and an external task derives
-		// its token from the epoch, so without the bump a result submitted against the
-		// previous arming is accepted. A reconstructed batch is the opposite case: the epoch
-		// IS that batch's identity, and moving it orphans every child the parent kept.
+		// Bump only a task re-entered from the top (an external token derives from the epoch);
+		// a reconstructed batch's epoch IS its identity. internal/db/CLAUDE.md, "The task epoch".
 		if !hasBatch {
 			node.TaskEpoch++
 		}
-		// RetryCount tells the two timer kinds apart: a retry-backoff parks with
-		// RetryCount > 0 (clear it so the retry runs now), a delay with RetryCount == 0
-		// (keep wake_at so it resumes toward its deadline). It is otherwise kept, so the
-		// revived task runs once and surfaces its failure instead of grinding backoffs.
+		// A backoff parks with RetryCount > 0 (clear wake_at so the retry runs now), a delay with
+		// 0 (keep it). RetryCount itself is kept, so the revived task runs once and surfaces its
+		// failure instead of grinding backoffs.
 		if node.RetryCount > 0 {
 			node.WakeAt = nil
 		}
@@ -768,10 +701,8 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 
 	now := nowMillis()
 	for _, node := range dirty {
-		// Retry preserves the instance's context verbatim, so the already-encoded
-		// column strings (and the objects they reference) pass straight through —
-		// references are unchanged, so no object pin/deref is needed. input_data is
-		// immutable and not written by UpdateInstance.
+		// Context is preserved verbatim, so the encoded columns and their references pass
+		// straight through with no claim changes. UpdateInstance never writes input_data.
 		raw := rawRows[node.ID]
 		// No lease held: bind the epoch read under the tree lock, where it cannot move.
 		if _, err := qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
@@ -779,23 +710,19 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			Task:        raw.Task,
 			OutputsData: raw.OutputsData,
 			OutputData:  raw.OutputData,
-			// Only the REPORTED slots clear; the CAUGHT one is kept. A revived node can stand
-			// on a task reachable only through on_error, where mustErr/mayErr promises an
-			// `error` exists -- clearing it there hands that task a null it was analysed as
-			// never seeing.
+			// Only the REPORTED slots clear; the CAUGHT one stays: a revived node can stand on an
+			// on_error-only task, analysed as always having an `error`.
 			ErrorInternal: raw.ErrorInternal,
 			// A revived instance has concluded nothing, so the fault it was reporting goes with the
 			// status that carried it.
 			ErrorData:     "",
 			ExternalInput: raw.ExternalInput,
 			ExternalLost:  raw.ExternalLost,
-			// The one-shot override marker rides here when this node owns a raised batch: the
-			// engine reads it on the collect that follows and grants those slots an attempt
-			// past their budget, then clears it. specs/child-error-handling.md s12.
+			// The one-shot override marker, when this node owns a raised batch; the engine's next
+			// collect reads and clears it. specs/child-error-handling.md s12.
 			EngineState: engineStateWithOverride(raw.EngineState, node.ID == overriddenID),
-			// Passed through with the columns it describes: the context is unchanged, so what it
-			// references is unchanged. Writing "" here would erase the declaration while the
-			// claims stood, and the instance's own values would look like content nothing holds.
+			// Passed through: the context is unchanged. "" would erase the declaration while the
+			// claims stand.
 			Objects:      raw.Objects,
 			RetryCount:   int64(node.RetryCount),
 			TaskEpoch:    node.TaskEpoch,
@@ -809,10 +736,8 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			// No lease held: bind worker_id as read under the tree lock too, where it
 			// cannot move. NullString's zero is "", which is what an unheld row compares as.
 			WorkerID: raw.WorkerID.String,
-			// Carried, not recomputed: revival does not move Task, so the stored flag still
-			// describes it -- and this layer cannot resolve a definition to recompute it.
-			// Left unset it would zero to "needs flush" and every revived instance would pay
-			// an fsync it does not owe.
+			// Carried: revival does not move Task, and this layer cannot recompute it. Unset, it
+			// zeroes to "needs flush" and every revived instance pays an fsync it does not owe.
 			NextReplayable: raw.NextReplayable,
 		}); err != nil {
 			return LifecycleResult{}, fmt.Errorf("revive instance %q: %w", node.ID, err)
@@ -839,8 +764,6 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 	// replays from a parent that never advanced past it (§3).
 	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
-		// Lock parent and read its current status to propagate to children. FOR UPDATE
-		// is appended only on PostgreSQL; SQLite serialises via its single writer.
 		var currentStatus, currentPhase string
 		if err := raw.QueryRowContext(ctx,
 			`SELECT status, phase FROM process_instances WHERE id = ?`+db.forUpdate(),
@@ -851,16 +774,14 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			return fmt.Errorf("parent %q is already in phase %q", parent.ID, currentPhase)
 		}
 
-		// A pause that landed mid-spawn settles here or never: the write below parks the parent
-		// out of the claim predicate. Children inherit the settled status — a paused tree must
-		// not spawn runnable work.
+		// A pause that landed mid-spawn settles here or never: the park below leaves the claim
+		// predicate. Children inherit the settled status, so a paused tree spawns nothing runnable.
 		if model.Status(currentStatus) == model.StatusPausing {
 			currentStatus = string(model.StatusPaused)
 		}
 
-		// Insert children with the parent's current status (propagates a pause if needed).
-		// Each child gets created_at = now+i so siblings have a strict ordering by definition
-		// position — ClaimInstances (ORDER BY created_at) always processes them in spawn order.
+		// created_at = now+i gives siblings a strict spawn order, which ClaimInstances
+		// (ORDER BY created_at) follows.
 		now := nowMillis()
 		for i, child := range children {
 			ts := now + int64(i)
@@ -887,10 +808,8 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 	})
 }
 
-// RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the
-// parent back on 'children'. Separate from SpawnChildrenAndWait because the parent reads
-// 'collecting' here, and because a crash between the retire and the inserts would leave a slot
-// with no live occupant -- silently short in a keyed or list shape.
+// RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the parent
+// back on 'children': a crash between retire and insert would leave a slot with no occupant.
 // specs/child-error-handling.md s5.5.
 func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInstance, retired []string, children []*model.ProcessInstance) error {
 	if len(children) == 0 {
@@ -941,10 +860,8 @@ func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInst
 	})
 }
 
-// parkParentWaiting writes a parent onto 'children' beside the children it just inserted, in
-// their transaction. Shared by the two primitives that park one -- the first spawn and a
-// retry's re-spawn -- because the parameter list is long enough that two copies would drift,
-// and the epoch line in it is the one that must never be "fixed" independently.
+// parkParentWaiting is shared by both parking primitives so the long parameter list cannot
+// drift; its epoch line must never be "fixed" independently.
 func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent *model.ProcessInstance, status string, now int64) error {
 	parentCols, err := db.persistState(ctx, qtx, parent, now)
 	if err != nil {
@@ -973,9 +890,8 @@ func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent 
 		UpdatedAt:    now,
 		LeaseEpoch:   parent.LeaseEpoch,
 		WorkerID:     fenceWorker(parent),
-		// The parent parks here and is claimed again to collect. Left unset this zeroes
-		// to "needs flush", so every parent in a spawning tree would pay an fsync on its
-		// collect claim.
+		// The parent is claimed again to collect; unset, this zeroes to "needs flush" and every
+		// parent in a spawning tree pays an fsync on its collect claim.
 		NextReplayable: boolToInt(parent.NextReplayable),
 	})); err != nil {
 		if errors.Is(err, ErrLeaseLost) {
@@ -986,10 +902,9 @@ func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent 
 	return nil
 }
 
-// engineStateWithOverride sets the one-shot marker telling the engine's next collect to grant
-// this parent's raised slots one attempt past their budget. The one place this package edits
-// context JSON, and deliberately a boolean flag rather than a value: the re-spawn itself needs
-// expression evaluation, which belongs to the engine. specs/child-error-handling.md s12.
+// engineStateWithOverride sets the one-shot retry_override marker: the one place this package
+// edits context JSON, and only a flag, since the re-spawn needs expression evaluation (the
+// engine's). specs/child-error-handling.md s12.
 func engineStateWithOverride(raw string, set bool) string {
 	if !set {
 		return raw

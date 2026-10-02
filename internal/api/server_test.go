@@ -12,9 +12,8 @@ import (
 	"time"
 )
 
-// startTestServer runs ListenHTTP on an ephemeral port with the connection limits shrunk
-// to durations a test can wait on, and returns the address plus a func that cancels the
-// context and reports how long ListenHTTP took to return.
+// startTestServer shrinks the connection limits to testable durations; the returned func
+// cancels and reports how long ListenHTTP took to return.
 func startTestServer(t *testing.T, tune func(*Server)) (string, func() time.Duration) {
 	t.Helper()
 	h, cleanup := newTestHandlers(t)
@@ -78,9 +77,7 @@ func waitListening(t *testing.T, addr string) {
 	t.Fatalf("server never came up on %s", addr)
 }
 
-// A connection that opens and then sends nothing is the slowloris shape: before
-// ReadHeaderTimeout was set it could hold a goroutine and a socket indefinitely, and
-// enough of them exhaust the listener without a single valid request.
+// The slowloris shape: enough of these exhaust the listener without one valid request.
 func TestListenHTTP_ClosesAConnectionThatSendsNoHeaders(t *testing.T) {
 	addr, _ := startTestServer(t, nil)
 
@@ -101,9 +98,8 @@ func TestListenHTTP_ClosesAConnectionThatSendsNoHeaders(t *testing.T) {
 	}
 }
 
-// The drain has to be bounded *and* awaited: unbounded, a stuck request holds the shutdown
-// goroutine forever; un-awaited, ListenHTTP returns immediately and process exit severs
-// requests that were about to finish.
+// Unbounded, a stuck request holds shutdown forever; un-awaited, exit severs requests about
+// to finish.
 func TestListenHTTP_ShutdownWaitsForTheDrainButNotForever(t *testing.T) {
 	addr, stop := startTestServer(t, nil)
 
@@ -154,10 +150,7 @@ func putDefinition(t *testing.T, addr, body string) (int, string) {
 	return resp.StatusCode, string(raw)
 }
 
-// oversizedDefinition builds a definition whose padding puts the encoded body n bytes over
-// maxRequestBytes. Valid apart from its size, so a rejection can only be the cap: an
-// invalid one would be refused for its shape whether the cap existed or not, which is what
-// made the first version of this test pass with MaxBytesReader removed.
+// oversizedDefinition is valid apart from its size, so a rejection can only be the cap.
 func oversizedDefinition(pad int) string {
 	return fmt.Sprintf(
 		`{"name":"size_probe","tasks":[{"id":"t","action":{"type":"fetch","method":"post","url":"http://127.0.0.1:1/%s"},"switch":"end"}]}`,
@@ -172,9 +165,8 @@ func TestListenHTTP_RejectsAnOversizedRequestBody(t *testing.T) {
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body: %.200s", status, body)
 	}
-	// The specific message matters: without the cap this same request is *also* a 400
-	// (it decodes, then fails definition validation), so only the transport-level
-	// complaint distinguishes a body that was refused from one that was buffered whole.
+	// Without the cap this request is also a 400, so only the transport's message tells
+	// a refused body from one buffered whole.
 	if !strings.Contains(body, "request body too large") {
 		t.Fatalf("body = %.200s\nwant the transport's oversize refusal — a 400 for any other reason means "+
 			"the %d-byte body was read into memory before anything rejected it", body, maxRequestBytes)

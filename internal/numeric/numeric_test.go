@@ -104,9 +104,7 @@ func TestToDecimal_RejectsNonNumeric(t *testing.T) {
 }
 
 // --- Equal ---
-//
-// Equality is by value, not by literal. An enum declared [1] must keep accepting
-// an input that decodes as "1.0" — comparing marshalled bytes would not.
+// By value, not literal: an enum declared [1] must accept "1.0".
 
 func TestEqual_JSONNumberAndFloat64(t *testing.T) {
 	assertEqual(t, json.Number("1"), float64(1))
@@ -192,9 +190,6 @@ func TestIsIntegral_NonIntegral(t *testing.T) {
 }
 
 // --- Format ---
-//
-// Format must always emit something JSON can read back as a number, and must
-// trim the trailing zeros a division's precision leaves behind.
 
 func TestFormat_TrimsTrailingZeros(t *testing.T) {
 	assertFormat(t, "2.000000000000000000000000000000000", "2")

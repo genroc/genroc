@@ -14,10 +14,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// completeAt answers for a cursor given as a 1-based line and byte column.
-//
-// The document is usually mid-edit and often unparseable, so everything here works from the
-// raw LINE first and consults the parsed document only to find which slot the line sits in.
+// completeAt answers for a cursor given as a 1-based line and byte column. The document is
+// usually unparseable mid-edit, so the raw LINE decides first; the parse only locates the slot.
 func completeAt(text, file string, line, col int) []completionItem {
 	src := lineAt(text, line)
 	if expr, ok := expressionPrefix(src, col); ok {
@@ -32,9 +30,7 @@ func completeAt(text, file string, line, col int) []completionItem {
 	if codes, ok := errorCodeValues(text, file, line, col); ok {
 		return codes
 	}
-	// A directive's argument is a VALUE position, so this has to come before the check below
-	// that ends the chain there. `$name: ./` is the one value slot whose answer is the
-	// filesystem rather than anything in the document.
+	// A directive's argument is a VALUE position, so this must precede inValuePosition below.
 	if paths, ok := directivePathValues(text, file, line, col); ok {
 		return paths
 	}
@@ -43,9 +39,8 @@ func completeAt(text, file string, line, col int) []completionItem {
 	if inBareExpression(text, file, line, col) {
 		return completeExpression(text, file, line, col, dottedTail(src[:min(col-1, len(src))]))
 	}
-	// Past a `key:` the reader is writing that key's VALUE. The slots above are the ones with an
-	// answer there; anything else has none — and the keys `completeKey` would offer belong to
-	// the NEXT line, which is what a half-written `for: ` was answered with.
+	// Past a `key:` only the value slots above have an answer; the keys completeKey would offer
+	// belong to the NEXT line.
 	if inValuePosition(src, col) {
 		return nil
 	}
@@ -75,13 +70,11 @@ func completeKey(text, file string, line, col int) []completionItem {
 		return nil
 	}
 	src := lineAt(text, line)
-	// On a line with nothing before the cursor, INDENTATION decides. `At` would answer with
-	// whichever container happens to span the line — the outermost one, not the mapping being
-	// filled in — because an empty line is inside every ancestor at once.
+	// With nothing before the cursor, INDENTATION decides: an empty line is inside every
+	// ancestor at once, so `At` would answer with the outermost.
 	if blankBefore(text, line, col) {
-		// The cursor is in the indent, or on a list dash, of a line that HAS content: it is
-		// beside that line's key, so that key's mapping is the answer — including which of its
-		// keys are already written.
+		// In the indent, or on the dash, of a line with content: the cursor is beside that
+		// line's key, so its mapping answers.
 		if strings.TrimSpace(src) != "" {
 			if path, ok := mappingUnder(doc.Doc, line, indentOf(src)+1); ok {
 				return keyEdits(keysAt(doc, path), src, col)
@@ -103,9 +96,8 @@ func completeKey(text, file string, line, col int) []completionItem {
 		return keyEdits(keysAt(doc, path), src, col)
 	}
 
-	// A line with content: the cursor may be past its end, or in the gap a `- ` leaves, where
-	// nothing covers it but the sequence or the document itself. The line's own key is what it
-	// sits beside, so resolve from there instead of falling out to the root.
+	// Past the line's end, or in the gap a `- ` leaves, nothing covers the cursor but the
+	// sequence or the root — so fall back to the line's own key.
 	path, ok := mappingUnder(doc.Doc, line, col)
 	if !ok {
 		if start := indentOf(src) + 1; start != col {
@@ -118,10 +110,8 @@ func completeKey(text, file string, line, col int) []completionItem {
 	return keyEdits(keysAt(doc, path), src, col)
 }
 
-// keysAt answers with the DECLARED schema's properties where one governs this mapping, and
-// with the definition language's own keys everywhere else. The generated schema cannot absorb
-// the first: a declaration is data in the document, possibly spread in from a file.
-// specs/declared-slot-schemas.md §7.
+// keysAt prefers the DECLARED schema's properties where one governs the mapping — data in the
+// document, which the generated schema cannot absorb. specs/declared-slot-schemas.md §7.
 func keysAt(doc *document, path string) []completionItem {
 	if items, ok := declaredKeys(doc, path); ok {
 		return items
@@ -222,9 +212,7 @@ func keyAbove(text string, line, col int) (int, int, bool, bool) {
 }
 
 // expressionPrefix reports the dotted path being typed, when the cursor is inside an
-// expression. The scan is over raw text: a half-typed `$: order.` is not valid YAML, let alone
-// a valid expression, and waiting for it to become one is waiting until the author no longer
-// needs help.
+// expression. It scans raw text: a half-typed `$: order.` is not yet valid YAML.
 func expressionPrefix(src string, col int) (string, bool) {
 	i := col - 1
 	if i < 0 || i > len(src) {
@@ -334,12 +322,9 @@ func indexOf(s schema.Schema, prefix string, col int) []completionItem {
 }
 
 func membersOf(s schema.Schema) []completionItem {
-	// A value that may be absent is `anyOf[$ref, null]`, and the null arm blocks the $ref
-	// beside it from resolving — so an optional object offered no members at all. Same shape,
-	// same fix as schema.Summary.
+	// An optional value is `anyOf[$ref, null]`, whose null arm keeps the $ref from resolving —
+	// schema.Summary's fix. StripNull materializes, so a ref AT a nullable is covered too.
 	if s.HasNull() {
-		// Materialized: a ref pointing AT a nullable hides the null in the target, where a
-		// plain strip changes nothing and the object offers no members at all.
 		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() {
 			s = inner
 		}
@@ -367,10 +352,8 @@ func membersOf(s schema.Schema) []completionItem {
 	return out
 }
 
-// scopeAt finds the expression context governing a cursor. The document is parsed with the
-// cursor's line REPAIRED when it will not parse on its own — a mid-typed expression usually
-// leaves an unterminated quote, and refusing to answer until it is closed refuses exactly when
-// the author is asking.
+// scopeAt finds the expression context governing a cursor, parsing with the cursor's line
+// REPAIRED: a mid-typed expression usually leaves an unterminated quote.
 func scopeAt(text, file string, line, col int) (schema.Schema, bool) {
 	doc, ok := parseRepaired(text, file, line)
 	if !ok {
@@ -380,9 +363,8 @@ func scopeAt(text, file string, line, col int) (schema.Schema, bool) {
 	if !ok {
 		return schema.Schema{}, false
 	}
-	// The scope is the document WITHOUT the expression being written. A half-typed leaf does
-	// not type, its slot recovers as {}, and everything that reads the slot — `self.previous`
-	// most of all — then offers nothing, exactly where help was asked for.
+	// Type the document WITHOUT the leaf being written: a half-typed leaf recovers its slot as
+	// {}, and everything reading that slot (`self.previous` most of all) would offer nothing.
 	source := doc
 	if blanked, ok := parseRepaired(blankValueAt(text, line), file, line); ok {
 		source = blanked
@@ -434,9 +416,7 @@ func indentOf(line string) int {
 	return i
 }
 
-// routingValues offers what a `goto` may name: every task in this document, plus the two words
-// that are not tasks. A routing slot is the one place a VALUE has a closed set, and without
-// this the cursor reads as sitting on a key and the clause's own siblings are offered instead.
+// routingValues offers what a `goto` may name: every task in this document, `end` and `next`.
 func routingValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
 	doc, ok := parseRepaired(text, file, line)
@@ -525,10 +505,9 @@ func flowDepth(src string, from, col int) int {
 	return depth
 }
 
-// insideFlowList reports whether the cursor is between the brackets of a list written after a
-// key on this line — `type: [string, |]`. yaml.v3 gives an empty flow list a ZERO-WIDTH span
-// and a partly written one no element to stand in, so neither position resolves through the
-// index; the slot is the line's key either way.
+// insideFlowList reports whether the cursor is between the brackets of a list after this line's
+// key — `type: [string, |]`, a position that never resolves through the index (yaml.v3 gives an
+// empty flow list a ZERO-WIDTH span).
 func insideFlowList(src string, col int) bool {
 	i := strings.Index(src, ":")
 	if i < 0 {
@@ -575,10 +554,8 @@ func taskIDs(doc *defdoc.Doc) []string {
 	return out
 }
 
-// typeValues offers what a `type` may name. There are two closed sets and the schema says
-// which: a user schema's JSON types, and — where the node is a discriminated union — the
-// variants its arms declare. Without this the cursor after `type:` reads as sitting on a key
-// and the surrounding keys come back.
+// typeValues offers what a `type` may name: a user schema's JSON types, or the variants a
+// discriminated union's arms declare.
 func typeValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
 	doc, ok := parseRepaired(text, file, line)
@@ -605,9 +582,8 @@ func typeValues(text, file string, line, col int) ([]completionItem, bool) {
 			replaceFrom: from,
 		})
 	}
-	// The list form is the SECOND thing `type` takes, and it is how a nullable property is
-	// declared. Offered last, and not once the cursor is already inside one — the names are
-	// what goes there, and a second `[]` would nest.
+	// The list form (how a nullable property is declared) goes last, and not inside a list
+	// already — a second `[]` would nest.
 	if v, _ := doc.ValueAt(path); alsoAList && !isList(v) {
 		out = append(out, completionItem{
 			Label:       "[]",
@@ -675,9 +651,8 @@ func typeNamesAt(doc *defdoc.Doc, path string) (names, detail []string, alsoALis
 	return names, detail, false
 }
 
-// offeredTypeNames is schema.TypeNames without `array`: beside the list form it read as a
-// second spelling of it, and the two mean opposite things. `type: array` is still ACCEPTED —
-// this is what the editor puts in a list, not what the language takes.
+// offeredTypeNames drops `array`, which beside the list form reads as a second spelling of it
+// though the two mean opposite things. `type: array` is still ACCEPTED.
 func offeredTypeNames() []string {
 	return slices.DeleteFunc(schema.TypeNames(), func(n string) bool { return n == "array" })
 }

@@ -1,7 +1,5 @@
-# The bundle names a parent but not the child it calls, and tightens the result_schema that
-# child's output has to satisfy. The child is resolved from the registry, so validation
-# catches it before any comparison runs — which is the check you most want before deploying
-# a parent on its own.
+# The child is resolved from the registry, so a parent tightening its result_schema past the
+# stored child's output is caught by validation before any comparison.
 apply:
   - channel: tighten_a
     definitions:

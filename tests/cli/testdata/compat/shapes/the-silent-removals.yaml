@@ -1,17 +1,6 @@
-# The removals that are correctly silent, in one place so that a later change cannot make
-# one of them start reporting without a fixture noticing. All three are the same shape of
-# argument — we demand LESS of the other party than we did:
-#
-#   input_schema dropped   we accept any input now, so no caller is turned away, and a
-#                          stored row still fits a schema that requires nothing
-#   result_schema dropped  we conform the response less, so the service may send what it
-#                          always sent. (A downstream `self.result.x` read would make the
-#                          NEW definition invalid, which validation refuses before compat
-#                          is reached — §4.)
-#   an input property      undeclared imposes nothing, so a caller still sending it is
-#   dropped                accepted; the value is stripped, which is §5.1's blind spot
-#
-# The one removal that does break is the process output — output-removed.yaml.
+# Removals that are correctly silent, each demanding less of the other party: input_schema,
+# result_schema (a read of it would fail validation first, §4), and an input property
+# (stripped: §5.1's blind spot). Only removing the process output breaks.
 apply:
   - channel: silentrm_a
     definitions:

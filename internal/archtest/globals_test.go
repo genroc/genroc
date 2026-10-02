@@ -13,18 +13,15 @@ import (
 	"testing"
 )
 
-// Package-level is fine for VALUES and wrong for STATE: if it changes after init, it wants an
-// owner. The argument is in CLAUDE.md. Each exception below is a decision someone made on
-// purpose, so adding one means writing down which owner it could have had and why it does not.
+// The argument is in CLAUDE.md. Each entry names the owner the var could have had and why it
+// could not.
 var allowed = map[string]string{
 	"template.cache": "memo of a pure function on the eval hot path; an owner would mean threading a " +
 		"cache through shape.Eval/Roots/infer and every recursive call. template_bench_test.go is the justification.",
 	"db.clockOffset": "the test/sim clock shift. Slated to move onto an owner — per-worker clocks are " +
 		"what a frozen-worker simulation needs, and a process-global offset cannot express worker-vs-DB skew.",
-	// The two Once/bytes pairs are one decision each: a lazily built artifact of the
-	// binary's own types, written inside Do and never reset. No owner exists to hang them
-	// on — Spec() and Process() are both called before any server is constructed, to emit
-	// the spec files.
+	// Each Once/bytes pair is written inside Do and never reset. No owner exists: Spec() and
+	// Process() run before any server is constructed, to emit the spec files.
 	"defschema.processSchemaOnce":  "write-once memo of the generated process schema; see the note above.",
 	"defschema.processSchemaBytes": "the payload processSchemaOnce fills in.",
 	"api.specOnce":                 "write-once memo of the generated OpenAPI spec; see the note above.",
@@ -84,9 +81,8 @@ func TestNoPackageLevelMutableState(t *testing.T) {
 	}
 }
 
-// mutableGlobals reports a file's package-level vars that hold state rather than a value:
-// a sync/atomic type is state by construction, and anything assigned or index-assigned
-// after its declaration is state by evidence. A read-only lookup table matches neither.
+// mutableGlobals: a sync/atomic type is state by construction, and anything assigned after
+// its declaration is state by evidence.
 func mutableGlobals(fset *token.FileSet, file *ast.File) map[string]token.Position {
 	declared := map[string]token.Position{}
 	stateful := map[string]bool{}
@@ -144,9 +140,8 @@ func mutableGlobals(fset *token.FileSet, file *ast.File) map[string]token.Positi
 	return out
 }
 
-// rootIdent unwraps x, x[k] and x[k][j] to x — the name an assignment ultimately writes
-// through. A selector (x.f) is deliberately not unwrapped: that is a field on some value,
-// not the package-level name itself.
+// rootIdent deliberately does not unwrap a selector (x.f): that is a field on some value, not
+// the package-level name itself.
 func rootIdent(e ast.Expr) (string, bool) {
 	for {
 		switch v := e.(type) {

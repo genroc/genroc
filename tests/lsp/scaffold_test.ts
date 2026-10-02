@@ -5,11 +5,8 @@ import { beforeAll, afterAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { at, Doc, Lsp, useWorkspace } from "./helpers.ts";
 
-// What `genctl init` writes, read the way a person first reads it: opened in an editor. This is
-// the check `tests/cli/init_scaffold_test.ts` cannot make — `genctl schema` answers about ONE
-// slot and says nothing about the others, so a scaffold can typecheck there and still open
-// covered in red. It did: the `$process` spread wrote an inferred `raises` payload whose
-// property was both required and defaulted, which is not a valid schema document.
+// The scaffold opened in an editor: `genctl schema` answers one slot at a time, so a scaffold can
+// pass tests/cli/init_scaffold_test.ts and still open covered in red.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -85,8 +82,6 @@ test("the scaffold's $process directive shows the child it spreads in", async ()
   );
 });
 
-// The code phase is never run by the editor, and the `$import` line says so rather than
-// reproducing `genctl types` under a hover.
 test("the scaffold's $import directive says it resolves at apply", async () => {
   const defs = scaffold("--eval-node");
   const path = join(defs, "hello.genroc.yaml");

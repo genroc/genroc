@@ -2,9 +2,8 @@ package validationtest
 
 import "testing"
 
-// The widened value grammar — arrays, scalar literals, null, nested — must infer
-// end to end through Generate: an array joins its element types, a scalar types as
-// its JSON kind (a whole number as integer), and null types as null.
+// End to end through Generate: an array joins its element types, a whole number types as
+// integer, null as null.
 
 func TestGenerate_ShapeArrayLiteral_ProcessOutput(t *testing.T) {
 	input := `{"type":"object","properties":{"a":{"type":"integer"},"b":{"type":"integer"}},"required":["a","b"]}`

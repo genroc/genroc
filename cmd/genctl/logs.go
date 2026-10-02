@@ -25,10 +25,8 @@ func runLogsCmd(server string, args []string) {
 	jsonFlag := fs.Bool("json", false, "print the raw JSON entries, one per line (JSONL), untruncated")
 	timeFlag := fs.String("time", "clock", "clock (time, with a line per day) or full (date and time on every row)")
 	id := instanceIDAndFlags(fs, args)
-	// --json is the machine form every other list command spells this way, so --mode is left
-	// with the choice it alone has: how much of a row the TABLE shows. logview.Mode still has
-	// a json member -- the server's --log-mode uses it -- so this rejects it rather than
-	// ParseMode, which would name a value this flag does not offer.
+	// Not logview.ParseMode: it accepts json (the server's --log-mode uses it), which here is
+	// spelled --json like every other list.
 	mode := logview.Mode(*modeFlag)
 	if mode != logview.ModeBasic && mode != logview.ModeDetail {
 		fatal("invalid --mode %q (want basic or detail)", *modeFlag)
@@ -53,18 +51,16 @@ func runLogsCmd(server string, args []string) {
 	if *flatFlag {
 		q.Set("flat", "true")
 	}
-	// A tree read can carry rows from several instances, so the ID column comes with it. It is
-	// tied to the REQUEST rather than to what a page happens to hold: a column that appears
-	// once the second page arrives would re-align a trail mid-scroll.
+	// The ID column follows the REQUEST, not the page: one appearing with the second page would
+	// re-align a trail mid-scroll.
 	tree := !*flatFlag
 	u := *serverFlag + "/api/instances/" + url.PathEscape(id) + "/logs"
 	if enc := q.Encode(); enc != "" {
 		u += "?" + enc
 	}
 
-	// Buffered so a long trail costs one write per page rather than one per row; the
-	// flush at each page boundary is what keeps the output streaming. fatal() exits
-	// without unwinding, so every error path flushes first.
+	// Flushed at each page boundary to keep streaming. fatal() exits without unwinding, so every
+	// error path flushes first.
 	out := bufio.NewWriter(os.Stdout)
 	fatalFlushing := func(format string, args ...any) {
 		out.Flush()
@@ -74,8 +70,6 @@ func runLogsCmd(server string, args []string) {
 		noteCapped(capped, fmt.Sprintf("the newest %d entries", logTailDefault), "--since")
 	}
 
-	// json mode dumps each entry as the server's JSON, one per line (JSONL):
-	// everything, untruncated, pipe-friendly (jq).
 	if mode == logview.ModeJSON {
 		capped, err := fetchOrdered(u, limit, newestFirst, func(items []json.RawMessage) error {
 			for _, it := range items {
@@ -105,9 +99,7 @@ func runLogsCmd(server string, args []string) {
 		Meta     map[string]any  `json:"meta"`
 		Objects  []objectEntry   `json:"objects"`
 	}
-	// Shared logview layout, so a row reads identically here and on the server console. The
-	// header waits for the first row (an empty trail prints nothing); day carries the last
-	// date rendered so each new day gets a DateBreak. Both fetchOrdered paths render here.
+	// The header waits for the first row, so an empty trail prints nothing.
 	header, day, width := false, "", logLineWidth()
 	capped, err := fetchOrdered(u, limit, newestFirst, func(rows []logRow) error {
 		for _, l := range rows {

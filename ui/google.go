@@ -11,15 +11,9 @@ import (
 	"time"
 )
 
-// Google Workspace groups, which an ID token never carries, so membership has to be fetched. Cloud
-// Identity rather than the Admin SDK Directory: `admin.directory.group.readonly` is a RESTRICTED
-// scope needing app verification and an admin allowlist, while `cloud-identity.groups.readonly` is
-// merely sensitive. The call is made ONCE, at login, with the person's own access token, which is
-// then dropped -- genroc-ui stores no Google credential.
-//
-// TRANSITIVE, not direct: nesting is how groups are organised, so someone in `oncall@` inside
-// `platform@` must inherit what `platform@` grants. `searchDirectGroups` answers INVALID_ARGUMENT
-// to this query despite a reference that describes the transitive method's grammar.
+// Workspace groups, fetched once at login with the person's own access token, then dropped.
+// Cloud Identity, not the Admin SDK, whose scope is RESTRICTED. TRANSITIVE so nested groups
+// inherit (`searchDirectGroups` answers INVALID_ARGUMENT to this query).
 
 const (
 	googleGroupsScope   = "https://www.googleapis.com/auth/cloud-identity.groups.readonly"
@@ -45,9 +39,8 @@ func newGoogleDirectory() *googleDirectory {
 	}
 }
 
-// groups returns the group addresses the person belongs to, which is what a role map keys on.
-// The group's EMAIL is used rather than its display name: a display name is neither unique nor
-// stable, so a role map written against one silently follows a rename.
+// groups returns group EMAILS, which role maps key on: a display name is neither unique nor
+// stable.
 func (g *googleDirectory) groups(ctx context.Context, accessToken, subject string) ([]string, error) {
 	if accessToken == "" {
 		return nil, fmt.Errorf("no access token from the exchange; cloud-identity groups need one")
@@ -56,9 +49,7 @@ func (g *googleDirectory) groups(ctx context.Context, accessToken, subject strin
 	pageToken := ""
 	for page := 0; page < googleGroupsMaxPages; page++ {
 		q := url.Values{
-			// The single quotes are the API's CEL syntax, not shell quoting. A subject cannot
-			// contain one -- it is an email Google itself issued -- but it is escaped anyway,
-			// because a query built by concatenation is a query someone will break later.
+			// CEL single quotes. A Google-issued subject email cannot contain one; escaped anyway.
 			"query":    {fmt.Sprintf("member_key_id == '%s' && '%s' in labels", escapeCEL(subject), googleGroupsLabel)},
 			"pageSize": {"200"},
 		}

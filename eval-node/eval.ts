@@ -1,11 +1,6 @@
-// Evaluation core: import a script module in its OWN realm, call its default export, and
-// classify every outcome into one of the failure kinds in README.md. Nothing here knows about
-// genroc — worker.ts is the only thing that talks to the queue — so this stays testable and
-// the containment stays swappable.
-//
-// The containment is a Worker per execution (realm.ts). It is what makes the budget real:
-// a synchronous busy loop never yields, so no in-process timer can interrupt it, and only a
-// thread the host can kill bounds it.
+// Imports a script module in its own realm (a Worker per execution, realm.ts), calls its default
+// export, and classifies every outcome (README.md). Only a killable thread bounds a synchronous
+// busy loop, which is what makes the budget real. Knows nothing of genroc; worker.ts does.
 
 import { Worker } from "node:worker_threads";
 
@@ -16,9 +11,8 @@ export type EvalRequest = {
   timeout_ms?: number;
 };
 
-/** Every kind here is PERMANENT: a retry re-runs the same code on the same input and fails
- *  identically. The retryable class has no kind because it is not an outcome — a runner that
- *  faults releases its claim and lets another worker take the task. */
+/** Every kind is PERMANENT: a retry fails identically. A faulting runner is not an outcome; it
+ *  releases its claim. */
 export type FailureKind = "compile_error" | "threw" | "timeout" | "nonserializable" | "exited";
 
 export type EvalFailure = {
@@ -28,9 +22,8 @@ export type EvalFailure = {
   stack?: string;
 };
 
-/** `body` is JSON TEXT, not a value: serialising in the realm is what makes a nonserializable
- *  return a script fault rather than a 500 thrown out of the response path. It is also what
- *  crosses the worker boundary — structured clone would refuse a different set of values. */
+/** JSON TEXT serialised in the realm, so a nonserializable return is a script fault, not a 500,
+ *  and structured clone (which refuses a different set of values) never sees the value. */
 export type EvalResult =
   | { ok: true; body: string }
   | { ok: false; failure: EvalFailure };
@@ -47,9 +40,8 @@ const REALM_URL = new URL(
   import.meta.url,
 );
 
-/** Thrown, not returned: a realm that fails to start is the RUNNER faulting, which worker.ts
- *  answers by releasing the claim rather than by reporting an outcome. A script fault is a
- *  return value. */
+/** Thrown, not returned: a realm that fails to start is the runner faulting, which worker.ts
+ *  answers by releasing the claim. */
 class RealmFault extends Error {
   constructor(message: string) {
     super(message);
@@ -57,9 +49,8 @@ class RealmFault extends Error {
   }
 }
 
-/** Thrown when `signal` aborts: the work was cancelled server-side, so there is no outcome to
- *  report and worker.ts must release rather than answer. Distinct from RealmFault because the
- *  runner did not fault -- nothing is wrong, the answer is simply no longer wanted. */
+/** Thrown when `signal` aborts: the answer is no longer wanted, so worker.ts releases rather
+ *  than answers. Not a RealmFault: nothing is wrong. */
 export class Cancelled extends Error {
   constructor() {
     super("cancelled");
@@ -84,9 +75,8 @@ export async function evaluate(req: EvalRequest, signal?: AbortSignal): Promise<
         signal.addEventListener("abort", onAbort, { once: true });
       }
       worker.once("message", (reply: WorkerReply) => resolve(reply));
-      // A script may end its own realm (`process.exit()`), which is not a throw and would
-      // otherwise present as a hang until the budget expired. Our own terminate() raises
-      // this too, by which time the promise has settled and the first result stands.
+      // A script may `process.exit()`, which would otherwise look like a hang until the budget.
+      // Our own terminate() fires this too, after the promise has settled.
       worker.once("exit", (code: number) => resolve(exited(code)));
       worker.once("error", (err: Error) => reject(new RealmFault(errorText(err))));
       worker.postMessage({ code: req.code, input: req.input } satisfies WorkerRequest);

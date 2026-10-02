@@ -2,9 +2,7 @@ import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
 
-// The pull half of the external-task queue: a worker claims parked work, holds it for a
-// visibility timeout, renews or releases it, and answers under the token the claim granted.
-// specs/external-task-queue.md.
+// The pull half of the external-task queue: claim, renew, release, answer. specs/external-task-queue.md.
 
 async function define(name: string, tasks?: unknown[]) {
   const { error } = await client.PUT("/definitions", {
@@ -38,8 +36,7 @@ async function claim(worker: string, process: string, opts: Record<string, unkno
   return ((data as any)?.items ?? []) as any[];
 }
 
-// claimUntil polls until the task is parked and claimable — a fresh instance takes a tick to
-// reach its external task.
+// A fresh instance takes a tick to reach its external task.
 async function claimWhenReady(worker: string, process: string, opts: Record<string, unknown> = {}) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
@@ -202,9 +199,8 @@ test("claim rejects a missing worker_id, and renew rejects a non-claim token", a
   expect(badToken, "renew must refuse a token that names no claim").toBeTruthy();
 });
 
-// Phase 3: a claim that lapses on an only_once task. The work may already have taken effect,
-// so it must never be handed out again — and the instance must learn why rather than sitting
-// unclaimable. specs/external-task-queue.md §external.lost.
+// A lapsed claim on an only_once task may already have taken effect, so it is never handed out
+// again, and the instance must learn why. specs/external-task-queue.md §external.lost.
 
 async function defineOnlyOnce(name: string, extra: Record<string, unknown> = {}) {
   const { error } = await client.PUT("/definitions", {
@@ -313,9 +309,8 @@ test("a lost-claim row does not strand the rest of the batch, and filters isolat
   // request would leave the other task's grant written and never handed to anyone.
   const deadline = Date.now() + 20_000;
   let got: any[] = [];
-  // An unfiltered claim on the shared server also takes other files' parked work. It is held
-  // until the loop ends (released at once, it would refill every batch and crowd okName out)
-  // and then handed back, or those instances sit out the whole 30s lease and time out.
+  // An unfiltered claim also takes other files' parked work: hold it until the loop ends (released
+  // early, it refills every batch and crowds okName out), then hand it back or it times out.
   const foreign: string[] = [];
   try {
     while (Date.now() < deadline) {

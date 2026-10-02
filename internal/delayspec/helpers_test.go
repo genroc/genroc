@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// Helpers so a table row can state a grammar claim in one line: a spec, a "now", and the wall
-// clock it should land on. The files split the same way — location / duration_parse /
-// calendar / instant_parse / instant_resolve / instant_random / doc_examples.
+// Helpers so a table row states a grammar claim in one line: a spec, a "now", and the wall
+// clock it should land on.
 
 const (
 	// wallFmt renders an instant with its UTC offset, for the cases where the zone is the

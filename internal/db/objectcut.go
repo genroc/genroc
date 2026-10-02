@@ -7,10 +7,8 @@ import (
 	"genroc/internal/model"
 )
 
-// minExternalizeBytes is the floor. Moving a value out costs an entry in the objects list -- its
-// path, hash and size -- so a value smaller than its own entry makes the slot BIGGER. When the
-// largest remaining candidate is under this, going finer cannot help and the cut coarsens
-// instead. specs/object-store.md §Choosing what to externalize.
+// minExternalizeBytes: a value smaller than its own objects-list entry makes the slot BIGGER, so
+// below this the cut coarsens instead. specs/object-store.md §Choosing what to externalize.
 const minExternalizeBytes = 128
 
 // node is one position in the value being cut, sized once so the search is arithmetic.
@@ -24,11 +22,9 @@ type node struct {
 	already  bool // an *ObjectRef that was already external when this value was read
 }
 
-// cutForSize decides which parts of v move to the object store so the stored slot fits target,
-// returning the value with those parts removed plus a ref for each. It externalizes the FEWEST,
-// LARGEST leaves that get under the target: cutting a bundle alone, rather than everything over
-// a threshold, is what lets instances sharing it hash the same value. Node sizes drive the
-// search but only estimate; the selection is spliced and MEASURED before any ref is made.
+// cutForSize externalizes the FEWEST, LARGEST leaves that bring v under target: cutting a bundle
+// alone is what lets instances sharing it hash the same. Node sizes only estimate; the selection
+// is spliced and MEASURED before any ref is made.
 func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject, error) {
 	root, err := buildTree(v, nil, 0, nil)
 	if err != nil {
@@ -54,10 +50,8 @@ func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject,
 		}
 	}
 
-	// Rounds, not one pass: the search runs on the estimate, then the candidate is spliced and
-	// measured, and a measurement still over target re-seeds the estimate from the truth and
-	// selects again. One round is the normal case; a second happens where the estimate was
-	// optimistic, which is exactly where being wrong would have mattered.
+	// Rounds, not one pass: a measured candidate still over target re-seeds the estimate from
+	// the truth and selects again.
 	for {
 		before := len(chosen)
 		selectNodes(byDepth, maxDepth, chosen, &data, &objects, target)
@@ -81,9 +75,8 @@ func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject,
 func selectNodes(byDepth map[int][]*node, maxDepth int, chosen map[*node]bool, data, objects *int64, target int64) {
 	for depth := maxDepth; depth >= 0 && *data+*objects > target; depth-- {
 		level := byDepth[depth]
-		// Size descending, then path ascending. The tie-break is not cosmetic: two instances
-		// must choose the SAME cut or identical content produces different objects and shares
-		// nothing, and Go's map iteration is randomized.
+		// The path tie-break is not cosmetic: two instances must choose the SAME cut to share
+		// objects, and map iteration is randomized.
 		sort.Slice(level, func(i, j int) bool {
 			if level[i].size != level[j].size {
 				return level[i].size > level[j].size
@@ -97,11 +90,9 @@ func selectNodes(byDepth map[int][]*node, maxDepth int, chosen map[*node]bool, d
 			if n.already || chosen[n] || coveredByAncestor(n, chosen) {
 				continue
 			}
-			// An already-external descendant is a MARKER, not content: marshalling this node
-			// would bake it into an object whose content is opaque, so nothing could ever
-			// resolve it — and it would drop out of the referenced set the next write diffs
-			// against, releasing the claim while the content still points at it. Go finer
-			// instead; the descendant stays its own ref, which is also what shares it.
+			// An already-external descendant is a MARKER: baked into this node's object nothing
+			// could resolve it, and it would leave the referenced set, releasing a claim still
+			// pointed at. Go finer; the descendant stays its own ref.
 			if holdsAlready(n) {
 				continue
 			}
@@ -132,9 +123,8 @@ func holdsAlready(n *node) bool {
 	return false
 }
 
-// storedSize is what this selection actually costs the row: the spliced value's encoded bytes
-// plus one objects-list entry per ref. Spliced in memory and thrown away — no hashing, no
-// object content, nothing written until the selection is settled.
+// storedSize is what this selection costs the row: the spliced value's bytes plus one entry per
+// ref, computed in memory with nothing hashed or written.
 func storedSize(v any, chosen map[*node]bool) (int64, error) {
 	stripped := deepCopy(v)
 	picked := pickedInCutOrder(chosen)
@@ -171,7 +161,7 @@ func pickedInCutOrder(chosen map[*node]bool) []*node {
 }
 
 // applyCut removes the chosen nodes from the value and turns each into a ref plus the object to
-// write. Deepest first, so removing a child cannot disturb a path still to be walked.
+// write.
 func applyCut(v any, root *node, chosen map[*node]bool) (any, []*model.ObjectRef, []*pendingObject, error) {
 	picked := pickedInCutOrder(chosen)
 
@@ -246,9 +236,8 @@ func removeAt(root any, path []any) {
 	}
 }
 
-// buildTree sizes every node bottom-up in one pass. Sizes are computed rather than measured per
-// node: json.Marshal at every position would be quadratic in the value's bytes, and the encoding
-// is exactly composable -- a map is braces plus keys, colons, commas and its children.
+// buildTree computes sizes bottom-up rather than marshalling per node, which would be quadratic;
+// the encoding composes exactly (a map is braces, keys, colons, commas and its children).
 func buildTree(v any, path []any, depth int, parent *node) (*node, error) {
 	n := &node{path: path, value: v, depth: depth, parent: parent}
 	switch t := v.(type) {

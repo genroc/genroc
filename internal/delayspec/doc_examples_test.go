@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// specs/delay-syntax.md carries the syntax reference, and a reference nobody executes rots:
-// this runs both halves (accepted spellings, rejected table) through the parser, so a
-// spelling that stops working — or one the doc forgot — fails here, not in a definition.
+// A reference nobody executes rots: both halves of the spec run through the parser here.
 const syntaxDoc = "../../specs/delay-syntax.md"
 
 // The heading that splits the file: everything above shows syntax that must parse,
@@ -62,9 +60,8 @@ func TestDocExamples_AcceptedAndRejectedSpellings(t *testing.T) {
 	}
 }
 
-// bare records that the document wrote the value without quotes — the JSON-number form,
-// which is milliseconds by definition and has no grammar to check. A *quoted* "5000" is a
-// different thing entirely, and one the reference lists as rejected.
+// bare is the unquoted JSON-number form, milliseconds with no grammar to check. A *quoted*
+// "5000" is one the reference lists as rejected.
 type slotExample struct {
 	slot, value string
 	bare        bool

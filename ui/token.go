@@ -8,19 +8,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// The two tokens genroc-ui signs, and the role map between them. Both are HS256 with the same
-// secret; they are separate because they answer different questions and want different lifetimes:
-//
-//	SESSION  {sub, groups}  hours     in an HttpOnly cookie; never sent to the server
-//	ACCESS   {sub, perms}   a minute  attached to each proxied request
-//
-// The upstream provider's ID token is used ONCE, at login, then discarded -- the point of minting
-// rather than relaying. specs/ui-issued-tokens.md §2, §4.
+// Two HS256 tokens, one secret (specs/ui-issued-tokens.md §2, §4): SESSION {sub, groups}, hours,
+// in an HttpOnly cookie and never sent to the server; ACCESS {sub, perms}, a minute, on each
+// proxied request. The provider's ID token is used once, at login, then discarded.
 
-// sessionAudience separates the two audiences so a session cookie can never be replayed as an
-// access token. Without it both are `iss: genroc-ui` HS256 tokens signed with one key, and the
-// only thing standing between a 12-hour cookie and a bearer credential is which claims someone
-// bothered to read.
+// sessionAudience keeps a 12-hour session cookie from being replayed as an access token: both
+// are `iss: genroc-ui` HS256 under one key.
 const sessionAudience = "genroc-ui-session"
 
 type signer struct {
@@ -71,9 +64,8 @@ func (s *signer) readSession(raw string) (identity, error) {
 	return identity{Subject: sub, Groups: stringList(claims["groups"])}, nil
 }
 
-// mintAccess is what the genroc server sees. It carries PERMISSIONS, already resolved, and a
-// short expiry -- so a token that escapes is worth little and nothing long-lived is ever handed
-// out. specs/ui-issued-tokens.md §2.
+// mintAccess carries resolved PERMISSIONS and a short expiry, so an escaped token is worth
+// little (specs/ui-issued-tokens.md §2).
 func (s *signer) mintAccess(id identity, perms []string) (string, error) {
 	list := make([]any, len(perms))
 	for i, p := range perms {
@@ -86,9 +78,8 @@ func (s *signer) mintAccess(id identity, perms []string) (string, error) {
 	}).SignedString(s.secret)
 }
 
-// resolve turns a person's groups into permissions -- here rather than in the genroc server
-// because the token carries the answer rather than the question. `*` applies to anyone who logged
-// in at all, and a subject entry is unioned on top for providers carrying no groups.
+// resolve maps groups to permissions. `*` applies to anyone signed in; a subject's entry is
+// unioned on top, for providers with no groups.
 func resolve(roles, users map[string][]string, id identity) []string {
 	seen := map[string]bool{}
 	var out []string

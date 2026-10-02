@@ -10,17 +10,13 @@ import (
 	"genroc/internal/model"
 )
 
-// renewChunkSize bounds how many leases a single renewal transaction touches.
-// Small chunks keep each transaction's lock set tiny, so a row locked by an
-// in-flight advance stalls only its chunk rather than every lease at once (a
-// single bulk UPDATE would block all renewals behind one contended row).
+// renewChunkSize bounds a renewal transaction's lock set, so a row locked by an in-flight
+// advance stalls only its chunk; one bulk UPDATE would block every renewal behind it.
 const renewChunkSize = 100
 
-// RenewWorkerLeases re-stamps this worker's leases on the listed instances to now+leaseDur, in
-// small chunks so an advance's row lock stalls only its chunk. An unlisted row expires with
-// worker_id intact — the hand-back path — and an empty list still runs one no-op chunk, so
-// success always proves the database was reachable. Record the instant it RETURNS, never the
-// clock after the call: the renewal can outlast the margin a staleness check leaves itself.
+// RenewWorkerLeases re-stamps this worker's leases on ids to now+leaseDur; an unlisted row expires
+// with worker_id intact (the hand-back). Success, even for no ids, proves the database reachable.
+// Record the instant it RETURNS, never the clock after: a renewal can outlast the staleness margin.
 func (db *DB) RenewWorkerLeases(workerID string, ids []string, leaseDur time.Duration) (time.Time, error) {
 	idsJSON, err := json.Marshal(ids)
 	if err != nil {
@@ -42,55 +38,39 @@ func (db *DB) RenewWorkerLeases(workerID string, ids []string, leaseDur time.Dur
 		if err != nil {
 			return time.Time{}, err
 		}
-		// Fewer than a full chunk renewed → no eligible leases remain. Renewed rows
-		// are stamped to newExpiry, so they no longer match the chunk's predicate;
-		// the eligible set shrinks each pass, guaranteeing termination.
+		// Terminates only because a renewed row (stamped newExpiry) stops matching the predicate.
 		if n < renewChunkSize {
 			return toTime(renewedAt), nil
 		}
 	}
 }
 
-// Takeover is how far back a claim may reach for rows some worker still holds: such a row is
-// claimable only if its lease expired at or before this instant (db-clock millis). A worker
-// that has just discovered it was not running passes SkipTakeover for a while. See
-// Engine.leaseGate.
-//
-// It is an instant from the caller rather than a flag resolved against this clock, and that is
-// the point: the caller pins it to evidence that ages, so a GC pause between then and here
-// delays the claim without widening what it may take. Re-reading the clock would let that
-// delay re-claim rows this worker is still advancing.
+// Takeover is the instant (db-clock ms) at or before which a held lease must have expired for a
+// claim to take it. An instant, not a flag: re-reading the clock here would let a delayed claim
+// take rows this worker is still advancing. specs/lease-fencing.md "The stale-lease gate".
 type Takeover int64
 
-// SkipTakeover claims only rows with no worker_id at all: no stamped lease can be at or
-// below zero (they are all nowMillis()+leaseDur), so the lease_expires_at branch of the
-// claim predicate never fires.
+// SkipTakeover claims only unheld rows: every stamped lease is nowMillis()+leaseDur, never <= 0.
 const SkipTakeover Takeover = 0
 
-// AllowTakeover is ordinary claiming from a caller with nothing to protect: any lease
-// expired as of now is fair game. Callers holding leases of their own must pin the cutoff
-// with TakeoverBefore instead.
+// AllowTakeover takes any lease expired as of now. A caller holding leases of its own must pin
+// the cutoff with TakeoverBefore instead.
 func AllowTakeover() Takeover { return TakeoverBefore(Now()) }
 
 // TakeoverBefore claims rows whose lease expired at or before t, alongside unheld rows.
 func TakeoverBefore(t time.Time) Takeover { return Takeover(t.UnixMilli()) }
 
-// ClaimInstances atomically leases up to limit runnable instances to workerID. PostgreSQL
-// appends FOR UPDATE SKIP LOCKED so concurrent workers never block; SQLite needs no such
-// clause. phase <> 'children' excludes parents suspended for children. The ONLY place
-// lease_epoch moves, fencing out whoever held the previous one. specs/lease-fencing.md.
+// ClaimInstances atomically leases up to limit runnable instances to workerID. It is the ONLY
+// place lease_epoch moves, fencing out the previous holder. specs/lease-fencing.md.
 func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int, takeover Takeover) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
 
-	// The takeover mode is a bound value, not a second query: the SQL text, its placeholder
-	// count and its plan stay identical whatever the cutoff — the partial runnable index is
-	// walked exactly as before, just with a more selective filter.
+	// A bound value, not a second query: the SQL text and plan stay identical whatever the cutoff.
 	leaseCutoff := int64(takeover)
 
 	ctx := context.Background()
 
-	// The two `?` are now (timer) and leaseCutoff (pinned by the caller — see Takeover).
 	// The wake_at IS NULL branch excludes 'external': a no-timeout wait is the resolve API's.
 	// This list and migration 045's partial index are one predicate written twice -- a status
 	// in one but not the other is either never scanned or pure index churn.
@@ -102,8 +82,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 			  AND (worker_id IS NULL OR lease_expires_at <= ?)`
 
 	if db.dialect == "postgres" {
-		// One statement: a CTE captures the prior worker_id (to flag lease takeovers)
-		// and FOR UPDATE SKIP LOCKED lets concurrent workers avoid blocking.
+		// The CTE keeps the prior worker_id: it is the ReclaimedExpired evidence.
 		query := `
 			WITH cand AS (
 				SELECT id AS cand_id, worker_id AS prev_worker
@@ -119,10 +98,8 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 			WHERE process_instances.id = cand.cand_id
 			RETURNING ` + instanceColumns + `, cand.prev_worker`
 
-		// In a transaction rather than autocommit: autocommit would take the session's
-		// synchronous_commit and the durability level could never reach this write. A claim
-		// is ordinary progress -- what makes it evidence is the only_once bracket, which
-		// flushes around the execute (specs/durability-levels.md s4).
+		// Not autocommit, which takes the session's synchronous_commit and so would put this
+		// write out of the durability level's reach (specs/durability-levels.md s4).
 		tx, _, raw, err := db.beginTxAt(ctx, syncStrict, nil)
 		if err != nil {
 			return nil, err
@@ -155,9 +132,8 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 		return result, tx.Commit()
 	}
 
-	// SQLite can't reference a FROM table in RETURNING, so it selects-then-updates
-	// in one transaction. Its single-writer model makes that atomic (no FOR UPDATE);
-	// the selected worker_id is the prior owner, before we overwrite it.
+	// SQLite cannot reference a FROM table in RETURNING, so select-then-update; its single writer
+	// makes that atomic.
 	tx, qtx, raw, err := db.beginTxAt(ctx, syncStrict, nil)
 	if err != nil {
 		return nil, err

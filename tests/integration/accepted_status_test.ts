@@ -1,10 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// accepted_status is a shape evaluating to an array of HTTP status patterns. A status it
-// covers is treated as success; anything else stays an http.NNN error. It can be authored
-// as a literal array or as a $: expression resolved per request (the "ease the validation"
-// change: it is no longer a statically pattern-checked []string).
+// accepted_status is a shape yielding HTTP status patterns: a literal array or a $: expression
+// resolved per request.
 
 function fetchDef(name: string, url: string, acceptedStatus?: unknown) {
   const action: Record<string, unknown> = { type: "fetch", method: "post", url };

@@ -1,9 +1,7 @@
 package db
 
-// SQLite's durability lives on the connection, not the transaction, so a relaxed write has
-// to put it back. Nothing else would notice if it did not: the next unpinned write would
-// simply commit at the wrong level, silently and forever.
-// specs/durability-levels.md §5.
+// SQLite's durability lives on the connection, so a relaxed write must restore it or the next
+// unpinned write silently commits at the wrong level. specs/durability-levels.md §5.
 
 import (
 	"path/filepath"

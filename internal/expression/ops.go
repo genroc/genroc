@@ -15,10 +15,8 @@ import (
 // (schema.Schema.Infer) returns, so both halves report the same error type.
 type ErrUnsupported = schema.ErrUnsupported
 
-// binaryOps maps each binary operator to its runtime evaluation. The
-// type-inference halves live in the schema package (inferBinaryOps); the two
-// must accept the same operator set. The short-circuit operators ??, && and ||
-// are absent here — evalBinary handles them before the table lookup.
+// binaryOps must accept the same operator set as schema's inferBinaryOps; ??, && and || are
+// absent because evalBinary short-circuits them before the lookup.
 var binaryOps = map[string]func(left, right any) (any, error){
 	"==": func(l, r any) (any, error) { return equalValues(l, r) },
 	"!=": func(l, r any) (any, error) {
@@ -36,15 +34,12 @@ var binaryOps = map[string]func(left, right any) (any, error){
 	"%":  evalMod,
 }
 
-// Arithmetic is exact base-10, never float64 (0.1+0.2, ids past 2^53). divisionPrecision
-// is the ONE place arithmetic rounds: 34 significant digits (decimal128). Why a constant
-// rather than a setting: the numeric package doc, the single home of that policy.
+// divisionPrecision is the ONE place arithmetic rounds (decimal128). A constant, not a setting:
+// see the numeric package doc.
 const divisionPrecision = 34
 
-// modGuardDigits pads the context Rem is given. Rem computes through an integer
-// quotient, so it needs room for the quotient's digits — at a fixed 34 it failed
-// outright ("division impossible") on operands longer than that, which large ids
-// reach. See modContextFor.
+// modGuardDigits pads Rem's context for its integer quotient: at a fixed 34 it failed ("division
+// impossible") on operands as long as large ids. See modContextFor.
 const modGuardDigits = 4
 
 // exactCtx never rounds, so + - * are exact; growth inside one expression is linear, but
@@ -55,10 +50,8 @@ var (
 	divCtx   = apd.BaseContext.WithPrecision(divisionPrecision)
 )
 
-// modContextFor sizes a context to the operands of %. Unlike division, a remainder
-// is always smaller than the divisor, so there is nothing to round — the precision
-// only has to be large enough to carry the intermediate quotient. Precision 0 does
-// not work here: apd refuses Rem outright without a finite precision.
+// modContextFor sizes % to its operands: a remainder never rounds, but the intermediate quotient
+// needs room, and apd refuses Rem at precision 0.
 func modContextFor(x, y *apd.Decimal) *apd.Context {
 	digits := x.NumDigits()
 	if d := y.NumDigits(); d > digits {
@@ -77,13 +70,8 @@ func bothDecimal(l, r any) (*apd.Decimal, *apd.Decimal, bool) {
 	return x, y, xok && yok
 }
 
-// decimalResult renders a computed decimal as the json.Number that is this
-// language's canonical numeric value: it marshals as a bare JSON number and
-// round-trips through storage without ever touching float64.
 func decimalResult(d *apd.Decimal) (any, error) {
-	// A looping task re-feeds its output, so `x * x` doubles digits per tick; unbounded, that
-	// ran to apd's exponent limit (~55k digits) AFTER externalizing the value, with a message
-	// explaining nothing. The bound errors early, naming the cause.
+	// Here, before the value is externalized, so the error names the cause.
 	if numeric.ExceedsMaxDigits(d) {
 		return nil, fmt.Errorf("number has %d digits, over the %d-digit limit; a task that multiplies its own previous output grows exponentially across iterations",
 			d.NumDigits(), numeric.MaxDigits)

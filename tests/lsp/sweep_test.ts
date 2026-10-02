@@ -1,10 +1,7 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { Lsp, orders, useWorkspace, type Cursor } from "./helpers.ts";
 
-// Every other file here picks positions by hand, and every bug reported from a real editor has
-// been at a position nobody picked — `input_schema:`, a `case`, a `goto`. This one puts the
-// cursor at EVERY column of every line and asserts what must never happen, rather than what
-// each place should say.
+// EVERY column of every line, asserting what must never happen rather than what each place says.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -26,9 +23,7 @@ function everyPosition(): Cursor[] {
   return out;
 }
 
-// The KIND is what makes this exact. A name list cannot work: `headers` is a definition key on
-// a fetch AND a member of that fetch's `self.result`, and a user's own schema may name a field
-// anything at all. What can never be ambiguous is which QUESTION the server answered.
+// By KIND, not name: `headers` is both a fetch key and a member of its `self.result`.
 const FIELD = 5; // a member of the scope
 const PROPERTY = 10; // a key of the definition language
 const VALUE = 12; // one of a closed set, like a task a `goto` may name
@@ -50,9 +45,6 @@ function insideRouting(text: string, character: number): boolean {
   return m !== null && character >= m[0].length;
 }
 
-// Answering with keys inside an expression is the shape of every bug reported from an editor
-// so far: a `case`, a `goto`, an interpolation. The server had read the cursor as sitting on a
-// key, and the clause's own siblings came back.
 test("inside an expression, only the scope is offered", async () => {
   const wrong: string[] = [];
   for (const cursor of everyPosition()) {
@@ -81,9 +73,7 @@ test("inside a routing value, only tasks and the routing words are offered", asy
   expect(wrong).toEqual([]);
 }, 120_000);
 
-// The root's keys are the answer only at column 1, which is where a root key would go. Anywhere
-// else they are the shape of "the server fell back to the outermost thing containing this
-// position" — which is what `input_schema:` answered with.
+// Root keys anywhere else mean the server fell back to the outermost node.
 test("the document's own keys are offered only at column 1", async () => {
   const wrong: string[] = [];
   for (const cursor of everyPosition()) {
@@ -99,8 +89,6 @@ test("the document's own keys are offered only at column 1", async () => {
   expect(wrong).toEqual([]);
 }, 120_000);
 
-// A diagnostic that covers the file says nothing about where to look. Every rule that reports
-// prose rather than a path used to land there.
 test("no diagnostic covers the whole document", async () => {
   const broken = {
     uri: orders.uri,
@@ -113,13 +101,8 @@ test("no diagnostic covers the whole document", async () => {
   }
 }, 60_000);
 
-// The sweeps above cover every position in a document that is FINISHED. The bug that started
-// this file needed one that is not: a line pressed open and not yet typed.
-//
-// The check is DIFFERENTIAL, because an absolute one needs a list of which mappings have keys
-// to offer and which are open maps of the author's own names — a list that would rot. Pressing
-// Enter adds no key and removes none, so the answer on the new blank line must be the answer
-// on a sibling that is already there.
+// DIFFERENTIAL: Enter adds no key and removes none, so a new blank line must answer as an existing
+// sibling does. An absolute list of which mappings offer keys would rot.
 test("pressing Enter inside a mapping answers as its siblings do", async () => {
   const original = lines();
   const wrong: string[] = [];
@@ -155,10 +138,8 @@ test("pressing Enter inside a mapping answers as its siblings do", async () => {
   expect(wrong).toEqual([]);
 }, 120_000);
 
-// The gap a list dash leaves before its first key is writing that element's keys, but nothing
-// in the document tree covers it — the sequence does, and a sequence has no keys of its own.
-// Past the end of a line is NOT checked here: a flow value like `{ type: string }` ends there,
-// so the cursor is inside it, and the root-keys sweep above already guards that position.
+// No tree node covers the gap after a dash but the sequence, which has no keys. Past the end of a
+// line is left to the root-keys sweep: a flow value like `{ type: string }` ends there.
 test("the gap after a list dash answers as the key beside it does", async () => {
   const wrong: string[] = [];
   for (const [i, text] of lines().entries()) {
@@ -181,8 +162,7 @@ test("the gap after a list dash answers as the key beside it does", async () => 
   expect(wrong).toEqual([]);
 }, 120_000);
 
-// An item offered where a token is half-typed must REPLACE it. `$` is not a word character, so
-// an editor given no range inserts beside it — which is how `goto: $` became `$$tick`.
+// `$` is not a word character, so an editor given no range inserts beside it: `$$tick`.
 test("every value completion replaces what is already typed", async () => {
   const wrong: string[] = [];
   for (const cursor of everyPosition()) {
@@ -209,8 +189,7 @@ test("every value completion replaces what is already typed", async () => {
   expect(wrong).toEqual([]);
 }, 120_000);
 
-// A routing slot with nothing written yet is where help is wanted most, and its empty value
-// has a zero-width node — so the cursor past it lands on whatever encloses it.
+// An empty value has a zero-width node, so the cursor past it lands on whatever encloses it.
 test("a routing slot emptied of its value still offers what it may name", async () => {
   const wrong: string[] = [];
   for (const [i, text] of lines().entries()) {

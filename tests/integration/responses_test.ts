@@ -1,11 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// What the 2xx default does once `responses` says something — the rule that applies when a
-// task declares NO accepted_status. Asserted end to end because the runtime and inference
-// have to agree about it, and they once did not: the engine kept accepting any 2xx while
-// inference read the declared set, so an undeclared 2xx body reached self.result unvalidated,
-// typed as something it had never been checked against.
+// The 2xx default when `responses` declares something and accepted_status is absent. End to end,
+// because the runtime and inference must agree on it.
 const CLAUSES = [
   {
     name: "nothing declared — any 2xx succeeds, and no result is stored",
@@ -86,8 +83,6 @@ for (const c of CLAUSES) {
   });
 }
 
-// The declared bodyless status is a value, not a parse failure — the bug the feature began
-// from, where a 202 carrying no body was accepted and then failed to decode.
 test("responses — a bodyless 2xx reaches the definition as null", async () => {
   const svc = await startMockService(0, { statusCode: 202 });
   const name = `bodyless_${crypto.randomUUID()}`;
@@ -124,9 +119,7 @@ test("responses — a bodyless 2xx reaches the definition as null", async () => 
   svc.stop();
 });
 
-// Only 2xx declarations influence the automatic accepted set, so declaring an error status
-// alone leaves it at the 2xx default — the 404 stays an error, and stays typed. This is the
-// shape for an endpoint whose success body you do not care about but whose failures you do.
+// Only 2xx declarations influence the automatic accepted set.
 test("responses — a lone error declaration types the failure without accepting it", async () => {
   const svc = await startMockService(0, {
     statusCode: 404,

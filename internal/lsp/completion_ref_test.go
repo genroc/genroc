@@ -8,10 +8,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// A task whose `output` is a bare nullable expression — `$: self.result[0]` — publishes an
-// output def that is itself `null | object`. Downstream, `outputs.<task>` is a `$ref` AT that
-// nullable, not a `$ref` beside a null. A plain StripNull leaves such a ref untouched, so the
-// resolve below lands on the nullable and the object offers no members at all.
+// A bare nullable output (`$: self.result[0]`) makes `outputs.<task>` a `$ref` AT a nullable, not
+// a ref beside a null — which a plain StripNull leaves untouched.
 func TestMembersThroughARefToANullableObject(t *testing.T) {
 	raw, err := schema.Parse([]byte(`{
 		"$defs": {"a_output": {"oneOf": [

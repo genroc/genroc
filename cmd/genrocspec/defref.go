@@ -1,8 +1,7 @@
 package main
 
-// The definition-language reference, generated from the JSON Schema internal/defschema already
-// projects the language into. The `description:` struct tags behind it are maintained prose that
-// until now only an editor's completion popup ever showed. specs/docs-site.md.
+// The definition-language reference, generated from internal/defschema's JSON Schema and
+// so from the `description:` struct tags. specs/docs-site.md.
 
 import (
 	"encoding/json"
@@ -188,10 +187,8 @@ func fieldsOf(schema jsonSchema) []defField {
 	return out
 }
 
-// armsOf renders a union as its alternative forms. The description on each arm is the only
-// place the shorthand is explained — the union itself carries none. An arm whose shape is an
-// object contributes that shape too: `retry`'s long form IS its four slots, and naming the arm
-// `object` tells a reader nothing they did not already know from the colon.
+// armsOf renders a union's forms; each arm's description is the only place the shorthand is
+// explained. An object arm contributes its shape, since naming it `object` says nothing.
 func armsOf(schema jsonSchema) []defArm {
 	var raw []any
 	for _, key := range []string{"oneOf", "anyOf"} {
@@ -216,9 +213,8 @@ func armsOf(schema jsonSchema) []defArm {
 	return out
 }
 
-// typeName renders a schema fragment as the type an author would say out loud. `null` is
-// dropped from a union: in this language a nullable slot is an optional one, and "string or
-// null" describes the encoding rather than the choice being offered.
+// typeName drops `null` from a union: a nullable slot is an optional one, and "string or
+// null" describes the encoding rather than the choice.
 func typeName(p jsonSchema) string {
 	if ref, ok := p["$ref"].(string); ok {
 		name := ref[strings.LastIndex(ref, "/")+1:]
@@ -365,10 +361,8 @@ func cell(s string) string {
 	return strings.ReplaceAll(escapeProse(s), "|", `\|`)
 }
 
-// writeConfigReference renders `.genroc`, the project file genctl reads when no -f is given.
-// It shares this file's machinery because it is the same job on a second schema, and it is
-// filed under Configuration rather than beside the language: `.genroc` configures the tooling,
-// and nothing in it reaches a definition.
+// writeConfigReference renders `.genroc` under Configuration, not beside the language: it
+// configures the tooling, and nothing in it reaches a definition.
 func writeConfigReference(dir string) error {
 	var root jsonSchema
 	if err := json.Unmarshal(defschema.Config(), &root); err != nil {

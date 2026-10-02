@@ -2,9 +2,8 @@ import { expect, test } from "vitest";
 import { client, rootClient } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// /healthz is what a container supervisor probes. Its contract is narrow on purpose: 200
-// means this worker reached its database, and the rest of the body is operator context
-// that must never turn a working worker into a failing probe.
+// 200 means this worker reached its database; the rest of the body is operator context and must
+// never fail a working worker's probe.
 
 test("health — a worker that can reach its database answers 200 ok", async () => {
   const { data, error } = await rootClient.GET("/healthz");

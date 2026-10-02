@@ -21,9 +21,8 @@ func delayDef(slot, valueJSON string) string {
 	}`
 }
 
-// A delay slot's accepted type depends on how it is written, and that split is decided
-// syntactically before inference runs: a pure literal parses against the delayspec
-// grammar, a $: leaf must infer to a number, and a ${ } interpolation is rejected.
+// Decided syntactically before inference: a literal parses against delayspec, a $: leaf must
+// infer to a number, and ${ } is refused.
 func TestGenerate_DelaySlots_Accepted(t *testing.T) {
 	for _, tc := range []struct{ slot, value string }{
 		// Literals, parsed at registration.
@@ -99,9 +98,8 @@ func TestGenerate_DelaySlots_RejectsInterpolationByName(t *testing.T) {
 	}
 }
 
-// timeoutDef builds a one-task definition carrying the given raw JSON timeout. The action
-// is external, the one type that accepts both slots, so the grammar can be exercised
-// without the action-type rules (tested in internal/model) getting in the way.
+// External is the one action type taking both slots, so the grammar is exercised without the
+// action-type rules (tested in internal/model).
 func timeoutDef(valueJSON string) string {
 	return `{
 		"name": "timeout-slots",
@@ -178,10 +176,8 @@ func TestGenerate_TimeoutSlots_ErrorNamesTheTimeout(t *testing.T) {
 	}
 }
 
-// A delay waits and hands nothing back, so `self.result` is not a thing to read there. It used
-// to type as `null`, which put a slot in scope that could only ever be null: reading it in a
-// switch answered "comparison requires non-nullable operands", sending the author to `?? 0`
-// instead of to the reference that cannot work. Reported from an editor.
+// Not `null`: an always-null self.result sends the author to `?? 0` instead of to the reference
+// that cannot work.
 func TestGenerate_DelayHasNoResult(t *testing.T) {
 	for _, tc := range []struct{ name, def string }{
 		{"in a switch", `{
@@ -208,9 +204,7 @@ func TestGenerate_DelayHasNoResult(t *testing.T) {
 	}
 }
 
-// The other half of the same rule, and the half a reader SEES: the scope an expression is
-// written against. `self.result` used to be listed there for a delay, typed null — which is
-// what a hover reported and what completion offered.
+// The half a reader SEES: the scope hover and completion read must not list self.result either.
 func TestSlotContexts_ADelaySelfHasNoResult(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(`{"name":"d","tasks":[{"id":"wait",

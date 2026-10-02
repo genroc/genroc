@@ -1,10 +1,8 @@
 package lsp
 
-// Semantic tokens: which scalars in a definition actually compute, and what is inside them -- the
-// half a TextMate grammar cannot do, since whether a scalar evaluates depends on WHICH SLOT holds
-// it. The insides come from the language's own lexer (`syntax.Tokens`) and the marker positions
-// from the template scanner (`template.Scan`), so nothing here re-derives a rule.
-// specs/language-server.md §6.
+// Semantic tokens: which scalars compute -- a grammar cannot tell, since that depends on the SLOT
+// -- and what is inside them, from `syntax.Tokens` and `template.Scan` so nothing here re-derives
+// a rule. specs/language-server.md §6.
 
 import (
 	"sort"
@@ -78,9 +76,8 @@ func tokensAt(doc *defdoc.Doc, lines []string, contexts map[string]schema.Schema
 	if !ok {
 		return nil
 	}
-	// One line only. A block scalar's expression would need the span mapped through YAML's
-	// folding rules, which is a second grammar to keep true for a form nobody writes an
-	// expression in.
+	// One line only: a block scalar would need YAML's folding rules, a second grammar for a form
+	// nobody writes an expression in.
 	if span.Value.Line != span.Value.EndLine {
 		return nil
 	}
@@ -142,10 +139,8 @@ func isExpressionSlot(contexts map[string]schema.Schema, path string) bool {
 	return !literalKeys[seg[len(seg)-1]]
 }
 
-// The keys whose VALUE is a user schema rather than anything the engine evaluates. A declared
-// slot schema belongs here for the same reason `result_schema` does, and the symptom of
-// missing one is silent: its `default` would be lexed as a template and painted as one.
-// specs/declared-slot-schemas.md.
+// The keys whose VALUE is a user schema, never evaluated. Missing one is silent: its `default`
+// is lexed and painted as a template. specs/declared-slot-schemas.md.
 var userSchemaKeys = map[string]bool{
 	"result_schema": true, "responses": true,
 	"input_schema": true, "body_schema": true, "query_schema": true, "output_schema": true,
@@ -181,9 +176,8 @@ func exprTokens(raw string, base int, lines []string, line int, body template.Sp
 	src := raw[body.From:body.To]
 	lexed := syntax.Tokens(src)
 	if len(lexed) == 0 && strings.TrimSpace(src) != "" {
-		// A body the lexer refuses — a YAML-escaped quote inside it, or half a word being
-		// typed. One token over the whole thing still says "this computes", which is the
-		// part worth keeping.
+		// A body the lexer refuses (an escaped quote, a half-typed word) still gets one token:
+		// it computes.
 		return append(out, tokenAt(lines, line, base+body.From, base+body.To, typeVariable))
 	}
 	for i, t := range lexed {
@@ -236,9 +230,8 @@ func peek(toks []syntax.Token, i int) (syntax.Token, bool) {
 	return toks[i], true
 }
 
-// scalarSource returns a value's text as WRITTEN and the byte column it starts at. Raw, not
-// decoded: a column is what the protocol hands back, and mapping one through YAML's escaping
-// would be a second grammar to keep true.
+// scalarSource returns a value's text as WRITTEN and the byte column it starts at -- raw, since
+// mapping a column through YAML's escaping would be a second grammar to keep true.
 func scalarSource(lines []string, r defdoc.Range) (string, int, bool) {
 	i := r.Line - 1
 	if i < 0 || i >= len(lines) {
@@ -260,16 +253,15 @@ func unquote(raw string) (string, int) {
 	return raw, 0
 }
 
-// at converts a byte range on one line into a protocol token.
+// tokenAt converts a byte range on one line into a protocol token.
 func tokenAt(lines []string, line, fromByte, toByte, kind int) token {
 	start := utf16Column(lines[line-1], fromByte+1)
 	end := utf16Column(lines[line-1], toByte+1)
 	return token{line: line - 1, start: start, length: end - start, kind: kind}
 }
 
-// encode sorts and delta-encodes. The protocol requires ascending order and expresses each
-// position relative to the token before it, so an unsorted list is not merely ugly — it paints
-// the wrong ranges.
+// encode sorts and delta-encodes: each position is relative to the token before it, so an
+// unsorted list paints the wrong ranges.
 func encode(toks []token) []uint32 {
 	out := make([]uint32, 0, len(toks)*5)
 	sort.SliceStable(toks, func(a, b int) bool {

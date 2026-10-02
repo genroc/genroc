@@ -929,10 +929,8 @@ func TestEdgeEveryPrefixIsHandled(t *testing.T) {
 // Error quality
 // -----------------------------------------------------------------------------
 
-// The point of owning the parser is that a registration error quotes the
-// expression the author wrote. Assert the source appears verbatim on its own
-// line, with no rewriting (the `let` translation used by the conformance oracle
-// must never leak) and no truncation.
+// Verbatim on its own line: no rewriting (the oracle's `let` translation must never leak), no
+// truncation.
 func TestEdgeErrorQuotesOriginalSource(t *testing.T) {
 	cases := []struct{ name, in string }{
 		{"missing_object_value_in_lambda", `map(input.rows, r => {sku: r.code, qty: })`},

@@ -1,10 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// A fetch answers with more than a body. self.status and self.headers are siblings of
-// self.result — the body keeps its meaning, nothing is re-wrapped — and they are what let a
-// definition branch on which status arrived instead of routing a healthy 202 through
-// on_error as a failure.
+// self.status and self.headers sit beside self.result, so a definition can branch on a healthy 202
+// instead of routing it through on_error.
 test("self.status / self.headers — readable beside the body", async () => {
   const svc = await startMockService(0, { statusCode: 202, response: { job: "j-1" } });
 

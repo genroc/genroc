@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// Scan is Parse's scanner with offsets kept, so the two must find the same expressions in the
-// same order. Nothing else notices when one learns a rule the other does not — the marker set,
-// the $$ escape, the shortest-body-that-parses terminator.
+// Nothing else notices when Scan or Parse learns a rule the other does not: the marker set,
+// the $$ escape, the terminator.
 func TestScanAgreesWithParse(t *testing.T) {
 	sources := []string{
 		`$: input.who`,
@@ -29,9 +28,7 @@ func TestScanAgreesWithParse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", src, err)
 		}
-		// Compared trimmed: Parse hands `${ x }`'s body to the lexer with its padding still
-		// on, Scan reports the tight span a marker has to be drawn over. The expressions are
-		// the same; only the whitespace around them differs.
+		// Compared trimmed: Parse keeps a body's padding, Scan reports the tight span.
 		want := []string{}
 		for _, c := range tmpl.chunks {
 			if c.node != nil {

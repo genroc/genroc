@@ -5,13 +5,11 @@ import (
 	"testing"
 )
 
-// The process output is typed once per TERMINAL PATH and joined, not once against a context that
-// already intersected the must-sets — the intersection is what lost the correlation, so
-// `outputs.a.v ?? outputs.b.v` was nullable even though exactly one is always set.
+// The process output is typed per TERMINAL PATH and joined: intersecting the must-sets loses the
+// correlation, reading `outputs.a.v ?? outputs.b.v` nullable though one is always set.
 
-// twoWayDef is the canonical shape: `a` succeeds and ends, or routes to `b` on error and
-// `b` ends. Exactly one of the two outputs exists at the boundary, never both, never
-// neither. outExpr is the process output expression under test.
+// twoWayDef: `a` ends, or routes to `b` on error and `b` ends — exactly one output exists at
+// the boundary. outExpr is the process output expression.
 func twoWayDef(outExpr string) string {
 	return `{
 		"name": "two_way",
@@ -98,9 +96,8 @@ func TestPathSensitive_UncoveredTerminalKeepsItNullable(t *testing.T) {
 }
 
 func TestPathSensitive_GenuinelyNullableOutputStaysNullable(t *testing.T) {
-	// Coverage says an output is PRESENT, not that it is non-null. If a branch can itself
-	// produce null, `??` falls through to the other side — which is absent on that
-	// terminal — so the result is nullable and must be typed that way.
+	// Coverage means PRESENT, not non-null: a null branch falls through to the side absent on its
+	// terminal.
 	def := `{
 		"name": "nullable_branch",
 		"tasks": [
@@ -179,9 +176,8 @@ func TestPathSensitive_ErrorEndTerminalCounts(t *testing.T) {
 }
 
 func TestPathSensitive_ReferenceToATaskNoPathProducesIsStillAnError(t *testing.T) {
-	// Absent-on-this-terminal is typed null so `??` can fall through. That must NOT
-	// degrade into "any unknown task id reads as null" — a reference nothing can produce
-	// has to stay an error, or a typo becomes a silent null.
+	// Absent-on-this-terminal types null, but a reference nothing can produce must stay an error,
+	// or a typo becomes a silent null.
 	err := runGenerateErr(t, twoWayDef(`"$: outputs.nosuch.v ?? outputs.a.v"`))
 	if err == nil {
 		t.Fatal("a reference to a task no terminal produces must stay an error, not read as null")
@@ -228,9 +224,8 @@ func TestPathSensitive_ErrorOnEveryTerminalKeepsItsPlainMessage(t *testing.T) {
 }
 
 func TestPathSensitive_PathSpecificErrorNamesThePath(t *testing.T) {
-	// `b.v` is a string, `a.v` a boolean. Comparing a.v to a string fails only on b's
-	// terminal, where a.v is null. Naming the path is the difference between a usable
-	// message and a baffling one.
+	// Comparing a.v to a string fails only on b's terminal, where a.v is null; the message must
+	// name that path.
 	def := `{
 		"name": "path_specific",
 		"tasks": [
@@ -259,10 +254,8 @@ func TestPathSensitive_PathSpecificErrorNamesThePath(t *testing.T) {
 }
 
 func TestPathSensitive_TaskContextsAreStillCollapsed(t *testing.T) {
-	// Documents the deliberate limit. Mid-process contexts come from a fixpoint whose
-	// lattice element is ONE must-set; making them path-sensitive needs a DNF lattice and
-	// is deferred (see specs/path-sensitive-output.md). Inside `c`, the same coalesce that
-	// is non-null at the output boundary is still nullable here.
+	// The deliberate limit: mid-process contexts are ONE must-set, so inside `c` the coalesce is
+	// still nullable. specs/path-sensitive-output.md.
 	def := `{
 		"name": "task_ctx",
 		"tasks": [

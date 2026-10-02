@@ -11,9 +11,7 @@ import (
 	"genroc/internal/model"
 )
 
-// TestCancelProcess_LeasedVersusParked: cancel splits its tree exactly as pause does -- a row a
-// worker is inside can only be ASKED to stop, everything else settles now. The split is the
-// same one for the same reason, so a divergence here is a bug in whichever moved.
+// The same split as pause, for the same reason: a divergence is a bug in whichever moved.
 func TestCancelProcess_LeasedVersusParked(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -38,9 +36,8 @@ func TestCancelProcess_LeasedVersusParked(t *testing.T) {
 	}
 }
 
-// TestCancelProcess_TakesAPausedTree is the reason cancel exists: a paused tree is live work
-// that nothing else can dispose of, so a selector inherited from pause ('running' only) would
-// leave exactly the rows an operator is trying to get rid of.
+// A paused tree is live work only cancel can dispose of; pause's 'running'-only selector would
+// leave exactly those rows.
 func TestCancelProcess_TakesAPausedTree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -66,8 +63,7 @@ func TestCancelProcess_TakesAPausedTree(t *testing.T) {
 	}
 }
 
-// TestCancelProcess_LeavesTerminalRowsAlone: a finished process stays finished. Overwriting a
-// completed child with 'cancelled' would rewrite history -- the work really did happen.
+// A finished process stays finished: the completed work really did happen.
 func TestCancelProcess_LeavesTerminalRowsAlone(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -88,10 +84,8 @@ func TestCancelProcess_LeavesTerminalRowsAlone(t *testing.T) {
 	}
 }
 
-// TestCancelProcess_ReportsADrainingTree: the second cancel selects nothing (the rows are
-// 'cancelling', not live), and reporting `unchanged` there would tell an operator the tree had
-// stopped while a worker was still inside a task. CountDrainingInTree must count cancel's own
-// draining state -- counting pause's would answer about the wrong verb.
+// CountDrainingInTree must count cancel's own draining state; pause's would answer about the
+// wrong verb.
 func TestCancelProcess_ReportsADrainingTree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -116,8 +110,7 @@ func TestCancelProcess_ReportsADrainingTree(t *testing.T) {
 	}
 }
 
-// TestCancelProcess_SettledTreeIsUnchanged: an assertion, so re-running a group of ids
-// converges instead of failing on the ones that already stopped. specs/id-list-commands.md.
+// An assertion, so re-running a group of ids converges. specs/id-list-commands.md.
 func TestCancelProcess_SettledTreeIsUnchanged(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -133,8 +126,7 @@ func TestCancelProcess_SettledTreeIsUnchanged(t *testing.T) {
 	}
 }
 
-// TestCancelProcess_NonRootRejected: root-only, like every other tree verb -- inTree matches on
-// root_id, so a descendant id would silently select nothing rather than cancel a subtree.
+// inTree matches root_id, so a descendant id would silently select nothing.
 func TestCancelProcess_NonRootRejected(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -155,9 +147,8 @@ func TestCancelProcess_NonRootRejected(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_RefusesCancelled is the whole point of cancel being its own status: retry
-// revives a tree whose DEFINITION ran out of attempts, and an operator's stop was never an
-// attempt. Reviving one would restore the merged verb migration 022 removed.
+// Retry revives a tree whose DEFINITION ran out of attempts; an operator's stop was never an
+// attempt.
 func TestRetryProcess_RefusesCancelled(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -179,10 +170,8 @@ func TestRetryProcess_RefusesCancelled(t *testing.T) {
 	}
 }
 
-// TestRenewExternalClaims_ReportsCancelled: the heartbeat is the ONLY channel that reaches a
-// running worker, so a cancelled claim has to come back named. It must also not be renewed --
-// extending a lease on work nobody wants holds the claim open until the worker notices some
-// other way.
+// The heartbeat is the ONLY channel to a running worker, and a cancelled claim must not be
+// renewed.
 func TestRenewExternalClaims_ReportsCancelled(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -232,8 +221,7 @@ func TestRenewExternalClaims_ReportsCancelled(t *testing.T) {
 	}
 }
 
-// TestResolveExternalTask_RefusedAfterCancel: the worker may already be mid-answer when the
-// cancel lands, and taking it would write an outcome to a terminal row nobody will read.
+// The worker may be mid-answer when the cancel lands; taking it writes to a row nobody reads.
 func TestResolveExternalTask_RefusedAfterCancel(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -256,10 +244,8 @@ func TestResolveExternalTask_RefusedAfterCancel(t *testing.T) {
 	}
 }
 
-// TestUpdateInstance_LandsPendingCancel: a worker mid-task cannot know a cancel arrived after
-// its claim, so 'cancelling' -> 'cancelled' has to happen in the lease-releasing write itself.
-// This is the silent one -- without the CASE the row sits in 'cancelling' until something
-// reclaims it, and a parked row is never reclaimed at all.
+// The silent one: without the CASE the row sits in 'cancelling' until a reclaim, and a parked
+// row is never reclaimed.
 func TestUpdateInstance_LandsPendingCancel(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -302,9 +288,8 @@ func TestUpdateInstance_LandsPendingCancel(t *testing.T) {
 	}
 }
 
-// TestUpdateInstanceProgress_LandsPendingCancel: the checkpoint write is also the one that
-// PARKS an instance on a delay or an external task, so a cancel that does not land here would
-// leave 'cancelling' on a row no later claim can settle.
+// The checkpoint also PARKS on a delay or external task, so a cancel not landing here leaves
+// 'cancelling' on a row no later claim can settle.
 func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -324,10 +309,8 @@ func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelled {
 				t.Errorf("held: expected cancelled, got %q", got)
 			}
-			// The write that lands the cancel is also the one that PARKS the instance, and the
-			// park survives: a cancel abandons a wait rather than ending one. It is load-bearing
-			// as well as honest -- ReleaseExternalClaim finds a claim by phase='external',
-			// and releasing is exactly what the heartbeat tells a cancelled worker to do.
+			// The park survives the landing write: ReleaseExternalClaim finds a claim by
+			// phase='external', and releasing is what the heartbeat tells a cancelled worker.
 			after, err := b.db.GetInstance("held")
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
@@ -339,11 +322,8 @@ func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 	}
 }
 
-// TestCancelStatesAreClaimableOrNot is migration 045 stated as behaviour: 'cancelling' must
-// stay claimable and 'cancelled' must not. The asymmetry is not tidiness -- a draining row is
-// LEASED, so a worker that dies holding one leaves it settleable only by a reclaim, and a row
-// outside the runnable index is never scanned. Terminal rows must stay out for the opposite
-// reason: nothing may advance a stopped process.
+// Migration 045 as behaviour: a draining row is LEASED, so a dead holder's row settles only by a
+// reclaim; a terminal row must never advance.
 func TestCancelStatesAreClaimableOrNot(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -377,11 +357,8 @@ func TestCancelStatesAreClaimableOrNot(t *testing.T) {
 	}
 }
 
-// TestCancelOverAPendingPause: the two verbs can be in flight at once on the same leased row,
-// and the landing CASE checks 'pausing' before 'cancelling'. A cancel issued while a pause is
-// still draining must win -- it is the later and more final decision, and landing the row in
-// 'paused' instead would leave an operator who asked to stop it with a tree they must now
-// resume to get rid of.
+// The landing CASE checks 'pausing' before 'cancelling'; the later, more final cancel must win,
+// or an operator who asked to stop the tree must resume it to get rid of it.
 func TestCancelOverAPendingPause(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -415,9 +392,7 @@ func TestCancelOverAPendingPause(t *testing.T) {
 	}
 }
 
-// TestPauseDoesNotReopenACancelledTree is the same precedence from the other side: pause
-// selects 'running' only, so a cancelled tree is reported unchanged rather than revived. A
-// pause that took it would hand back a way out of a stop that is meant to have none.
+// Pause selects 'running' only, so a cancelled tree is unchanged: a stop has no way out.
 func TestPauseDoesNotReopenACancelledTree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -439,10 +414,8 @@ func TestPauseDoesNotReopenACancelledTree(t *testing.T) {
 	}
 }
 
-// TestCancelledRowKeepsItsPark: cancel writes the status column and nothing else, exactly as
-// pause does -- the machinery is shared, so a divergence here is a bug in whichever moved.
-// Preserving is not cosmetic: ReleaseExternalClaim finds a claim by phase='external', so
-// a cleared park would make the release the heartbeat asks a cancelled worker for impossible.
+// Cancel writes status only, as pause does. ReleaseExternalClaim finds a claim by
+// phase='external', so a cleared park would make a cancelled worker's release impossible.
 func TestCancelledRowKeepsItsPark(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

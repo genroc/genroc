@@ -1,15 +1,5 @@
-# One batch, two children in different states at the same moment: `fast` has completed, `slow`
-# is still parked. They are treated oppositely and both are right — a terminal descendant stays
-# on the version that ran it, a live one moves with its parent — so a single batch exercises the
-# rule from both sides at once.
-#
-# `quick` decuples in v2, so the number `fast` contributes says which version produced it. At
-# tick 2 it has already finished under v1, so 2 is what the parent will eventually collect from
-# that slot, while `slow` is on v2 waiting for a worker that has not answered.
-#
-# The batch cannot finish (nothing submits `slow`'s result), so what is asserted is the state
-# after the move rather than an output: the parent still parked, on the new version, with both
-# children still addressable by their keys.
+# One batch: `fast` completed under v1 (stays, contributes 2), `slow` is parked (moves to v2).
+# Nothing submits `slow`, so the state after the move is asserted rather than an output.
 apply:
   - definitions:
       - name: quick

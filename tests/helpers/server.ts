@@ -10,18 +10,15 @@ import { createClientTyped } from "./client.ts";
 
 declare module "vitest" {
   export interface ProvidedContext {
-    // The genroc binary this run built, handed from globalSetup to every worker so a file
-    // that needs a private server does not build one of its own.
+    // Built once by globalSetup, so a file that needs a private server does not build its own.
     genrocBin: string;
   }
 }
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
-// A temp path no other test process can pick. Date.now() alone collides whenever two
-// Vitest workers start within the same millisecond, and two servers sharing one SQLite
-// file wreck each other: a co-tenant's ticks claim these instances, and its log pruning
-// (retention against *its* clock offset) deletes this server's whole audit trail.
+// Date.now() alone collides across workers, and two servers on one SQLite file wreck each other:
+// a co-tenant claims these instances and prunes this server's audit trail.
 export function tmpPath(prefix: string, suffix = ""): string {
   return join(tmpdir(), `${prefix}_${Date.now()}_${process.pid}_${randomUUID().slice(0, 8)}${suffix}`);
 }
@@ -51,11 +48,8 @@ export function getBin(): Promise<string> {
   return (workerBin ??= buildGenrocBinary());
 }
 
-// A port the OS just handed out and nothing holds. Vitest runs files in parallel, and every
-// hand-picked number was a collision waiting for the right pair of files to overlap — the
-// readiness probe then answers from the NEIGHBOUR's server and the failure is an assertion
-// about behaviour, never about a port. The window between close and the child's bind is real
-// but ephemeral ports are not reissued that fast; assertPortFree still guards it.
+// OS-assigned: a hand-picked port collides across parallel files, and the readiness probe then
+// answers from the neighbour's server. assertPortFree guards the close-to-bind window.
 export async function freePort(): Promise<number> {
   const probe = createServer();
   return new Promise<number>((resolve, reject) => {
@@ -67,9 +61,7 @@ export async function freePort(): Promise<number> {
   });
 }
 
-// Everything a private server can be started with. Every field is optional: the default is a
-// fresh SQLite file on a free port with the engine's own poll interval, which is what a test
-// that merely needs its own server wants.
+// All optional: the default is a fresh SQLite file on a free port at the engine's poll interval.
 export interface StartOptions {
   port?: number; // omit for a free one; pass a server's own `port` back to respawn it in place
   db?: string; // SQLite file; defaults to a fresh temp path
@@ -78,11 +70,9 @@ export interface StartOptions {
   maxConcurrent?: number;
   immediateRetries?: boolean;
   log?: string; // --log level; the default is error, and stdout is discarded either way
-  // Extra environment for this process only — config baked at start (GENROC_GLOBAL_*), a
-  // secret to redact. A test whose server needs one of these owns its server.
+  // Extra environment for this process only: config baked at start (GENROC_GLOBAL_*), a secret.
   env?: Record<string, string>;
-  // Receives the process's console stream (stderr) as it arrives. Only a test about what
-  // reaches the operator's console needs it; everything else keeps stdio ignored.
+  // Receives stderr as it arrives; without it stdio is ignored.
   onStderr?: (chunk: string) => void;
   bin?: string; // defaults to the run's shared binary
 }
@@ -131,10 +121,8 @@ function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
   ];
   const proc = spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", o.log ?? "error", ...pollArgs, ...concArgs, ...retryArgs, ...authArgs, ...leaseArgs, ...poolArgs, ...syncArgs], {
     stdio: ["ignore", "ignore", o.onStderr ? "pipe" : "ignore"],
-    // Fixed config fixtures for the config e2e test. The test's process names are
-    // random, so we use the global tier (GENROC_GLOBAL_<NAME> → config.<NAME>). A fixture
-    // that names a PORT does not belong here: a server-wide value cannot know a port the
-    // test has not bound yet, so such a test starts its own server with `env`.
+    // Config fixtures, on the global tier because test process names are random. One naming a
+    // PORT does not belong here: such a test starts its own server with `env`.
     env: {
       ...process.env,
       GENROC_GLOBAL_E2E_URL: "https://config.example.test",
@@ -152,12 +140,8 @@ function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
   return proc;
 }
 
-// Refuse to start on a port something else already holds. The exit check below is not
-// enough on its own: a readiness probe answered by the *other* server can win the race
-// against noticing our own process died binding, and the caller then drives someone else's
-// engine — which surfaces as an assertion about behaviour, never as a port error. Ports are
-// OS-assigned now, so reaching this means either the freePort→bind window was lost (rerun)
-// or a caller passed an explicit port that something else — a stale server — still holds.
+// The exit check alone loses a race: a probe answered by another server can beat noticing our
+// own bind failure, and the test then drives someone else's engine.
 async function assertPortFree(port: number): Promise<void> {
   const probe = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -182,17 +166,14 @@ async function waitUntilReady(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    // Fail fast (and clearly) if the process died during startup — e.g. it could
-    // not bind the port — instead of polling a dead process until the timeout and
-    // then being fooled by some *other* server answering on the same port.
+    // Fail fast if it died starting, rather than be fooled by another server on the port.
     if (proc.exitCode !== null || proc.signalCode !== null) {
       throw new Error(
         `genroc on port ${port} exited before becoming ready (code=${proc.exitCode}, signal=${proc.signalCode})`,
       );
     }
     try {
-      // /healthz, not /openapi.json: it is the readiness endpoint, it is root-mounted
-      // (actionDef.Root), and so it does not move when the API namespace does.
+      // /healthz is root-mounted (actionDef.Root), so it does not move with the API namespace.
       const r = await fetch(`http://localhost:${port}/healthz`);
       await r.body?.cancel();
       if (r.ok) return;
@@ -202,9 +183,7 @@ async function waitUntilReady(
   throw new Error(`genroc on port ${port} did not become ready within ${timeoutMs}ms`);
 }
 
-// stopProc sends SIGTERM and resolves once the process has actually exited (so the
-// OS has released its listening port). Callers that reuse the port on the next line
-// MUST await this — a fixed sleep races the graceful shutdown on a slow host.
+// Resolves once the process has exited and released its port; a caller reusing the port must await it.
 function stopProc(proc: ChildProcess): Promise<void> {
   return new Promise<void>((resolve) => {
     if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
@@ -224,10 +203,7 @@ export interface GenrocProcess {
   dbPath: string;
 }
 
-// Starts a private genroc for one test file — on a free port, on its own SQLite file, from the
-// binary this run already built — and returns once /healthz answers. A test reaches for this
-// only when the shared server cannot serve it: manual ticks, a crash to survive, config baked
-// at start. Everything else uses `client` against the shared one.
+// Only for what the shared server cannot do: manual ticks, a crash to survive, config baked at start.
 export async function startGenroc(o: StartOptions = {}): Promise<GenrocProcess> {
   const port = o.port ?? (await freePort());
   const db = o.pg ? "" : o.db ?? tmpPath("genroc", ".db");
@@ -283,13 +259,8 @@ function workerArgs(port: number, o: WorkerOpts): string[] {
   ];
 }
 
-// startSupervisedWorker runs one genroc worker process and restarts it whenever it
-// exits — exactly what a process supervisor (systemd, k8s) does for a worker fleet.
-// Nothing inside the engine exits on its own anymore (lease pressure is repaired by
-// the gate or refused per-write by the fence — see specs/lease-fencing.md), so
-// restarts() counts only real deaths: a crash() here, an OOM kill in production. The
-// supervisor brings the worker back with a fresh pid, its abandoned leases expire,
-// and the restarted process reclaims them.
+// Restarts the worker whenever it exits, as a supervisor would. The engine never exits on its own
+// (specs/lease-fencing.md), so restarts() counts only real deaths.
 export async function startSupervisedWorker(o: WorkerOpts): Promise<SupervisedWorker> {
   const bin = await getBin();
   const port = await freePort();
@@ -335,9 +306,8 @@ async function ping(): Promise<boolean> {
   }
 }
 
-// The shared server keeps its ONE configured port (GENROC_PORT, per project): the module-level
-// `client` every ordinary test file imports is built from it at import time. Private servers
-// take free ports instead — see startGenroc.
+// The shared server keeps its ONE configured port (GENROC_PORT): the module-level `client` is
+// built from it at import time.
 export async function setup(project: TestProject) {
   if (await ping()) {
     // Something already answers there. Reusing it is the way a run silently tests stale code

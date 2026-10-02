@@ -11,9 +11,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// LifecycleResp is what pause/resume/retry return on a 200 or 202. There is no body on
-// the 204 (unchanged) — HTTP forbids one — so a client that needs to know WHICH
-// already-state it hit reads the instance. specs/id-list-commands.md.
+// LifecycleResp answers pause/resume/retry on a 200 or 202; the 204 (unchanged) has no
+// body. specs/id-list-commands.md.
 type LifecycleResp struct {
 	Outcome   model.Outcome `json:"outcome" description:"What this call did: applied (the assertion holds and this call made it hold), or accepted (recorded, not yet in effect — a pause left rows draining a task already in flight). A 204 with no body means unchanged: the assertion already held."`
 	Status    model.Status  `json:"status"    description:"The root instance's status once the write committed"`
@@ -26,15 +25,12 @@ type altResp struct {
 	Body   any
 }
 
-// apiPrefix namespaces every action except the probes, so a deployment can route humans and
-// machines apart by path on ONE hostname and a browser hitting the bare domain gets a login
-// page rather than a 401 body. It is NOT repeated in Path: the spec declares it once in
-// `servers`. specs/api-auth.md §1, §5.1.
+// apiPrefix namespaces every action except the probes. NOT repeated in Path: the spec declares
+// it once in `servers`. specs/api-auth.md §1, §5.1.
 const apiPrefix = "/api"
 
-// publicPrefix carries what is served WITHOUT authentication and is not derived from a user's
-// data, so "unauthenticated" is visible in the path a deployment writes ingress rules from.
-// `/healthz` is the ONE thing outside it, on the idiom. specs/api-auth.md §1.
+// publicPrefix carries what is served WITHOUT authentication and derives from no user's data;
+// `/healthz` is the one unauthenticated route outside it. specs/api-auth.md §1.
 const publicPrefix = "/public"
 
 // mountPath is where this action is actually served.
@@ -63,31 +59,24 @@ type actionDef struct {
 	// Resp is a zero-value of the response data type, documented at 200.
 	Resp any
 
-	// AltSuccess documents the success statuses an action can return besides 200. Only
-	// the lifecycle assertions need it: their status IS the answer (statusOfOutcome), so
-	// a spec listing 200 alone would hide two of the three outcomes. A nil Body documents
-	// a response with no content, which is what 204 requires.
+	// AltSuccess documents success statuses besides 200, for actions whose status IS the
+	// answer (statusOfOutcome). A nil Body documents no content, as 204 requires.
 	AltSuccess []altResp
 
-	// Errors are the failure codes this action can produce, documented in the spec as
-	// the corresponding statuses. CodeInvalid and CodeInternal are implicit — every
-	// action can reject a body and every action can fail — so list only the extras.
+	// Errors lists failure codes beyond CodeInvalid and CodeInternal, which every action
+	// can produce.
 	Errors []Code
 
-	// Allow lists the permissions that admit this action; ANY one of them suffices, and
-	// PermAdmin always does. EMPTY means admin-only — the fail-closed default, so an endpoint
-	// added without thinking is closed rather than open. specs/api-auth.md §3.
+	// Allow: ANY one admits, and PermAdmin always does. EMPTY means admin-only, the
+	// fail-closed default. specs/api-auth.md §3.
 	Allow []Perm
 
-	// Open exempts this action from authorization entirely. `/healthz` is its only user and
-	// the bar for a second is high: a probe has to answer before any identity exists, and a
-	// supervisor cannot hold a credential. It reveals only whether the database is reachable.
+	// Open skips authorization entirely: `/healthz` only, since a probe answers before any
+	// identity exists (CLAUDE.md).
 	Open bool
 
-	// Root mounts this action at the server root instead of under apiPrefix. Probes only:
-	// a liveness check must not depend on how the API namespace is routed, and a proxy
-	// splitting humans from machines by path must be able to leave it alone. See
-	// specs/api-auth.md §1.
+	// Root mounts this action outside apiPrefix. Probes only: a probe must not move when the
+	// API namespace does. specs/api-auth.md §1.
 	Root bool
 
 	// fromHTTP extracts an Envelope from an HTTP request.

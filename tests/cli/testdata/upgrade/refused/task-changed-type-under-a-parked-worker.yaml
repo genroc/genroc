@@ -1,6 +1,5 @@
-# compat reports `hold:action.type` as an upgrade break; the gate must refuse the same move. A
-# worker holds the old contract, and the row is parked in a phase the new action never reads,
-# so a move it allowed left the instance running forever on a delay that never arms.
+# compat calls this an upgrade break, so the gate must refuse it: allowed, the instance sat parked
+# in `external` forever on a delay that never arms.
 apply:
   - definitions:
       - name: retyped

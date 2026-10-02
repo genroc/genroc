@@ -2,13 +2,8 @@ import { expect, test } from "vitest";
 import { client, fetchObject, waitForInstance } from "../helpers/client.ts";
 import { claimInProcess, waitForParked } from "../helpers/external.ts";
 
-// Every response that lists objects promises the same thing: each path names a location in THAT
-// response. The per-endpoint tests check one root apiece with a literal; this checks the promise
-// itself, on every root at once, so a root added later is covered without anyone remembering to.
-//
-// It exists because the ordinary splice cannot fail: spliceObjects walks to the parent and writes
-// only `if (cur)`, so a path naming a slot the response does not have is a silent no-op. A
-// listing can therefore be wrong in a way that every splicing test still passes.
+// Every listed path must name a location in THAT response. spliceObjects writes only `if (cur)`, so
+// a wrong path is a silent no-op that every splicing test would pass.
 
 const BLOB = "P".repeat(8 * 1024);
 
@@ -24,10 +19,7 @@ function parentAt(body: unknown, path: (string | number)[]): unknown {
   return cur;
 }
 
-/**
- * The three things a listing owes its reader, asserted together: every path lands somewhere,
- * no path is listed twice, and splicing each one puts the value back where the response holds it.
- */
+/** Every path lands somewhere, none is listed twice, and each splice puts the value back. */
 async function assertListingIsPlaceable(where: string, body: unknown) {
   const objects = ((body as { objects?: Entry[] }).objects ?? []) as Entry[];
   expect(objects.length, `${where}: the fixture must externalize something, or this proves nothing`)

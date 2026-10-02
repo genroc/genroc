@@ -19,8 +19,7 @@ func canonicalizeNode(s *node) *node {
 		}
 		return canonicalizeNode(c)
 	})
-	// Description is a documentation annotation with no type meaning; drop it so two schemas
-	// that differ only in wording compare equal (the fixpoint keys off canonical JSON).
+	// No type meaning, and the fixpoint keys off canonical JSON.
 	n.Description = ""
 	n.Type = SchemaType(sortDedupStrings([]string(s.Type)))
 	n.Required = sortDedupStrings(s.Required)
@@ -39,10 +38,8 @@ const (
 	kindAllOf
 )
 
-// canonVariants flattens a variant that is itself a pure composition of the same kind
-// (oneOf-in-oneOf, …), then dedups and sorts by canonical JSON for a stable order. Its
-// input is already canonical: mapChildren canonicalized every variant on the way in, and
-// dropped the nil ones.
+// canonVariants flattens same-kind nested compositions, then dedups and sorts by canonical
+// JSON. Its input is already canonical and nil-free (mapChildren).
 func canonVariants(vs []*node, kind compositionKind) []*node {
 	if len(vs) == 0 {
 		return nil
@@ -69,10 +66,8 @@ func canonVariants(vs []*node, kind compositionKind) []*node {
 	return out
 }
 
-// collapse reduces a node that is purely a single composition toward its simplest
-// form: a single variant unwraps; a union (oneOf/anyOf) of simple primitives (incl.
-// "null") merges into one {type:[...]} array. allOf is an intersection, so it only
-// unwraps a singleton.
+// collapse unwraps a single variant and merges a union of simple primitives into one type
+// array. allOf is an intersection: it only unwraps a singleton.
 func collapse(n *node) *node {
 	// Unions (oneOf/anyOf) collapse via collapseUnion; otherwise n already carries
 	// its canonical variants.
@@ -177,10 +172,8 @@ func nodeCanonJSON(s *node) string {
 	return string(b)
 }
 
-// nodeSize is the byte length of s's canonical JSON — a cheap type-complexity proxy
-// bounding the recursive-inference fixpoint against a type that grows without limit. An
-// unmarshalable schema (e.g. a reference cycle) is treated as infinitely large, so the
-// bound fails loudly instead of masking the problem.
+// nodeSize bounds the inference fixpoint by canonical JSON length. An unmarshalable schema (a
+// ref cycle) counts as infinite, so the bound fails loudly rather than masking it.
 func nodeSize(s *node) int {
 	b, err := json.Marshal(canonicalizeNode(s))
 	if err != nil {

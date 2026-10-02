@@ -23,10 +23,8 @@ func rowIDs(rows []idRow) []string {
 	return out
 }
 
-// pagedServer serves `total` synthetic items (i0 = newest … i{total-1} = oldest) as
-// keyset pages, the way the real list endpoints do: it honors order/limit/after and
-// caps a single page at pageCap. The after cursor is the index of the next item.
-// It rejects order != desc, so a test using it also proves the caller asked for the newest end.
+// pagedServer serves i0 (newest) … i{total-1} as keyset pages capped at pageCap. It rejects
+// order != desc, so a test using it also proves the caller asked for the newest end.
 func pagedServer(total, pageCap int) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -58,10 +56,8 @@ func pagedServer(total, pageCap int) *httptest.Server {
 	}))
 }
 
-// forwardServer serves `total` synthetic items (i0 = oldest … i{total-1} = newest) as
-// keyset pages, capping a page at pageCap. It rejects order != asc, so the test also
-// proves streamPages asks for ascending rather than inheriting the endpoint's default —
-// which is descending for instances and would print that list upside down.
+// forwardServer is pagedServer oldest-first, rejecting order != asc: inheriting the endpoint's
+// default (desc for instances) would print that list upside down.
 func forwardServer(total, pageCap int) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -122,8 +118,7 @@ func TestStreamPages(t *testing.T) {
 			if !slices.Equal(got, tt.want) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
-			// Pages are handed over as they arrive, not accumulated — a single callback
-			// for a multi-page walk would mean the whole trail was buffered first.
+			// A single callback for a multi-page walk would mean the trail was buffered first.
 			if pages != tt.wantPages {
 				t.Fatalf("callback ran %d times, want %d (one per page)", pages, tt.wantPages)
 			}
@@ -131,12 +126,10 @@ func TestStreamPages(t *testing.T) {
 	}
 }
 
-// fetchOrdered picks its route from the limit, and both must arrive oldest-first: a tail
-// via the descending fetch flipped back, an uncapped read via the forward walk. A regression
-// either way silently turns the newest-N tail into the oldest-N head, or vice versa.
+// Both routes must arrive oldest-first; a regression silently swaps the newest-N tail for the
+// oldest-N head, or vice versa.
 func TestFetchOrdered(t *testing.T) {
-	// Newest-first (i0 newest) for the descending route, oldest-first for the forward one
-	// — the same underlying rows, indexed from whichever end each endpoint scans.
+	// i0 is the newest row on the descending route and the oldest on the forward one.
 	t.Run("a limit tails the newest N, oldest-first", func(t *testing.T) {
 		ts := pagedServer(10, 4)
 		defer ts.Close()
@@ -151,8 +144,7 @@ func TestFetchOrdered(t *testing.T) {
 		if err != nil {
 			t.Fatalf("fetchOrdered: %v", err)
 		}
-		// i2,i1,i0 — the three newest, flipped into display order. The 4th row fetched to
-		// detect capping must not reach emit.
+		// The 4th row, fetched to detect capping, must not reach emit.
 		if want := []string{"i2", "i1", "i0"}; !slices.Equal(got, want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
@@ -164,8 +156,6 @@ func TestFetchOrdered(t *testing.T) {
 		}
 	})
 
-	// A trail that ends exactly on the limit was not cut short, and saying it was would
-	// send the reader chasing entries that do not exist.
 	t.Run("a source that ends on the limit is not reported as capped", func(t *testing.T) {
 		ts := pagedServer(3, 4)
 		defer ts.Close()
@@ -186,9 +176,8 @@ func TestFetchOrdered(t *testing.T) {
 		}
 	})
 
-	// A name sort already reads in its display direction, so its cap keeps the first N and
-	// flips nothing. Capping it from the descending end would show the alphabetically last
-	// N — right count, wrong rows.
+	// Capping a name sort from the descending end would show the alphabetically last N — right
+	// count, wrong rows.
 	t.Run("firstFirst keeps the head of an ascending sort, unflipped", func(t *testing.T) {
 		ts := forwardServer(10, 4)
 		defer ts.Close()
@@ -235,8 +224,7 @@ func TestFetchOrdered(t *testing.T) {
 	})
 }
 
-// A callback error aborts the walk in place, so a broken pipe (or a full disk) stops the
-// fetch instead of draining every remaining page into a writer that cannot take them.
+// A broken pipe must stop the fetch, not drain every page into a writer that cannot take them.
 func TestStreamPagesStopsOnCallbackError(t *testing.T) {
 	ts := forwardServer(100, 2)
 	defer ts.Close()
@@ -284,11 +272,8 @@ func TestListHead(t *testing.T) {
 	}
 }
 
-// A well-behaved server never returns more than the requested limit, but listHead
-// truncates defensively in case one does — verify the guard so an over-eager page can
-// never leak past --limit.
 func TestListHeadTruncatesOverfetch(t *testing.T) {
-	// Ignore the requested per-page limit and always hand back a full 4-item page.
+	// Deliberately misbehaves: ignores the requested limit and always returns a full 4-item page.
 	overfetch := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := 0
 		if a := r.URL.Query().Get("after"); a != "" {

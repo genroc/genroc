@@ -10,10 +10,8 @@ import (
 	"testing"
 )
 
-// A code is either catchable — where `catchable` describes it and an editor offers it — or
-// terminal. One in neither is invisible in both directions: never offered while it is written,
-// never explained once it is reported. Reading the declarations rather than a second list is
-// the point; a list would be the drift.
+// One in neither list is never offered and never explained. Reading the declarations, not a
+// second list, is the point: a list would be the drift.
 func TestEveryCodeIsClassified(t *testing.T) {
 	declared := declaredCodes(t)
 	if len(declared) < 10 {
@@ -98,9 +96,8 @@ func declaredCodes(t *testing.T) map[string]string {
 	return out
 }
 
-// The mirror of TestEveryCodeIsClassified for the other half. The prefix check there says a
-// terminal code must stay OUT of catchable; nothing said it must be IN terminal, so a new
-// engine.* code was classified by being absent from one list rather than present in any.
+// The mirror of TestEveryCodeIsClassified: that keeps engine.* OUT of catchable, this keeps
+// it IN terminal.
 func TestEveryTerminalCodeIsListed(t *testing.T) {
 	listed := map[string]Info{}
 	for _, info := range terminal {

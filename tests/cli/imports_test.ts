@@ -8,21 +8,15 @@ import { waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 import { startedID, uid } from "../helpers/genctl.ts";
 
-// Source resolution: a `$<resolver>: <path>` leaf is replaced by a string a registered
-// binary produces, before anything reaches the server. specs/source-resolution.md.
-//
-// The fake resolver below returns file contents verbatim — the mechanism is
-// language-agnostic, and a plain text template exercises every part of it except tsc.
-// The evaluator's importer gets its own tests at the bottom.
+// Source resolution, specs/source-resolution.md. The fake resolver returns file contents verbatim,
+// which exercises everything but tsc; the evaluator's importer is tested at the bottom.
 
 let bin: string;
 beforeAll(() => {
   bin = buildGenctlBinary();
 }, 60_000);
 
-// The evaluator, for the two tests that RUN an imported script rather than only applying it.
-// Started lazily: every other test here stops at the apply and needs no worker. It claims the
-// script tasks off the shared test server's queue — nothing listens, so there is no port.
+// The evaluator, started lazily: only the tests that RUN an imported script need it.
 let runner: ChildProcess | undefined;
 let runnerReady: Promise<void>;
 async function startRunner(): Promise<void> {
@@ -91,9 +85,7 @@ function echoProject(): Project {
   return project(`resolvers:\n  - { name: import, phase: code, command: [node, echo.mjs] }\n`);
 }
 
-// A resolver that DOES want types names them, by `genctl schema type` address relative to the
-// task the directive sits in — `input` is the whole action input, `input.amount` one field of
-// it, `result` what the task hands back.
+// `types` names each fragment by `genctl schema type` address, relative to the directive's frame.
 function typedProject(): Project {
   return project(
     [
@@ -112,9 +104,8 @@ function typedProject(): Project {
 test("apply — an imported file becomes the slot's value, and $ survives it verbatim", async () => {
   const p = echoProject();
   const name = uid("import");
-  // Every character the template layer has an opinion about. If genctl did not double the
-  // `$` on splice, `${world}` would be read by genroc as an interpolation of an unknown
-  // identifier and this apply would fail instead of storing the text.
+  // Every character the template layer has an opinion about: unless genctl doubles `$` on
+  // splice, `${world}` fails the apply as an unknown identifier.
   const snippet = 'hello ${world} — $$ — $: not an expression — plain $5.00\n';
   p.write("snippet.txt", snippet);
   const def = p.write(
@@ -181,17 +172,12 @@ test("apply — the manifest carries the inferred input type and the declared ou
 
   const site = m.processes[0].sites[0];
   expect(site.task).toBe("call");
-  // Shaped like the definition: the task by ID, then the document's own keys. What KIND of
-  // action it is rides beside the address as a field, not inside it.
   expect(site.pointer).toEqual(["tasks", "call", "action", "body", "code"]);
   expect(site.level, "which namespace it sits in").toBe("action");
   expect(site.action, "what the site IS, beside where it is").toBe("fetch");
   expect(site.argument, "verbatim: genctl does not read it as a path").toBe("./body.txt");
 
-  // Each fragment is what the resolver ASKED for, resolved at this site. `Action` is inferred —
-  // `amount` is typed from the process input schema, which only validation knows — and `Amount`
-  // is one field of it, which genctl reaches because the request is an address rather than a
-  // fixed pair. `Output` is DECLARED: responses.200 verbatim.
+  // `Action` is inferred (`amount` from the input schema); `Output` is responses.200 verbatim.
   const defs = m.processes[0].$defs;
   const action = site.types.Action.$ref
     ? defs[site.types.Action.$ref.replace("#/$defs/", "")]
@@ -227,14 +213,10 @@ test("types — writes declarations and applies nothing", () => {
 
   expect(runCli(bin, ["types", "-f", def]).stdout).toContain("generated types for 1 import");
   expect(p.manifest().mode).toBe("types");
-  // Nothing was stored: types is the editor's command, not a write.
   const rows = JSON.parse(runCli(bin, ["definitions", "--json"]).stdout) as { name: string }[];
   expect(rows.some((r) => r.name === name)).toBe(false);
 });
 
-// The reason the types are inferred in genctl rather than fetched: `genctl types` runs on
-// every edit, and an editor loop that stops working when the server is down is a worse
-// property than a genctl that links the inference. specs/source-resolution.md.
 test("types — needs no server, and the types are still inferred", () => {
   const p = typedProject();
   p.write("body.txt", "x");
@@ -266,8 +248,7 @@ test("types — needs no server, and the types are still inferred", () => {
   const r = runCli(bin, ["types", "-f", def], { GENROC_SERVER: "http://127.0.0.1:1" });
   expect(r.ok, `types must not need a server:\n${r.stdout}${r.stderr}`).toBe(true);
 
-  // …and the manifest still carries INFERRED fragments, which is the half a roundtrip used to
-  // buy: `amount` is typed from the process input schema, not from the source text.
+  // `amount` is typed from the input schema, not the source text: inference ran locally.
   const m = p.manifest();
   const site = m.processes[0].sites[0];
   const defs = m.processes[0].$defs ?? {};
@@ -278,9 +259,6 @@ test("types — needs no server, and the types are still inferred", () => {
   expect(site.types.Amount).toEqual({ type: "number" });
 });
 
-// genctl computes the types; the server decides validity. A definition carrying no directive
-// is never inferred at all, so one broken file cannot stop the generation for every other
-// script in a project-wide `genctl types` — and the apply still refuses it.
 test("types — a definition with no directive is the server's to judge, not genctl's", () => {
   const p = echoProject();
   p.write("body.txt", "x");
@@ -336,9 +314,7 @@ test("apply — a relative -f path still leaves the resolver a base it can join"
     ].join("\n"),
   );
 
-  // The argument travels verbatim and the DIRECTORY it is relative to travels with the
-  // definition — absolute, because the resolver's cwd is the project root rather than the
-  // directory -f was relative to, and joining against the wrong base finds nothing.
+  // `dir` travels absolute: the resolver's cwd is the project root, not what -f was relative to.
   expect(runCli(bin, ["apply", "-f", relative(process.cwd(), def)]).ok).toBe(true);
   const proc = p.manifest().processes[0];
   expect(proc.sites[0].argument).toBe("./snippet.txt");
@@ -370,15 +346,12 @@ test("compat — the document is resolved before it is compared", () => {
   );
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 
-  // Unresolved, the slot holds the literal `$import: ./snippet.txt` beside the text v1
-  // stores, so every imported site compares changed and no document can ever read unchanged
-  // — the same file apply just deduped.
+  // Unresolved, every imported site would compare changed against the text v1 stores.
   const same = runCli(bin, ["compat", "-f", def, "--from", `${name}@1`]);
   expect(same.ok, same.stderr).toBe(true);
   expect(same.stdout).toMatch(new RegExp(`${name}\\s+v1\\s+unchanged`));
 
-  // The yaml is untouched here: only the IMPORTED file changed, so a report that notices is
-  // one that ran the resolver.
+  // Only the IMPORTED file changed, so a report that notices ran the resolver.
   p.write("snippet.txt", "another body\n");
   const edited = runCli(bin, ["compat", "-f", def, "--from", `${name}@1`]);
   expect(edited.stdout).toMatch(new RegExp(`${name}\\s+v1 → \\(new\\)`));
@@ -408,9 +381,7 @@ test("apply — an unregistered resolver names itself and stores nothing", () =>
   expect(r.stderr).toContain(".genroc");
 });
 
-// genctl does not know an argument names a file, so it cannot refuse one that is missing — the
-// resolver that reads it is the one that can, and it still fails the apply before anything is
-// stored. What genctl checks is the ASSERTION the config made: `ext`.
+// genctl does not know an argument names a file; what it checks is the config's `ext`.
 test("apply — a missing file is the resolver's to refuse", () => {
   const p = echoProject();
   const name = uid("import");
@@ -456,8 +427,7 @@ test("apply — a resolver's exit code aborts the apply with its stderr", () => 
   const r = runCli(bin, ["apply", "-f", def]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("error TS2322");
-  // The ordering property: a failed resolution never produces the string, so a stored
-  // definition cannot contain code that failed to typecheck.
+  // A failed resolution produces no string, so nothing that failed to typecheck is stored.
   const rows = JSON.parse(runCli(bin, ["definitions", "--json"]).stdout) as { name: string }[];
   expect(rows.some((r2) => r2.name === name)).toBe(false);
 });
@@ -512,11 +482,8 @@ test("apply — $$ escapes the directive, leaving a literal string", async () =>
   expect(instance.output).toBe("$import: ./body.txt");
 });
 
-// The OTHER half of that escape, and the half that was missing. The walk looking for directives
-// reads every string leaf and knows nothing about where it is, so a user schema's own data is
-// claimed too. Without the unescape an author can write neither spelling: the bare one is
-// refused by name, and the doubled one is STORED doubled, because the template layer is what
-// collapses `$$` and a user schema never reaches it. specs/source-resolution.md.
+// The directive walk claims every string leaf, schema data included; the template layer that
+// collapses `$$` never sees a schema, so genctl unescapes it. specs/source-resolution.md.
 test("schema — a leaf that only LOOKS like a directive is claimed, which is why the escape exists", () => {
   const p = echoProject();
   const name = uid("esc");
@@ -539,8 +506,6 @@ test("schema — $$ escapes it, and the doubling does not survive into the schem
   expect(inferred.properties.tpl.default).toBe("$note: fill this in");
 });
 
-// The colon alone never made a directive: a space has to follow it, which is what keeps `$` free
-// to be the routing sigil as well. So a leaf like this needs no escape at all.
 test("schema — a colon with no space after it is not a directive, and needs no escape", () => {
   const p = echoProject();
   const name = uid("esc");
@@ -577,10 +542,7 @@ test("apply — a definition with no directives spends no resolver and no extra 
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 });
 
-// What a site can answer varies: a resolver asks for the same addresses everywhere, and a task
-// that types no result simply has none. The key is NULL rather than missing — it was asked for,
-// and nothing is there, which is a different fact from not being asked for — and the apply is
-// not refused, because a script that takes no argument is a legal definition.
+// Not refused: a script that takes no argument is a legal definition.
 test("a requested type that is not at this site comes back null", () => {
   const p = typedProject();
   const name = uid("import");
@@ -619,8 +581,7 @@ test("a requested type that is not at this site comes back null", () => {
   expect(site.types.Amount).toEqual({ type: "number" });
 });
 
-// The same collapse `schema type` prints, on the path that ships to a resolver: a def that is
-// only a `$ref` becomes a generated type alias per task, naming nothing.
+// The `$ref`-only collapse `schema type` prints, on the path that ships to a resolver.
 test("a definition that only names another never reaches the manifest", () => {
   const p = project(
     [
@@ -666,10 +627,7 @@ test("a definition that only names another never reaches the manifest", () => {
   ]);
 });
 
-// An address names the frame it is relative to, because a directive can sit inside a task or
-// outside one and both frames have an `input`. Without the frame, a `task`-relative request
-// silently answered with the PROCESS input at a site in the output map — a plausible-looking
-// type from an unrelated schema, which is worse than no answer.
+// Both frames have an `input`: answering a task-relative one with the process's is plausible and wrong.
 test("a task-relative type is null outside a task, and process-relative still answers", () => {
   const p = project(
     [
@@ -715,8 +673,6 @@ test("a task-relative type is null outside a task, and process-relative still an
   });
 });
 
-// A frame that is not one is a typo, and it is refused where it is written rather than resolving
-// somewhere unintended.
 test("an address with no frame is refused at the config", () => {
   const p = project(
     `resolvers:\n  - { name: import, phase: code, command: [node, echo.mjs], types: { X: input.input } }\n`,
@@ -745,12 +701,6 @@ function address(pointer: (string | number)[]): string {
     .replace(/^\./, "");
 }
 
-// Both spaces name a slot the way the DEFINITION does, so what the manifest says about where a
-// directive is can be handed to `schema type` unchanged. This feeds the pointers straight back
-// rather than re-deriving them: a rename on either side breaks it here.
-// A site's level is which namespace it is in, and the action's type is reported only where the
-// directive is actually IN the action: a switch case is the task's, and calling it a delay site
-// would describe the wrong thing.
 test("a site says which level it is at, and only an action site names the action", () => {
   const p = echoProject();
   const name = uid("import");
@@ -777,6 +727,7 @@ test("a site says which level it is at, and only an action site names the action
   expect(at("process").task, "and the process output is in no task at all").toBeUndefined();
 });
 
+// Feeds the pointers straight back rather than re-deriving them: a rename on either side breaks here.
 test("a manifest pointer is an address `schema type` answers", () => {
   const p = echoProject();
   const name = uid("import");
@@ -827,8 +778,7 @@ test("a manifest pointer is an address `schema type` answers", () => {
       expect(JSON.parse(r.stdout), at).toEqual({ type: "string" });
       continue;
     }
-    // `url` holds a template, not a contract boundary: a pointer promises a location, and only
-    // a location. The refusal names what the action does have rather than inventing a type.
+    // `url` holds a template, not a contract boundary: a pointer promises only a location.
     expect(r.ok, `${at} names no type`).toBe(false);
     expect(r.stderr).toContain("which holds: body, result");
   }
@@ -935,10 +885,7 @@ test("evaluator importer — a nested object is indented at its depth", () => {
   );
 }, 60_000);
 
-// genctl is agnostic about what a script is for; that an evaluation request carries its module
-// in `code` is the EVALUATOR's contract, so the evaluator is what enforces it. Its two shapes are
-// a child call to a process that forwards to it (what the scaffold generates) and an external
-// task making the same request directly.
+// The module-in-`code` rule is the evaluator's contract, so the evaluator enforces it, not genctl.
 test("evaluator importer — a directive outside an evaluation request is refused", () => {
   const p = tsProject();
   p.write("fee.ts", "export default () => 1;\n");
@@ -1001,8 +948,7 @@ test("evaluator importer — a checked script applies as a self-contained module
       'import { RATE } from "./rate";',
       "",
       "export default async function (input: Input): Promise<Output> {",
-      // A template literal: `${` is genroc's interpolation marker, and this reaching the
-      // server unescaped is the failure the import directive exists to remove.
+      // `${` is genroc's interpolation marker; reaching the server unescaped is what imports prevent.
       "  const label = `fee for ${input.amount}`;",
       "  return { fee: input.amount * RATE, label };",
       "}",
@@ -1025,9 +971,7 @@ test("evaluator importer — a checked script applies as a self-contained module
   ).toBe(false);
 }, 60_000);
 
-// The one thing the typecheck cannot see: `Input`/`Output` say nothing about HOW the module
-// exports, and the evaluator has only the file's own default export to call. Refused here, where
-// the path names a file on this machine, rather than against a running instance.
+// The typecheck cannot see HOW the module exports, and the evaluator calls only the default export.
 test("evaluator importer — a script with no default export is a failed apply", () => {
   const p = tsProject();
   p.write(
@@ -1071,8 +1015,7 @@ test("evaluator importer — the sandbox is a worker realm, not the host one", (
   const name = uid("script");
   const def = p.write("proc.yaml", scriptDef(name, "./fee.ts"));
 
-  // A script that reads an HTTP source is the ordinary case; under a host-realm fence
-  // (`lib: [esnext]` alone) `fetch` and `console` do not resolve and this apply fails.
+  // Under a host-realm fence (`lib: [esnext]` alone) `fetch` and `console` would not resolve.
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 
   p.write(
@@ -1088,8 +1031,7 @@ test("evaluator importer — the sandbox is a worker realm, not the host one", (
   );
   const hostDef = p.write("host.yaml", scriptDef(uid("script"), "./host.ts"));
 
-  // …and the fence that stays: the host's globals are not the worker's, so reaching for
-  // one is a failed apply even though the evaluator's realm would have answered.
+  // …but the host's globals are not the worker's.
   const r = runCli(bin, ["apply", "-f", hostDef]);
   expect(r.ok, `process.env must not typecheck:\n${r.stdout}${r.stderr}`).toBe(false);
   expect(r.stderr).toContain("Cannot find name 'process'");
@@ -1164,9 +1106,8 @@ test("evaluator importer — the author's tsconfig cannot widen the sandbox or t
 test("evaluator importer — a data file imported as JSON is inlined and reaches the realm", async () => {
   await startRunner();
   const p = tsProject();
-  // A `.json` import is a build-time data file, not JavaScript: whichever bundler is
-  // underneath has to be told to parse it, and one that is not hands JSON to the JS parser.
-  // Running it is what proves the VALUE was inlined — the realm has no file to read.
+  // The bundler must be told to parse `.json` as data. Running it proves the value was inlined:
+  // the realm has no file to read.
   p.write("rates.json", JSON.stringify({ rate: 0.25 }));
   p.write(
     "fee.ts",
@@ -1219,9 +1160,8 @@ test("evaluator importer — a data file imported as JSON is inlined and reaches
 
 test("evaluator importer — an import that resolves to nothing is a failed apply", () => {
   const p = tsProject();
-  // The bundler's default for an unresolved import is to leave it as a require of a module
-  // that will not be there: it bundles clean and fails inside the realm, where the author
-  // cannot see it. Typecheck catches this one first; the refusal must hold either way.
+  // By default an unresolved import bundles clean and fails only in the realm. Typecheck catches
+  // this one first; the refusal must hold either way.
   p.write(
     "fee.ts",
     [
@@ -1276,9 +1216,8 @@ test("evaluator importer — a package dependency resolves and is bundled in", (
 test("evaluator importer — a node builtin survives the bundle and runs in the realm", async () => {
   await startRunner();
   const p = tsProject();
-  // The author declares which globals their scripts get; the generated config no longer
-  // dictates `types`, so this is the opt-in. A stub package keeps the test off the repo's
-  // own @types/node.
+  // `types: [node]` is the author's opt-in to node globals; the stub keeps the test off the
+  // repo's own @types/node.
   p.write("tsconfig.json", JSON.stringify({ compilerOptions: { types: ["node"] } }));
   p.write(
     "node_modules/@types/node/package.json",

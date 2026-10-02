@@ -9,10 +9,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// Status patterns are one vocabulary shared by `accepted_status` and the keys of a fetch's
-// `responses` map: an exact three-digit code ("404") or a hundred-range ("4xx"). The
-// registration format check and the runtime match resolve through this file so they cannot
-// drift. See specs/fetch-http-surface.md §2.
+// Status patterns ("404", "4xx") are one vocabulary for `accepted_status` and `responses` keys;
+// registration and the runtime match both resolve through this file so they cannot drift.
+// specs/fetch-http-surface.md §2.
 
 // ValidStatusPattern reports whether p is a pattern the matcher can ever match.
 func ValidStatusPattern(p string) bool {
@@ -73,10 +72,8 @@ func patternWidth(p string) int {
 	return 1
 }
 
-// ParseResponseKey splits a `responses` key into its patterns. Whitespace around a comma is
-// ignored; an empty element, a malformed pattern, a repeat, and a key mixing success with
-// failure statuses are all refused — the last because a key decides acceptance, so one
-// spanning both channels would narrow it from a line written for the error side.
+// ParseResponseKey refuses a key mixing success and failure statuses: keys decide acceptance,
+// so a line written for the error side would narrow it.
 func ParseResponseKey(key string) ([]string, error) {
 	parts := strings.Split(key, ",")
 	out := make([]string, 0, len(parts))
@@ -103,9 +100,8 @@ func ParseResponseKey(key string) ([]string, error) {
 	return out, nil
 }
 
-// ResponseFor returns the schema declared for code, and whether any key declared it. A nil
-// schema with declared=true is the "no body" entry — key presence, never nil-ness, is what
-// says a status was described.
+// ResponseFor: a nil schema with declared=true is the "no body" entry — key presence, never
+// nil-ness, says a status was described.
 func (a *Action) ResponseFor(code int) (*schema.Schema, bool) {
 	best, bestWidth := "", 0
 	var bestSchema *schema.Schema
@@ -126,10 +122,9 @@ func (a *Action) ResponseFor(code int) (*schema.Schema, bool) {
 	return bestSchema, best != ""
 }
 
-// EffectiveAcceptedStatus is rule 1: the resolved accepted_status where it names anything, else
-// the 2xx patterns of responses, else nil — which MatchAnyStatus reads as any 2xx. The runtime
-// and inference MUST resolve it through here; when they diverged, a 201 against {200: T} was
-// accepted, skipped validation, and landed in self.result typed as a T nothing had checked.
+// EffectiveAcceptedStatus is rule 1: the resolved accepted_status if non-empty, else responses'
+// 2xx patterns, else nil (any 2xx). Runtime and inference MUST both resolve through here, or an
+// accepted status skips validation and lands in self.result typed as a schema nothing checked.
 func (a *Action) EffectiveAcceptedStatus(resolved []string) []string {
 	if len(resolved) > 0 {
 		return resolved

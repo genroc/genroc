@@ -1,6 +1,4 @@
-# Both sides resolve to the same version, so comparing it would be comparing a document
-# with itself. It prints dashes, not "yes": it was not judged, and a column that looks
-# like a pass would be a lie. This is the common case in a channel-wide report.
+# Both sides resolve to the same version: no verdict is printed, since nothing was judged.
 apply:
   - channel: noop_a
     definitions:

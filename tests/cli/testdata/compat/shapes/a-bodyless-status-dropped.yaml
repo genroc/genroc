@@ -1,11 +1,6 @@
-# The breaking direction of a status-set edit, and the one a per-status comparison misses
-# entirely. Dropping `202: null` narrows the merged union from `T | null` back to `T`: a
-# remote that answered 202 with no body no longer conforms, so the service the old version
-# accepted is turned away.
-#
-# Compared one status at a time this is a key only the old side carries — read as a removed
-# declaration and reported nowhere. As the union it is a plain narrowing, judged like any
-# other, under `<task>:fetch.result`.
+# Dropping `202: null` narrows the merged union `T | null` to `T`: a remote answering 202 with
+# no body stops conforming. Compared per status this is a removed key, reported nowhere; as
+# the union it is a plain narrowing under `<task>:fetch.result`.
 apply:
   - channel: dropbodyless_a
     definitions:

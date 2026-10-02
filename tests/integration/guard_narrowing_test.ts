@@ -1,10 +1,8 @@
 import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
-// A `switch` case's proof travels the edge it selects, so the task it routes to can read what
-// was proved without a `?? default` that could never evaluate. End to end: the definition only
-// REGISTERS because the proof travels, and the instance then runs the arithmetic the proof
-// made legal. specs/guard-narrowing.md.
+// A `switch` case's proof travels the edge it selects; the definition REGISTERS only because it
+// does. specs/guard-narrowing.md.
 
 const NULLABLE_TOTAL = {
   type: "object",
@@ -69,9 +67,8 @@ test("a switch case's proof lets the next task use the value, and the instance r
   svc.stop();
 });
 
-// The mirror, and the reason the feature has to be exact: the same definition with the guard
-// pointing the other way reads a value that route proved to be NULL, and must be refused at
-// registration rather than failing at runtime with an uncatchable engine.expression.
+// Reading a value the route proved NULL must be refused at registration, not fail at runtime with
+// an uncatchable engine.expression.
 test("the opposite proof is refused at registration", async () => {
   const svc = await startMockService(0, { statusCode: 200, response: { total: 21 } });
   const name = `guard_narrow_bad_${crypto.randomUUID()}`;

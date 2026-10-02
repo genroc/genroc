@@ -1,12 +1,6 @@
-# Recursive spawn workload: a full binary tree. Every node spawns two children with
-# ttl-1 until ttl hits 0, so a root expands to 2^(ttl+1)-1 nodes. WIDE and shallow —
-# hundreds of siblings are runnable at once, so it saturates the worker pool and
-# measures the engine + DB's concurrent claim/advance throughput ceiling.
-#
+# A full binary tree (2^(ttl+1)-1 nodes), wide and shallow: saturates the worker pool to find
+# the concurrent claim/advance ceiling. The root reports its subtree size via count_field.
 #   make bench-recursive   (POSTGRES_DSN=… to also compare Postgres)
-#
-# count_field: each node sums its children's counts + 1, so the root reports its own
-# subtree size — the instance count the runner charts.
 
 bench:
   input: { ttl: 12 }

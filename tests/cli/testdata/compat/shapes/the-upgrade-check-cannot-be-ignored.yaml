@@ -1,7 +1,4 @@
-# The upgrade check answers for rows this deployment already owns, so it is not negotiable —
-# and an unknown token is refused rather than quietly doing nothing, which is the failure a
-# selection flag most easily introduces. Refused by the SERVER, so a second consumer of the
-# endpoint gets the same answer as the CLI.
+# Refused by the server, so every consumer of the endpoint gets the same answer.
 apply:
   - channel: noignore_a
     definitions:

@@ -9,9 +9,8 @@ import (
 
 // ── output width ────────────────────────────────────────────────────────────────
 
-// logLineWidth is the budget one log line is cut to (logview.Clamp). It is fixed rather than
-// read off the terminal -- genctl links no terminal library, and a trail piped to a file would
-// have no width to read anyway; $COLUMNS is the override, and --json is never cut.
+// logLineWidth is fixed, not read off the terminal: genctl links no terminal library. $COLUMNS
+// overrides, and --json is never cut.
 func logLineWidth() int {
 	if n, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && n > 0 {
 		return n
@@ -35,9 +34,8 @@ func parseTime(rfc string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// whenLayouts are the absolute forms --since/--until accept. They mirror delayspec's
-// absolute/wall layouts so a timestamp is written the same way in a definition and on
-// the command line; a form without a zone is read in the local one.
+// whenLayouts mirror delayspec's absolute/wall layouts, so a timestamp is written the same way in
+// a definition and on the command line.
 var whenLayouts = []string{
 	time.RFC3339Nano,
 	time.RFC3339,
@@ -48,9 +46,8 @@ var whenLayouts = []string{
 	"2006-01-02",
 }
 
-// parseWhen converts --since/--until to unix millis: a duration counts back from THIS
-// machine's clock (fine in production, wrong against a test-shifted server — pass an
-// absolute timestamp there), a timestamp is taken as written. Bare integers are rejected.
+// parseWhen counts a duration back from THIS machine's clock (wrong against a test-shifted
+// server — pass a timestamp there). Bare integers are rejected.
 func parseWhen(flag, s string) (int64, error) {
 	if d, err := time.ParseDuration(s); err == nil {
 		if d < 0 {

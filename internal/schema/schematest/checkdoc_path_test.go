@@ -2,10 +2,8 @@ package schematest
 
 import "testing"
 
-// A CheckDoc error names where in the DOCUMENT the bad node lives, assembled from one
-// label per slot as the recursion unwinds. It is the definition site, not an access path:
-// a $defs entry is checked once under its own name however many refs reach it, which is
-// what keeps the location finite on a recursive schema.
+// The definition site, not an access path: a $defs entry is checked once under its own name,
+// which keeps the location finite on a recursive schema.
 func TestCheckDocErrorNamesTheFailingLocation(t *testing.T) {
 	for _, tc := range []struct{ name, doc, want string }{
 		{

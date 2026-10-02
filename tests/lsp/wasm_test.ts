@@ -1,13 +1,9 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, edit, Lsp, orders, useWorkspace } from "./helpers.ts";
 
-// The server the extension bundles for a machine with no genctl: the same code, compiled to
-// WebAssembly. Every test here is DIFFERENTIAL — the fallback has to answer what the binary
-// answers, because a fallback that quietly disagrees is worse than no fallback at all.
-//
-// It is also the only test of the host's stdio: Node's WASI hands the guest a NON-BLOCKING
-// stdin on Linux and a blocking one on macOS, so these pass on a laptop while failing on CI.
-// That asymmetry is the point of running them there — see blockStdio in cmd/genctl.
+// The extension's wasm fallback, checked against the binary. Also the only test of host stdio:
+// Node's WASI stdin is non-blocking on Linux and blocking on macOS, so these can pass on a laptop
+// and fail on CI (blockStdio in cmd/genctl).
 
 let wasm: Lsp;
 let native: Lsp;
@@ -35,8 +31,6 @@ test("it offers what the binary offers", async () => {
   expect(answer).toEqual(await native.completions(cursor));
 });
 
-// The one answer that needs the FILESYSTEM: a wasm module reaches no path that is not preopened
-// for it, so this is what proves the loader hands it the workspace.
 test("it reaches the other file, which needs the workspace preopened", async () => {
   const cursor = at(`      name: <^shipment>`);
   expect(await wasm.definition(cursor)).toBe("shipment.genroc.yaml:1");

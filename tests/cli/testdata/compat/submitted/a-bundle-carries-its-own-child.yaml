@@ -1,15 +1,6 @@
-# A bundle holding both halves of a call, both edited. Every other submitted case names one
-# document, so nothing pinned that a child submitted ALONGSIDE its parent is resolved from
-# the bundle rather than the registry — a resolution that fell back to the stored child would
-# compare the parent against a document the operator is about to replace, and report on a
-# pairing that will never exist.
-#
-# The child drops a field the parent's `result_schema` does not name, so the bundle still
-# validates (a parent that no longer fits its child is refused earlier —
-# parent-no-longer-fits-its-stored-child.yaml) and what is left is the child's own output
-# contract: `note` was guaranteed and is not any more, which breaks every reader outside the
-# bundle. The parent moves in the same batch so that both blocks are here: the closure was
-# compared as one set, and neither document was carried over from the registry.
+# A child submitted alongside its parent is resolved from the bundle, not the registry. The
+# child drops a field the parent's result_schema does not name, so the bundle validates and
+# only the child's output contract breaks; the parent moves too, so both blocks print.
 apply:
   - channel: pair_a
     definitions:

@@ -9,11 +9,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// ResolveConfig resolves each declared config var from the OS environment via lookup:
-// a process-scoped GENROC_<PROCESS>_<NAME> (both parts envToken-normalized to
-// UPPER_SNAKE, so the schema may use any case), then GENROC_GLOBAL_<NAME>, then the
-// property default, else an error if required. Values are coerced to the declared type
-// and validated against ConfigSchema. Never persisted; runs at start and every tick.
+// ResolveConfig tries GENROC_<PROCESS>_<NAME>, then GENROC_GLOBAL_<NAME> (both upper-snaked,
+// so the schema may use any case), then the default; a missing required var is an error.
+// Values are coerced and validated against ConfigSchema, and never persisted.
 func (d *ProcessDefinition) ResolveConfig(lookup func(string) (string, bool)) (map[string]any, error) {
 	if d.ConfigSchema == nil {
 		return map[string]any{}, nil
@@ -69,9 +67,8 @@ func propType(prop schema.Schema) string {
 	return ""
 }
 
-// envToken converts a name to the UPPER_SNAKE token used in config env var names:
-// uppercases, collapses non-alphanumeric runs to a single '_', and splits
-// camelCase/PascalCase humps (apiKey -> API_KEY, URLPath -> URL_PATH).
+// envToken upper-snakes a name for config env var names, splitting camel humps:
+// apiKey -> API_KEY, URLPath -> URL_PATH.
 func envToken(s string) string {
 	runes := []rune(s)
 	out := make([]byte, 0, len(runes)+4)
@@ -87,9 +84,8 @@ func envToken(s string) string {
 		case r >= '0' && r <= '9':
 			out = append(out, byte(r))
 		case r >= 'A' && r <= 'Z':
-			// Insert a separator at a camel boundary: an uppercase that follows a
-			// lowercase/digit (apiKey), or that starts a word after an acronym —
-			// uppercase followed by lowercase preceded by uppercase (URLPath).
+			// A camel boundary: after a lowercase/digit (apiKey), or the word after an
+			// acronym (URLPath).
 			if i > 0 {
 				prev := runes[i-1]
 				prevLowerDigit := (prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9')
@@ -133,9 +129,8 @@ func (d *ProcessDefinition) SecretConfigValues(resolved map[string]any) []string
 	return secrets
 }
 
-// coerceConfigValue converts an env string to the config var's declared type ("" or
-// "string" passes through). A secret value is never echoed in an error (it would leak to
-// the CLI, instance error field, and logs); a non-secret value is shown to aid debugging.
+// coerceConfigValue never echoes a secret value in an error: it would reach the CLI, the
+// instance's error and the logs.
 func coerceConfigValue(name, typ, raw string, secret bool) (any, error) {
 	shown := raw
 	if secret {

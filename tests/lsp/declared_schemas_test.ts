@@ -1,11 +1,8 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, Doc, Lsp, orders, useWorkspace } from "./helpers.ts";
 
-// Declared slot schemas, checked with NO SERVER. specs/declared-slot-schemas.md.
-//
-// That is the claim this file exists for rather than a convenience: the child input check has
-// never been runnable here, because it reads the child definition out of the database. A
-// declaration is in the document, so an editor can check the call against it.
+// Declared slot schemas, checked with NO SERVER: a declaration is in the document, where the child
+// input check reads the database. specs/declared-slot-schemas.md.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -25,11 +22,7 @@ function doc(lines: string[]): Doc {
 }
 
 // ─── The battery ────────────────────────────────────────────────────────────────
-//
-// Every slot that takes a declaration gets the SAME cases, because the rules are the relation's
-// and not any slot's: what the closed check refuses, and which of the null/absence gaps the
-// conform can close and therefore the relation must admit. A slot tested by hand is a slot
-// whose battery has a hole nobody can see.
+// Every slot gets the SAME cases: the rules are the relation's, not any slot's.
 
 /** `n` is nullable, so every shape below feeds a nullable value into whatever is declared. */
 const NULLABLE_N = ['input_schema:', '  type: object', '  properties: { n: { type: [number, "null"] } }'];
@@ -142,8 +135,7 @@ interface Case {
 
 const cases: Case[] = [
   {
-    // THE case the feature exists for: absence is valid, so the conform removes the key and
-    // the relation must admit the gap. Refusing here makes the declaration unusable.
+    // Absence is valid, so the conform removes the key and the relation must admit the gap.
     name: "an optional non-nullable property fed a nullable value is accepted",
     shape: NULLABLE,
     decl: "{ type: object, properties: { v: { type: number } } }",
@@ -207,10 +199,8 @@ for (const slot of slots) {
   }
 }
 
-// An OPEN MAP on the value side is the arm of the closed rule that is silent when missing: its
-// keys are named by no schema, so the conform's strip stays reachable and the assertion behind
-// the whole design is quietly false. It needs an inferred open map, which only a declared
-// `additionalProperties` upstream produces — legal there, and refused in a slot declaration.
+// An open map's keys are named by no schema, so the conform's strip would stay reachable. Only a
+// declared `additionalProperties` upstream infers one.
 test("an open map cannot be sent where the declaration names fixed properties", async () => {
   const ds = await lsp.diagnostics(
     doc([
@@ -235,10 +225,7 @@ test("an open map cannot be sent where the declaration names fixed properties", 
 });
 
 // ─── child_list ─────────────────────────────────────────────────────────────────
-//
-// The one slot whose "shape" is not a value: it has no `input` at all, so the declaration types
-// one ELEMENT of `over` and the battery above cannot be pointed at it. Checked against the
-// absent input instead, it compares an empty object and asserts nothing.
+// No `input`: the declaration types one ELEMENT of `over`, so the battery cannot point at it.
 
 function listDoc(element: string, decl: string): Doc {
   return doc([
@@ -386,9 +373,7 @@ test("additionalProperties nested inside a declared schema is refused too", asyn
   expect(ds.join("\n")).toContain("additionalProperties");
 });
 
-// A declared schema's VALUE is the author's own JSON Schema, so the editor must treat it the
-// way it treats `result_schema`. Both halves of that are silent when broken, which is why they
-// each get a test rather than being assumed from the feature working.
+// A declared schema's VALUE is the author's own JSON Schema, treated as `result_schema` is.
 
 test("completion inside a declared schema offers JSON Schema keywords", async () => {
   const d = doc([
@@ -443,9 +428,7 @@ test("a `default` inside a declared schema is not painted as an expression", asy
   expect(toks.some((t) => t.text === "$:"), "no marker was found anywhere").toBe(true);
 });
 
-// §6: a declared schema is an author's type in a KEY position, which is the one thing key
-// completion has never had. Without it these mappings are open maps of the author's own names
-// and the editor offers nothing at all inside them.
+// §6: a declaration gives key completion the author's own type to offer from.
 
 test("typing inside a declared body offers the fields the schema names", async () => {
   const d = doc([
@@ -554,9 +537,7 @@ test("a slot with no declaration still offers the definition language's own keys
   expect(labels).toContain("output_schema");
 });
 
-// child_list has no `input` slot: each ELEMENT of `over` is one child's input, so that is what
-// its declaration types — the same rule `result_schema` follows there. Checked against an
-// absent `input` instead, the declaration compares against an empty object and accepts anything.
+// Each ELEMENT of `over` is one child's input, the same rule `result_schema` follows there.
 
 const OVER = (items: string, schema: string[]) =>
   doc([
@@ -633,10 +614,7 @@ test("child_list: an untyped element array says so rather than accepting anythin
 });
 
 // ─── Hover ──────────────────────────────────────────────────────────────────────
-//
-// A declaration adds two things a reader cannot get anywhere else: the type the far side
-// actually accepts, and the prose an imported schema carried with it. Hover is where both are
-// read, and a hover is ONE line.
+// ONE line: the type the far side accepts, and the prose an imported schema carried.
 
 /** A fetch whose body is declared, with a property whose declared type DIFFERS from the
  *  expression feeding it — which is the case the two answers must not be confused on. */
@@ -664,8 +642,7 @@ function hoverDoc(): Doc {
   ]);
 }
 
-// The divergence is the point: the expression is nullable, the declaration is not, and the
-// conform is what closes the gap. Pointing at the key asks what arrives.
+// The expression is nullable, the declaration is not; the key asks what arrives.
 test("hover on a declared key gives the DECLARED type, not the expression's", async () => {
   const h = await lsp.hover(at("        <^discount>: '$: input.n'", hoverDoc()));
   expect(h).toBe("**discount?** — `number` — in minor units");
@@ -693,28 +670,21 @@ test("hover on the declaration's own key says what the slot is for", async () =>
   );
 });
 
-// The user-schema repair, read from the other side: inside a declaration the vocabulary is JSON
-// Schema's, and without `pointAtUserSchema` listing the slot there is no prose at all.
+// Without `pointAtUserSchema` listing the slot there is no prose inside a declaration.
 test("hover inside a declaration describes the JSON Schema keyword", async () => {
   const h = await lsp.hover(at("        <^type>: object", hoverDoc()));
   expect(h).toContain("JSON type");
 });
 
-// A slot the definition SENDS reads as the CONFORMED type: what is sent, after the declaration
-// has repaired it. This body always sets `discount`, and the expression feeding it is nullable
-// where the declaration is not — so the conform removes the key when it is null, and `?` is the
-// truthful mark. Neither the raw inferred type (`discount`, never absent) nor the declaration
-// alone (`unknown` for a generic child's payload) is this answer, and both shipped for a moment.
+// The CONFORMED type: the conform drops `discount` when its nullable expression is null, hence
+// `?`. Neither the raw inferred type nor the declaration alone is this answer.
 test("hover on a slot the definition SENDS shows what is sent", async () => {
   const h = await lsp.hover(at("      <^body>:", hoverDoc()));
   expect(h).toBe("**tasks.call.action.body** — `object{discount?}`");
 });
 
-// The case that sent me looking: a generic child declares its payload as the TOP TYPE, because
-// the shape is the caller's concern. Answering the key from that declaration says `unknown` —
-// true, and not the question anyone is asking at a call site. The conformed type keeps what is
-// SENT where the declaration says nothing, and carries the far side's prose. No `?`: this caller
-// always sets it, and the type view knows that where the declaration alone could not.
+// A generic child declares its payload as the TOP TYPE; the conformed type keeps what is SENT
+// there, with the far side's prose, and no `?` because this caller always sets it.
 test("hover on an input key the far side left unknown shows what is sent", async () => {
   const d = doc([
     "input_schema:",
@@ -757,9 +727,7 @@ test("hover on a slot the definition HANDS BACK shows what it publishes", async 
   );
 });
 
-// A slot with no declaration still answers about the key, from the inferred type. Before that
-// fell through, a key holding a literal hovered to NOTHING — against the rule that a hover
-// always has a line, and inconsistent with the same key one line away in a declared slot.
+// From the inferred type: a hover always has a line.
 test("a key in a slot that declares nothing still shows its type", async () => {
   const d = doc([
     "tasks:",
@@ -820,12 +788,8 @@ test("hover on a nested declared key names the path inside the declaration", asy
 });
 
 // ─── Hover, over every slot ─────────────────────────────────────────────────────
-//
-// The claim is that hovering a KEY in any shape shows that key's type, and that the type is the
-// ONE validation computed for the slot — the inferred shape conformed to its declaration — which
-// is also what `genctl schema type` prints and what the resolver generates from. A slot tested by
-// hand is a slot whose answer nobody checked; two of these answered nothing at all before, and
-// two more were not in the type view, so the CLI could not answer for them either.
+// A KEY in any shape hovers as the slot's ONE validated type: what `genctl schema type` prints and
+// the resolver generates from.
 
 const DECL_TWO =
   "{ type: object, properties: { vexpr: { type: number, description: prose }, vlit: { type: number } } }";
@@ -962,17 +926,13 @@ const hoverSlots: { name: string; handsBack?: boolean; build: (declared: boolean
 for (const slot of hoverSlots) {
   test(`${slot.name}: a declared key hovers as the slot's ONE type, prose and all`, async () => {
     const d = slot.build(true);
-    // `number`, not the `number|null` the expression types. On a SENT slot the conform removes
-    // the null and the key with it, so `?` and `number` together are what the far side
-    // receives; on a HANDS-BACK slot the declaration is published as written and says the
-    // same. The prose comes through either way — including on a task output, whose solved
-    // type is canonical and had dropped it.
+    // `number`, not `number|null`: a SENT slot's conform drops the null and the key (`?`); a
+    // HANDS-BACK slot publishes its declaration, which says the same. Prose comes through either way.
     expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe(
       "**vexpr?** — `number` — prose",
     );
-    // Where the two directions differ. A literal integer under a declared `number`: SENT keeps
-    // the precise side and knows the key is always set; HANDS-BACK publishes the declaration,
-    // which says `number` and leaves the key optional — the stable contract a consumer reads.
+    // Where the directions differ: SENT keeps the literal's precise type and knows the key is set;
+    // HANDS-BACK publishes the declaration as written.
     expect(await lsp.hover(at("<^vlit>: 42", d))).toBe(
       slot.handsBack ? "**vlit?** — `number`" : "**vlit** — `integer`",
     );

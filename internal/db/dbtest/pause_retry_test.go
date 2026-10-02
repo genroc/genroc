@@ -94,10 +94,8 @@ func lease(t *testing.T, db *dbpkg.DB, id string) {
 	t.Fatalf("instance %q was not claimed (claimed %d instances)", id, len(claimed))
 }
 
-// TestPauseProcess_SingleInstance verifies the lease-dependent split: a running
-// instance with nothing in flight is suspended immediately ('paused'), while one a
-// worker currently holds is only marked 'pausing' — the pause lands when that
-// worker's write releases the lease.
+// Unleased goes straight to 'paused'; leased is only marked 'pausing', landing with that
+// worker's write.
 func TestPauseProcess_SingleInstance(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -127,9 +125,7 @@ func TestPauseProcess_SingleInstance(t *testing.T) {
 	}
 }
 
-// TestPauseProcess_Descendants verifies that all descendants of a root are suspended,
-// and that pausing changes nothing but the status column — a child parked on its own
-// children keeps phase='children' so resuming picks up exactly where it stopped.
+// Pause changes only status: a child parked on its own children keeps phase='children'.
 func TestPauseProcess_Descendants(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -156,7 +152,6 @@ func TestPauseProcess_Descendants(t *testing.T) {
 	}
 }
 
-// TestPauseProcess_SkipsTerminalDescendants verifies completed/failed children are untouched.
 func TestPauseProcess_SkipsTerminalDescendants(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -182,10 +177,7 @@ func TestPauseProcess_SkipsTerminalDescendants(t *testing.T) {
 	}
 }
 
-// TestPauseProcess_NothingRunning verifies that pausing a tree with nothing running is
-// reported as OutcomeUnchanged rather than as a failure: the assertion "this tree is not
-// advancing" already holds, and a no-op that errors cannot converge when a group of ids
-// is re-run. specs/id-list-commands.md.
+// A no-op that errors cannot converge when a group of ids is re-run. specs/id-list-commands.md.
 func TestPauseProcess_NothingRunning(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -209,9 +201,8 @@ func TestPauseProcess_NothingRunning(t *testing.T) {
 	}
 }
 
-// TestPauseProcess_OutcomeAcceptedWhileDraining verifies the distinction 202 exists for:
-// a leased row is only ASKED to stop, so the tree still has a task running, and a second
-// pause on it must not claim the tree has stopped. specs/id-list-commands.md §202.
+// A leased row is only ASKED to stop, so a second pause must not report the tree stopped.
+// specs/id-list-commands.md §202.
 func TestPauseProcess_OutcomeAcceptedWhileDraining(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -250,8 +241,6 @@ func TestPauseProcess_OutcomeAcceptedWhileDraining(t *testing.T) {
 	}
 }
 
-// TestPauseProcess_NonRootRejected verifies that pausing a descendant directly
-// is rejected with an error naming the tree root, leaving the tree untouched.
 func TestPauseProcess_NonRootRejected(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -275,10 +264,7 @@ func TestPauseProcess_NonRootRejected(t *testing.T) {
 	}
 }
 
-// TestResumeProcess_RestoresSubtree verifies that resuming flips a paused tree back
-// to running and nothing else: phase, wake_at and retry_count survive the
-// pause/resume round trip verbatim, which is what makes resume a status flip rather
-// than the revival RetryProcess performs.
+// phase, wake_at and retry_count survive verbatim: resume is a status flip, not a revival.
 func TestResumeProcess_RestoresSubtree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -331,8 +317,7 @@ func TestResumeProcess_RestoresSubtree(t *testing.T) {
 	}
 }
 
-// TestResumeProcess_FlipsPausing verifies that a resume issued before a pause finished
-// landing simply un-requests it: 'pausing' rows go back to running too.
+// A resume issued before a pause landed un-requests it.
 func TestResumeProcess_FlipsPausing(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -355,10 +340,8 @@ func TestResumeProcess_FlipsPausing(t *testing.T) {
 	}
 }
 
-// TestResumeProcess_FailingRootOverPausedDescendant covers the wedged tree: a branch
-// died while the tree was paused, so the root is 'failing' but cannot settle (a failing
-// parent waits for every child, and paused children count as active). The precondition
-// is on the subtree, not the root's own status, precisely so resuming unblocks this.
+// A failing root cannot settle while paused children count as active; resume keys on the
+// subtree, not the root's status, precisely to unblock it.
 func TestResumeProcess_FailingRootOverPausedDescendant(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -385,11 +368,8 @@ func TestResumeProcess_FailingRootOverPausedDescendant(t *testing.T) {
 	}
 }
 
-// TestResumeProcess_NothingPaused verifies the split that only this layer can make: with
-// nothing paused, a LIVE tree already satisfies "is advancing" (unchanged), while a
-// SETTLED one never will and is refused. Decided under the tree lock, because a caller
-// re-reading after the fact answers from a tree that may have moved.
-// specs/id-list-commands.md.
+// With nothing paused, a LIVE tree is unchanged and a SETTLED one refused, decided under the
+// tree lock. specs/id-list-commands.md.
 func TestResumeProcess_NothingPaused(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -423,8 +403,6 @@ func TestResumeProcess_NothingPaused(t *testing.T) {
 	}
 }
 
-// TestResumeProcess_NonRootRejected verifies that resuming a descendant directly is
-// rejected with an error naming the tree root, leaving the tree untouched.
 func TestResumeProcess_NonRootRejected(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -448,9 +426,8 @@ func TestResumeProcess_NonRootRejected(t *testing.T) {
 	}
 }
 
-// TestUpdateInstance_LandsPendingPause verifies the SQL CASE that settles a pause
-// requested while the instance was leased: the worker's write releases the lease, so
-// a still-running instance becomes 'paused' while a real outcome (completed) wins.
+// The worker's lease-releasing write lands it: a still-running row becomes 'paused', but a real
+// outcome (completed) wins.
 func TestUpdateInstance_LandsPendingPause(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -493,10 +470,8 @@ func TestUpdateInstance_LandsPendingPause(t *testing.T) {
 	}
 }
 
-// TestUpdateInstanceProgress_LandsPendingPause verifies that a progress checkpoint
-// lands a pending pause unconditionally — a checkpoint always means "still running",
-// and this is also the write that parks on a delay or an external task, where no later
-// claim could settle the instance.
+// Unconditionally: this is also the write that parks on a delay or external task, where no
+// later claim could settle the instance.
 func TestUpdateInstanceProgress_LandsPendingPause(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -525,10 +500,8 @@ func TestUpdateInstanceProgress_LandsPendingPause(t *testing.T) {
 	}
 }
 
-// TestFailInstanceAndAncestors_OverridesPaused verifies that a child failure marks
-// suspended ancestors as 'failing' — a failure is a real outcome and must not be
-// hidden by a pause — while preserving their phase so they keep draining until
-// the remaining children settle.
+// A failure must not be hidden by a pause, but phase is kept so the ancestors drain until the
+// remaining children settle.
 func TestFailInstanceAndAncestors_OverridesPaused(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -565,7 +538,6 @@ func TestFailInstanceAndAncestors_OverridesPaused(t *testing.T) {
 	}
 }
 
-// TestFailInstanceAndAncestors_AlreadyFailed verifies that already-failed ancestors are not overwritten.
 func TestFailInstanceAndAncestors_AlreadyFailed(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -591,7 +563,6 @@ func TestFailInstanceAndAncestors_AlreadyFailed(t *testing.T) {
 	}
 }
 
-// TestSpawnChildrenAndWait_RunningParent verifies normal spawn: parent → waiting.
 func TestSpawnChildrenAndWait_RunningParent(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -689,10 +660,8 @@ func insertChild(t *testing.T, db *dbpkg.DB, id string, status model.Status, par
 	}
 }
 
-// TestRetryProcess_NonRetryableStatuses verifies that only failed instances can be
-// retried: a still-draining ('failing') tree must settle first, and a suspended one
-// ('pausing'/'paused') is not a failure at all — retry hands the tree another
-// on_error budget, which un-suspending must not grant, so it is pointed at resume.
+// 'failing' must settle first; a suspended tree is not a failure, and retry's fresh on_error
+// budget is not un-suspending's to grant.
 func TestRetryProcess_NonRetryableStatuses(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -721,8 +690,6 @@ func TestRetryProcess_NonRetryableStatuses(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_NonRootRejected verifies that retrying a descendant directly is
-// rejected with an error naming the tree root, leaving the tree untouched.
 func TestRetryProcess_NonRootRejected(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -746,9 +713,7 @@ func TestRetryProcess_NonRootRejected(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_FailedTree_RevivesOnlyFailedLeaf verifies that retrying the
-// root of a failed tree revives only the failed leaf and reconstructs the root
-// as running+waiting, leaving completed siblings untouched.
+// The root is reconstructed as running+waiting; completed siblings are untouched.
 func TestRetryProcess_FailedTree_RevivesOnlyFailedLeaf(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -779,8 +744,6 @@ func TestRetryProcess_FailedTree_RevivesOnlyFailedLeaf(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_FailedTree_RevivesAllFailedChildren verifies that a root
-// retry revives every failed child of the pending spawn task in one pass.
 func TestRetryProcess_FailedTree_RevivesAllFailedChildren(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -807,9 +770,7 @@ func TestRetryProcess_FailedTree_RevivesAllFailedChildren(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_FailedTree_DeepChain verifies revival of a multi-level failed
-// tree: the origin leaf re-runs, every intermediate ancestor returns to
-// running+waiting.
+// The origin leaf re-runs; every intermediate ancestor returns to running+waiting.
 func TestRetryProcess_FailedTree_DeepChain(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -842,9 +803,7 @@ func TestRetryProcess_FailedTree_DeepChain(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_FailedTree_ReconstructsCollecting verifies that retrying a
-// failed root whose spawn-task children all completed revives it straight to
-// collecting, so the engine re-runs the lost collect.
+// Every spawn-task child completed, so the root revives straight to collecting.
 func TestRetryProcess_FailedTree_ReconstructsCollecting(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -871,8 +830,7 @@ func TestRetryProcess_FailedTree_ReconstructsCollecting(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_Failed_RerunsPendingStep verifies that a failed instance whose
-// pending task spawned nothing simply re-runs it (phase none).
+// Nothing was spawned, so the pending task simply re-runs (phase none).
 func TestRetryProcess_Failed_RerunsPendingStep(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -892,8 +850,7 @@ func TestRetryProcess_Failed_RerunsPendingStep(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_EmptyQueue verifies that an instance interrupted between its
-// last task and the completed write revives cleanly; advance() finishes it.
+// Interrupted between its last task and the completed write; advance() finishes it.
 func TestRetryProcess_EmptyQueue(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -922,10 +879,8 @@ func TestRetryProcess_EmptyQueue(t *testing.T) {
 	}
 }
 
-// TestFailInstanceAndAncestors_LastActiveChild_WakesParent verifies that when
-// the failing child is the last active member of its spawn batch, the parent
-// is marked failing AND woken (phase ”) so the engine can settle it —
-// never 'collecting': that state is reserved for all-completed batches.
+// The parent is marked failing AND woken to the empty phase, never 'collecting': that is
+// reserved for all-completed batches.
 func TestFailInstanceAndAncestors_LastActiveChild_WakesParent(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -962,9 +917,7 @@ func TestFailInstanceAndAncestors_LastActiveChild_WakesParent(t *testing.T) {
 	}
 }
 
-// TestFailInstanceAndAncestors_SiblingStillRunning verifies that a failure with
-// a still-active sibling leaves the parent failing+waiting — it drains until
-// the sibling settles.
+// The parent drains, failing+waiting, until the sibling settles.
 func TestFailInstanceAndAncestors_SiblingStillRunning(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -995,10 +948,8 @@ func TestFailInstanceAndAncestors_SiblingStillRunning(t *testing.T) {
 	}
 }
 
-// TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting verifies that a
-// paused sibling counts as ACTIVE: it is live work that simply is not advancing, so
-// the parent must keep waiting rather than settle a batch that has not finished.
-// (This is the state that wedges a tree — see ResumeProcess.)
+// A paused sibling is live work, so the parent keeps waiting: the state that wedges a tree (see
+// ResumeProcess).
 func TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1029,10 +980,8 @@ func TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting(t *testing.T) 
 	}
 }
 
-// TestFinishChild_PausedParent_ArmsCollect verifies that finishing the last child of
-// a paused parent arms it for the collect: a paused parent is healthy, just suspended,
-// so it gets 'collecting' like a running one (its status keeps it unclaimable until
-// resumed) rather than the ” a failing parent gets.
+// A paused parent is healthy, so it gets 'collecting' like a running one (its status keeps it
+// unclaimable) rather than a failing parent's empty phase.
 func TestFinishChild_PausedParent_ArmsCollect(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1058,9 +1007,6 @@ func TestFinishChild_PausedParent_ArmsCollect(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_OnlyOnce_RejectedUnlessForced verifies that retrying a
-// process whose pending task is marked only_once is rejected, and that force
-// overrides the protection.
 func TestRetryProcess_OnlyOnce_RejectedUnlessForced(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1099,8 +1045,6 @@ func TestRetryProcess_OnlyOnce_RejectedUnlessForced(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_OnlyOnceDeep_RollsBack verifies that an only_once rejection
-// deep in the tree aborts the whole transaction — no node is changed.
 func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1152,8 +1096,7 @@ func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 	}
 }
 
-// TestFinishChild_StepScoped verifies that sibling counting is scoped to the
-// spawn task: a straggler from another batch must not keep the parent waiting.
+// A straggler from another batch must not keep the parent waiting.
 func TestFinishChild_StepScoped(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1181,8 +1124,7 @@ func TestFinishChild_StepScoped(t *testing.T) {
 	}
 }
 
-// TestChildrenForStep_StepScoped verifies that reading a task's children returns
-// only that task's batch, not earlier batches spawned by the same parent.
+// Only that task's batch, not earlier ones spawned by the same parent.
 func TestChildrenForStep_StepScoped(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1222,13 +1164,8 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 	}
 }
 
-// Reviving an instance clears the error it was REPORTING and the one it was HANDLING, without
-// stranding what those slots held in the object store. The claims outlive the write by design --
-// `objects` is the LOADED list, released by the next persistState -- but the cleared slots must
-// not come BACK, or a decode resurrects an error the revival exists to drop.
-//
-// This pins what the code DOES, and one half is disputed: clearing `error` costs a task reached
-// through on_error the input its layer says it is guaranteed. Revisit with that, not around it.
+// Despite the name, only the REPORTED error clears; the CAUGHT one stays. The cleared slot's claim
+// outlives the retry (`objects` is the LOADED list) and drops with the next write.
 func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -1283,11 +1220,8 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 			if _, ok := revived.State[model.StateLastError]; !ok {
 				t.Error("the caught error was cleared: it is state at the task being revived, not part of the conclusion being undone")
 			}
-			// The revived instance is running, so a write always follows -- and it is that write
-			// which drops the claims the cleared slots held. The two directions part company
-			// here: the reported payload is gone, so its object must be released; the caught
-			// error is still referenced, so releasing ITS object would be the object-store bug
-			// that leaves a context pointing at content nothing holds.
+			// The next write drops the reported payload's claim; releasing the caught error's
+			// would leave the context pointing at content nothing holds.
 			if err := b.db.UpdateInstance(revived); err != nil {
 				t.Fatalf("UpdateInstance: %v", err)
 			}
@@ -1399,10 +1333,8 @@ func TestRetryProcess_ScopesBatchToCurrentEpoch(t *testing.T) {
 	}
 }
 
-// A raised slot is NOT re-spawned here: the db layer marks the parent and the engine does it
-// on the next collect, because a replacement's input is re-evaluated against the parent's
-// current definition — which is how a fix published as a new version reaches the child — and
-// nothing in this package can evaluate an expression. specs/child-error-handling.md §12.
+// The engine re-spawns on the next collect: the replacement's input needs expression evaluation,
+// which this package cannot do. specs/child-error-handling.md §12.
 func TestRetryProcess_MarksRaisedBatchForRespawn(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

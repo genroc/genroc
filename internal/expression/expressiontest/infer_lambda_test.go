@@ -503,10 +503,8 @@ func TestMapLambda_ErrNestedMapFailurePropagates(t *testing.T) {
 
 // ─── Determinism ────────────────────────────────────────────────────────────────
 
-// Inference must be a pure function of the expression and the context: a result
-// that depends on Go map iteration order would make generated schemas churn
-// between runs and break the fixpoint's equality test. Joins and object literals
-// are the constructs that build maps, so they are what this exercises.
+// Map-order dependence would churn generated schemas and break the fixpoint's equality test;
+// joins and object literals are what build maps.
 func TestMapLambda_Deterministic(t *testing.T) {
 	c := ctx(t, lambdaCtxJSON)
 	for _, tc := range []struct{ name, expr string }{

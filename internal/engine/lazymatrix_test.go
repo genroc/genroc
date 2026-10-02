@@ -10,11 +10,8 @@ import (
 	"genroc/internal/shape"
 )
 
-// The dereferencing matrix: one context carrying references at known places, and a table of
-// expressions over it asserting BOTH axes -- the value produced, and exactly which objects had to
-// be loaded to produce it. Both or neither: the value alone passes whether or not a reference was
-// needlessly loaded, and the load set alone passes if the expression quietly returns nil.
-// specs/lazy-context.md.
+// Each row asserts BOTH the value and exactly which objects were loaded: either alone passes
+// a broken implementation. specs/lazy-context.md.
 
 // The fixture. Each big value is distinct, so its object has its own hash and the load set
 // names exactly which one was fetched.
@@ -35,9 +32,7 @@ type fixture struct {
 	refs   map[string]*model.ObjectRef
 }
 
-// newFixture stores one instance whose oversized leaves externalize, reads it back, and harvests
-// the markers the decode placed. Real objects and the real loader: the only thing the test
-// supplies is the shape of the context.
+// newFixture uses real objects and the real loader; the test supplies only the context's shape.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	database, e := lazyEngine(t)

@@ -1,11 +1,6 @@
-// Package shape is the self-contained "templated value" unit: a value authored with expressions
-// at its leaves, type-checked against a context schema (Infer) and evaluated against runtime data
-// (Eval), independently of the process model, validation and engine packages.
-//
-//	Shape = string | number | boolean | null | Shape[] | Record<string, Shape>
-//
-// The authoring structure fixes each node's kind, but a string leaf — a template or a $: typed
-// expression — may evaluate to any type.
+// Package shape is a templated value: expressions at its leaves, type-checked against a context
+// schema (Infer) and evaluated against runtime data (Eval). It imports nothing of the process
+// model, validation or engine. A string leaf may evaluate to any type.
 package shape
 
 import (
@@ -15,28 +10,21 @@ import (
 	"genroc/internal/schema"
 )
 
-// Shape is a templated value together with the optional structure it must produce and a name
-// locating it in errors. Two phases, given their contexts independently: Check validates it
-// against a ContextSchema at registration, Eval computes it against a State per run. Only Raw is
-// populated by JSON (un)marshaling; Schema, Name and Expr are attached at the owning slot.
+// Shape is a templated value plus the structure it must produce. Only Raw survives JSON
+// (un)marshaling; Schema, Name, Expr and Conformed are attached by the owning slot.
 type Shape struct {
 	Raw    any            // the templated value: string | float64 | bool | nil | []any | map[string]any
 	Schema *schema.Schema // optional: the required structure Check verifies conformance to
 	Name   string         // optional: locates the shape in error messages (e.g. "task X headers")
-	// Expr marks an expression-only slot (a switch case, child_list over): Raw is
-	// a single bare expression string — not a template — checked and evaluated directly,
-	// with a required Schema of the expected type (e.g. boolean for a case). Structural and
-	// template semantics do not apply.
+	// Expr marks an expression-only slot (a switch case, child_list over): Raw is one bare
+	// expression, not a template, and Schema is required.
 	Expr bool
-	// Conformed marks Schema as a DECLARED SLOT schema — one the value is conformed to at
-	// runtime with ConformToSchemaExactly. The check then uses the relation paired with that
-	// fill instead of plain subset: the null repairs are admitted and an undeclared key is
-	// refused rather than left to be stripped. specs/declared-slot-schemas.md §4.
+	// Conformed marks Schema as one the value is conformed to at runtime, so Check uses the
+	// conform's paired relation rather than plain subset. specs/declared-slot-schemas.md §4.
 	Conformed bool
 }
 
-// exprString returns Raw as the bare-expression source for an Expr shape (empty if Raw is
-// not a string, which then surfaces as an expression parse error).
+// A non-string Raw yields "", which surfaces as an expression parse error.
 func (s *Shape) exprString() string {
 	str, _ := s.Raw.(string)
 	return str
@@ -58,16 +46,13 @@ func (s Shape) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.Raw)
 }
 
-// Present reports whether the shape carries a value; nil-safe so callers can skip a
-// separate nil check.
+// Present is nil-safe: a nil *Shape is absent.
 func (s *Shape) Present() bool {
 	return s != nil && s.Raw != nil
 }
 
-// checkShape recursively enforces the value grammar:
-// string | number | boolean | null | Shape[] | Record<string, Shape>. A string leaf is a
-// template or a $: expression; scalars and null are literals; arrays and objects are
-// built recursively. JSON numbers decode to float64, so that is the only numeric kind.
+// checkShape enforces string | number | boolean | null | Shape[] | Record<string, Shape>.
+// JSON numbers decode to float64, so that is the only numeric kind.
 func checkShape(n any) error {
 	switch v := n.(type) {
 	case string, float64, bool, nil:
@@ -91,10 +76,7 @@ func checkShape(n any) error {
 	}
 }
 
-// JSONSchemaBytes exposes the Shape schema for OpenAPI reflection (swaggest calls it to
-// produce the ModelShape def). It is generated, not hand-written: the generic Value grammar
-// from GenericValueSchema, the single source every free Shape slot resolves to. See that
-// function for the anyOf/recursion/permissive-array rationale.
+// JSONSchemaBytes is swaggest's hook for the ModelShape def; GenericValueSchema is its one source.
 func (Shape) JSONSchemaBytes() ([]byte, error) {
 	return GenericValueSchema()
 }

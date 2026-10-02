@@ -1,16 +1,6 @@
-// Package schema provides a normalizer, validator, and type helpers for a strict subset of
-// JSON Schema: everything it accepts is valid JSON Schema, but it accepts less. Keywords
-// outside allowedKeywords fail to unmarshal; an unrecognised type name is caught a step later
-// by CheckDoc. The empty node {} is the top type as authored — specs/unknown-type.md.
-//
-// Two value types: Parse yields a Raw (unnormalized, possibly nested $defs and unresolved
-// anchors) whose only use is Normalize, which yields a Schema — the operating type, where
-// $defs live only at the root and everything is a method. Sub-schemas from navigation carry
-// the root $defs, so they stay resolvable at any depth.
-//
-// allOf is NOT accepted: navigation cannot resolve a member through an intersection, so it
-// would be a half-supported keyword. The AllOf field is only normalization's internal vehicle
-// for bundling refs (FlattenNamed) and is never populated from user JSON.
+// Package schema normalizes, validates and types a strict subset of JSON Schema: valid JSON
+// Schema, minus allOf and anything outside allowedKeywords; {} is the top type. Parse yields a
+// Raw for Normalize, whose Schema keeps $defs at the root and carries them into sub-schemas.
 package schema
 
 import (
@@ -55,10 +45,8 @@ func (t SchemaType) Contains(s string) bool {
 	return false
 }
 
-// allowedKeywords is BOTH the allowlist UnmarshalJSON enforces and the schema an editor
-// completes from (JSONSchemaBytes), so a keyword cannot be accepted without being offered.
-// "secret" is a genroc extension, meaningful only inside a config_schema (it drives log
-// redaction) and ignored elsewhere.
+// allowedKeywords is both the allowlist UnmarshalJSON enforces and the editor's vocabulary.
+// "secret" is a genroc extension, meaningful only in a config_schema (log redaction).
 var allowedKeywords = map[string]keyword{
 	"type":                 {"string|array", "The value's JSON type, or a list of types it may take."},
 	"properties":           {"object", "The named members of an object, each a schema."},
@@ -81,19 +69,17 @@ var allowedKeywords = map[string]keyword{
 	"default":              {"", "The value used when this one is absent. Annotation only — it does not make a required property optional."},
 	"secret":               {"boolean", "Redacts the value from logs. Only meaningful in a process config_schema."},
 	"description":          {"string", "Free text. Shown in the editor, and never a constraint."},
-	// "allOf" is intentionally omitted — see the package doc.
+	// No "allOf": navigation cannot resolve a member through an intersection. node.AllOf is
+	// only normalization's ref-bundling vehicle.
 }
 
-// JSONSchemaBytes describes the JSON Schema subset a user may write. Hand-written because
-// `node` is unexported, so reflection over Schema sees no fields. Sub-schemas stay permissive
-// rather than recursing into this def -- openapi-typescript turns a self-$ref into an eager
-// cycle tsc rejects -- so completion is top-level only.
+// JSONSchemaBytes is hand-written because `node` is unexported. Sub-schemas stay permissive
+// rather than self-$ref -- openapi-typescript turns that into a cycle tsc rejects.
 func (Schema) JSONSchemaBytes() ([]byte, error) {
 	props := make(map[string]any, len(allowedKeywords))
 	for name, k := range allowedKeywords {
-		// Description only. A `type` here would be right, and openapi-typescript turns the
-		// enriched def into one the generated client cannot satisfy — the same trap an `enum`
-		// on `type` sprang. KeywordKind carries the kind to a consumer that wants it instead.
+		// Description only: openapi-typescript turns a `type` here into a def the generated
+		// client cannot satisfy. KeywordKind carries the kind instead.
 		props[name] = map[string]any{"description": k.description}
 	}
 	return json.Marshal(map[string]any{
@@ -104,9 +90,8 @@ func (Schema) JSONSchemaBytes() ([]byte, error) {
 	})
 }
 
-// validTypes is the JSON Schema "simpleTypes" enum — the only names a type may take.
-// Unlisted names are rejected by checkDoc, not here, so that a definition already
-// stored with one stays decodable; see the note at that check.
+// validTypes is the JSON Schema "simpleTypes" enum. Unlisted names are rejected by checkDoc,
+// not here, so a definition already stored with one stays decodable.
 var validTypes = map[string]bool{
 	"null": true, "boolean": true, "string": true, "number": true,
 	"integer": true, "object": true, "array": true,
@@ -125,10 +110,8 @@ type keyword struct {
 	description string
 }
 
-// keywordOrder is how a schema READS — what it is, then what it holds, then the pool it
-// resolves against. Both json and yaml.v3 sort map keys instead, so every consumer that shows
-// keywords to a person orders by this. A keyword absent here follows, sorted, so a new one
-// shows up rather than disappearing.
+// keywordOrder is how a schema reads; json and yaml.v3 sort map keys, so anything showing
+// keywords to a person orders by this. A keyword absent here follows, sorted.
 var keywordOrder = []string{
 	"description", "$ref", "type", "oneOf", "anyOf", "allOf", "enum", "default",
 	"properties", "required", "additionalProperties", "items",
@@ -142,28 +125,20 @@ func KeywordOrder() []string { return slices.Clone(keywordOrder) }
 // KeywordRank is a keyword's place in that order, or -1 for a word the order does not name.
 func KeywordRank(name string) int { return slices.Index(keywordOrder, name) }
 
-// KeywordKind names the kind of value a JSON Schema keyword takes, or "" for a word this
-// package does not accept. It is what an editor shows beside the keyword in a completion list;
-// the published schema cannot carry it (see JSONSchemaBytes).
+// KeywordKind is the kind of value a keyword takes, or "" for one this package does not
+// accept. The published schema cannot carry it (see JSONSchemaBytes).
 func KeywordKind(name string) string { return allowedKeywords[name].kind }
 
-// node is the structural representation of the supported JSON Schema subset. It is
-// unexported: callers hold a Raw or a Schema and use their methods. The fields stay
-// exported so encoding/json (and in-package code) can reach them.
-// Any JSON key absent from allowedKeywords causes an UnmarshalJSON error.
+// node's fields are exported only for encoding/json; callers hold a Raw or a Schema.
 type node struct {
 	Type SchemaType `json:"type,omitempty"`
-	// Description is a free-text annotation with no bearing on type-checking: it is preserved
-	// through parse/normalize/store and shown in the editor, but stripped by canonicalizeNode
-	// so two schemas denoting the same type stay equal (the recursive-inference fixpoint
-	// compares canonical JSON). Like a JSON Schema "description", never a constraint.
+	// Description is never a constraint: canonicalizeNode strips it so the inference
+	// fixpoint, which compares canonical JSON, sees equal types as equal.
 	Description string           `json:"description,omitempty"`
 	Properties  map[string]*node `json:"properties,omitempty"`
 	Required    []string         `json:"required,omitempty"`
-	// AdditionalProperties, when non-nil, types the object's undeclared keys as an
-	// open map (each extra value must conform to this subschema, and survives
-	// normalization). nil = closed object (undeclared keys stripped). Only the schema
-	// form is supported; a boolean additionalProperties is rejected at parse time.
+	// AdditionalProperties nil is a closed object (undeclared keys stripped), non-nil an
+	// open map. The boolean form is rejected at parse.
 	AdditionalProperties *node            `json:"additionalProperties,omitempty"`
 	Items                *node            `json:"items,omitempty"`
 	OneOf                []*node          `json:"oneOf,omitempty"`
@@ -182,34 +157,28 @@ type node struct {
 	ID                   string           `json:"$id,omitempty"`
 	Default              any              `json:"default,omitempty"`
 	Secret               bool             `json:"secret,omitempty"`
-	// pending routes a solver sentinel back to the solver that owns it, so deref can
-	// force the definition on demand (see Solver.Declare). Struct copies may carry it —
-	// a copy denotes the same definition and resolving it is correct. Unexported, so a
-	// JSON round-trip drops it; that plus Solve nilling it is what leaves an escaped
-	// sentinel bare, to fail loudly on pendingAnchor rather than read as permissive {}.
+	// pending routes a solver sentinel to its solver so deref can force it on demand. A JSON
+	// round-trip drops it and Solve nils it, so an escaped sentinel fails loudly on
+	// pendingAnchor rather than reading as {}.
 	pending *pendingEntry
 }
 
-// UnmarshalJSON implements strict decoding: the document's shape and keywords are checked
-// first (checkRawNode), so a mistake is reported against the sub-schema holding it rather
-// than as encoding/json's type error against the outermost slot.
+// UnmarshalJSON checks shape and keywords first (checkRawNode), so a mistake is reported at
+// the sub-schema holding it, not as encoding/json's error against the outermost slot.
 func (n *node) UnmarshalJSON(data []byte) error {
 	if err := checkRawNode(data); err != nil {
 		return err
 	}
-	// Decode preserving exact numeric literals: default/enum are any-typed, and a plain
-	// Unmarshal collapsed them to float64 — corrupting a big default and INVERTING an enum
-	// (the whitelist for 9007199254740993 rejected it and admitted its neighbour).
+	// Not a plain Unmarshal: default/enum are any-typed, and float64 corrupts a big default
+	// and inverts an enum.
 	type alias node
 	return numeric.Decode(data, (*alias)(n))
 }
 
 // ─── Raw: the unnormalized document ─────────────────────────────────────────────
 
-// Raw is an unnormalized parsed schema: it may carry nested $defs, $id resources,
-// and anchor-style $refs. The only operations are Normalize (yielding the operating
-// Schema type) and JSON round-tripping — a Raw cannot be validated or navigated,
-// because its $refs are not yet resolved against a single root.
+// Raw is an unnormalized schema (nested $defs, $id, anchor refs): it can only be normalized
+// or round-tripped, since its $refs are not yet resolved against a single root.
 type Raw struct {
 	n *node
 }
@@ -280,22 +249,15 @@ func (Raw) JSONSchemaBytes() ([]byte, error) {
 
 // ─── Schema: the normalized, operable schema ────────────────────────────────────
 
-// Schema is a normalized JSON Schema you operate on: a root node whose $defs are the sole
-// resolution context for every $ref in the tree. Navigation (Infer/At/Property/Index) returns
-// a Schema carrying those same $defs, so a sub-schema stays fully resolvable; builders never
-// mutate their receiver.
+// Schema is normalized: its root $defs resolve every $ref in the tree, and navigation returns
+// sub-schemas carrying them. Builders never mutate the receiver.
 type Schema struct {
 	n *node
-	// guards are refinements already proved about references in THIS context, before any
-	// expression over it runs — what a `switch` case established on the edge that routed
-	// here. They ride on the context value rather than on a parameter because every caller
-	// already threads the context and none of them should have to know about narrowing.
-	// Not part of the schema: dropped by every constructor, never marshalled, never compared.
-	// specs/guard-narrowing.md.
+	// guards are refinements already proved here (a `switch` case's edge). Not part of the
+	// schema: dropped by every constructor, never marshalled or compared. specs/guard-narrowing.md.
 	guards map[string]guard
-	// vars are lambda parameters bound around the expression about to be typed, shadowing the
-	// context's own roots. Carried like guards, and dropped by navigation for the same reason.
-	// See LambdaVars, which is what produces them.
+	// vars are lambda parameters in scope (LambdaVars), shadowing the context's roots; carried
+	// and dropped like guards.
 	vars map[string]Schema
 }
 
@@ -350,10 +312,8 @@ func (s Schema) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.n)
 }
 
-// UnmarshalJSON parses a schema document with the strict keyword allowlist. The
-// caller is responsible for the content being normalized (this is the decode path
-// for schemas this package produced — e.g. stored definitions); parse untrusted
-// input via Parse + Normalize instead.
+// UnmarshalJSON decodes with the strict allowlist but does not normalize: it is for schemas
+// this package produced. Use Parse + Normalize for untrusted input.
 func (s *Schema) UnmarshalJSON(data []byte) error {
 	var n node
 	if err := json.Unmarshal(data, &n); err != nil {
@@ -387,9 +347,7 @@ func (s Schema) IsZero() bool {
 	return s.n == nil
 }
 
-// Normalize re-normalizes the schema (idempotent when already normalized) and
-// returns a fresh Schema. Handy when a schema was assembled from parts that may
-// still carry nested defs. The receiver is not modified.
+// Normalize re-normalizes (idempotent) into a fresh Schema; the receiver is not modified.
 func (s Schema) Normalize() (Schema, error) {
 	return Raw{s.n}.Normalize()
 }
@@ -417,9 +375,7 @@ func (s Schema) At(path string) (Schema, error) {
 	return s.subSchema(navigate(s.n, s.rootDefs(), path))
 }
 
-// Property returns the subschema for a single named property, carrying the same
-// root $defs. An optional property comes back nullable, matching At's per-step
-// semantics. It is the single-step form of At used by the type inferrer.
+// Property is one step of At: an optional property comes back nullable.
 func (s Schema) Property(name string) (Schema, error) {
 	return s.subSchema(lookupProperty(s.n, name, s.rootDefs()))
 }
@@ -430,10 +386,8 @@ func (s Schema) Index() (Schema, error) {
 	return s.subSchema(inferIndex(s.n, s.rootDefs()))
 }
 
-// AnyKey returns the (nullable) subschema a computed key a[expr] reads and the type
-// that key must have: the element type of an array (integer key), or the value type
-// of a map declaring only additionalProperties (string key). An object with declared
-// properties is an error — its type varies per key.
+// AnyKey returns the nullable type a computed key a[expr] reads and the type the key must have:
+// an array's element (integer) or an additionalProperties-only map's value (string).
 func (s Schema) AnyKey() (Schema, string, error) {
 	value, keyType, err := anyKey(s.n, s.rootDefs())
 	if err != nil {
@@ -463,9 +417,8 @@ func deepClone(n *node) (*node, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Use alias to avoid the strict UnmarshalJSON on a round-trip of already-valid
-	// data. The decode still has to preserve exact literals, or cloning a schema
-	// would quietly round its defaults and enum entries back through float64.
+	// alias skips the strict UnmarshalJSON on already-valid data; the decode must still keep
+	// exact literals, or cloning rounds defaults and enums through float64.
 	type alias node
 	var a alias
 	if err := numeric.Decode(b, &a); err != nil {

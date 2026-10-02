@@ -14,11 +14,8 @@ import (
 	"genroc/internal/shape"
 )
 
-// Go rather than e2e, and for a reason the HTTP surface cannot supply: whether a value was
-// LOADED is invisible in the result. Content addressing gives a copied reference and a
-// re-hashed one the same hash, so an API assertion passes either way. inst.ResolvedObjects is
-// the memo the load populates, and it is the only place the difference shows.
-// specs/lazy-context.md.
+// Go, not e2e: content addressing makes a LOADED value invisible over HTTP, and
+// inst.ResolvedObjects is the only place it shows. specs/lazy-context.md.
 
 func lazyEngine(t *testing.T) (*db.DB, *Engine) {
 	t.Helper()
@@ -31,9 +28,8 @@ func lazyEngine(t *testing.T) (*db.DB, *Engine) {
 		LogConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
-// storedContext saves an instance with ctxData and reads it back, so every oversized leaf
-// carries the marker an advance would find. Real objects, real decode -- the fixture supplies
-// only the shape.
+// storedContext round-trips ctxData, so every oversized leaf carries the marker an advance
+// would find.
 func storedContext(t *testing.T, database *db.DB, ctxData map[string]any) *model.ProcessInstance {
 	t.Helper()
 	inst := &model.ProcessInstance{

@@ -2,12 +2,8 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// specs/api-auth.md §3, §5. The permission split is only real if it is observed over HTTP —
-// a Go unit test can assert `authorize` returns 403, but not that the gate is actually in
-// front of every route on every transport.
-//
-// This server runs with --auth token, unlike the shared one, so the bootstrap credential is
-// supplied rather than read out of a log.
+// specs/api-auth.md §3, §5. Over HTTP because only that proves the gate fronts every route. This
+// server runs --auth token, unlike the shared one, so the bootstrap credential is supplied.
 
 const ADMIN = "genroc_sk_" + "a".repeat(43);
 const dbPath = tmpPath("genroc_auth", ".db");
@@ -137,9 +133,8 @@ test("auth — an unknown permission is refused at mint, not discovered from a l
 });
 
 // ── attribution ──────────────────────────────────────────────────────────────
-// specs/api-auth.md §7. The actor is `source:subject`, so a reader can never mistake an
-// identity a proxy asserted for one genroc authenticated. These run here rather than in Go
-// because the value has to survive the whole path — principal, handler, column, response.
+// specs/api-auth.md §7. The actor is `source:subject`, so a proxy-asserted identity never reads
+// as one genroc authenticated.
 
 test("attribution — a deployed version records who deployed it", async () => {
   const deploy = await mint(["deploy"], "release-bot");
@@ -209,9 +204,8 @@ test("attribution — an operator verb names the operator, and the engine's own 
     "a pause landed with no actor — an audit trail that cannot say who paused a run is the gap §7 names",
   ).toBe("token:oncall-kim");
 
-  // The engine advances on its own behalf and says so. Empty is reserved for rows written
-  // before attribution existed, so an engine row must name the engine rather than nothing --
-  // and must never name the operator who started the run.
+  // Empty is reserved for rows predating attribution, so an engine row must name the engine --
+  // never the operator who started the run.
   const engineRow = rows.find((l) => l.event === "work_started" || l.event === "task_completed");
   if (engineRow) {
     expect(
@@ -274,9 +268,8 @@ test("attribution — re-applying identical content re-stamps the pointer it tou
 
   expect((await req("/api/definitions/batch", alice, { method: "PUT", body })).status).toBe(200);
 
-  // Identical content: no new version is created, so this takes the "only the channel
-  // pointer moves" branch — which still stamps updated_at, and so must stamp the actor with
-  // it. Leaving it behind makes the row say "moved just now" by someone who did nothing now.
+  // Identical content takes the channel-only branch, which still stamps updated_at and so must
+  // stamp the actor with it.
   const again = await req("/api/definitions/batch", bob, { method: "PUT", body });
   expect(again.status, JSON.stringify(again.body)).toBe(200);
   expect((again.body as { saved: boolean }[])[0].saved, "identical content should not save a version").toBe(false);

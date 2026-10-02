@@ -7,10 +7,8 @@ import (
 	"genroc/internal/model"
 )
 
-// ApplyDefinitions commits a whole planned batch or none of it. The API layer validates
-// every definition before calling it, so what these cover is the other half: that a write
-// failing partway leaves nothing behind, and that a batch's own cross-references land
-// together.
+// The API validates every definition first, so these cover the other half: a write failing
+// partway leaves nothing behind, and a batch's own cross-references land together.
 
 func def(name string, taskID string) *model.ProcessDefinition {
 	return &model.ProcessDefinition{Name: name, Tasks: []*model.Task{{ID: taskID}}}

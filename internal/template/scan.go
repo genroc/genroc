@@ -6,9 +6,8 @@ import (
 	"genroc/internal/expression/syntax"
 )
 
-// Parse's scanner with the positions kept. Parse throws offsets away — it returns values — but
-// anything that has to point AT a marker needs them, and re-deriving where a `$:` starts is a
-// second copy of the rule. TestScanAgreesWithParse holds the two together.
+// Parse's scanner with positions kept, so pointing AT a marker needs no second copy of the
+// rule. TestScanAgreesWithParse holds the two together.
 
 // Span is a byte range in the scanned source, half-open.
 type Span struct {
@@ -26,10 +25,9 @@ type Region struct {
 	Close  Span
 }
 
-// Scan returns the expression regions in s by byte offset, under Parse's rules: a leading `$:`
-// (first non-whitespace content) makes the whole leaf one expression, `$$` escapes, and `${ }`
-// interpolates. Unlike Parse it never fails — a buffer being typed in is the normal input —
-// so an unterminated `${` runs to the end of s and a body that does not parse is still a body.
+// Scan returns the expression regions in s by byte offset, under Parse's rules. Unlike Parse it
+// never fails — a half-typed buffer is the normal input — so an unterminated `${` runs to the
+// end of s and a body that does not parse is still a body.
 func Scan(s string) []Region {
 	ws := leadingWS(s)
 	if strings.HasPrefix(s[ws:], exprMarker) {
@@ -65,10 +63,8 @@ func Scan(s string) []Region {
 	return out
 }
 
-// blockEnd is parseBlock's terminator search over an unparsed source: the first `}` whose body
-// PARSES, so a `}` inside a nested object or string cannot end the block. Where none parses it
-// falls back to the first `}` — parseBlock reports an error there, but a scanner that gave up
-// would leave the rest of the line unmarked while it is still being typed.
+// blockEnd is parseBlock's terminator search, except that where no body parses it falls back to
+// the first `}` rather than failing, so a line still being typed stays marked.
 func blockEnd(s string) int {
 	first := -1
 	for at := 0; ; {

@@ -7,10 +7,8 @@ import (
 
 func ref(h string, n int64) *ObjectRef { return &ObjectRef{Ref: h, Size: n} }
 
-// TestExtract_LeavesUserDataThatLooksLikeAReference is the property the whole wire design
-// rests on. The old shape put {"ref": …, "size": …} INSIDE a context value, indistinguishable
-// from a process whose output legitimately has those two keys. Extraction discriminates on the
-// Go type, never on the shape, so a user value that mimics a marker is untouched and unlisted.
+// Extraction discriminates on the Go type, never the shape — the property the wire design
+// rests on.
 func TestExtract_LeavesUserDataThatLooksLikeAReference(t *testing.T) {
 	mimic := map[string]any{"ref": "not-a-handle", "size": float64(7)}
 	ctx := map[string]any{"outputs": map[string]any{"decoy": mimic}}
@@ -27,13 +25,11 @@ func TestExtract_LeavesUserDataThatLooksLikeAReference(t *testing.T) {
 	}
 }
 
-// TestExtract_SiblingsGetDistinctPaths catches a shared backing array: appending to the
-// parent's path in place gives every sibling the same slice, so two entries name one location and
-// the second value silently overwrites the first when a client splices.
+// Appending to the parent's path in place would give siblings one backing array, so one value
+// overwrites another when a client splices.
 func TestExtract_SiblingsGetDistinctPaths(t *testing.T) {
-	// Nested three deep before the siblings, deliberately. append() only aliases once the
-	// parent slice has SPARE capacity, and Go's growth gives that at length three — so a
-	// shallower fixture passes with the bug present, which this test did on its first writing.
+	// Three deep, deliberately: append() aliases only once the parent slice has spare
+	// capacity, which Go's growth gives at length three.
 	ctx := map[string]any{
 		"outputs": map[string]any{
 			"group": map[string]any{"a": ref("aaa", 10), "b": ref("bbb", 20)},
@@ -62,9 +58,7 @@ func TestExtract_SiblingsGetDistinctPaths(t *testing.T) {
 	}
 }
 
-// TestExtract_RemovesRatherThanMarks: the slot is gone, not null and not a marker. A
-// client that ignores the section must see a MISSING value rather than a plausible object it
-// will treat as data.
+// A client ignoring the section must see a MISSING value, not plausible data.
 func TestExtract_RemovesRatherThanMarks(t *testing.T) {
 	ctx := map[string]any{"input": ref("aaa", 10), "small": "kept"}
 	var got []*ObjectRef
@@ -81,10 +75,8 @@ func TestExtract_RemovesRatherThanMarks(t *testing.T) {
 	}
 }
 
-// TestExtract_InsideAnArray pins the branch nothing reaches yet: a whole value-slot is
-// what externalizes today, so no path currently carries an index. ObjectRef.Path is reserved for
-// granular externalization, and this is what that would produce — a number in the path, not the
-// decimal string a JSON Pointer would force.
+// Nothing reaches this branch yet: only whole slots externalize today. An index is a number in
+// the path, not the decimal string a JSON Pointer would force.
 func TestExtract_InsideAnArray(t *testing.T) {
 	ctx := map[string]any{"outputs": map[string]any{"list": []any{"small", ref("aaa", 10)}}}
 	var got []*ObjectRef

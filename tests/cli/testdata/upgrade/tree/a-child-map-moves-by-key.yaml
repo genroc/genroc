@@ -1,11 +1,5 @@
-# A child_map across the same three states. Its entries can name DIFFERENT processes, so each
-# key declares its own call — and each child carries `_spawn_child_key` to say which slot it
-# fills. That key is what the plan reads to find the entry a live child belongs to, and what a
-# keyed result is assembled by.
-#
-# The two entries move differently on purpose: `slow` decuples in v2 and `fast` is untouched, so
-# the collected object says per key which definition ran rather than giving one number that
-# could have come from either.
+# Each child carries `_spawn_child_key`, which the plan reads to find its entry. `slow` decuples
+# in v2 and `fast` is untouched, so the collected object says per key which definition ran.
 apply:
   - definitions:
       - name: slow

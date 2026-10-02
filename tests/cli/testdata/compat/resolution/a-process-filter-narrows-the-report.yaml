@@ -1,12 +1,5 @@
-# The third form in the usage line — `compat --from <sel> --to <sel> [<process>]` — and the
-# `process` field of the request behind it. It is exercised elsewhere only through the
-# positional form (closure-pulls-the-child-in.yaml), which builds its selectors a different
-# way, so a filter that stopped narrowing a channel-wide comparison would show up nowhere:
-# the extra rows read as a bigger report, not as a broken flag.
-#
-# Both processes moved, so a filter that did nothing would print two blocks. Naming one must
-# also keep its closure, which is why the filtered process has a child: dropping the child
-# rows would report a parent as clean while the value it collects moved underneath it.
+# `--process` on a channel-wide comparison. Both processes moved, so a filter that did nothing
+# prints two blocks; the filtered one has a child because its closure must stay in.
 apply:
   - channel: filter_a
     definitions:

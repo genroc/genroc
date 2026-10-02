@@ -11,10 +11,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// Code is the machine-readable classification carried by every error reply. It lives on Reply
-// rather than being an HTTP concern because a TCP or UDS client never sees a status line. The
-// set is deliberately small: distinctions a *client* can act on, not a taxonomy of what went
-// wrong internally — engine failure detail belongs in errcode, on the instance.
+// Code classifies every error reply; it is on Reply because TCP and UDS clients see no status
+// line. Small on purpose: distinctions a client can act on. Engine detail is errcode's.
 type Code string
 
 const (
@@ -29,21 +27,16 @@ const (
 	// CodeUnsupported — the endpoint exists but this server is not configured to serve
 	// it (e.g. /tick outside manual-tick mode).
 	CodeUnsupported Code = "unsupported"
-	// CodeUnavailable — this server cannot serve requests right now (its database is
-	// unreachable). Unlike CodeInternal it is a statement about the whole worker, which
-	// is what makes it the right answer for a readiness probe: route elsewhere, retry.
+	// CodeUnavailable — the database is unreachable. A statement about the whole worker,
+	// so a readiness probe routes elsewhere.
 	CodeUnavailable Code = "unavailable"
-	// CodeUnauthenticated — no identity was established. Distinct from CodeForbidden on
-	// purpose: "I do not know who you are" and "I know, and no" are the two most common
-	// failures of this feature and have opposite fixes — a broken proxy wiring versus a
-	// missing role mapping. One code makes the commonest support question undiagnosable.
+	// CodeUnauthenticated — no identity was established. Kept apart from CodeForbidden: the
+	// two commonest auth failures have opposite fixes.
 	CodeUnauthenticated Code = "unauthenticated"
 	// CodeForbidden — the caller is known and lacks the permission this action needs.
 	CodeForbidden Code = "forbidden"
-	// CodeInternal — anything unclassified. This is the default on purpose: an error
-	// nobody classified is a server fault until proven otherwise, which is what makes
-	// the classification pass self-driving — any path still answering 500 is a path
-	// nobody has looked at.
+	// CodeInternal — anything unclassified, on purpose: a path still answering 500 is one
+	// nobody has classified yet.
 	CodeInternal Code = "internal"
 )
 
@@ -60,11 +53,8 @@ var statusByCode = map[Code]int{
 	CodeInternal:        http.StatusInternalServerError,
 }
 
-// statusOfOutcome maps a successful assertion to its HTTP status, the success-side twin
-// of statusOf. 204 is the one overload here: HTTP has no code meaning "already in the
-// desired state", and No Content is the convention for it — which is why an unchanged
-// reply carries no body and clients that need the detail read the instance.
-// specs/id-list-commands.md.
+// statusOfOutcome is statusOf's success-side twin. Unchanged is 204, so its reply carries no
+// body (CLAUDE.md). specs/id-list-commands.md.
 func statusOfOutcome(o model.Outcome) int {
 	switch o {
 	case model.OutcomeAccepted:
@@ -83,9 +73,8 @@ func statusOf(c Code) int {
 	return http.StatusInternalServerError
 }
 
-// Enum publishes the code set to the OpenAPI generator (swaggest picks up this
-// interface), which is what makes the code a documented part of the contract rather
-// than an undocumented debugging aid clients key on anyway.
+// Enum publishes the codes to the OpenAPI generator (swaggest), derived from statusByCode
+// so none goes undocumented.
 func (Code) Enum() []interface{} {
 	out := make([]interface{}, 0, len(statusByCode))
 	for _, c := range ReferenceCodes() {
@@ -109,10 +98,8 @@ func errorStatuses(extra []Code) []int {
 	return out
 }
 
-// Error is an error carrying an API classification. Handlers construct one through
-// invalid/notFound/conflict/unsupported when they reject a request themselves;
-// failures that come back out of the db package classify automatically in codeOf, so
-// a handler that only forwards a db error still gets the right status.
+// Error carries an API classification. db failures classify automatically in codeOf, so a
+// handler that only forwards a db error still gets the right status.
 type Error struct {
 	Code    Code
 	Message string
@@ -122,9 +109,8 @@ type Error struct {
 func (e *Error) Error() string { return e.Message }
 func (e *Error) Unwrap() error { return e.Err }
 
-// apiErrf keeps the fmt.Errorf result as the cause, so a %w in format stays walkable.
-// The explicit Code still wins in codeOf (checked before the sentinels) — how a handler
-// overrides a db classification when it knows better.
+// apiErrf keeps %w walkable. The explicit Code wins in codeOf, checked before the sentinels,
+// so a handler can override a db classification.
 func apiErrf(code Code, format string, a ...any) *Error {
 	err := fmt.Errorf(format, a...)
 	return &Error{Code: code, Message: err.Error(), Err: err}
@@ -137,8 +123,7 @@ func unsupported(format string, a ...any) *Error { return apiErrf(CodeUnsupporte
 func forbidden(format string, a ...any) *Error   { return apiErrf(CodeForbidden, format, a...) }
 func unavailable(format string, a ...any) *Error { return apiErrf(CodeUnavailable, format, a...) }
 
-// codeOf classifies in precedence order: explicit *Error, then a db sentinel (forwarding
-// needs no per-site decision), then a validation failure (the submitter's fault), else
+// codeOf precedence: explicit *Error, then a db sentinel, then a validation failure, else
 // internal.
 func codeOf(err error) Code {
 	var apiErr *Error
@@ -159,10 +144,8 @@ func codeOf(err error) Code {
 	return CodeInternal
 }
 
-// fieldsOf returns the per-field detail of a definition-validation failure, or nil, looking
-// through wrapping so a handler's "%s: %w" prefix does not lose it. Inference reports the same
-// way, so a client need not tell a struct-tag failure from a type failure to find the field to
-// fix. specs/language-server.md §2.
+// fieldsOf looks through wrapping so a handler's "%s: %w" prefix does not lose the detail;
+// inference reports the same way. specs/language-server.md §2.
 func fieldsOf(err error) []model.FieldError {
 	var ve *model.ValidationError
 	if errors.As(err, &ve) {

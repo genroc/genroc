@@ -21,9 +21,7 @@ func bigString(tag string) string {
 	return tag + ":" + strings.Repeat("x", 10*1024)
 }
 
-// TestObjects_BigValueRoundTrip verifies that a large value-slot is externalized,
-// resolves back to the same value slot by slot, and that a small value stays
-// inline.
+// A small value stays inline.
 func TestObjects_BigValueRoundTrip(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -69,10 +67,8 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 	}
 }
 
-// The REVERSE of what this test asserted before the object store was re-architected: "deleted
-// immediately at dereference" was given up, because reading now hands out references and fetching
-// them is a second call, so a client would 404 on a reference given moments earlier. Secret
-// protection moved to recording. specs/object-store.md §Collection.
+// A read hands out references and fetching them is a second call, so a release must not delete
+// at once. specs/object-store.md §Collection.
 func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -133,9 +129,8 @@ func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 	}
 }
 
-// TestObjects_LogReferencedSurvivesDeref verifies that an object a log references is NOT deleted
-// when the context slot sharing it is dereferenced — it stays fetchable while the log ROW that
-// claims it exists, and is reclaimed once that row is pruned and the grace window passes.
+// Fetchable while the log ROW claiming it exists; collected once that row is pruned and the grace
+// window passes.
 func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -253,9 +248,8 @@ func outputRef(t *testing.T, db *dbpkg.DB, id string) *model.ObjectRef {
 	return ref
 }
 
-// TestObjects_ContentIsSharedAcrossInstances is what the global store exists for: the same bytes
-// in two instances are ONE object with two claims, where the old (instance_id, hash) key made
-// them two rows. The measurement in specs/object-store.md, as an assertion.
+// The same bytes in two instances are ONE object with two claims: the measurement in
+// specs/object-store.md, as an assertion.
 func TestObjects_ContentIsSharedAcrossInstances(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -275,9 +269,8 @@ func TestObjects_ContentIsSharedAcrossInstances(t *testing.T) {
 	}
 }
 
-// TestObjects_ReleaseKeepsContentAnotherInstanceHolds is the failure this design is most able to
-// cause, and the reason deletion is "no claim remains" rather than "my claim is gone": under a
-// shared store the wrong rule destroys an unrelated instance's value.
+// Deletion is "no claim remains", not "my claim is gone": under a shared store the wrong rule
+// destroys an unrelated instance's value.
 func TestObjects_ReleaseKeepsContentAnotherInstanceHolds(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -321,9 +314,8 @@ func TestObjects_ReleaseKeepsContentAnotherInstanceHolds(t *testing.T) {
 	}
 }
 
-// TestObjects_ReleasedObjectIsResurrectedByAReWrite: an object on nothing but a grace claim is
-// unclaimed, not dead. Writing the same bytes again claims the row that is already there, and no
-// copy is made — the ordinary case for a task looping over two alternating values.
+// Unclaimed is not dead: writing the same bytes again claims the existing row and makes no copy,
+// the ordinary case for a task looping over two alternating values.
 func TestObjects_ReleasedObjectIsResurrectedByAReWrite(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -357,10 +349,8 @@ func TestObjects_ReleasedObjectIsResurrectedByAReWrite(t *testing.T) {
 	}
 }
 
-// Drives release-then-resurrect concurrently with the collector and asserts the invariant that
-// matters: no instance is left holding a claim on content that is gone. It does NOT prove that
-// `PutObject` must be ON CONFLICT DO UPDATE rather than DO NOTHING -- swapping them does not fail
-// this test on either engine; that interleaving is pinned by objectlock_test.go instead.
+// Does NOT pin ON CONFLICT DO UPDATE over DO NOTHING: swapping them passes here on both engines.
+// objectlock_test.go pins that interleaving.
 func TestObjects_ResurrectionAgainstALiveSweeper(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -421,10 +411,7 @@ func TestObjects_ResurrectionAgainstALiveSweeper(t *testing.T) {
 	}
 }
 
-// resolveAll materializes every marker in a context, which is what a CLIENT now does with the
-// objects section a response lists. HydrateContext used to do it server-side behind
-// ?resolve=true; both are gone, and a test doing it by hand is closer to the real path than a
-// server-side convenience was.
+// resolveAll materializes every marker, as a CLIENT does with a response's objects section.
 func resolveAll(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance) {
 	t.Helper()
 	var walk func(v any) any
@@ -449,11 +436,8 @@ func resolveAll(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance) {
 	}
 }
 
-// TestObjects_ExternalInputClaimIsReleased: a task input's externalized bundle is claimed while
-// the task is parked and released when it resolves. The release depends on the ref being in the
-// instance's LOADED set when the row is read -- the write path drops what it loaded and no
-// longer references, so a ref missing from that set is a claim nothing can ever drop, and the
-// object is held for the life of the database by an instance that finished with it.
+// The release depends on the ref being in the LOADED set on read: one missing from it is a claim
+// nothing can ever drop.
 func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -515,11 +499,8 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 	}
 }
 
-// A resurrected object gets a FRESH window when it is released again. Without the clear, release
-// -> sweep -> re-claim -> release leaves a mark already older than the window, and a stale mark
-// stays invisible until that second release because the object is safe while CLAIMED. Two things
-// clear it, deliberately: PutObject's conflict path and the sweep's own pass.
-// specs/object-store.md.
+// Without the clear, release -> sweep -> re-claim -> release leaves a mark already older than the
+// window. specs/object-store.md.
 func TestObjects_ResurrectionClearsTheReleaseMark(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -563,11 +544,8 @@ func TestObjects_ResurrectionClearsTheReleaseMark(t *testing.T) {
 	}
 }
 
-// The claim the sweeper never sees: marked, re-claimed and released again all BETWEEN two sweeps.
-// Only the content upsert can catch this one -- the sweep's own clear needs a live claim to
-// observe, and by the next sweep the object is unclaimed again carrying a mark older than the
-// window. PutObject's conflict path clears it at the instant the claim is made.
-// specs/object-store.md.
+// Only PutObject's conflict path can catch this: the sweep's own clear needs a live claim to
+// observe. specs/object-store.md.
 func TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -597,10 +575,8 @@ func TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow(t *testing.T) {
 	}
 }
 
-// State is RECONSTRUCTIBLE: everything an instance holds comes back from a write and a read
-// unchanged. The set is CLOSED, and both halves are checked -- a key outside it is dropped rather
-// than stored, which is what makes the first half exhaustive rather than merely long. Values go in
-// through the SAME decoder storage uses, so the comparison is of stored against read.
+// The set is CLOSED and both halves are checked: a key outside it is dropped, which makes the
+// round trip exhaustive. Values go in through storage's own decoder.
 func TestState_RoundTripsWhole(t *testing.T) {
 	// Past the 2 KiB cutoff, so at least one slot is reconstructed FROM THE OBJECT STORE rather
 	// than from the row -- a round trip that never externalizes anything proves the easy half.
@@ -669,11 +645,8 @@ func TestState_RoundTripsWhole(t *testing.T) {
 	}
 }
 
-// The parked input survives a write that is not about it. This is what the single spelling of
-// external_input buys: the objects path stored on the row is the context key the read places it
-// back under, so a round trip returns the marker and the next write re-declares it. Spell the two
-// differently and Place finds nothing, the write emits no ref, the claim is released and a parked
-// task loses its input -- with no error at any step.
+// The objects path and the context key must be spelled the same, or Place finds nothing, the write
+// emits no ref, and a parked task loses its input with no error at any step.
 func TestObjects_ExternalInputSurvivesAnUnrelatedWrite(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

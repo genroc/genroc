@@ -6,10 +6,8 @@ import { childrenOfTask } from "../helpers/client.ts";
 export class TickEnv {
   constructor(private readonly genroc: GenrocProcess) {}
 
-  // Reads straight from the server's SQLite file. Only for columns the API deliberately
-  // does not expose -- task_epoch and parent_task_epoch are engine bookkeeping, and a test
-  // that asserts the MECHANISM rather than its symptom has to look at them directly.
-  // Safe while the server runs: SQLite is in WAL mode, so a reader never blocks the writer.
+  // Reads the server's SQLite file directly, only for columns the API deliberately hides.
+  // Safe while the server runs: WAL mode means a reader never blocks the writer.
   query<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[] {
     const db = new DatabaseSync(this.genroc.dbPath);
     try {
@@ -83,8 +81,6 @@ export class TickEnv {
     return (data!.phase as string) ?? "";
   }
 
-  // Check statuses for a labelled map of instance IDs.
-  // Usage: env.statuses({ gp: gpId, parent: parentId, a: aId, b: bId })
   async statuses(
     tree: Record<string, string>,
   ): Promise<Record<string, string>> {
@@ -115,9 +111,8 @@ export class TickEnv {
     return data!.id;
   }
 
-  // pause and resume are assertions, so they return WHAT THEY DID rather than throwing on
-  // a no-op: an already-satisfied assertion answers 204, which openapi-fetch surfaces as
-  // an absent body. specs/id-list-commands.md.
+  // Returns WHAT IT DID: an already-satisfied assertion answers 204, which openapi-fetch
+  // surfaces as an absent body. specs/id-list-commands.md.
   async pause(id: string): Promise<string> {
     const { data, error } = await this.genroc.client.POST("/instances/{id}/pause", {
       params: { path: { id } },
@@ -207,16 +202,8 @@ export class TickEnv {
   }
 }
 
-// Registers beforeAll/afterAll to start a fresh tick-mode server for this file, on a port the
-// OS hands out — files run in parallel, and two on one port meant the loser talked to the
-// winner's server and failed on counts it never created. The returned object is populated
-// before tests run.
-//
-// Usage:
-//   const ctx = useTickEnv();
-//   test("...", async () => { await ctx.env.tick(); });
-// Pass immediateRetries: false to keep the real backoff, so a test can advance the clock
-// across a retry timer and observe how long the policy actually parked for.
+// A fresh tick-mode server per file, on an OS-assigned port since files run in parallel. Pass
+// immediateRetries: false to keep real backoff, so a test can observe how long a retry parks.
 export function useTickEnv(opts: { immediateRetries?: boolean } = {}) {
   const ctx = {} as { env: TickEnv };
   const { immediateRetries = true } = opts;

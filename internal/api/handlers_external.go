@@ -25,9 +25,8 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		raises = task.Action.Raises
 	}
 	var claimedBy, claimExpires string
-	// A holder whose visibility timeout has passed is not reported: the row is claimable
-	// again, and naming a dead worker would read as work in progress. The column keeps the id
-	// regardless — that is the evidence a lost claim is recognised by.
+	// A lapsed holder is not reported: the row is claimable again. The column keeps the id
+	// regardless — it is the evidence a lost claim is recognised by.
 	if inst.ExternalWorkerID != nil && inst.ExternalLeaseExpiresAt != nil && inst.ExternalLeaseExpiresAt.After(db.Now()) {
 		claimedBy = *inst.ExternalWorkerID
 		claimExpires = inst.ExternalLeaseExpiresAt.Format(time.RFC3339)
@@ -58,10 +57,8 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 	}
 }
 
-// buildOutcome validates a submitted outcome against what the task declares and returns the
-// value to store. Both addressing modes go through it so resolve and signal cannot drift on
-// what they accept. The failure payload is conformed HERE rather than in the engine: the
-// submitter is an HTTP caller holding the connection, so a mismatch is a 400 it can act on.
+// buildOutcome is shared by resolve and signal so they cannot drift. The failure payload is
+// conformed here, not in the engine: the submitter holds the connection, so a 400 is actionable.
 func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.ExternalOutcome, *Error) {
 	if fail != nil && result != nil {
 		return model.ExternalOutcome{}, invalid("a submission carries one outcome: `result` or `error`, not both")
@@ -81,9 +78,8 @@ func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.Externa
 	if fail.Message == "" {
 		return model.ExternalOutcome{}, invalid("error.message is required — it is what error.message carries and what the audit trail shows")
 	}
-	// The code lands in error_code and is what on_error rules match, so a caller must not be
-	// able to spell an engine code: "http.500" would be caught by a rule written for the wire,
-	// and "external.timeout" is unknowable, which an only_once task can never retry.
+	// A caller must not spell an engine code: "http.500" would match rules written for the
+	// wire, and "external.timeout" is unknowable.
 	if strings.Contains(fail.Code, ".") {
 		return model.ExternalOutcome{}, invalid("error.code %q must not contain '.' — dots are reserved for engine-produced codes", fail.Code)
 	}
@@ -91,11 +87,8 @@ func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.Externa
 		return model.ExternalOutcome{}, invalid("error.code %q is not a valid error code (lower_snake_case, no dots)", fail.Code)
 	}
 
-	// `raises` IS the error channel's contract on an external task: a code outside it is
-	// refused rather than routed to whatever catch-all happens to exist. Unlike a child --
-	// whose raisable set comes from its own definition, so a typo in an on_error pattern is
-	// already caught at registration -- nothing about a caller is knowable until it submits,
-	// which makes this the only place a wrong code can ever be caught.
+	// `raises` is the error channel's contract: an undeclared code is refused, not routed to a
+	// catch-all. Unlike a child's, a worker's codes are unknowable before it submits.
 	var declared model.Raises
 	if task.Action != nil {
 		declared = task.Action.Raises
@@ -110,10 +103,8 @@ func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.Externa
 
 	out := &model.ExternalFailure{Code: fail.Code, Message: fail.Message}
 	if sc == nil {
-		// `raises: {code: null}` — declared to carry nothing. Sending a payload anyway is a
-		// contract violation like any shape mismatch, and `data` stays absent rather than
-		// null: absence is what the validator infers for this code, and a context richer than
-		// its type is how an expression comes to read a slot the next reader cannot.
+		// `raises: {code: null}`: `data` stays absent, not null, because absence is what the
+		// validator infers for this code.
 		if fail.Data != nil {
 			return model.ExternalOutcome{}, invalid("error.code %q is declared as carrying no data (raises[%q] is null), but data was submitted", fail.Code, fail.Code)
 		}
@@ -200,16 +191,13 @@ func (h *Handlers) signalInstance(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// Paused instances still accept signals — SignalInstance buffers them FIFO and the
-	// task consumes one when it next arms after a resume. A pause suspends execution,
-	// not delivery; rejecting here would make a pause lose events. The correlation
-	// decision (deliver now vs buffer) is made under the row lock in SignalInstance.
+	// A pause suspends execution, not delivery: SignalInstance buffers under the row lock and
+	// the task consumes it when it re-arms after resume.
 	if !inst.Status.AcceptsExternalOutcome() {
 		return conflict("instance is not running (status %s)", inst.Status).reply()
 	}
-	// Resolve the target external task from the pinned definition — it may be a wait point
-	// reached later, not the current front task. The definition (and its result_schema) is
-	// immutable for this version, so validating against it before the atomic deliver is safe.
+	// The target may be a later wait point, not the front task. The pinned definition is
+	// immutable, so validating before the atomic deliver is safe.
 	def, err := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return errReply(err)
@@ -238,9 +226,8 @@ func (h *Handlers) signalInstance(raw json.RawMessage) Reply {
 	return okReply(map[string]any{"delivered": delivered, "buffered": !delivered})
 }
 
-// Defaults for a claim's visibility timeout and batch size. The lease is short on purpose: a
-// worker that dies should return its work quickly, and one that needs longer renews rather than
-// asking for a long grant it may not survive.
+// Claim defaults. The lease is short so a dead worker's work returns quickly; one that needs
+// longer renews.
 const (
 	defaultClaimLeaseMs = 30_000
 	maxClaimLeaseMs     = 3_600_000
@@ -248,11 +235,8 @@ const (
 	maxClaimLimit       = 100
 )
 
-// renewBefore is how long a worker may wait before renewing: a third of its lease, which
-// leaves room for two failed attempts before the claim actually lapses. Reported on every
-// grant so the interval is a value the worker reads rather than one it guesses -- a worker
-// that renews too late is indistinguishable from one that died, and cancellation rides the
-// renewal, so a slow heartbeat is also a slow stop. specs/external-task-queue.md.
+// renewBefore is a third of the lease, leaving room for two failed renewals. Reported on every
+// grant so the worker never guesses it. specs/external-task-queue.md.
 func renewBefore(lease time.Duration) int64 { return lease.Milliseconds() / 3 }
 
 func claimLease(ms int64) (time.Duration, *Error) {
@@ -265,9 +249,8 @@ func claimLease(ms int64) (time.Duration, *Error) {
 	return time.Duration(ms) * time.Millisecond, nil
 }
 
-// claimExternalTasks leases parked external tasks to a worker. The response is the queue entry
-// plus a three-part token: the handle that names the grant, and the only one accepted while the
-// claim is live.
+// claimExternalTasks grants a three-part token, the only handle accepted while the claim is
+// live.
 func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 	req, err := decodeBody[ClaimExternalTasksReq](raw)
 	if err != nil {
@@ -298,16 +281,11 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 		if err != nil || task == nil {
 			continue // a concurrent transition; the claim expires on its own
 		}
-		// An only_once task whose previous holder let its claim lapse must NOT be handed out
-		// again -- the first worker may already have done the work. Here rather than in the
-		// claim's SQL because only_once is a property of the definition, which this loop has in
-		// hand. The grant is undone and the arming marked, so the engine reports external.lost.
+		// A lapsed claim on an only_once task must NOT be handed out again: the first worker may
+		// have done the work. Here, not in SQL, because only_once is the definition's.
 		if inst.ExternalReclaimed && task.OnlyOnce != nil && *task.OnlyOnce {
-			// A conflict here means the row moved on between the grant and this write -- the
-			// lapsed holder came back late and answered, which is allowed and is the whole
-			// point of "expiry alone writes nothing". It is this ROW's news, not the request's:
-			// failing the call would strand every other task the same batch legitimately
-			// claimed, since those grants are already written and nothing would return them.
+			// A conflict means the lapsed holder answered late, which is allowed. It is this ROW's
+			// news: failing the call would strand the batch's other grants, already written.
 			err := h.db.MarkExternalClaimLost(context.Background(), inst.ID, inst.TaskEpoch)
 			if err != nil && !errors.Is(err, db.ErrConflict) && !errors.Is(err, db.ErrNotFound) {
 				return errReply(err)
@@ -321,11 +299,8 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 	return okReply(map[string]any{"items": resp, "renew_before_ms": renewBefore(lease)})
 }
 
-// renewExternalClaims extends this worker's claims, scoped to the holder and never bumping the
-// claim epoch, which would fence the worker out of its own answer. The answer is per TOKEN, not
-// a count: a worker holding four claims must learn WHICH it lost. It is also the only channel
-// that reaches a running worker, so `cancelled` rides it and renewal is mandatory.
-// specs/external-task-queue.md.
+// renewExternalClaims must not bump the claim epoch, which would fence the worker out of its own
+// answer. It answers per TOKEN, and `cancelled` rides it. specs/external-task-queue.md.
 func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	req, err := decodeBody[RenewExternalClaimsReq](raw)
 	if err != nil {
@@ -353,9 +328,8 @@ func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// Answered in the caller's own handles: it asked with tokens and holds tokens, and the
-	// instance id a token carries is not what it releases or resolves with. Keyed by id and
-	// re-walked over req.Tokens so two tokens naming one instance both get an answer.
+	// Answered in the caller's tokens, not instance ids; re-walked over req.Tokens so two
+	// tokens naming one instance both get an answer.
 	bucket := make(map[string]*[]string, len(ids))
 	renewed, lost, cancelled := []string{}, []string{}, []string{}
 	for _, id := range out.Renewed {
@@ -378,9 +352,8 @@ func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	})
 }
 
-// releaseExternalTask hands a claim back to the queue immediately instead of waiting out its
-// lease. It bumps the claim epoch, unlike an expiry, which writes nothing: a release is
-// deliberate, so the releasing worker's own handle must stop working at once.
+// releaseExternalTask bumps the claim epoch, unlike an expiry, which writes nothing: the
+// releasing worker's own handle must stop working at once.
 func (h *Handlers) releaseExternalTask(raw json.RawMessage) Reply {
 	req, err := decodeBody[ReleaseExternalTaskReq](raw)
 	if err != nil {

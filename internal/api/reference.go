@@ -1,8 +1,7 @@
 package api
 
-// What the docs site needs from the registry that the OpenAPI document does not carry. Both
-// come off the same `registry`, so the two reads cannot disagree; the second exists because
-// the spec answers a different question. specs/docs-site.md.
+// What the docs site needs from the registry beyond the OpenAPI document; both read
+// `registry`, so they cannot disagree. specs/docs-site.md.
 
 import (
 	"encoding/json"
@@ -15,10 +14,8 @@ type ReferenceAction struct {
 	Method string `json:"method"`
 	Path   string `json:"path"`
 
-	// Permissions that admit the call, ANY one of them sufficing. Empty means admin-only,
-	// which is the registry's fail-closed default rather than an omission; Open marks the
-	// probe that needs none. Nothing in the spec says this — it has no vocabulary for a
-	// permission that is not an auth scheme.
+	// Any one suffices. Empty means admin-only, the fail-closed default; Open marks the probe.
+	// The OpenAPI spec has no vocabulary for this.
 	Permissions []string `json:"permissions"`
 	Open        bool     `json:"open"`
 
@@ -47,9 +44,8 @@ func Reference() []ReferenceAction {
 	return out
 }
 
-// exampleJSON renders an example, or nothing when the registry entry carries only a type. A
-// zero-valued struct marshals to a shape with every field null, which reads as a claim about
-// what an endpoint returns rather than as the absence of an example.
+// exampleJSON renders nothing for a type-only entry: a zero struct's all-null shape would
+// read as a claim about the endpoint.
 func exampleJSON(v any) json.RawMessage {
 	if v == nil {
 		return nil
@@ -65,10 +61,8 @@ func exampleJSON(v any) json.RawMessage {
 	return b
 }
 
-// ReferenceCode is one API error code as a reader meets it: the classification in the body, the
-// status it renders as, and one line on what it means. The prose is data rather than only a doc
-// comment because a doc comment reaches Go readers and nobody else, and this set is something a
-// client written in any language has to handle.
+// ReferenceCode is one API error code as a reader meets it. The prose is data, not a doc
+// comment, because clients in any language must handle this set.
 type ReferenceCode struct {
 	Code   Code   `json:"code"`
 	Status int    `json:"status"`

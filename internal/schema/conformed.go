@@ -2,27 +2,9 @@ package schema
 
 import "sort"
 
-// The third member of a family: ConformsExactlyTo is the RELATION (may this value be conformed
-// to that declaration), ConformToSchemaExactly is the FILL (do it), and Conformed is the TYPE of
-// what comes out. It exists so that "what is this slot" has one answer: the language server, the
-// CLI and the resolver manifest all read the type validation stored, and none carries a rule of
-// its own. specs/declared-slot-schemas.md §1, §6.
-
-// Conformed is the type of a value of s once Validate(v, ConformToSchemaExactly) against
-// declared has run — what actually LEAVES a declared slot.
-//
-// It is derived from s, never from declared: the static check proved s fits, so s is already
-// the more precise description, and the declaration changes it in exactly the ways the fill
-// does. An optional property declared non-nullable loses its null and becomes may-be-absent
-// (the fill removes the key); a required nullable property s never sets appears as null (the
-// fill writes it in); the declaration's `description` is carried, because it is the prose an
-// imported schema exists to bring. Where the declaration says nothing — the top type — s is
-// returned as it is, which is what makes a generic child's `input: {}` type as what the caller
-// sent rather than as `unknown`.
-//
-// A `$ref` in s is left symbolic wherever the declaration does not reach inside it, so a
-// recursive type stays finite; where it does, the reference is followed under a depth bound.
-// Sound only for a pair the relation accepted — anything else is the assertion in the engine.
+// Conformed is the type of s after Validate(v, ConformToSchemaExactly) against declared — what
+// LEAVES a declared slot — derived from s and changed only where the fill changes the value.
+// Sound only for a pair ConformsExactlyTo accepted. specs/declared-slot-schemas.md §1, §6.
 func (s Schema) Conformed(declared Schema) Schema {
 	if s.n == nil {
 		return s

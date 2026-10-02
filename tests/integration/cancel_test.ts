@@ -2,9 +2,8 @@ import { expect, test } from "vitest";
 import { childrenOfTask, client, startInstance, waitForInstance } from "../helpers/client.ts";
 import { waitForParked } from "../helpers/external.ts";
 
-// The terminal stop. Cancel is deliberately not a mode of pause: pause exists to be
-// reversible and a cancel is final, which is why it is a status beside `failed` and why
-// retry refuses it. specs/pause-resume.md.
+// Cancel is terminal, not a mode of pause: a status beside `failed`, which retry refuses.
+// specs/pause-resume.md.
 
 async function define(name: string, tasks?: unknown[]) {
   const { error } = await client.PUT("/definitions", {
@@ -69,16 +68,13 @@ test("a cancelled instance is neither resumable nor retryable", async () => {
   await waitForParked(id);
   await cancel(id);
 
-  // Retry is refused outright: it revives a tree whose DEFINITION ran out of attempts, and an
-  // operator's stop was never an attempt. This is the conflation migration 022 removed.
+  // Retry revives a tree whose DEFINITION ran out of attempts; an operator's stop was never one.
   const { error: retryErr } = await client.POST("/instances/{id}/retry", {
     params: { path: { id } },
   });
   expect(retryErr, "a cancelled instance must not be retryable").toBeDefined();
 
-  // Resume refuses too, on the settled-and-never-will path -- which is only reachable
-  // because `cancelled` is terminal. Its advice must not name retry, since retry is the
-  // one verb that refuses a cancel outright.
+  // Resume's advice must not name retry, the one verb that refuses a cancel outright.
   const { error: resumeErr } = await client.POST("/instances/{id}/resume", {
     params: { path: { id } },
   });
@@ -122,9 +118,8 @@ test("a cancel reaches a worker holding the claim, through its own heartbeat", a
 
   await cancel(id);
 
-  // genroc cannot call a worker -- workers dial in -- so the renewal is the only channel that
-  // reaches work in flight. The token comes back named, which is what lets a worker holding
-  // several claims abandon this one alone.
+  // Workers dial in, so renewal is the only channel to work in flight; the token comes back named
+  // so a worker holding several claims abandons this one alone.
   const { data } = await client.POST("/external-tasks/renew", {
     body: { worker_id: "worker-1", tokens: [job.token], lease_ms: 30_000 },
   });
@@ -187,11 +182,8 @@ test("cancel takes the whole tree, and is refused on a descendant", async () => 
   expect(await statusOf(kidID)).toBe("cancelled");
 });
 
-// The "and nothing else" half of the guarantee, at the HTTP surface. Each verb is closed for
-// its own reason and in its own package, so the rule holds only as long as every one of them
-// keeps holding it -- and an endpoint added later is what this is here to catch. What is
-// asserted is not the shape of each refusal (some error, some are assertions that report a
-// no-op, and both are right) but the one thing they must share: the status does not move.
+// Each verb is closed in its own package, so this catches an endpoint added later. Only the status
+// is asserted: some refusals error and some report a no-op, and both are right.
 test("once a cancel lands, no operator verb moves the instance", async () => {
   const name = `cancel_closed_${crypto.randomUUID()}`;
   await define(name);

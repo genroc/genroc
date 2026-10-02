@@ -57,7 +57,7 @@ close promises a migration that then fails to conform; a fill that closes more i
 items, open maps, `$ref`, recursive, inside a union variant — including that the filled value
 passes a STRICT conform, which is the claim the whole thing rests on. `conform_exact_test.go`
 does the same for the removal half. Both pin what makes a migration built on this safe:
-idempotence, undeclared keys preserved (a conform would strip them), and validity after.
+idempotence and validity after.
 
 **Removal fires only where absence is a valid state and the null cannot stay** — an optional
 declared property whose target type dropped `null`. Not on a required one (neither state is
@@ -76,10 +76,10 @@ The first attempt here was exactly that, and it reached its type switch before c
 union's variants, so a union of objects silently filled nothing while the relation happily
 accepted the gap.
 
-The mode differs from `Strict` in three ways, all deliberate: an absent required nullable
-is written in rather than rejected; undeclared keys are KEPT (stripping is a conform's job,
-and a stale key from a dropped task is real data); and declared defaults are NOT filled, so
-the walk closes exactly what the relation accepts and nothing more.
+The mode differs from `Strict` only in the null-versus-missing pair, and declared defaults are
+NOT filled, so the walk closes exactly what the relation accepts and nothing more. Undeclared
+keys are stripped as at every boundary; a caller whose schema is deliberately partial puts the
+rest back (`validation.MigrateState`).
 
 **`ConformsExactlyTo` is a fourth relation, and it exists because the pair above is not one
 pair.** `ConformToSchemaExactly` has two halves pinned against two DIFFERENT relations — the

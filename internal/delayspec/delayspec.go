@@ -1,13 +1,6 @@
-// Package delayspec parses the human-facing literals of the delay action: `for` (a duration from
-// arm time) and `until` (an instant), plus the `tz` both resolve against. No engine or database
-// dependency, so the calendar cases are table-testable in isolation.
-//
-// Three rules govern everything here: calendar units (d, w, mo, y) are calendar arithmetic in the
-// target location while fixed units (ms, s, m, h) are absolute elapsed time; calendar units apply
-// before fixed ones whatever order they were written in; and a nonexistent wall clock normalizes
-// forward while an ambiguous one takes the first occurrence. Resolution never fails on a target in
-// the past — the caller clamps to now, since timers keep running while an instance is paused.
-// Grammars, decisions and edge cases: specs/delay-syntax.md.
+// Package delayspec parses `for` (a duration) and `until` (an instant) and resolves them in a
+// `tz`. Resolution never fails on a past target: the caller clamps. Rules: CLAUDE.md; grammars
+// and edge cases: specs/delay-syntax.md.
 
 package delayspec
 
@@ -20,24 +13,19 @@ import (
 	"time"
 )
 
-// maxPatternDays bounds the forward search for a calendar pattern's next match. Five
-// years is far past any plausible schedule, and the bound is what stops a pattern that
-// can never match (e.g. "*-02-30") from spinning.
+// maxPatternDays is what stops a pattern that can never match from spinning.
 const maxPatternDays = 366 * 5
 
-// Bounds candidate times-of-day reconsidered within one date. Reconsideration only happens
-// for an ambiguous wall clock with both occurrences behind now — at most one retry — so
-// the cap exists so an unanticipated zone rule cannot turn a resolve into a scan.
+// Reconsideration retries at most once in practice; the cap stops an unanticipated zone rule
+// turning a resolve into a scan.
 const maxClockRetries = 4
 
 // ---------------------------------------------------------------------------
 // Locations
 // ---------------------------------------------------------------------------
 
-// LoadLocation resolves a `tz` slot to a location: an IANA name, the literal "UTC", or a fixed
-// offset ("+02:00"); an empty tz is UTC. Abbreviations and "Local" are rejected by design --
-// "CET" denotes the wrong thing for half the year, and Go resolves abbreviations from the host's
-// zone database, so the same definition would mean different things on different workers.
+// LoadLocation accepts an IANA name, "UTC" or a fixed offset ("+02:00"); empty is UTC.
+// Abbreviations and "Local" are rejected: they resolve from the host's zone database.
 func LoadLocation(tz string) (*time.Location, error) {
 	tz = strings.TrimSpace(tz)
 	if tz == "" || tz == "UTC" {
@@ -107,10 +95,8 @@ func resolveWall(loc *time.Location, year int, month time.Month, day, hour, min,
 	return t
 }
 
-// skippedForward resolves a wall clock a transition deleted. want carries the requested
-// reading as UTC; reading it against each of the two offsets in play around the gap gives
-// two instants, and the later one is the reading carried forward — the pre-gap offset's
-// answer, whichever direction the zone's rules run.
+// skippedForward reads want against both offsets around the gap; the later instant is the
+// reading carried forward, whichever direction the zone's rules run.
 func skippedForward(loc *time.Location, want time.Time) time.Time {
 	_, off := want.In(loc).Zone()
 	first := want.Add(-time.Duration(off) * time.Second)
@@ -138,9 +124,7 @@ func daysIn(year int, month time.Month) int {
 	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
-// addMonths adds n calendar months, clamping to the end of the target month. The clamp is
-// the whole point: time.AddDate normalizes overflow, so Jan 31 + 1 month lands on Mar 3
-// rather than Feb 28.
+// addMonths clamps to the end of the target month: time.AddDate lands Jan 31 + 1mo on Mar 3.
 func addMonths(t time.Time, n int) time.Time {
 	year, month, day := t.Date()
 	hour, min, sec := t.Clock()
@@ -193,9 +177,8 @@ func Millis(ms int64) *Duration {
 	return &Duration{src: fmt.Sprintf("%dms", ms), fixed: time.Duration(ms) * time.Millisecond}
 }
 
-// addFixed refuses the multiply/add that would wrap: time.Duration is int64 nanoseconds,
-// and "5124096h" wrapped to a positive 25 minutes — a value that passes every downstream
-// sanity check there is.
+// addFixed refuses a wrapping multiply/add: "5124096h" wrapped to a positive 25 minutes,
+// which passes every downstream sanity check.
 func (d *Duration) addFixed(n int64, unit time.Duration) error {
 	if n > int64(math.MaxInt64)/int64(unit) {
 		return errDurationRange
@@ -291,10 +274,8 @@ func ParseDuration(s string) (*Duration, error) {
 	return d, nil
 }
 
-// Fixed returns the duration as a plain time.Duration, and false if it carries calendar
-// components. A calendar duration has no length until a location and a start instant fix
-// it, so a caller that must do arithmetic on the value — scale it, compare it to a
-// ceiling — has to refuse one rather than pick a nominal length for it.
+// Fixed returns false for a duration with calendar components, which has no length until a
+// location and start fix it: refuse one rather than pick a nominal length.
 func (d *Duration) Fixed() (time.Duration, bool) {
 	if d.days != 0 || d.months != 0 {
 		return 0, false
@@ -302,8 +283,7 @@ func (d *Duration) Fixed() (time.Duration, bool) {
 	return d.fixed, true
 }
 
-// Resolve returns the instant this duration lands on, measured from now in loc. Calendar
-// components apply first (see the package comment), then the fixed remainder.
+// Resolve applies the calendar components first, then the fixed remainder (CLAUDE.md).
 func (d *Duration) Resolve(now time.Time, loc *time.Location) time.Time {
 	t := now.In(loc)
 	if d.months != 0 {
@@ -347,9 +327,8 @@ type Instant struct {
 // wildcard is the stored form of a `*` date field.
 const wildcard = -1
 
-// One field of a pattern's clock: base, base+step, … within range. The representation
-// collapses the three spellings — "*" is 0/1, "0/5" is 0/5, "07" is 7 with step 0 — so
-// nothing downstream branches on which was written.
+// clockField collapses the three spellings ("*" is 0/1, "07" is 7 with step 0), so nothing
+// downstream branches on which was written.
 type clockField struct {
 	base, step int
 }
@@ -378,11 +357,9 @@ var wallLayouts = []string{
 	"2006-01-02",
 }
 
-// ParseInstant parses an `until` literal in one of three closed forms: an absolute instant (RFC
-// 3339, RFC 9557, or relaxed "2026-09-01 08:00"), an offset plus wall clock ("+2d 08:00"), or a
-// calendar pattern from the systemd OnCalendar subset ("*-*-01 08:00", "mon 09:00", "*:*:0/5").
-// Natural language is deliberately absent: a locale-dependent parser would let an upgrade
-// silently change what rows already in the database mean.
+// ParseInstant accepts an absolute instant, an offset plus wall clock ("+2d 08:00"), or a
+// systemd OnCalendar-subset pattern ("mon 09:00"). No natural language: a locale-dependent
+// parser would let an upgrade change what stored rows mean.
 func ParseInstant(s string) (*Instant, error) {
 	raw := strings.TrimSpace(s)
 	if raw == "" {
@@ -492,10 +469,8 @@ func parsePattern(raw, body string) (*Instant, error) {
 			*fd.dst = v
 		}
 	}
-	// A concrete month/day pair that no year can satisfy ("*-02-30") is decidable now, and
-	// catching it here keeps registration deterministic — the alternative, resolving
-	// against the current clock, would make the same definition validate differently on
-	// different days. A leap year is used as the bound so "*-02-29" stays legal.
+	// Rejected here, not by resolving: that would validate the same definition differently on
+	// different days. A leap year bounds it so "*-02-29" stays legal.
 	if i.month >= 0 && i.day >= 0 {
 		if last := daysIn(2024, time.Month(i.month)); i.day > last {
 			return nil, fmt.Errorf("until %q: %s has no day %d", raw, time.Month(i.month), i.day)
@@ -616,20 +591,15 @@ func (i *Instant) Resolve(now time.Time, loc *time.Location) (time.Time, error) 
 // keeps "*-*-31" and leap days correct for free), the clock half is COMPUTED as a carry
 // cascade, never stepped — "*:*:*" matches 86400 times a day and a search would melt.
 func (i *Instant) nextMatch(now time.Time, loc *time.Location) (time.Time, error) {
-	// Matches land on whole seconds, so the earliest one that can be strictly after now is
-	// the second after now's. Truncating in absolute time is exact here: every zone offset
-	// is a whole number of minutes, so second boundaries are the same in every zone.
+	// Truncating in absolute time is exact: every zone offset is whole minutes, so second
+	// boundaries agree in every zone.
 	lb := now.Truncate(time.Second).Add(time.Second).In(loc)
-	// The date walk is anchored at midday, not at the bound's own clock. addDays preserves
-	// the wall clock, and a clock sitting next to midnight can be carried across a date
-	// boundary by a DST jump, which would skip a date without anything reporting it. No
-	// zone rule moves midday off its own date.
+	// Anchored at midday: a clock near midnight can be carried across a date by a DST jump,
+	// silently skipping a date.
 	anchor := resolveWall(loc, lb.Year(), lb.Month(), lb.Day(), 12, 0, 0)
 
-	// The walk visits wall clocks in increasing order, which misses one thing: inside a
-	// fall-back repeat, wall clocks *behind* now happen again ahead of it. Those second
-	// occurrences are found separately, and whichever of the two searches lands earlier
-	// wins. See repeatedMatch.
+	// The walk misses second occurrences inside a fall-back repeat; repeatedMatch finds them,
+	// and the earlier candidate wins.
 	repeated, hasRepeated := i.repeatedMatch(now, loc)
 
 	for n := 0; n <= maxPatternDays; n++ {
@@ -649,17 +619,14 @@ func (i *Instant) nextMatch(now time.Time, loc *time.Location) (time.Time, error
 			if !ok {
 				break // this day has no clock left; try the next matching date
 			}
-			// The date here always exists — the walk enumerates real dates and matchesDate
-			// is what rejects the ones the pattern excludes — so the only way this lands on
-			// another date is a transition carrying the reading over midnight, and that
-			// instant is the honest answer for the clock that was asked for.
+			// The date always exists, so landing elsewhere means a transition carried the reading
+			// over midnight: the honest answer for the clock asked for.
 			cand := resolveWall(loc, year, month, dom, h, m, s)
 			if cand.After(now) {
 				return earlier(cand, repeated, hasRepeated), nil
 			}
-			// Behind now on a lower bound taken from now = an ambiguous wall clock with now in the
-			// second pass; the second occurrence is then the next match ("the next 02:30" is the
-			// other 02:30). Detected the same way resolveWall detects ambiguity — same whole-hour assumption.
+			// Behind now = an ambiguous wall clock with now in its second pass, so the other
+			// occurrence is next. Same whole-hour assumption as resolveWall.
 			if alt := cand.Add(time.Hour); sameClock(alt, cand) && alt.After(now) {
 				return earlier(alt, repeated, hasRepeated), nil
 			}
@@ -721,10 +688,8 @@ func (i *Instant) repeatedMatch(now time.Time, loc *time.Location) (time.Time, b
 	return second, true
 }
 
-// fallBackAt returns the instant a fall-back takes effect, for a now already known to sit
-// in the repeated hour's first pass. Go exposes no transition table, so the offset is
-// bisected: it changes exactly once in the hour or two after such a now, and the bisection
-// converges on the second it changes.
+// fallBackAt bisects the offset (Go exposes no transition table); now must sit in the
+// repeated hour's first pass, so the offset changes exactly once ahead.
 func fallBackAt(now time.Time) time.Time {
 	_, base := now.Zone()
 	lo, hi := now, now.Add(2*time.Hour)
@@ -770,9 +735,7 @@ func (i *Instant) nextClock(fromH, fromM, fromS int) (h, m, s int, ok bool) {
 	return 0, 0, 0, false
 }
 
-// fieldAtLeast: the smallest admissible value ≥ from, and whether one exists. The one
-// place a field's shape is interpreted — the answer is arithmetic, never a scan, which is
-// why steps cost no branch anywhere else.
+// fieldAtLeast is the one place a field's shape is interpreted: arithmetic, never a scan.
 func fieldAtLeast(field clockField, from, max int) (int, bool) {
 	if field.step == 0 {
 		if field.base < from {

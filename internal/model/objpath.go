@@ -1,9 +1,8 @@
 package model
 
-// Extract removes every *ObjectRef from v and reports where each one was, as a path of keys
-// rooted at v; Place is its inverse. The pair lives here because three callers -- the API's
-// objects section, the DB's external-task refs, and a client putting the values back -- must
-// agree exactly about where a value belongs. specs/object-store.md.
+// Extract removes every *ObjectRef from v and reports each one's path from v; Place inverts it.
+// Three callers (the API's objects section, the DB's external-task refs, a client putting values
+// back) must agree exactly on paths. specs/object-store.md.
 func Extract(v any, at []any, out *[]*ObjectRef) any {
 	switch t := v.(type) {
 	case *ObjectRef:
@@ -33,9 +32,8 @@ func Extract(v any, at []any, out *[]*ObjectRef) any {
 	return v
 }
 
-// Place writes value at path inside root and reports whether it landed. A step that does not
-// exist is a miss rather than something to create: the path came from the same structure, so a
-// gap means the data and its refs disagree, and inventing the shape would hide that.
+// Place reports whether value landed at path. A missing step is a miss, never created: the path
+// came from this structure, so a gap means data and refs disagree.
 func Place(root any, path []any, value any) bool {
 	if len(path) == 0 {
 		return false

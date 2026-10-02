@@ -173,9 +173,7 @@ func TestShape_TwoPhase(t *testing.T) {
 	}
 }
 
-// The Result hook receives the inferred + required schemas on a conformance failure and
-// inspects them (HasNull, TypeName) to craft a tailored message — the over/url case, which
-// is about the shape's RESULT, not a root.
+// The over/url case: a RESULT problem, worded from the inferred schema.
 func TestShape_CheckWith_ResultHookCraftsMessage(t *testing.T) {
 	overHook := shape.CheckHooks{Result: func(inferred, required schema.Schema) error {
 		if inferred.HasNull() {
@@ -207,9 +205,7 @@ func TestShape_CheckWith_ResultHookCraftsMessage(t *testing.T) {
 	}
 }
 
-// The Roots hook receives the roots the shape's expressions reference and rejects one that
-// exists in general but is unavailable here — the self.result case. It fires before
-// inference, so the message is about availability, not a navigation failure.
+// The hook fires before inference, so the message is about availability, not navigation.
 func TestShape_CheckWith_RootsHookRejectsUnavailable(t *testing.T) {
 	sh := shape.Shape{Raw: mustShapeVal(t, `{"answer": "$: self.result"}`), Name: "output"}
 	hook := shape.CheckHooks{Roots: func(refs expression.Roots) error {

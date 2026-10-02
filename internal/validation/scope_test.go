@@ -8,10 +8,8 @@ import (
 	"genroc/internal/model"
 )
 
-// Every expression-bearing slot of an action is evaluated before the task's own output exists,
-// so preOutputSlots must list it: a slot missing from that list is type-checked in a scope the
-// engine never populates, accepting self.previous and then reading null. The reflection half is
-// the point — a field added to model.Action fails here rather than acquiring the wrong scope.
+// A slot missing from preOutputSlots is checked in a scope the engine never populates. The
+// reflection is the point: a new model.Action field fails here.
 func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 	// Fields that carry no expression. Each is data the engine reads directly, so there is
 	// nothing to type-check against a context.
@@ -63,9 +61,8 @@ func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 	}
 }
 
-// plantSentinel writes a recognisable expression into one action field, whatever shape that
-// field takes. An unhandled type fails rather than passing silently — a new kind of slot must
-// be taught to this test before it can be forgotten by preOutputSlots.
+// An unhandled field type fails, so a new kind of slot must be taught here before
+// preOutputSlots can forget it.
 func plantSentinel(t *testing.T, v reflect.Value, name string, want map[string]string) {
 	t.Helper()
 	sentinel := "$: sentinel_" + name

@@ -1,11 +1,8 @@
 import type { ThemeRegistration } from 'shiki'
 
-// Two hand-written TextMate themes rather than a stock Shiki one: the palette is the
-// site's, and `themes: {light, dark}` emits both colours per token so the theme toggle
-// needs no JavaScript. Keep the scope lists identical in both — a scope present in only
-// one theme renders unstyled in the other.
-// A rule's colour key is `foreground` — TextMate's spelling. `color` is silently ignored,
-// leaving every token the editor foreground.
+// Hand-written themes in the site's palette; `themes: {light, dark}` emits both colours per
+// token, so the toggle needs no JS. A rule's colour key is `foreground`: `color` is silently
+// ignored.
 const scopes = (c: Record<string, string>) => [
   { scope: ['comment', 'punctuation.definition.comment'], settings: { foreground: c.muted, fontStyle: 'italic' } },
   { scope: ['entity.name.tag', 'support.type.property-name', 'meta.object-literal.key'], settings: { foreground: c.key } },
@@ -14,11 +11,8 @@ const scopes = (c: Record<string, string>) => [
   { scope: ['keyword', 'storage', 'keyword.operator'], settings: { foreground: c.accent } },
   { scope: ['variable', 'variable.other', 'support.function'], settings: { foreground: c.fg } },
   { scope: ['punctuation', 'meta.brace'], settings: { foreground: c.muted } },
-  // The `$:` / `${` markers and the routing keywords carry the accent: they are the signal that
-  // a line computes. A member path does NOT — `self` is scoped variable.language and the
-  // segments after it variable.other.property, so tinting one leaves `self.previous.count`
-  // highlighted in its first word only. This palette has no second shade to tell them apart
-  // with, so both fall through to the rule above and the path reads as the one thing it is.
+  // Markers and routing keywords carry the accent. Member paths do not: `self` and the segments
+  // after it have different scopes, and tinting one would highlight only part of the path.
   { scope: ['punctuation.definition.template-expression', 'keyword.control.flow'], settings: { foreground: c.accent } },
   { scope: ['entity.name.function', 'support.function.builtin'], settings: { foreground: c.accent } },
   { scope: ['markup.inserted', 'meta.diff.header.to-file'], settings: { foreground: c.added } },

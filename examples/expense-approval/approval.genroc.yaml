@@ -1,13 +1,6 @@
-# Expense approval — a process that waits on a human.
-#
-# `external` parks the instance until someone outside submits a result. No worker is held
-# while it waits, so an instance can sit here for days at zero cost. The park is durable:
-# it survives restarts, because it is a row, not a goroutine.
-#
-# Two ways in for the resolver, both shown in the README:
-#   GET  /external-tasks            → the queue, with a `token` per parked task
-#   POST /external-tasks/resolve    → submit `{token, result}`
-#   POST /instances/{id}/signal     → submit `{task_id, result}` by instance id instead
+# Expense approval: `external` parks the instance, durably and holding no worker, until someone
+# submits a result: GET /external-tasks then POST /external-tasks/resolve `{token, result}`,
+# or POST /instances/{id}/signal `{task_id, result}` (see the README).
 name: expense-approval
 input_schema:
   type: object
@@ -33,12 +26,8 @@ tasks:
       timeout: 5s
     switch: next
 
-  # The park. `input` is snapshotted for the resolver — it is the ONLY thing the queue
-  # exposes, so a reviewer sees the expense and never the process context.
-  #
-  # A fixed review window, written as a duration rather than a millisecond count. It
-  # could be an expression or an absolute `until` deadline instead; a constant is the
-  # deliberate choice here. Expiring raises the catchable `external.timeout`.
+  # The park. `input` is snapshotted for the resolver and is ALL the queue exposes. `timeout`
+  # could also be an expression or an `until` deadline; expiring raises `external.timeout`.
   - id: review
     action:
       type: external

@@ -9,9 +9,8 @@ import (
 	"genroc/internal/numeric"
 )
 
-// logObjects roots an entry's stored references at the ENTRY, which is where a list's objects
-// section belongs -- ["data", …], never ["items", 3, "data"]. The stored paths are rooted at the
-// payload; this adds the one step to it. specs/object-store.md §The wire.
+// logObjects re-roots the stored payload-rooted paths at the ENTRY: ["data", …].
+// specs/object-store.md §The wire.
 func logObjects(refs []*model.ObjectRef) []ObjectEntry {
 	var out []ObjectEntry
 	for _, r := range refs {
@@ -25,10 +24,9 @@ func childPath(root []any, rest []any) []any {
 	return append(append(out, root...), rest...)
 }
 
-// logData is the stored payload as a value. A malformed column reads back as the raw string
-// rather than failing the listing -- a trail that will not render is worse than one odd entry.
-// numeric.Decode, not json.Unmarshal: a plain decode rounds the payload's literals through
-// float64 on the way back out. specs/number-precision.md.
+// logData reads a malformed column back as the raw string rather than failing the listing.
+// numeric.Decode, not json.Unmarshal, which rounds literals through float64.
+// specs/number-precision.md.
 func logData(raw string) any {
 	if raw == "" {
 		return nil
@@ -63,10 +61,8 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	resp := make([]LogEntryResp, len(logs))
-	// The payload is never inlined here: resolve=true is gone, and a trail is scanned rather
-	// than read, so the entry lists its handle and `genctl object <ref>` fetches the one line
-	// that matters. The preview is gone with it -- a truncated excerpt of a value nobody asked
-	// for is the cost this whole change is about.
+	// Never inlined, and no preview: a trail is scanned, not read, so an entry lists its
+	// handle and `genctl object <ref>` fetches the one that matters.
 	for i, l := range logs {
 		data, objects := logData(l.Data), logObjects(l.Objects)
 		resp[i] = LogEntryResp{
@@ -86,9 +82,8 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	return okReply(PageResp[LogEntryResp]{Items: resp, Page: info})
 }
 
-// getObject serves an object's content, addressed by its hash and nothing else. Knowing a hash
-// is knowing the bytes that produce it, so this discloses nothing a holder of the hash did not
-// already have -- what it does disclose is existence. specs/object-store.md.
+// getObject is addressed by hash alone, so it discloses only existence.
+// specs/object-store.md.
 func (h *Handlers) getObject(hash string) Reply {
 	if hash == "" {
 		return invalid("ref is required").reply()

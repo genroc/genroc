@@ -11,11 +11,8 @@ import (
 	"genroc/internal/model"
 )
 
-// TestCancelledIsClosedToEveryVerb is the "and nothing else" half of the guarantee. Each verb
-// is closed for its OWN reason and in its own package, so the rule only holds as long as every
-// one of them keeps holding it -- and a verb added later is exactly what this catches. What is
-// asserted is not the shape of each refusal but the one thing they must share: the status is
-// still 'cancelled' afterwards.
+// Each verb is closed for its OWN reason in its own package; this catches one added later. It
+// asserts only what every refusal shares: the status is still 'cancelled' afterwards.
 func TestCancelledIsClosedToEveryVerb(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

@@ -1,7 +1,5 @@
-# The relaxation at the input slot. An instance's input was conformed once, at creation, and
-# nothing ever conforms it again — so a newly required property whose type admits null is a
-# gap the upgrade closes by writing the null in, not a break. required-input-added.yaml is
-# the same change with nothing to invent, and stays refused.
+# A newly required input property that admits null is a gap the upgrade closes by writing
+# null, not a break: the input is conformed once, at creation.
 apply:
   - channel: nullin_a
     definitions:

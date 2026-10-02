@@ -13,9 +13,8 @@ import (
 
 const defaultChannel = "latest"
 
-// engineService is the slice of the engine the API depends on. Primitive returns, not a
-// shared struct: the dependency points api → engine only through this interface, and a
-// struct either side owned would make that an import.
+// engineService returns primitives, not a shared struct: a struct either side owned would
+// make the dependency an import.
 type engineService interface {
 	Tick(ctx context.Context) (int, error)
 	ManualTick() bool
@@ -44,9 +43,8 @@ type Envelope struct {
 	// Token is a credential presented over TCP, whose protocol has no header channel. It is
 	// consumed by the transport and cleared before dispatch, so no handler can read it.
 	Token string `json:"token,omitempty"`
-	// principal is who is asking, attached by the TRANSPORT after identity is established.
-	// Unexported so it cannot be decoded: an envelope arrives straight off a socket, and a
-	// serialisable field here would let a client assert its own grants. specs/api-auth.md §2.
+	// principal is attached by the TRANSPORT; unexported so a client cannot decode its own
+	// grants into it. specs/api-auth.md §2.
 	principal *Principal
 }
 
@@ -54,14 +52,11 @@ type Reply struct {
 	OK    bool            `json:"ok"`
 	Data  json.RawMessage `json:"data,omitempty"`
 	Error string          `json:"error,omitempty"`
-	// Code classifies the failure for machines; see the Code constants. It is on
-	// Reply, not on the HTTP response alone, because TCP and UDS clients encode
-	// Reply directly and have no status line to read.
+	// Code is on Reply, not the HTTP response alone: TCP and UDS clients have no status
+	// line.
 	Code Code `json:"code,omitempty"`
-	// Outcome is Code's success-side twin, and lives here for the same reason: what a
-	// lifecycle assertion did (applied / accepted / unchanged) has to reach the
-	// transports that have no status line. Empty on every action that is not an
-	// assertion. specs/id-list-commands.md.
+	// Outcome is Code's success-side twin, here so transports with no status line see what a
+	// lifecycle assertion did. specs/id-list-commands.md.
 	Outcome model.Outcome `json:"outcome,omitempty"`
 	// Fields carries per-field detail when a submitted definition failed validation,
 	// so a client can point at the offending field instead of parsing the message.
@@ -82,9 +77,8 @@ func (h *Handlers) Handle(env Envelope) Reply {
 	return notFound("unknown action %q", env.Action).reply()
 }
 
-// okReply encodes a successful payload. A marshal failure is reported rather than
-// swallowed: returning OK with an empty Data would hand the client a 200 and an empty
-// body, so it would believe it had received an empty result rather than nothing.
+// okReply reports a marshal failure rather than a 200 with an empty body, which a client
+// would read as an empty result.
 func okReply(v interface{}) Reply {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -93,10 +87,8 @@ func okReply(v interface{}) Reply {
 	return Reply{OK: true, Data: data}
 }
 
-// outcomeReply is okReply for a lifecycle assertion: same body, plus the outcome the
-// HTTP status is derived from (statusOfOutcome). An OutcomeUnchanged reply carries no
-// body — 204 forbids one — so the fields describing what changed are omitted where
-// nothing did.
+// outcomeReply is okReply plus the outcome statusOfOutcome reads. OutcomeUnchanged carries
+// no body: 204 forbids one.
 func outcomeReply(res db.LifecycleResult) Reply {
 	if res.Outcome == model.OutcomeUnchanged {
 		return Reply{OK: true, Outcome: res.Outcome}
@@ -110,18 +102,14 @@ func outcomeReply(res db.LifecycleResult) Reply {
 	return r
 }
 
-// errReply renders any error as a failed Reply, classifying it through codeOf — so a
-// handler that simply forwards a db error still produces the right code and status,
-// and only paths nobody has classified come out as internal.
+// errReply classifies through codeOf, so a forwarded db error gets the right status.
 func errReply(err error) Reply {
 	return Reply{OK: false, Error: err.Error(), Code: codeOf(err), Fields: fieldsOf(err)}
 }
 
 func (e *Error) reply() Reply { return errReply(e) }
 
-// decodeBody unmarshals a required JSON body into T. An empty, malformed or
-// unrecognised body is an error wrapped with the "decode:" prefix and classified
-// invalid — the request is wrong, and no retry of it will do better.
+// decodeBody classifies an empty, malformed or unrecognised body as invalid.
 func decodeBody[T any](raw json.RawMessage) (T, error) {
 	var v T
 	if err := numeric.DecodeStrict(raw, &v); err != nil {
@@ -130,9 +118,8 @@ func decodeBody[T any](raw json.RawMessage) (T, error) {
 	return v, nil
 }
 
-// decodeOptionalBody: an absent body yields the zero T, a present one MUST decode —
-// strictly, so a misspelled field errors instead of dropping. Optional is about presence
-// only; {"advance_ms": "12000"} once left the clock unmoved and answered 200.
+// decodeOptionalBody: an absent body yields the zero T; a present one decodes strictly, so a
+// misspelled field errors instead of dropping.
 func decodeOptionalBody[T any](raw json.RawMessage) (T, error) {
 	var v T
 	if len(raw) == 0 {

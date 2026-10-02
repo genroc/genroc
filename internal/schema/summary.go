@@ -119,10 +119,8 @@ func (s Schema) MemberNames() string {
 	return strings.Join(names, ", ")
 }
 
-// MayBeAbsent reports whether reading a property may find nothing — which is NOT the same as
-// "not required": conforming fills an absent optional's default, so a defaulted property is
-// always there. Navigation types it non-nullable for exactly this reason, and a summary that
-// said otherwise contradicted the type beside it.
+// MayBeAbsent reports whether a read may find nothing — NOT "not required": a defaulted
+// property is always there, and navigation types it non-nullable.
 func (s Schema) MayBeAbsent(name string) bool {
 	if resolved, err := s.Resolve(); err == nil {
 		s = resolved

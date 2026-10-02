@@ -12,10 +12,8 @@ import (
 	exprlib "github.com/expr-lang/expr"
 )
 
-// Fixtures and case runners for the runtime-evaluation suites (eval_edge_test.go,
-// map_test.go, secret_test.go). Every runner takes named cases and runs each one
-// as its own subtest, so a failure names the behaviour and `go test -run
-// 'TestX/case_name'` runs it alone.
+// Fixtures and runners for the runtime-evaluation suites; each case is its own subtest, so
+// `go test -run 'TestX/case_name'` runs it alone.
 
 // edgeEnv is the runtime fixture for eval_edge_test.go; named apart from
 // richCtx/mapEnv so parallel edits to the other eval files cannot collide with it.
@@ -99,10 +97,8 @@ func edgeJSON(t *testing.T, expr string, wantJSON string) {
 	}
 }
 
-// edgeDecimal asserts the exact decimal text of an arithmetic result. Arithmetic
-// yields a json.Number carrying the exact value, so asserting the digits is a
-// stronger check than the Go type ever was: the integer/number distinction now
-// lives only in the type system, not in the runtime representation.
+// edgeDecimal asserts exact digits: the integer/number distinction lives only in the type
+// system, not the runtime representation.
 func edgeDecimal(t *testing.T, got any, want string) {
 	t.Helper()
 	n, ok := got.(json.Number)

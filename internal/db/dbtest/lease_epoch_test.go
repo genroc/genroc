@@ -60,10 +60,8 @@ func TestLeaseEpoch_ClaimGrantsMonotonically(t *testing.T) {
 	}
 }
 
-// §1.3, §3.5 — the central invariant: a renewal extends a grant, it does not create
-// one. If renewal bumped the epoch a worker would fence itself out every few seconds —
-// and the gate's repair pass (renewing an already-expired lease nobody took) would
-// destroy the very advance it rescues.
+// §1.3, §3.5: a bump on renewal would fence a worker out every few seconds, and the gate's
+// repair would destroy the advance it rescues.
 func TestLeaseEpoch_RenewalDoesNotBump(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -363,9 +361,8 @@ func TestFence_SpawnChildrenAndWait(t *testing.T) {
 	}
 }
 
-// §2.6, §2.7 — ArmExternalOrConsumeSignal. Consume branch: a stale arm must not eat the
-// buffered signal — the pop rolls back with the refused write, and the signal is still
-// there, at its FIFO position, for whoever owns the row now. Park branch: not parked.
+// §2.6, §2.7: a stale arm, buffered answer or not, is refused whole: it neither parks nor
+// disturbs the buffer, which stays in FIFO order for whoever owns the row now.
 func TestFence_ArmExternal(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -423,10 +420,8 @@ func TestFence_ArmExternal(t *testing.T) {
 	}
 }
 
-// §3.1, §3.2, §3.6 — the renewer renews exactly the listed rows this worker still
-// owns. Without the list scoping, a skipped self-reclaim is renewed forever and the
-// row never hands back; without the worker_id guard, a repair would resurrect a lease
-// on a row that has since been freed or taken over.
+// §3.1, §3.2, §3.6: without the list a skipped self-reclaim renews forever; without the
+// worker_id guard a repair resurrects a lease on a freed or taken-over row.
 func TestRenewal_ScopedToHeldSet(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -514,11 +509,9 @@ func TestRenewal_UnlistedRowHandsBackWithEvidence(t *testing.T) {
 	}
 }
 
-// The epoch alone is not the grant. A rewind (a DB losing committed transactions to an
-// unclean shutdown, or a failover to a lagging replica) un-issues a claim while the
-// worker that won it is still running, and the next claim re-issues the SAME number to
-// someone else. Both then carry a matching lease_epoch, so worker_id is what separates
-// them. specs/durability-levels.md §7.
+// A rewind (lost commits, or failover to a lagging replica) re-issues the SAME epoch to another
+// worker while the first still runs; worker_id is what separates them.
+// specs/durability-levels.md §7.
 func TestFence_ReusedEpochBelongsToOneWorker(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

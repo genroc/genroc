@@ -18,8 +18,6 @@ async function defineProc() {
   });
 }
 
-// The audit trail bookends a process: inst_created carries the process input,
-// inst_completed carries the final output (the definition's output projection).
 test("logs — inst_created carries input, inst_completed carries output", async () => {
   await defineProc();
   const { data: started } = await client.POST("/instances", {
@@ -46,6 +44,5 @@ test("logs — inst_created carries input, inst_completed carries output", async
   expect(completed).toBeDefined();
   expect(completed!.data).toEqual({ greeting: "Sam" });
 
-  // inst_created is the first event in the trail.
   expect(items[0]?.event).toBe("inst_created");
 });

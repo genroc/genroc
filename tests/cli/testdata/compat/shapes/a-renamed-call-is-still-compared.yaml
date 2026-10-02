@@ -1,22 +1,6 @@
-# A renamed call keeps its result-schema comparison, and that comparison is the whole check
-# — the name needs no rule of its own. Both tasks below repoint at a different process AND
-# narrow the schema in one edit, and it is the narrowing that is reported.
-#
-# Why the name drops out: registration established that the OLD call's output fits the OLD
-# schema — statically where the child declares an output, and at collect's conform where it
-# does not. So whatever `renamed_one` can hand back satisfies the old schema, and `old ⊆ new`
-# carries that across to the new one. Compose the two and the child in flight fits, whoever
-# it is an instance of. It is §2f's premise doing the job it exists for.
-#
-# Refusing the rename instead would be a false break in the column that cannot be excused:
-# there is no `--ignore upgrade` (the-upgrade-check-cannot-be-ignored.yaml), so an operator
-# meeting one has no move but to un-rename the call. The name still gets a row — it changed,
-# and no check covers it directly.
-#
-# What this does NOT cover is routing: `on_error` patterns are validated against the named
-# child's raise set, so a child in flight can raise a code the new version does not route.
-# That changes where the instance goes and fails loudly when it happens, which is where
-# every other routing edit sits — beside `switch`, unjudged.
+# A renamed call needs no rule of its own: registration proved the old child fits the old
+# schema and old ⊆ new carries it across (§2f), so only the narrowing is reported. Refusing
+# renames would be an unexcusable break: there is no `--ignore upgrade`.
 apply:
   - channel: renamed_a
     definitions:

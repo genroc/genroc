@@ -1,9 +1,8 @@
 package lsp
 
-// Which keys are legal where, read out of the generated schema rather than by reflection over the
-// Go types: several decode by hand and carry a hand-written JSONSchemaBytes, so reflection sees no
-// fields on an Action, a SwitchMap or a Retry -- the nodes most worth completing. The
-// discriminator is no obstacle to a consumer that is us. specs/language-server.md §5.
+// Which keys are legal where, read from the generated schema and not by reflection: several types
+// decode by hand, so reflection sees no fields on an Action, a SwitchMap or a Retry.
+// specs/language-server.md §5.
 
 import (
 	"encoding/json"
@@ -69,9 +68,7 @@ func legalKeys(doc *defdoc.Doc, path string) []completionItem {
 			// Writing the colon is the point: the next keystroke after choosing a key is the
 			// value. `completeKey` clears this where the line already carries one.
 			insert: name + keySuffix(root, m),
-			// Editors sort on this string, and with none they fall back to a fuzzy score
-			// that ties across a whole vocabulary — leaving `$anchor` at the top of a list
-			// of JSON Schema keywords.
+			// Without it editors fall back to a fuzzy score that ties, putting `$anchor` first.
 			SortText:      sortKey(name, required[name]),
 			Documentation: describeNode(m),
 		})
@@ -119,9 +116,7 @@ func canBeScalar(root, node map[string]any, depth int) bool {
 }
 
 // walk follows a DOCUMENT path down the schema, resolving refs and choosing among union arms.
-//
-// It tracks the ABSOLUTE path as it descends, because a discriminator is read out of the
-// document at the node being entered: a relative path would look up `type` at the root.
+// It tracks the ABSOLUTE path: a relative one would look the discriminator up at the root.
 func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bool) {
 	node, ok := resolve(root, root)
 	if !ok {
@@ -131,9 +126,7 @@ func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bo
 	rest := path
 	for {
 		if rest == "" {
-			// The terminal node is returned AS DECLARED, union and all: a caller reading the
-			// keys wants the arm the document selects, and one reading the variants wants the
-			// union it selects from. `choose` is theirs to apply.
+			// Returned AS DECLARED, union and all: `choose` is the caller's to apply.
 			return node, true
 		}
 		seg, tail := cutSegment(rest)
@@ -165,10 +158,8 @@ func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bo
 	}
 }
 
-// choose picks among a union's arms. The document's own `type` decides where there is one —
-// that is what `discriminator` meant, and it is why a `fetch` completes as a fetch. Where there
-// is none, the arm that can take the NEXT step decides: a `switch` is a scalar shorthand or a
-// list of cases, and an index says which of those is being written.
+// choose picks among a union's arms: by the document's own `type` where there is one, else the
+// arm that can take the NEXT step (a `switch` is a scalar or a list; an index says which).
 func choose(root, node map[string]any, doc *defdoc.Doc, path, next string) map[string]any {
 	arms := unionArms(node)
 	if arms == nil {
@@ -308,11 +299,8 @@ func joinPath(prefix, name string) string {
 	return prefix + "." + name
 }
 
-// processSchema decodes the generated schema, and restores the one thing it cannot carry: a
-// user schema nests user schemas. The published document leaves those positions permissive
-// because openapi-typescript turns a self-$ref into a cycle tsc rejects (internal/schema), and
-// nothing here is generating TypeScript — so the recursion goes back in and hover and
-// completion work at every depth of an `input_schema`.
+// processSchema decodes the generated schema and puts back what it cannot carry: a user schema
+// nests user schemas (the published one stays permissive for openapi-typescript's sake).
 func processSchema() (map[string]any, bool) {
 	var root map[string]any
 	if err := json.Unmarshal(defschema.Process(), &root); err != nil {
@@ -324,9 +312,8 @@ func processSchema() (map[string]any, bool) {
 	if props == nil {
 		return root, true
 	}
-	// Marked so a consumer can tell "the author's own schema" from the definition language
-	// around it — the two have different closed sets for `type`. LSP-local: processSchema
-	// parses a fresh copy per request and nothing here is published.
+	// Tells the author's own schema from the language around it (their `type` sets differ). Safe
+	// to mutate: each call decodes a fresh copy, and nothing here is published.
 	user[userSchemaMarker] = true
 	self := map[string]any{"$ref": "#/$defs/" + userSchemaDef}
 	list := map[string]any{"type": "array", "items": self}
@@ -341,17 +328,14 @@ func processSchema() (map[string]any, bool) {
 			field[k] = v
 		}
 	}
-	// The same repair where a user schema is written into an ACTION. Those slots are
-	// hand-written in model.Action's template as permissive objects, so nothing marks them as
-	// schemas for a reader standing in one.
+	// The same repair where a user schema is written into an ACTION.
 	pointAtUserSchema(defs, self)
 	return root, true
 }
 
-// pointAtUserSchema rewrites `responses` values, `result_schema` and the declared slot schemas
-// in every action variant to the user-schema def, which is what they hold. Without it a reader
-// standing inside one gets no completion and no hover, because the action template spells them
-// as permissive objects and nothing marks them as schemas.
+// pointAtUserSchema points `responses` values, `result_schema` and the declared slot schemas in
+// every action variant at the user-schema def: model.Action's template spells them as permissive
+// objects, so nothing else marks them as schemas.
 func pointAtUserSchema(defs map[string]any, self map[string]any) {
 	action, _ := defs["ModelAction"].(map[string]any)
 	arms, _ := action["oneOf"].([]any)
@@ -471,10 +455,8 @@ func isUserSchema(root, node map[string]any) bool {
 	return false
 }
 
-// soleSchemaSlotNotAnObject finds the one slot holding a user schema whose value is not an
-// object. It answers "which schema was that about" for the one failure the schema decoder
-// cannot place: a slot that is a scalar has no path INSIDE the schema to report, and
-// encoding/json adds its own context only to its own type errors.
+// soleSchemaSlotNotAnObject finds the one user-schema slot whose value is not an object — the
+// failure the schema decoder cannot place, having no path INSIDE the schema to report.
 func soleSchemaSlotNotAnObject(doc *defdoc.Doc) (string, bool) {
 	root, ok := processSchema()
 	if !ok {

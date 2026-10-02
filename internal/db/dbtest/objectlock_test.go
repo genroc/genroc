@@ -7,14 +7,9 @@ import (
 	dbpkg "genroc/internal/db"
 )
 
-// Content must survive a sweep that runs while a writer is resurrecting it: an object released,
-// its grace lapsed, and the same content written again before the sweep reaches it.
-//
-// No amount of concurrency testing pins this -- TestObjects_ResurrectionAgainstALiveSweeper stayed
-// green with both of the store's defences dismantled -- because the window is the microseconds
-// between two adjacent statements inside one transaction. So the writer is hand-driven (being the
-// transaction is the only way to look) while the SWEEP is production code. Postgres only, since
-// SQLite's single writer serializes the two whatever the store does. specs/object-store.md.
+// The window is two adjacent statements of one transaction, which no concurrency test pins, so the
+// writer is hand-driven while the SWEEP is production code. Postgres only: SQLite's single writer
+// serializes them. internal/db/CLAUDE.md, the object store, item 2.
 func TestObjects_ContentSurvivesASweepRacingItsResurrection(t *testing.T) {
 	if sharedPgRaw == nil || sharedPgDB == nil {
 		t.Skip("needs POSTGRES_DSN: SQLite's single writer hides this race")

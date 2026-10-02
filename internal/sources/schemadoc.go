@@ -1,8 +1,7 @@
 package sources
 
 // Schema DOCUMENTS rather than typed schemas: what a resolver hands back and what a
-// `result_schema` holds are plain maps, and these render one out of a definition's pool so
-// it can stand alone in a slot.
+// `result_schema` holds are plain maps.
 
 import (
 	"encoding/json"
@@ -30,13 +29,11 @@ func schemaDoc(s schema.Schema) (map[string]any, error) {
 	return doc, nil
 }
 
-// selfContained narrows `$defs` to what the document's refs actually reach, so what is printed
-// can be piped into a generator whole. Refs BETWEEN definitions are followed, which is what
-// keeps a task output that references itself resolvable.
+// selfContained narrows `$defs` to what the document's refs reach, so what is printed can be
+// piped into a generator whole.
 func selfContained(doc map[string]any) (map[string]any, error) {
-	// The pool travels with every arm of a union, not only with the root, so it is collected
-	// from wherever it sits and printed once — three copies of the same definitions is not a
-	// document anyone wants to read or pipe.
+	// Every arm of a union carries the pool, so it is collected from wherever it sits and
+	// printed once.
 	pool := map[string]any{}
 	body, _ := hoistDefs(doc, pool).(map[string]any)
 	if len(pool) == 0 {
@@ -54,9 +51,8 @@ func selfContained(doc map[string]any) (map[string]any, error) {
 	return body, nil
 }
 
-// reachableDefs is the subset of pool that from can reach, following refs between definitions —
-// which is what keeps a task output that references itself resolvable. Shared with the resolver
-// manifest, which narrows a process's pool to what its sites' fragments name.
+// reachableDefs is the subset of pool that from can reach, following refs between definitions so
+// a task output that references itself stays resolvable.
 func reachableDefs(pool map[string]any, from ...any) (map[string]any, error) {
 	want := map[string]bool{}
 	for _, v := range from {
@@ -84,10 +80,9 @@ func reachableDefs(pool map[string]any, from ...any) (map[string]any, error) {
 	}
 }
 
-// collapseAliases rewrites a ref to an alias-only definition — one whose whole document is a
-// `$ref` — as a ref to what it names, and drops it: inference declares `<id>_output` for every
-// task, and where the output simply IS another definition the leftover says nothing. pool and docs
-// are rewritten IN PLACE, and docs must be EVERY document that can reference the pool.
+// collapseAliases rewrites refs to an alias-only definition (a bare `$ref`) as refs to what it
+// names, and drops it. pool and docs are rewritten IN PLACE, and docs must be EVERY document
+// that can reference the pool.
 func collapseAliases(pool map[string]any, docs ...any) {
 	alias := map[string]string{}
 	for name, def := range pool {

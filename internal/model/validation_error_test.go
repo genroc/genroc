@@ -29,9 +29,7 @@ func fieldNames(fields []FieldError) []string {
 	return out
 }
 
-// The whole point of carrying fields separately is that they locate the failure. A
-// top-level field is easy; the case that matters is a failure inside the tasks slice,
-// where the path has to name the index.
+// The case that matters is a failure inside the tasks slice, where the path must name the index.
 func TestValidationErrorFieldPaths(t *testing.T) {
 	tests := []struct {
 		name string
@@ -114,9 +112,8 @@ func TestValidationErrorCarriesRuleAndParam(t *testing.T) {
 	}
 }
 
-// This is the reason fields exist rather than only the joined message: for a nested
-// failure the message names the leaf ("id is required") and is identical for every
-// failing task, so the message alone cannot tell them apart. The path can.
+// A nested failure's message names only the leaf, identical for every failing task; the path
+// tells them apart.
 func TestValidationErrorMessageIsAmbiguousWhereTheFieldPathIsNot(t *testing.T) {
 	fields := fieldsOf(t, &ProcessDefinition{Name: "p", Tasks: []*Task{{ID: ""}, {ID: ""}}})
 	if len(fields) != 2 {

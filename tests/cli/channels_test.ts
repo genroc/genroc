@@ -2,10 +2,6 @@ import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { childDef, restDef, switchDef, uid } from "../helpers/genctl.ts";
 
-// The channel entity: `channel list/set/delete` that move the pointers, `promote` that
-// copies a whole channel forward, and `status` that reports whether a channel's baked
-// child references still match what its channel points at.
-
 let bin: string;
 beforeAll(() => {
   bin = buildGenctlBinary();
@@ -134,8 +130,7 @@ test("status — reports a stale ref when a child advances without its parent", 
 });
 
 test("status — stale refs are ordered deterministically by child name", () => {
-  // Names chosen so the alphabetical order is independent of the random suffix and of
-  // the child_map key order the server iterates (FindStaleRefs was once unordered).
+  // Names chosen so the order is independent of the random suffix and of child_map key order.
   const childA = uid("aaa_child");
   const childB = uid("zzz_child");
   const parent = uid("parent");

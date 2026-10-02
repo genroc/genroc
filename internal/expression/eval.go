@@ -1,6 +1,5 @@
-// Package expression provides runtime evaluation and reference analysis for the genroc expression
-// language. The grammar lives in internal/expression/syntax, which lists the constructs; the
-// matching static type inference lives on schema.Schema.Infer and must accept exactly the same set.
+// Package expression evaluates the expression language and analyses its references. It must
+// accept exactly the constructs schema.Schema.Infer does; the grammar is in syntax.
 package expression
 
 import (
@@ -19,9 +18,7 @@ func Eval(expression string, context map[string]any) (any, error) {
 	return evalNode(node, env{ctx: context})
 }
 
-// EvalNode evaluates an already-parsed expression against context. Callers that
-// hold a parsed tree — internal/template, which parses each ${ } block once —
-// use this to avoid re-parsing the source on every evaluation.
+// EvalNode evaluates an already-parsed expression against context.
 func EvalNode(node syntax.Node, context map[string]any) (any, error) {
 	return evalNode(node, env{ctx: context})
 }
@@ -34,9 +31,7 @@ type env struct {
 	vars map[string]any
 }
 
-// bind returns e extended with pairs. It copies rather than mutates so sibling
-// elements of a map never observe each other's binding; vars holds at most a
-// couple of entries per nesting level, so the copy is cheap.
+// bind copies rather than mutates, so sibling elements of a map never see each other's binding.
 func (e env) bind(pairs map[string]any) env {
 	vars := make(map[string]any, len(e.vars)+len(pairs))
 	for k, v := range e.vars {
@@ -113,10 +108,8 @@ type externalValue interface {
 	ExternalRef() (hash string, size int64)
 }
 
-// checkResolved refuses a reference where a VALUE is required. COPYING one is legal and is how
-// an untouched value reaches the next write without ever being loaded; comparing, indexing or
-// rendering one is not -- it would compute a plausible wrong answer instead of failing. A hit
-// means expression.Roots called a read a copy, and the fix is there, not here.
+// checkResolved refuses a reference where a VALUE is required: copying one is legal, computing
+// on one gives a plausible wrong answer. A hit means Roots called a read a copy -- fix it there.
 // specs/lazy-context.md.
 func checkResolved(v any, what string) error {
 	ref, ok := v.(externalValue)

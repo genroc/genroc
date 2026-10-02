@@ -1,12 +1,8 @@
 package lsp
 
-// What an `on_error` rule can catch. The codes come from `errcode.Catchable`, which is where
-// they are declared and described, so one added there is offered here with no edit; this file
-// answers the two questions errcode cannot — which KIND of task the cursor is in, and what that
-// task's own `raises` declares.
-//
-// THIS DOCUMENT ONLY. A child's own raise set lives in the child's file, and reading it here
-// would make one buffer's answer depend on the state of another.
+// What an `on_error` rule can catch. The codes are `errcode.Catchable`'s; this file decides only
+// the task's KIND and what its own `raises` declares — from THIS document, never a child's file,
+// so one buffer's answer does not depend on another's state.
 
 import (
 	"fmt"
@@ -24,8 +20,7 @@ import (
 type offeredCode struct{ code, detail string }
 
 // errorCodeValues offers what an `on_error` rule's `code` may match. A recognised slot answers
-// even when the set comes out EMPTY: a list of codes never takes a key, and the rule's own
-// siblings are what the cursor there used to be given.
+// even when the set is EMPTY: a list of codes never takes a key.
 func errorCodeValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
 	d, ok := parseRepaired(text, file, line)
@@ -94,10 +89,8 @@ func taskOf(path string) string {
 	return ""
 }
 
-// catchableCodes is what a task's on_error can see: the codes errcode classifies for this kind
-// of task, after the ones its action declares. A task whose action reports none -- a delay, or an
-// action not written yet -- answers with nothing, which is the honest answer; nil is a task the
-// document does not have yet, and answers the same way.
+// catchableCodes is what a task's on_error can see: what its action declares, then the codes
+// errcode classifies for its kind. A nil task, or an action reporting none, answers with nothing.
 func catchableCodes(task *model.Task) []offeredCode {
 	var action *model.Action
 	only := false
@@ -109,9 +102,8 @@ func catchableCodes(task *model.Task) []offeredCode {
 	if action != nil {
 		actionType = action.Type
 	}
-	// Shared with registration, which refuses a rule naming anything outside this set: what the
-	// editor offers and what applies must be one answer. `only_once` needing an action, and R5
-	// bounding a child task's rules by the raise set, are decided there.
+	// Shared with registration, which refuses a rule outside this set: the editor and an apply
+	// must give one answer, so the `only_once` and R5 rules are decided there, not here.
 	kinds := model.CatchableKinds(actionType, only)
 
 	var out []offeredCode
@@ -180,10 +172,8 @@ func dedupe(codes []offeredCode) []offeredCode {
 	return out
 }
 
-// fetchPatterns are the families a reader names with a wildcard instead of a code, offered
-// before the codes they cover. They are spellings, not codes — nothing ever stores one — which
-// is why errcode does not carry them: the status family is unbounded (errcode.HTTP), and
-// `pre.%` is how an only_once task names the one family it may retry.
+// fetchPatterns are wildcard spellings, offered before the codes they cover. Nothing ever stores
+// one, which is why errcode does not carry them.
 var fetchPatterns = []offeredCode{
 	{"http.4%", "any 4xx status accepted_status did not admit"},
 	{"http.5%", "any 5xx status accepted_status did not admit"},

@@ -38,9 +38,7 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: parent, ProcessVersion: 1,
 		Task: "fan", State: map[string]any{}, Status: model.StatusRunning,
-		// What the API's create path sets; "fan" is a spawn, so it is replayable. Left
-		// unset it would default to needing a flush, which is safe but not what this
-		// fixture is for.
+		// What the API's create path sets; "fan" is a spawn, so it is replayable.
 		NextReplayable: true,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
@@ -115,10 +113,8 @@ func TestAdvance_SpawnWritesNothingUntilPersist(t *testing.T) {
 	}
 }
 
-// TestAdvance_ExternalArmWritesNothingUntilPersist is the same rule for the other path that
-// used to write for itself — and the one where it mattered, because a parked external
-// instance is claimable the moment it lands (a past-due timeout, or a signal that arrives
-// straight after), unlike a spawn's parent which is parked out of the claim predicate.
+// Where it matters most: a parked external instance is claimable the moment it lands,
+// unlike a spawn's parent.
 func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -177,11 +173,8 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	}
 }
 
-// The verdict that moved out of advance with the write: spawning is part of the step, so a refused
-// spawn is the instance's failure, not the worker's. SpawnChildrenAndWait reads phase from
-// the ROW, so parking it on 'external' with an expired deadline and clearing the in-memory copy
-// makes the spawn refuse -- and the rolled-back transaction leaves the lease held, which is what
-// lets the failure write land at all.
+// SpawnChildrenAndWait reads phase from the ROW, so parking it on 'external' makes the spawn
+// refuse; the rollback leaves the lease held, which is what lets the failure write land.
 func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -219,10 +212,8 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	}
 }
 
-// The other half of the same branch: once the advance has persisted the lease is released, so a
-// second advance off the same in-memory instance holds no grant and both its spawn and the failure
-// write that would follow are refused. Before worker_id joined the fence this wrote through,
-// because releasing a lease does not move the epoch. specs/durability-levels.md §7.
+// Releasing a lease does not move the epoch, so only worker_id refuses the second advance.
+// specs/durability-levels.md §7.
 func TestRunAdvance_DoubledAdvanceCannotFailTheInstance(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -250,10 +241,8 @@ func TestRunAdvance_DoubledAdvanceCannotFailTheInstance(t *testing.T) {
 	}
 }
 
-// A signal that beat the process to the task is consumed on ARRIVAL, in one advance: runExternal
-// checks the buffer before it arms, so the instance never parks. Not the arm's own not-parking
-// branch, which is the race where a signal lands between that check and the park write and is
-// covered at the DB level (TestSignals_BufferThenConsumeFIFO). specs/external-outcome-as-signal.md.
+// Not the arm's own not-parking race, which is covered at the DB level
+// (TestSignals_BufferThenConsumeFIFO). specs/external-outcome-as-signal.md.
 func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)

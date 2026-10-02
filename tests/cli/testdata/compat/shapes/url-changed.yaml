@@ -1,6 +1,5 @@
-# The motivating change. A fixed URL changes the shape of nothing in flight, so it must
-# stay compatible — and be reported as a changed slot, because the checker cannot tell a
-# typo fix from pointing at a different service.
+# A URL change moves no shape in flight, so it stays compatible, but is reported as a changed
+# slot: a typo fix and a different service look the same.
 apply:
   - channel: url_a
     definitions:

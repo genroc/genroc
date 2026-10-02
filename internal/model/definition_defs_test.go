@@ -32,9 +32,7 @@ func defsDef(t *testing.T) *ProcessDefinition {
 }
 
 func TestDefsNamesCollidingWithGeneratedAreAccepted(t *testing.T) {
-	// Names that collide with generated schema names are legal: generation
-	// renames the user definition (rewriting its $refs) rather than rejecting it.
-	// Validate therefore accepts them all.
+	// Legal: generation renames a colliding user definition rather than rejecting it.
 	for _, name := range []string{"input", "output", "charge_output", "charge_input"} {
 		def := &ProcessDefinition{
 			Name:  "p",

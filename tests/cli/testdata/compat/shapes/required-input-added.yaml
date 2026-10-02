@@ -1,6 +1,5 @@
-# An input property old instances never had. Refused, and the reason names the property
-# — a bare "incompatible" tells an operator nothing actionable. Reported once, at
-# definition level, rather than once per task.
+# An input property old instances never had: refused, naming the property, once at definition
+# level rather than per task.
 apply:
   - channel: reqin_a
     definitions:

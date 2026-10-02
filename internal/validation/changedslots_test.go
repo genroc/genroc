@@ -8,9 +8,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// The changed-slot lists are hand-maintained, and a forgotten entry fails SILENTLY — the
-// slot stops being reported and every comparison still comes back well-formed. These
-// enumerate the structs rather than checking a hand-written list against itself.
+// A forgotten slot-list entry fails SILENTLY, so these enumerate the structs rather than check
+// a hand-written list against itself.
 
 // notASlot names the fields deliberately absent from a slot list, each with the reason
 // it is absent. A field added to one of these structs matches nothing here and fails.
@@ -108,9 +107,8 @@ func TestChangedSlots_EachSlotReadsItsOwnField(t *testing.T) {
 	}
 }
 
-// everySlotDoc exercises every field of every struct the comparison walks, so a mutation
-// below can move exactly one of them. It analyses on its own: no child it names has to
-// exist, because Generate reads the declared result schemas rather than resolving the call.
+// everySlotDoc sets every field the comparison walks, so a mutation moves exactly one. No child
+// it names must exist: Generate reads the declared result schemas.
 const everySlotDoc = `{"name":"total",
  "input_schema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},
  "config_schema":{"type":"object","properties":{"region":{"type":"string"}}},
@@ -138,10 +136,8 @@ const everySlotDoc = `{"name":"total",
              "b":{"name":"kid"}}},
    "switch":"end"}]}`
 
-// A document that DIFFERS must produce a row. The reflection tests above catch a field the
-// slot lists forgot; this catches an edit those lists cannot see at all — task order, and a
-// child_map key that stopped existing. The oracle is the marshalled document, so it shares
-// nothing with the machinery under test: if the bytes moved, the report says something.
+// Catches edits the slot lists cannot see (task order, a removed child_map key). The oracle is
+// the marshalled document, sharing nothing with the machinery under test.
 func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

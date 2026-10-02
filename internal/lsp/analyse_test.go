@@ -26,8 +26,6 @@ func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
 	}
 }
 
-// The typo that started this: the published JSON Schema accepted it, the server refused it,
-// and the editor showed nothing. specs/language-server.md §5.
 func TestAnUnknownKeyUnderlinesTheKeyItself(t *testing.T) {
 	//  1 name: demo
 	//  2 tasks:
@@ -86,8 +84,6 @@ func TestEveryBrokenSlotIsUnderlinedNotJustTheFirst(t *testing.T) {
 	}
 }
 
-// A `.genroc.yaml` may hold several definitions; each is indexed on its own, so a position in
-// the second is not read out of the first's index.
 func TestEachDocumentInAMultiDocumentFileIsAnalysed(t *testing.T) {
 	ds := analyse(valid+"---\n"+"name: other\ntasks:\n  - id: z\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: end\n", "")
 	if len(ds) != 1 {
@@ -99,8 +95,6 @@ func TestEachDocumentInAMultiDocumentFileIsAnalysed(t *testing.T) {
 	}
 }
 
-// The protocol counts UTF-16 code units, so a byte column past a multi-byte character would
-// underline the wrong span in every editor that honours the spec.
 func TestColumnsAreCountedInUTF16CodeUnits(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -122,9 +116,7 @@ func TestColumnsAreCountedInUTF16CodeUnits(t *testing.T) {
 	}
 }
 
-// The claim §5 rests on: what the editor underlines is what an apply would refuse. A
-// definition the server accepts must produce nothing, and one it refuses must produce
-// something — checked against the server's own two calls rather than against a schema.
+// Checked against the server's own calls, never a schema. specs/language-server.md §5.
 func TestTheEditorAgreesWithTheServerOnWhatIsRejected(t *testing.T) {
 	for _, c := range []struct{ name, text string }{
 		{"valid", valid},
@@ -172,8 +164,6 @@ func yamlToJSON(text string) ([]byte, error) {
 	return json.Marshal(docs[0].Value)
 }
 
-// A diagnostic underlines the FIELD, not the block it sits in: the address is the scope, the
-// location is the line. specs/language-server.md §7b.
 func TestADiagnosticUnderlinesTheFieldNotTheWholeSlot(t *testing.T) {
 	//	 1 name: demo
 	//	 2 tasks:
@@ -193,7 +183,6 @@ func TestADiagnosticUnderlinesTheFieldNotTheWholeSlot(t *testing.T) {
 	}
 }
 
-// A check that knows no field still underlines its slot, which is where the reader looks anyway.
 func TestASlotWithNoFinerFieldStillUnderlinesTheSlot(t *testing.T) {
 	//	 5     output:
 	//	 6       v: "$: nope.x"
@@ -203,9 +192,6 @@ func TestASlotWithNoFinerFieldStillUnderlinesTheSlot(t *testing.T) {
 	}
 }
 
-// A schema decodes before anything reads it, and encoding/json's own error named the outermost
-// slot it was inside ("input_schema.properties") — so a mistake in one property underlined the
-// whole schema, or, with nothing to resolve, the first line of the file.
 func TestAPropertyThatIsNotASchemaUnderlinesThatProperty(t *testing.T) {
 	//  1 name: demo
 	//  2 input_schema:
@@ -240,8 +226,6 @@ func TestAnUnsupportedKeywordUnderlinesTheKeyword(t *testing.T) {
 	}
 }
 
-// The one failure a schema cannot place itself: the slot IS the mistake, so there is no path
-// inside the schema to report and encoding/json adds context only to its own type errors.
 func TestASchemaSlotThatIsNotAnObjectUnderlinesTheSlot(t *testing.T) {
 	//  1 name: demo
 	//  2 input_schema: object
@@ -311,9 +295,7 @@ func TestANullPropertyDoesNotStealTheSlotSearch(t *testing.T) {
 	}
 }
 
-// Two slots are scalars and the decoder stopped at one of them; which one it was is not in the
-// error. Underlining either is a guess, so the search declines — the same rule solePathEndingIn
-// follows.
+// The error does not say which scalar slot the decoder stopped at, so the search declines.
 func TestTwoSlotShapedFailuresAreNotGuessedBetween(t *testing.T) {
 	//  1 name: demo
 	//  2 input_schema: object
@@ -328,8 +310,6 @@ func TestTwoSlotShapedFailuresAreNotGuessedBetween(t *testing.T) {
 	}
 }
 
-// encoding/json's prose names the Go type that could not hold the value ("of type bool") and a
-// field stack that skips the list index, so it resolved to the whole `tasks:` block.
 func TestAFieldGivenTheWrongKindOfValueSaysWhatItTakes(t *testing.T) {
 	//  1 name: demo
 	//  2 tasks:

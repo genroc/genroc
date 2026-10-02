@@ -10,8 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// `genctl init --ui` generates credentials, which is the whole reason it exists as a mode: the
-// compose file it replaces ran a container as root purely to mint them.
+// `genctl init --auth` writes the credentials itself, so no container runs as root to mint them.
 
 func renderCompose(t *testing.T, auth, evalNode bool) string {
 	return renderComposeDB(t, auth, evalNode, false)
@@ -37,16 +36,14 @@ func renderComposeDB(t *testing.T, auth, evalNode, postgres bool) string {
 	return out.String()
 }
 
-// A seed file is named exactly when something was seeded into it. Naming it otherwise points
-// genroc at a path nothing wrote; not naming it when a worker exists leaves that worker
-// unable to authenticate, which it reports as a 401 and then exits on.
+// Naming an unseeded file points genroc at a path nothing wrote; not naming it when a worker
+// exists leaves the worker to 401 and exit.
 func TestInitUI_ReadsASeedFileOnlyWhenAWorkerNeedsOne(t *testing.T) {
 	for _, evalNode := range []bool{false, true} {
 		out := renderCompose(t, true, evalNode)
 		if got := strings.Contains(out, "GENROC_SEED_TOKENS_FILE: /data/seed-tokens"); got != evalNode {
 			t.Errorf("eval-node=%v: reads the seed file = %v, want %v", evalNode, got, evalNode)
 		}
-		// The signing key is what every login depends on, worker or not.
 		if !strings.Contains(out, "GENROC_JWT_SECRET_FILE: /data/jwt-secret") {
 			t.Errorf("eval-node=%v: compose does not read the signing key, so no login can "+
 				"produce a token this server accepts", evalNode)
@@ -54,12 +51,9 @@ func TestInitUI_ReadsASeedFileOnlyWhenAWorkerNeedsOne(t *testing.T) {
 	}
 }
 
-// Under --no-auth nothing is generated, so any credential file would name a path that does not
-// exist -- and the worker would hold a token the server has never heard of.
 func TestInitNoAuth_ReadsNoCredentialFilesButKeepsTheUI(t *testing.T) {
 	out := renderCompose(t, false, true)
-	// ./data itself stays — it is where the database lives either way. What must not appear is
-	// anything naming a credential, since --no-auth generates none.
+	// Not ./data itself: the database lives there either way.
 	for _, env := range []string{
 		"GENROC_SEED_TOKENS_FILE", "GENROC_JWT_SECRET_FILE", "GENROC_AUTH", "GENROC_TOKEN_FILE",
 		"jwt-secret", "worker-token", "seed-tokens",
@@ -68,8 +62,6 @@ func TestInitNoAuth_ReadsNoCredentialFilesButKeepsTheUI(t *testing.T) {
 			t.Errorf("compose references %s under --no-auth, but nothing generates it", env)
 		}
 	}
-	// The UI is NOT what --no-auth removes: it is how anyone sees a run at all, and the server
-	// has carried no UI since it became its own image.
 	if !strings.Contains(out, "genroc-ui:") {
 		t.Error("--no-auth dropped genroc-ui; it turns the login off, not the UI")
 	}
@@ -78,9 +70,7 @@ func TestInitNoAuth_ReadsNoCredentialFilesButKeepsTheUI(t *testing.T) {
 	}
 }
 
-// Least privilege, and it is free here because genctl creates the files before compose runs:
-// the worker gets its own credential and not the signing key, which would let it mint any
-// identity genroc accepts.
+// The worker gets its own credential, never the signing key, which would let it mint any identity.
 func TestInitUI_MountsTheKeyAndTheTokenSeparately(t *testing.T) {
 	out := renderCompose(t, true, true)
 	for _, want := range []string{
@@ -97,9 +87,7 @@ func TestInitUI_MountsTheKeyAndTheTokenSeparately(t *testing.T) {
 	}
 }
 
-// Everything that persists lives under ./data, so `rm -rf data` is the whole reset. A named
-// volume would outlive the project folder and survive that, which is the shape people delete a
-// directory and then wonder why their old definitions are still there.
+// `rm -rf data` must be the whole reset.
 func TestInitCompose_NothingPersistsOutsideTheDataFolder(t *testing.T) {
 	for _, postgres := range []bool{false, true} {
 		out := renderComposeDB(t, true, true, postgres)
@@ -140,15 +128,12 @@ func TestInitUI_SecretsAreWrittenOnceAndNeverRegenerated(t *testing.T) {
 		t.Errorf("seed-tokens and worker-token disagree; they are one secret in two shapes\n"+
 			"  seeds:  %s\n  worker: %s", seeds, worker)
 	}
-	// No standing admin credential on disk: a person signs in with the generated password and
-	// mints their own, which is the whole reason --ui needs no operator token.
 	for _, gone := range []string{"admin-token", "operator-token"} {
 		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
 			t.Errorf("%s was written; an admin credential sitting in a world-readable file is "+
 				"exactly what signing in replaces", gone)
 		}
 	}
-	// 32 characters is the floor both the server and genroc-ui refuse to start below.
 	if key, _ := os.ReadFile(filepath.Join(dir, "jwt-secret")); len(key) < 32 {
 		t.Errorf("jwt-secret is %d characters; the server refuses to start under 32", len(key))
 	}
@@ -167,16 +152,12 @@ func TestInitUI_SecretsAreWrittenOnceAndNeverRegenerated(t *testing.T) {
 	}
 }
 
-// A login is the default, because the alternative is a port on which anyone can register a
-// definition — and `PUT /definitions` stores code the engine runs.
 func TestInitOptions_LoginIsTheDefaultAndNoComposeDropsItSilently(t *testing.T) {
 	if !newPrompter("\n\n\n\n\n").askYesNo("a web UI behind a login (genroc-ui)", true) {
 		t.Error("the prompt default is not yes")
 	}
 }
 
-// The password is printed once and stored only as a hash, so the two must agree or the account
-// named in ui.yaml is one nobody can sign in as.
 func TestInitUI_ThePrintedPasswordMatchesTheStoredHash(t *testing.T) {
 	l, err := newLogin("ada@example.com")
 	if err != nil {
@@ -225,9 +206,6 @@ func TestInitUI_DataIsGitignoredExactlyOnce(t *testing.T) {
 	}
 }
 
-// The flag surface, which is six flags with interactions. Each of these was wrong at some point:
-// the tag named a nonexistent image, --no-compose wrote a compose file anyway, and --no-ui had
-// nowhere to be read.
 func TestParseInitArgs(t *testing.T) {
 	for _, tc := range []struct {
 		name string

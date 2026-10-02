@@ -1,8 +1,7 @@
 package model
 
-// What a status means, for a reader rather than for the engine. The predicates are computed
-// from the same functions the engine branches on, so a page cannot claim one thing while the
-// runtime does another; only the prose is written down, and a test says it is complete.
+// What a status means to a reader. The predicates come from the functions the engine branches
+// on; only the prose is written down.
 
 // StatusInfo is one status as a reader meets it.
 type StatusInfo struct {
@@ -14,9 +13,7 @@ type StatusInfo struct {
 	Means   string `json:"means"`
 }
 
-// statusMeanings is the one line per status. `TestEveryStatusIsDocumented` reads the constants
-// out of this package's own source, so a status added without a line fails here rather than
-// reaching the reference as a blank cell.
+// statusMeanings is checked against the constants in source by TestEveryStatusIsDocumented.
 var statusMeanings = map[Status]string{
 	StatusRunning:    "advancing, or waiting on a timer, a child or an external task",
 	StatusCompleted:  "finished by reaching the end of its definition",
@@ -36,10 +33,8 @@ var statusOrder = []Status{
 	StatusCompleted, StatusFailed, StatusRaised, StatusCancelled,
 }
 
-// Enum publishes the status set to the OpenAPI generator (swaggest picks up this interface),
-// so the documented filter values are derived from the constants rather than copied into a
-// struct tag beside them. The copy is how `cancelling` and `cancelled` went undocumented: a
-// status added after the tag was written changed nothing that could fail.
+// Enum publishes the status set to the OpenAPI generator (swaggest), derived from the constants:
+// an enum copied into a struct tag is how `cancelling` and `cancelled` went undocumented.
 func (Status) Enum() []interface{} {
 	out := make([]interface{}, 0, len(statusOrder))
 	for _, s := range statusOrder {

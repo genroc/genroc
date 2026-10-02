@@ -9,9 +9,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// The unknown type across a process boundary: a child carrying a payload it never inspects, a
-// parent narrowing it. The static half lives here; the runtime conform that backs the narrowing
-// is exercised by the polling example's integration test.
+// The unknown type across a process boundary, statically. The runtime conform backing the
+// narrowing is in the polling example's integration test.
 
 func unknownDef(t *testing.T, raw string) *model.ProcessDefinition {
 	t.Helper()
@@ -51,9 +50,8 @@ func parentPinning(t *testing.T, resultSchema string, output string) *model.Proc
     }`)
 }
 
-// The whole point: a parent pins a concrete schema onto the child's opaque field and can
-// then read through it. Statically this is childOutput.NarrowsTo(result_schema); at
-// runtime collect conforms the child's output against that same schema.
+// Statically childOutput.NarrowsTo(result_schema); at runtime collect conforms against the same
+// schema.
 func TestUnknown_ParentNarrowsChildPayload(t *testing.T) {
 	child := unknownDef(t, forwardingChildJSON)
 	parent := parentPinning(t,
@@ -104,9 +102,8 @@ func TestUnknown_ForwardingParentCannotRead(t *testing.T) {
 	}
 }
 
-// The narrowing privilege belongs to result_schema alone, because that is the one slot
-// with a runtime conform behind it. An unknown handed to a typed child input has no such
-// check, so it is refused — the same refusal TypeScript makes for unknown → T.
+// Only result_schema has a runtime conform behind it, so an unknown handed to a typed child
+// input is refused.
 func TestUnknown_TypedChildInputStillRejectsUnknown(t *testing.T) {
 	child := unknownDef(t, forwardingChildJSON)
 	consumer := unknownDef(t, `{

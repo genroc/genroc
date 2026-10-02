@@ -6,10 +6,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// literalCtxJSON carries one field of every kind an object/array literal can hold:
-// scalars, a nullable scalar, an optional (not-required) scalar, arrays with and
-// without null, objects, an element type with a secret, and a top-level secret.
-// Prefixed `literal` so it cannot collide with the fixtures in the sibling files.
+// literalCtxJSON holds one field of every kind a literal can hold; prefixed `literal` so it
+// cannot collide with sibling fixtures.
 const literalCtxJSON = `{
 	"type": "object",
 	"properties": {
@@ -366,10 +364,7 @@ func TestInferLiteral_ArrayLiteralAsMapSource(t *testing.T) {
 	}`)
 }
 
-// `[]` is provably empty, so elementOf refuses to bind an element — mapping over
-// a literal empty array is rejected even though it would yield [] at runtime.
-// Pedantic but consistent with the itemless-array rule, and the expression is a
-// no-op worth flagging.
+// Pedantic but consistent with the itemless-array rule, and a no-op worth flagging.
 func TestInferLiteral_EmptyArrayLiteralAsMapSourceRejected(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	inferErr(t, `map([], x => x)`, c, "no element type")
@@ -401,10 +396,7 @@ func TestInferLiteral_EmptyArray_InTernaryAsMapSource(t *testing.T) {
 	}`)
 }
 
-// `xs ?? []` is the documented idiom: the union keeps xs's items, and the empty
-// arm is discarded by elementOf. The empty arm is absorbed: it contributes no
-// values, and keeping it would build an exclusive oneOf that rejects its own
-// empty result.
+// The empty arm is absorbed: kept, it builds an exclusive oneOf that rejects its own [].
 func TestInferLiteral_EmptyArray_AsCoalesceDefault(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	assertSchema(t, infer(t, `input.optTags ?? []`, c), `{
@@ -533,10 +525,8 @@ func TestInferLiteral_OperatorsRejectLiterals(t *testing.T) {
 	}
 }
 
-// Comparing two structured values is rejected at registration, matching the
-// runtime half. A deep walk is the only useful answer and this language does not
-// hide one behind an operator; the old total-== also panicked, since Go's ==
-// crashes on two operands sharing an uncomparable dynamic type.
+// A deep walk is the only useful answer, and this language does not hide one behind an
+// operator.
 func TestInferLiteral_StructuredComparisonRejected(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	for _, tc := range []struct{ name, expr string }{

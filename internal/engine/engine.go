@@ -47,33 +47,25 @@ type Engine struct {
 	wake               chan struct{} // buffer-1 nudge: "runnable work may exist, re-scan now" (see signalWork)
 	workerID           string
 	inflight           sync.Map // instance IDs this worker is currently advancing (detects self-reclaim)
-	// held is the instance IDs the renewer keeps alive: inserted on claim, removed when
-	// runAdvance returns, so a lease always outlives the write it protects. A row that
-	// leaves the set expires with worker_id intact — the hand-back path. specs/lease-fencing.md.
-	// Reach it only through holdLease/dropLease/heldLeases; heldMu is never held across a
-	// database call, so a slow renewal cannot stall a claim.
+	// held is the renewer's set; leaving it is the hand-back (CLAUDE.md). Reach it only via
+	// holdLease/dropLease/heldLeases: heldMu is never held across a database call.
 	heldMu sync.Mutex
 	held   map[string]struct{}
-	// lastRenewMs: DB-clock millis of the last successful renewal — the worker's only
-	// evidence its leases are alive. Written by the renewer, read by the pump; every held
-	// lease expires at lastRenewMs+leaseDuration or later, the invariant leaseGate rests on
-	// (renewLeases has the fragile half).
+	// lastRenewMs is DB-clock millis: every held lease expires at lastRenewMs+leaseDuration or
+	// later, the invariant leaseGate rests on (renewLeases has the fragile half).
 	lastRenewMs atomic.Int64
 }
 
-// definition loads a process definition for an advance, riding out a dropped connection. Every
-// engine read of a definition goes through here: a blip must not terminally fail an instance that
-// a retry would have carried through. See retryRead.
+// Every engine read of a definition goes through here, so a blip cannot fail an instance.
 func (e *Engine) definition(name string, version int) (*model.ProcessDefinition, error) {
 	return retryRead(func() (*model.ProcessDefinition, error) {
 		return e.db.GetDefinition(name, version)
 	})
 }
 
-// New creates an Engine. maxConcurrent bounds parallel advances and the per-tick claim
-// size. immediateRetries disables backoff (tests only). leaseDuration/leaseRenewInterval
-// default to 10s/3s when 0; the renew interval must be comfortably shorter than the lease
-// so the renewer can re-stamp leases before they expire.
+// New creates an Engine. maxConcurrent bounds parallel advances and the claim size;
+// immediateRetries is for tests. Zero lease durations default to 10s/3s, and the renew
+// interval must be comfortably shorter than the lease.
 func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateRetries bool, leaseDuration, leaseRenewInterval time.Duration, logCfg LogConfig, log *slog.Logger, opts ...Option) *Engine {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d-%s", hostname, os.Getpid(), randomSuffix())
@@ -83,8 +75,6 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 	if leaseRenewInterval <= 0 {
 		leaseRenewInterval = defaultLeaseRenewInterval
 	}
-	// Dereferenced objects survive on the same horizon as audit logs, so a log that
-	// references an object stays resolvable for as long as the log itself lives.
 	e := &Engine{
 		db:                 database,
 		pollEvery:          pollEvery,
@@ -101,9 +91,8 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 	for _, opt := range opts {
 		opt(e)
 	}
-	// Seeded here as well as in Run: LeaseAge is served from it, and a health probe that
-	// arrives in the gap between New and Run would otherwise read the zero value as
-	// "no renewal since 1970".
+	// Seeded here as well as in Run, or a health probe between New and Run reads "no renewal
+	// since 1970".
 	e.lastRenewMs.Store(db.Now().UnixMilli())
 	return e
 }
@@ -111,9 +100,8 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 // Option configures an Engine beyond New's positional arguments.
 type Option func(*Engine)
 
-// randomSuffix makes the default worker id unique among LIVE workers even when hostname
-// and pid collide — two engines in one process, a reused pid, identical container
-// hostnames. The fence compares worker_id, so a collision would let a stale write pass.
+// randomSuffix keeps worker ids unique when hostname and pid collide: the fence compares
+// worker_id, so a collision would let a stale write pass.
 func randomSuffix() string {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -122,10 +110,8 @@ func randomSuffix() string {
 	return hex.EncodeToString(b[:])
 }
 
-// WithWorkerID overrides the identity this worker stamps on the rows it leases. The
-// default is hostname-pid-random, unique per Engine; override it only with something at
-// least as unique, because the lease fence compares `worker_id` and two live workers
-// sharing one would each pass the other's fence (specs/lease-fencing.md).
+// WithWorkerID overrides the default hostname-pid-random identity. It must be at least as
+// unique: two live workers sharing one would each pass the other's lease fence.
 func WithWorkerID(id string) Option {
 	return func(e *Engine) {
 		if id != "" {
@@ -138,16 +124,14 @@ func WithWorkerID(id string) Option {
 // correlates a stuck instance against.
 func (e *Engine) WorkerID() string { return e.workerID }
 
-// LeaseAge is how long ago this worker last proved the leases it holds are still alive.
-// Growing past the lease duration is the same evidence leaseGate acts on: this worker has
-// been unable to reach the database, and the instances it claimed are being taken over.
+// LeaseAge is how long ago this worker last renewed its leases. Past the lease duration, the
+// instances it claimed are being taken over.
 func (e *Engine) LeaseAge() time.Duration {
 	return time.Duration(db.Now().UnixMilli()-e.lastRenewMs.Load()) * time.Millisecond
 }
 
-// signalWork nudges the pump to re-scan immediately. Non-blocking on a buffer-1 channel:
-// concurrent nudges coalesce and a nudge with no pump parked on it is dropped, so the
-// ticker remains the idle floor.
+// signalWork never blocks: nudges coalesce, and one with no pump waiting is dropped, so the
+// ticker stays the idle floor.
 func (e *Engine) signalWork() {
 	select {
 	case e.wake <- struct{}{}:
@@ -159,7 +143,6 @@ func (e *Engine) signalWork() {
 // instance), so the pump claims it without waiting for the next poll tick.
 func (e *Engine) NotifyWork() { e.signalWork() }
 
-// holdLease puts an instance in the renewer's set, from the claim that granted it.
 func (e *Engine) holdLease(id string) {
 	e.heldMu.Lock()
 	defer e.heldMu.Unlock()
@@ -186,10 +169,8 @@ func (e *Engine) heldLeases() []string {
 	return ids
 }
 
-// renewLeases re-stamps the held set and records when that last succeeded (the renewer
-// and the gate's repair both come through here). The stamp is the instant the renewal
-// derived its expiries from, never the post-write clock — late evidence overstates the
-// gate's floor by the write's duration.
+// renewLeases stamps the instant the renewal derived its expiries from, never the post-write
+// clock: late evidence overstates the gate's floor by the write's duration.
 func (e *Engine) renewLeases() error {
 	renewedAt, err := e.db.RenewWorkerLeases(e.workerID, e.heldLeases(), e.leaseDuration)
 	if err != nil {
@@ -199,20 +180,16 @@ func (e *Engine) renewLeases() error {
 	return nil
 }
 
-// leaseGate, before every claim: on stale renewal evidence it repairs its own leases and
-// declines takeovers for one lease period, pinned to the instant the evidence was read so a
-// delayed claim cannot widen it. It reads the RENEWAL gap, in the CLAIMANT — each
-// wrong-looking choice is argued in specs/lease-fencing.md. graceUntilMs is the pump's own
-// local, so the window belongs to one goroutine by construction.
+// leaseGate pins its grace to the instant the evidence was read, so a delayed claim cannot
+// widen it; each wrong-looking choice is argued in specs/lease-fencing.md. graceUntilMs is
+// the pump's own local, so the window belongs to one goroutine.
 func (e *Engine) leaseGate(graceUntilMs *int64) db.Takeover {
 	now := db.Now()
 	nowMs := now.UnixMilli()
 	stale := time.Duration(nowMs-e.lastRenewMs.Load()) * time.Millisecond
 
-	// Trip one poll early, so a lease is repaired while it is still alive rather than after
-	// a peer has had a poll's worth of chances to take the row. Capped at half the lease so
-	// a poll interval longer than the lease cannot park the worker in a permanent grace,
-	// never recovering dead workers' rows.
+	// Trip one poll early, while the lease is still alive. Capped at half the lease, or a long
+	// poll interval parks the worker in permanent grace.
 	margin := e.pollEvery
 	if cap := e.leaseDuration / 2; margin > cap {
 		margin = cap
@@ -226,9 +203,8 @@ func (e *Engine) leaseGate(graceUntilMs *int64) db.Takeover {
 		return db.TakeoverBefore(now)
 	}
 
-	// Once per window, not once per poll: the window is extended below while the
-	// condition persists. Debug, not warn: a suspended laptop trips this benignly on every
-	// wake, and an unreachable DB still reports the renewal and claim failures at error.
+	// Once per window, not per poll. Debug: a suspended laptop trips this benignly on every
+	// wake, and an unreachable DB still reports its failures at error.
 	if nowMs >= *graceUntilMs {
 		e.logOnly(logEvent{Level: model.LogDebug,
 			Msg: "no successful lease renewal for " + stale.Round(time.Millisecond).String() +
@@ -243,10 +219,8 @@ func (e *Engine) leaseGate(graceUntilMs *int64) db.Takeover {
 	return db.SkipTakeover
 }
 
-// Run starts the engine loop and blocks until ctx is cancelled; in-flight work drains
-// before it returns. When pollEvery is zero the engine does not auto-tick; call Tick
-// explicitly. Lease pressure is never fatal: the gate repairs it or the fence refuses
-// the stale write (lease_lost) — there is no exit path.
+// Run blocks until ctx is cancelled and in-flight work drains. With pollEvery zero it does
+// not auto-tick; call Tick. Lease pressure is never fatal: there is no exit path.
 func (e *Engine) Run(ctx context.Context) {
 	e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine started", Meta: map[string]any{"poll_interval": e.pollEvery, "max_concurrent": cap(e.sem), "worker": e.workerID}})
 
@@ -265,9 +239,8 @@ func (e *Engine) Run(ctx context.Context) {
 	e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine stopped"})
 }
 
-// runPump is the continuous claim/dispatch loop used when pollEvery > 0. Unlike Tick it
-// never waits for a batch to finish, topping up work as slots free, so a slow instance
-// never stalls the others. e.sem is both the concurrency bound and the idle detector.
+// runPump never waits for a batch, topping up as slots free. e.sem is both the concurrency
+// bound and the idle detector.
 func (e *Engine) runPump(ctx context.Context) {
 	ticker := time.NewTicker(e.pollEvery)
 	defer ticker.Stop()
@@ -278,8 +251,6 @@ func (e *Engine) runPump(ctx context.Context) {
 	// The takeover-grace window, owned by this loop: leaseGate is its only reader and
 	// writer, and only this goroutine calls leaseGate.
 	var graceUntilMs int64
-	// Log/object pruning rides the pump rather than a goroutine of its own — it is a
-	// once-a-minute janitor, and the poll ticker already wakes this loop far more often.
 	// Manual-tick mode never reaches here; Tick prunes for itself.
 	nextPruneMs := db.Now().UnixMilli() + logPruneInterval.Milliseconds()
 
@@ -290,10 +261,8 @@ func (e *Engine) runPump(ctx context.Context) {
 			e.collectObjects()
 		}
 
-		// Acquire every free slot up front so the dispatch loop below never blocks:
-		// with the claim's phase<>'children' filter, that closes the window where an
-		// in-flight advance finishes between claim and dispatch and lets a stale snapshot
-		// through. slots is the exact claim limit, so in-flight never exceeds maxConcurrent.
+		// Acquire every free slot first so dispatch never blocks: with the claim's
+		// phase<>'children' filter, that closes the window a stale snapshot slips through.
 		select {
 		case e.sem <- struct{}{}:
 		case <-ctx.Done():
@@ -328,9 +297,6 @@ func (e *Engine) runPump(ctx context.Context) {
 			if err != nil {
 				e.logOnly(logEvent{Level: model.LogError, Msg: "claim instances: " + err.Error()})
 			}
-			// Nothing claimable right now: wait for the next tick, or wake early when
-			// signalWork reports freshly-runnable work (a self-requeued loop, spawned
-			// children, an un-parked parent, or a newly created instance).
 			select {
 			case <-ctx.Done():
 				return
@@ -340,14 +306,10 @@ func (e *Engine) runPump(ctx context.Context) {
 			continue
 		}
 
-		// Before any of them runs: a claim is an only_once task's only evidence that it
-		// ran, and below `strict` the claim's own commit is not flushed. One flush covers
-		// the whole batch, and a batch with no only_once task in it costs nothing.
-		// specs/durability-levels.md s4.
+		// Before any of them runs: a claim is an only_once task's only evidence that it ran, and
+		// below `strict` its commit is not flushed. specs/durability-levels.md s4.
 		e.hardenClaims(ctx, insts)
 
-		// Each dispatch consumes one pre-acquired slot (released when the advance
-		// finishes).
 		for _, inst := range insts {
 			if !e.dispatch(ctx, &wg, inst, takeover == db.SkipTakeover) {
 				<-e.sem // slot reserved for this instance, left to the advance already running it
@@ -356,11 +318,8 @@ func (e *Engine) runPump(ctx context.Context) {
 	}
 }
 
-// hardenClaims makes this batch's claims durable if any of them is about to run an only_once
-// task -- one fsync per batch, none at all when nothing carries the flag. The flag is read off
-// the row (next_replayable), never resolved from the definition: this runs on the hottest path
-// and outside the panic barrier that malformed definitions need. A failure is not fatal; it
-// costs only the only_once.interrupted distinction, not the batch.
+// hardenClaims reads next_replayable off the row, never the definition: hottest path, and
+// outside the panic barrier. A failure costs only the only_once.interrupted distinction.
 func (e *Engine) hardenClaims(ctx context.Context, insts []*model.ProcessInstance) {
 	for _, inst := range insts {
 		if inst.NextReplayable {
@@ -374,9 +333,8 @@ func (e *Engine) hardenClaims(ctx context.Context, insts []*model.ProcessInstanc
 	}
 }
 
-// dispatch runs one advance in its own goroutine, releasing the caller's e.sem slot when
-// done. It reports whether it started one: an in-flight instance is never advanced twice —
-// the claim is left to the running advance, whose write the re-claim has already doomed.
+// dispatch never advances an in-flight instance twice: the claim is left to the running
+// advance, whose write the re-claim has already doomed.
 func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance, graced bool) bool {
 	// The marker is exact: runAdvance drops it just before the freeing write, so a hit means a
 	// lease lapsed under a live advance — true only while advance() writes nothing. Inside a
@@ -396,13 +354,11 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 		return false
 	}
 	wg.Add(1)
-	// No recover() here on purpose: the barrier is one level down in advanceGuarded, where
-	// the panicking instance is still in hand and can be failed. What reaches this
-	// goroutine is a panic from the persist path, which is meant to take the worker down.
+	// No recover() on purpose: the barrier is advanceGuarded, and a persist panic is meant
+	// to take the worker down.
 	go func() {
 		defer wg.Done()
 		defer func() { <-e.sem }()
-		// runAdvance drops the inflight marker (stored above) before persisting.
 		if err := e.runAdvance(ctx, inst); err != nil {
 			e.logOnly(logEvent{Level: model.LogError, ID: inst.ID, Msg: "advance instance: " + err.Error()})
 		}
@@ -410,8 +366,6 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 	return true
 }
 
-// leaseRenewer renews this worker's leases every leaseRenewInterval, in its own goroutine
-// so renewals are never blocked by a long tick.
 func (e *Engine) leaseRenewer(ctx context.Context) {
 	ticker := time.NewTicker(e.leaseRenewInterval)
 	defer ticker.Stop()
@@ -427,9 +381,7 @@ func (e *Engine) leaseRenewer(ctx context.Context) {
 	}
 }
 
-// pruneLogs deletes audit logs past the retention window. No-op when retention is
-// disabled. Best-effort: a failure is logged and otherwise ignored. The cutoff uses the
-// DB clock, so a test clock shift expires logs without a real wait.
+// pruneLogs cuts off on the DB clock, so a test clock shift expires logs without a real wait.
 func (e *Engine) pruneLogs() {
 	if e.logCfg.Retention <= 0 {
 		return
@@ -442,10 +394,8 @@ func (e *Engine) pruneLogs() {
 	}
 }
 
-// collectObjects retires expired claims and deletes content nothing claims any more.
-// Deliberately not inside pruneLogs and not gated on log retention: objects are released by
-// ordinary work, so a run with retention disabled would otherwise grow without bound. The two
-// sweeps share a tick and nothing else.
+// collectObjects is not gated on log retention: ordinary work releases objects, so a run with
+// retention disabled would otherwise grow without bound.
 func (e *Engine) collectObjects() {
 	if n, err := e.db.CollectObjects(db.Now().UnixMilli()); err != nil {
 		e.logOnly(logEvent{Level: model.LogError, Msg: "collect objects: " + err.Error()})
@@ -454,9 +404,7 @@ func (e *Engine) collectObjects() {
 	}
 }
 
-// ManualTick reports whether the engine runs in manual-tick mode (pollEvery == 0). The
-// /tick endpoint is only meaningful then: with the continuous pump running, an out-of-band
-// Tick would race it, so the endpoint refuses.
+// ManualTick reports pollEvery == 0. Tick must not run otherwise: it would race the pump.
 func (e *Engine) ManualTick() bool { return e.pollEvery == 0 }
 
 // Tick claims pending instances and processes each in its own goroutine, blocking until

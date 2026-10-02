@@ -6,18 +6,8 @@ import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
 /**
- * `genctl upgrade`, asserted as the whole rendered output — the same shape as the compat
- * cases next door, for the same reason: what an operator reads IS the deliverable, and
- * comparing the whole thing covers wording, ordering and exit code at once.
- *
- * What these cases have that compat's cannot is a RUNNING instance. An upgrade is about
- * state the engine produced, so each case starts one and drives it a stated number of
- * ticks before the upgrade — which is why every case gets its own manual-tick server
- * (`--poll 0`). "after 2 ticks" has to be an exact position, not a race with a poll loop.
- *
- * A case asserts that the upgrade SUCCEEDED and what the instance holds afterwards. It does
- * not assert the command's output: the migrated state is the deliverable here, and pinning
- * the rendering would only break on wording. One case per file in testdata/upgrade/<group>/.
+ * `genctl upgrade` against a running instance, one case per file in testdata/upgrade/<group>/.
+ * Asserts the migrated state, not the command's output: the rendering is compat's business.
  */
 
 const GROUPS = ["happy", "shapes", "refused", "tree"];
@@ -36,54 +26,24 @@ interface UpgradeCase {
     /** Clock milliseconds each tick advances, for a case that has to let a timer fire. */
     advance_ms?: number;
   };
-  /**
-   * The state the instance must actually be resting in when the upgrade runs. Without it a
-   * case whose ticks never reach the state its prose describes passes for saying nothing —
-   * and every case here exists BECAUSE of the state it rests in.
-   */
+  /** The state the instance must rest in when the upgrade runs, so ticks that miss it fail. */
   resting?: RestingState;
-  /**
-   * The state the instance must be in AFTER the upgrade. Without it a case asserts only what
-   * the command PRINTED, and a migration that dropped half the context prints exactly the
-   * same line — `context_keys` is what sees engine bookkeeping the definition never declares
-   * (external_input, _spawn_*) going missing.
-   */
+  /** The state after the upgrade; `state_keys` catches lost bookkeeping (external_input, _spawn_*). */
   after?: RestingState;
   /** Arguments after `genctl upgrade`. */
   run: string[];
-  /**
-   * The move must be REFUSED: a non-zero exit, and the instance left exactly where it was. A
-   * refusal that still wrote something is worse than one that failed loudly, so `after` is
-   * what carries the case — it pins the version the instance is still on.
-   */
+  /** The move must be refused (non-zero exit); `after` pins that the instance did not move. */
   refused?: { /** A fragment the refusal must name, so it points at the real reason. */ says?: string };
-  /**
-   * Run the whole case once per POSITION: upgrade after this many ticks, and say what the
-   * instance must hold there. An upgrade is correct only if it is correct from every state the
-   * process passes through, and a single hand-picked tick proves it for one of them.
-   *
-   * Each entry states its own `resting` / `after` / `finish`; anything it leaves out falls back
-   * to the case-level one, so a position only spells out what differs. A failure names the
-   * position, so the state that broke is the state in the test title.
-   */
+  /** Run the case once per position, upgrading after `ticks`; fields left out fall back to the case's. */
   at?: Array<{
     ticks: number;
     resting?: RestingState;
     after?: RestingState;
     finish?: UpgradeCase["finish"];
-    /**
-     * Whether THIS position is refused. A rule about in-flight work has a boundary — the same
-     * definitions move from one state and not from another — and a case that states both sides
-     * says where the boundary is, which two cases in different groups cannot.
-     */
+    /** `false` opts this position out of a case-level refusal: the allowed side of a boundary. */
     refused?: UpgradeCase["refused"] | false;
   }>;
-  /**
-   * Drive the upgraded instance on and say where it must land. Everything above proves only
-   * that the migrated state LOOKS right; a migration that breaks the very next tick — a slot
-   * the new version reads and the old one never wrote, an output that no longer conforms —
-   * satisfies every assertion before this one and fails here.
-   */
+  /** Drive the upgraded instance on: catches a migration that looks right but breaks the next tick. */
   finish?: {
     status: string;
     /** The process output, compared whole: a migration that dropped a slot shows as a hole. */
@@ -97,11 +57,7 @@ interface UpgradeCase {
 interface RestingState {
   task?: string;
   status?: string;
-  /**
-   * Dotted paths into the stored context and the values they must hold. JSON-compared, so an
-   * expected `null` fails against a MISSING key — which is the whole point where a migration
-   * has to turn an absent optional into an explicit null.
-   */
+  /** Dotted context paths to values, JSON-compared: an expected `null` fails on a missing key. */
   values?: Record<string, unknown>;
   /** The version the row is on — the one thing a refused move must not have changed. */
   version?: number;
@@ -139,16 +95,11 @@ afterEach(async () => {
 
 async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[number]): Promise<void> {
   const ticks = at ? at.ticks : c.start.ticks ?? 0;
-  // A position states what differs and inherits the rest, so a sweep does not repeat the
-  // invariant half at every tick.
   const resting = at?.resting ?? c.resting;
   const after = { ...c.after, ...at?.after };
   const finish = at?.finish ?? c.finish;
-  // `false` is how a position opts OUT of a case-level refusal, which is what the allowed side
-  // of a boundary looks like.
   const refused = at && "refused" in at ? at.refused || undefined : c.refused;
-  // Its own server, in manual-tick mode: the case names how many steps the instance has
-  // taken, and only a server that takes no step on its own can honour that.
+  // Manual-tick: a case names exact tick counts, so the server must take no step on its own.
   server = await startGenroc({ db: tmpPath("upgrade_case", ".db"), poll: 0, maxConcurrent: 4 });
   const env = { GENROC_SERVER: server.baseUrl };
 
@@ -180,7 +131,6 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
     return out;
   }
 
-  /** Compares the instance's live state against what the case declares. */
   async function assertState(label: string, want: RestingState) {
     const unread = Object.keys(want).filter((k) => !STATE_FIELDS.has(k));
     if (unread.length > 0) {
@@ -190,8 +140,6 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
       params: { path: { id: instanceID } },
     });
     const got = data as unknown as Record<string, unknown>;
-    // detail moves output/error_data/external_input to fields of their own so nothing is said
-    // twice; these cases are about the STATE an upgrade validates, so put them back.
     const ctx = wholeState(got);
     const outs = (ctx.outputs ?? {}) as Record<string, unknown>;
     const actual = {
@@ -249,8 +197,6 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
   } else if (!res.ok) {
     throw new Error(`${c.id}: upgrade failed (exit ${res.exitCode})\n${res.stdout}${res.stderr}`);
   }
-  // The state is the deliverable, not the rendering: what the command PRINTED is compat's
-  // business, and asserting it here would break on wording that changes nothing.
   if (Object.keys(after).length > 0) await assertState("after the upgrade", after);
 
   if (!finish) return;

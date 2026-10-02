@@ -1,8 +1,7 @@
 package lsp
 
 // JSON-RPC 2.0 over stdio, in the framing LSP uses: a `Content-Length` header, a blank line,
-// then the body. Hand-written rather than taken from a library — it is this much code, and a
-// language server acquires dependencies fast enough without starting with one.
+// then the body. Hand-written: it is this much code.
 
 import (
 	"bufio"
@@ -25,10 +24,8 @@ type request struct {
 // error, and the difference is only the presence of an id.
 func (r *request) isNotification() bool { return len(r.ID) == 0 }
 
-// A response carries EXACTLY ONE of result and error, and `result: null` is a result -- the
-// protocol's "nothing here", which hover, completion and definition all answer with. `omitempty`
-// on Result produced a reply with neither, which a client rejects outright. Two structs rather
-// than one, so the invariant is in the type instead of in remembering which field to leave unset.
+// A response carries EXACTLY ONE of result and error, and `result: null` is a result. Two structs
+// keep that in the type: `omitempty` on Result sends neither, which a client rejects.
 type response struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
@@ -52,9 +49,8 @@ const (
 	codeInternalError  = -32603
 )
 
-// conn is one stdio peer. The write mutex is a field rather than a package var because it
-// guards this connection's writer and nothing else: two goroutines interleaving a header and
-// a body would produce a frame neither of them wrote.
+// conn is one stdio peer. mu guards this connection's writer: an interleaved header and body
+// would be a frame nobody wrote.
 type conn struct {
 	in  *bufio.Reader
 	out io.Writer

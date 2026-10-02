@@ -6,11 +6,8 @@ import { load as loadYaml } from "js-yaml";
 import { client, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// The `script` CHILD PROCESS — the documented wrapper a caller uses instead of writing an
-// external task and its own error handling (custom-tasks.md's middle tier). The definition
-// under test is the real playground file, applied verbatim, so this doubles as an executable
-// check that it works: nothing else in the suite touches it, and it broke silently once when
-// the evaluator moved its message from `data` onto `error.message`.
+// The `script` child process (custom-tasks.md's middle tier), applied verbatim from the playground
+// file; nothing else in the suite touches it.
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const script: any = loadYaml(readFileSync(join(ROOT, "tests/playground/script-node.genroc.yaml"), "utf8"));
@@ -42,9 +39,8 @@ beforeAll(async () => {
 afterAll(() => worker?.kill());
 
 async function callScript(name: string, code: string, caller: Record<string, unknown>) {
-  // The catch task only exists where the caller declared `raises`: without a declaration
-  // error.data is absent, and reading it is refused at registration — which is the type system
-  // doing exactly what the undeclared-code rule promises.
+  // The catch task exists only where the caller declared `raises`: undeclared, reading error.data
+  // is refused at registration.
   const catches = "raises" in caller;
   const call: Record<string, unknown> = {
     id: "call",
@@ -83,10 +79,8 @@ test("script child — a return value comes back through the wrapper, narrowed b
   expect((data?.state?.outputs as any)?.call).toEqual({ fee: 25 });
 });
 
-// The regression this file exists for: a caller must still be able to tell one refusal from
-// another AND read what it said. `script_threw` carries {name, stack} and puts the text on
-// error.message — declaring a shape the payload cannot satisfy is refused at registration now,
-// and a declaration that fits but reads the wrong slot yields null rather than the message.
+// `script_threw` carries {name, stack} and puts the text on error.message; a declaration that reads
+// the wrong slot yields null rather than the message.
 test("script child — script_threw's name and text both reach a caller that declares it", async () => {
   const { status, data } = await callScript(
     `script_child_threw_${crypto.randomUUID()}`,
@@ -111,8 +105,6 @@ test("script child — script_threw's name and text both reach a caller that dec
   });
 });
 
-// The other half of the same guard: a shape script.yaml's payload can never carry is refused
-// where it is written, not discovered as an result.invalid on a run that already happened.
 test("script child — a caller declaring a slot script_threw never sets is refused", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {

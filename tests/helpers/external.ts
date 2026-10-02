@@ -1,11 +1,7 @@
 import { client as defaultClient } from "./client.ts";
 
-// The external-task LISTING was removed: it was the polling shape that claim/renew/release
-// replaced, and everything a caller needs is derivable from the instance it is parked on.
-// A resolve token is `<instance-id>.<task_epoch>` (model.ExternalToken), and the rest of what
-// the listing carried — the task id, the evaluated input snapshot, who holds a claim — is on
-// GET /instances/{id}/detail. What is NOT recoverable is `result_schema`; only the listing
-// published that, and nothing asserts on it any more.
+// A resolve token is `<instance-id>.<task_epoch>` (model.ExternalToken); the rest of a parked
+// task is on GET /instances/{id}/detail, except `result_schema`, which only a claim publishes.
 
 export type ParkedTask = {
   token: string;
@@ -49,11 +45,7 @@ export async function tokenFor(id: string, c: Client = defaultClient): Promise<s
   return (await waitForParked(id, c)).token;
 }
 
-/**
- * Every task parked on an external wait within one process, discovered through the INSTANCES
- * listing — which is where fleet-wide discovery lives now that the external-task listing is
- * gone. `phase` is a server-side filter, so the page holds parked rows and nothing else.
- */
+/** The tasks parked on an external wait in `process`, via the instances listing's `phase` filter. */
 export async function parkedInProcess(
   process: string,
   c: Client = defaultClient,
@@ -87,11 +79,7 @@ export async function waitForParkedInProcess(
   throw new Error(`${process}: ${count} parked external task(s) not seen within ${timeoutMs}ms`);
 }
 
-/**
- * Claim the parked tasks of one process, which is how a worker learns what it must answer
- * with: the claim response — not discovery — publishes `result_schema`, `raises` and the
- * `objects` list. Returns the claimed entries verbatim.
- */
+/** Claims and releases at once: only a claim publishes `result_schema`, `raises` and `objects`. */
 export async function claimInProcess(
   process: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

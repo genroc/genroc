@@ -8,10 +8,6 @@ import (
 	"genroc/internal/model"
 )
 
-// A log read flushes first so an entry appended before it is in it — including one the
-// background flusher already took out of the buffer but has not inserted yet. That
-// in-flight batch is what this holds still: the reader must wait for the insert, not
-// find an empty buffer and query without it.
 func TestListLogs_WaitsForAnInFlightFlush(t *testing.T) {
 	db, err := OpenSQLite(filepath.Join(t.TempDir(), "logs.db"), "OFF")
 	if err != nil {

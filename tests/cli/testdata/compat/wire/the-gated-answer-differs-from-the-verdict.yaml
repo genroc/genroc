@@ -1,15 +1,6 @@
-# §8's recorded disagreement, which only the wire can state: `compatible` is the conjunction
-# over everything compared and stays false, `passes` is the gated answer and is true, and the
-# run exits 0. A green build whose report says `compatible: false` is the INTENDED reading,
-# so a consumer keying off the wrong field either fails every excused run or ships every
-# broken one — and both look correct in the rendered report, which says `breaking (ignored)`
-# either way.
-#
-# output-contract-reversed-but-allowed.yaml is this exact run in its prose form. The pair is
-# the assertion that the flag is a request field: one comparison, two renderings, and the
-# same answer in both. It also pins the one place a per-member verdict can be read on its
-# own — `upgrade.compatible` true beside `contract.compatible` false, both derived from the
-# issues rather than tracked beside them (§6c).
+# §8: `compatible` (conjunction over everything compared) stays false while `passes` (the
+# gated answer) is true and the run exits 0. Per-member verdicts derive from the issues
+# (§6c): `upgrade.compatible` true beside `contract.compatible` false.
 apply:
   - channel: wiregate_a
     definitions:

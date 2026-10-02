@@ -16,9 +16,7 @@ func generatedDefinitionPages(t *testing.T) map[string]string {
 	if err := writeDefinitionReference(dir); err != nil {
 		t.Fatalf("writeDefinitionReference: %v", err)
 	}
-	// The project-file page is rendered by the same renderer and is filed elsewhere only
-	// because `.genroc` configures the tooling rather than the language — the page standards
-	// below are about the renderer, so it is swept with the rest.
+	// Same renderer, filed elsewhere, so swept with the rest.
 	if err := writeConfigReference(dir); err != nil {
 		t.Fatalf("writeConfigReference: %v", err)
 	}
@@ -37,9 +35,8 @@ func generatedDefinitionPages(t *testing.T) map[string]string {
 	return pages
 }
 
-// The pages are assembled from a hand-written list of $defs, so a type the schema grows reaches
-// no page until someone adds it here — and an action type is the one that grows. Nothing else
-// fails when it does: the reference simply stops mentioning it.
+// Pages come from a hand-written list of $defs, so a new action type reaches no page and
+// nothing else fails.
 func TestEveryActionTypeReachesAPage(t *testing.T) {
 	var root map[string]any
 	if err := json.Unmarshal(defschema.Process(), &root); err != nil {
@@ -61,9 +58,7 @@ func TestEveryActionTypeReachesAPage(t *testing.T) {
 	}
 }
 
-// Every row's Description comes from a `description:` struct tag. A field that loses its tag
-// still renders — as a row with an empty cell, which reads as an omission rather than as the
-// missing tag it is.
+// A field that loses its tag renders as an empty cell, which reads as an omission.
 func TestEveryFieldIsDescribed(t *testing.T) {
 	for name, page := range generatedDefinitionPages(t) {
 		for _, line := range strings.Split(page, "\n") {
@@ -104,9 +99,8 @@ func TestUnionTypesSurviveATableCell(t *testing.T) {
 	}
 }
 
-// A union arm can carry a shape of its own -- `retry`'s long form IS its four slots, a switch
-// case IS its `case`/`goto` pair. Rendering the arm as the bare word `object` builds a page
-// that looks complete and answers nothing, which is how this shipped the first time.
+// Rendering an arm as the bare word `object` builds a page that looks complete and answers
+// nothing.
 func TestObjectArmsRenderTheirShape(t *testing.T) {
 	pages := generatedDefinitionPages(t)
 	for _, c := range []struct{ page, union string }{

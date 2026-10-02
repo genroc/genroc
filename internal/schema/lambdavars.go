@@ -2,13 +2,9 @@ package schema
 
 import "genroc/internal/expression/syntax"
 
-// LambdaVars types every lambda parameter an expression binds — the scope a reader inside that
-// body writes in, which the slot's own context does not carry. Pair it with WithVars to type a
-// fragment of the body on its own; whole-expression inference binds these for itself.
-//
-// Two names are dropped rather than guessed at: one two lambdas bind, and one that also names a
-// context root. Nodes carry no offsets (specs/language-server.md §6), so a caller holding a
-// cursor cannot say which binder it is under, and a wrong type is worse than none.
+// LambdaVars types every lambda parameter an expression binds, for WithVars to type a fragment
+// of a body. A name two lambdas bind, or that is also a context root, is dropped: nodes carry
+// no offsets, so a cursor cannot say which binder it is under. specs/language-server.md §6.
 func (s Schema) LambdaVars(expression string) map[string]Schema {
 	node, err := syntax.Parse(expression)
 	if err != nil {
@@ -51,10 +47,8 @@ func countParams(node syntax.Node, bound map[string]int) {
 	}
 }
 
-// collectParams walks under the same bindings inference builds, so the two cannot disagree about
-// what a parameter is: a map's source types in the scope around it, its body in that scope plus
-// the parameters. A source that does not type binds nothing — an element guessed from a broken
-// source is fiction, and the body's own scope is unknowable anyway.
+// collectParams walks under the same bindings inference builds, so the two cannot disagree. A
+// source that does not type binds nothing — an element guessed from it is fiction.
 func collectParams(node syntax.Node, ictx inferCtx, bound map[string]int, out map[string]Schema) {
 	call, ok := node.(*syntax.CallNode)
 	if !ok || call.Name != "map" || len(call.Args) != 2 {

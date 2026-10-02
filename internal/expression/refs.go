@@ -20,9 +20,8 @@ func OutputRefsNode(node syntax.Node) []string {
 	return ids
 }
 
-// Roots describes which top-level context roots an expression reads. Used by the
-// engine to resolve only the externalized value-slots an expression actually needs
-// (slot-level lazy loading) instead of materializing every big value every tick.
+// Roots is which top-level context roots an expression reads, so the engine loads only the
+// externalized slots it needs.
 type Roots struct {
 	Input        bool     // reads the process input
 	Error        bool     // reads the `error` namespace — the failure a rule is handling
@@ -43,11 +42,8 @@ type Roots struct {
 	// specs/task-scopes.md.
 	LastError, LastErrorData bool
 
-	// Through marks the roots the expression reads INTO or operates on, as against the ones it
-	// merely COPIES: a copied root can stay an *ObjectRef, while one read through must be
-	// materialized or the read finds a marker where the data should be. Conservative, because
-	// over-reporting costs a load and under-reporting hands a marker to an operation.
-	// specs/lazy-context.md.
+	// Through marks roots read INTO rather than merely COPIED: those must be materialized or the
+	// read finds a marker. Conservative -- over-reporting costs only a load. specs/lazy-context.md.
 	Through Through
 }
 
@@ -58,8 +54,7 @@ type Through struct {
 	Outputs                                                       []string
 }
 
-// Union merges o into r. One place, so a new field cannot be forgotten at an aggregation site
-// (shape.Roots and Template.RootRefs both union, and both used to do it field by field).
+// Union is the one merge, so a new field cannot be forgotten at shape.Roots or Template.RootRefs.
 func (r *Roots) Union(o Roots) {
 	r.Input = r.Input || o.Input
 	r.Error = r.Error || o.Error
@@ -99,9 +94,8 @@ func RootRefsNode(node syntax.Node, through bool) Roots {
 	return r
 }
 
-// bind extends bound with a lambda's parameters, which shadow context roots. Over-report
-// is waste; UNDER-report makes the engine serve nil for an externalized slot — so the
-// shadowing must be exact in both directions.
+// bindParams: parameters shadow context roots, exactly -- an under-report makes the engine serve
+// nil for an externalized slot.
 func bindParams(bound map[string]bool, lam *syntax.LambdaNode) map[string]bool {
 	next := make(map[string]bool, len(bound)+2)
 	for k := range bound {
@@ -152,11 +146,8 @@ func collectOutputRefs(node syntax.Node, bound map[string]bool, set map[string]s
 	}
 }
 
-// collectRoots walks the expression recording which roots it names and, in Through, which of
-// them it reads INTO. A root is read through when the walk descends from a navigation (a field,
-// an index, a computed key), an operator, or a call argument; it is merely copied when it sits
-// in an array item, an object value, or a conditional branch -- positions whose value is placed
-// somewhere, not inspected.
+// collectRoots: a root is read through under a navigation, an operator or a call argument, and
+// merely copied as an array item, object value or conditional branch (placed, not inspected).
 func collectRoots(node syntax.Node, bound map[string]bool, r *Roots, through bool) {
 	switch n := node.(type) {
 	case *syntax.MemberNode:
@@ -181,10 +172,8 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots, through boo
 			r.SelfOutput = true
 			return // consumed self.output; don't descend into the "self" identifier
 		}
-		// A field access on an error namespace is consumed here so the bare-identifier case
-		// below does not also run: only `.data` wants the body loaded, while `.code` and its
-		// siblings are inline. A BARE `error` falls through to the identifier case, which
-		// takes the whole namespace — under-reporting there would export a marker.
+		// Consumed here so the identifier case does not also run: only `.data` loads the body.
+		// A BARE `error` falls through and takes the whole namespace.
 		if base, ok := n.Base.(*syntax.IdentNode); ok && !bound[base.Name] {
 			switch base.Name {
 			case "error":

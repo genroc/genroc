@@ -2,10 +2,8 @@ package defdoc
 
 import "testing"
 
-// UnescapeDirective is Directive's inverse, and this file holds it to exactly that: for every
-// leaf that IS a directive, doubling the `$` must stop it being one, and unescaping must give
-// the leaf back. A pair that drifts costs an author the ability to write the text at all — the
-// bare spelling is claimed and refused, the escaped one keeps its doubling.
+// A drifted Directive/UnescapeDirective pair leaves an author no way to write the text: the bare
+// spelling is claimed and refused, the escaped one keeps its doubling.
 
 var directiveLeaves = []string{
 	"$yaml: ./a.json",
@@ -63,9 +61,6 @@ func TestUnescapeLeavesEverythingElseAlone(t *testing.T) {
 	}
 }
 
-// What separates a directive from a ROUTING TARGET, which wears the same sigil. Only the space
-// after the colon does, so a task id carrying a colon used to make `goto: $a:b` a resolver call
-// -- and where a resolver happened to carry the name, it ran. YAML draws the same line.
 func TestOnlyTheSpaceSeparatesADirectiveFromARoutingTarget(t *testing.T) {
 	for _, leaf := range []string{
 		"$a:b",           // a goto to a task called `a:b`

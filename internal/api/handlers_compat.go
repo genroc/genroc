@@ -18,9 +18,8 @@ import (
 type resolvedEntry struct {
 	def     *model.ProcessDefinition
 	version int // 0 = a submitted document, which has no version yet
-	// explicit is true when the caller named this process — as a versions entry or a
-	// submitted document. An implicit entry arrived via a channel listing or by being
-	// pinned as some other version's child.
+	// explicit: the caller named this process (a versions entry or submitted document).
+	// CLAUDE.md, "Compat resolution".
 	explicit bool
 }
 
@@ -62,18 +61,15 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// A selection the server will not take is a 400, not a fault: it is the same class as
-	// -f plus an explicit --to above, and refusing it here means a second consumer gets the
-	// same answer as the CLI.
+	// A 400, not a fault, refused here so a second consumer gets the CLI's answer.
 	if err := report.ApplySelection(req.Ignore); err != nil {
 		return invalid("%s", err).reply()
 	}
 	return okReply(compatResp(report))
 }
 
-// reconcile settles what a missing counterpart means — the only place a comparison refuses.
-// Deliberately asymmetric: naming a process and getting silence is a mistake worth catching;
-// an implicit arrival with no target is simply not moving, so it carries over.
+// reconcile is the only place a comparison refuses, deliberately asymmetric (CLAUDE.md,
+// "Compat resolution").
 func reconcile(from, to resolvedSide) error {
 	var orphans []string
 	for name, e := range from {
@@ -91,9 +87,8 @@ func reconcile(from, to resolvedSide) error {
 		return invalid("named on the from side but absent from the to side: %v; "+
 			"name a target version for each, or drop them from --from", orphans)
 	}
-	// A process on the to side only is NEW: no previous version exists, so nothing is
-	// being upgraded and nothing can break. It is reported, not refused, and not carried
-	// backwards — inventing a from-side entry would fabricate a comparison.
+	// A to-only process is NEW: reported, not refused, and not carried backwards, which
+	// would fabricate a comparison.
 	return nil
 }
 
@@ -105,9 +100,8 @@ func entriesFor(side resolvedSide) map[string]validation.SideEntry {
 	return out
 }
 
-// resolveCompatSide turns one selector into the table it names, then closes that table over
-// the child versions its definitions were registered against. Exactly one of the three forms
-// may be set: two is ambiguous, none hides which documents were compared behind a default.
+// resolveCompatSide: exactly one form may be set — two is ambiguous, and none would hide
+// behind a default which documents were compared.
 func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (resolvedSide, error) {
 	forms := 0
 	for _, set := range []bool{sel.Channel != "", len(sel.Versions) > 0, len(sel.Definitions) > 0} {
@@ -129,9 +123,8 @@ func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (
 		if err != nil {
 			return nil, fmt.Errorf("%s: channel %q: %w", side, sel.Channel, err)
 		}
-		// A channel nobody created resolves to nothing rather than failing, so a typo would
-		// otherwise be a target side every process is missing from — a report of unjudged rows
-		// and exit 0. Only the TARGET: an empty from side is the bootstrap case.
+		// A typo'd channel resolves to nothing, which as a target reports unjudged rows and
+		// exits 0. Target only: an empty from side is the bootstrap case.
 		if len(loaded) == 0 && side == "to" {
 			return nil, invalid("to: channel %q carries no processes; there is nothing to "+
 				"compare against", sel.Channel)
@@ -180,9 +173,8 @@ func (h *Handlers) resolveVersionRef(name string, ref VersionRef) (int, error) {
 	return h.db.GetChannel(name, ref.Channel)
 }
 
-// closeOverDependencies adds, transitively, the child version each entry was registered
-// against, so a named parent compares the graph it runs. An entry already in the table
-// wins — anything else depends on map order — which also terminates recursive walks.
+// closeOverDependencies: an entry already in the table wins, or the result depends on map
+// order; that also terminates recursive walks.
 func (h *Handlers) closeOverDependencies(side resolvedSide) error {
 	queue := make([]resolvedEntry, 0, len(side))
 	for _, e := range side {

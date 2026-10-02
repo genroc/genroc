@@ -1,7 +1,5 @@
-# ACCEPTED. The new definition is the author's stated policy, so a flipped only_once
-# applies and is reported as a slot rather than refused. The direction that bites is
-# removal: a task whose previous attempt was interrupted may then re-run, and the side
-# effect happens twice.
+# ACCEPTED: a flipped only_once is the author's policy, reported as a slot. Removal is the
+# direction that bites: an interrupted attempt may re-run its side effect.
 apply:
   - channel: once_a
     definitions:

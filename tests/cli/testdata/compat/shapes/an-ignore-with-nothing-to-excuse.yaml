@@ -1,8 +1,5 @@
-# `--ignore contract` on a run that has no contract break. The flag changes neither what is
-# compared nor what is printed, so the only question is whether the report says it was
-# applied — and it must not: an `(ignored)` beside an exit 0 that no excusal produced claims
-# the flag saved the run, which is how an operator comes to believe a break exists somewhere
-# they cannot see. The two fixtures that DO annotate both have a real break to excuse.
+# `--ignore contract` with no contract break must not print `(ignored)`: beside exit 0 it
+# would claim the flag saved the run.
 apply:
   - channel: idleign_a
     definitions:

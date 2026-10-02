@@ -11,11 +11,9 @@ import (
 	"genroc/internal/model"
 )
 
-// ArmExternalUnlessSignalled parks the instance on an external wait -- unless an answer is
-// already buffered, in which case it leaves the row claimable so the next claim consumes it.
-// It does NOT consume; the park-or-not decision must be atomic against a concurrent delivery,
-// which would otherwise buffer without un-parking and leave the instance asleep until its
-// timeout. Hence the row lock DeliverSignal also takes. specs/external-outcome-as-signal.md.
+// ArmExternalUnlessSignalled parks inst on an external wait unless an answer is already buffered,
+// in which case it leaves the row claimable; it does NOT consume. Atomic against DeliverSignal
+// under the same row lock. specs/external-outcome-as-signal.md.
 func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.ProcessInstance, taskID string, input any, wakeAt *time.Time) (armed bool, err error) {
 	// Parking is an ordinary mid-process write. What must survive is the DELIVERY into
 	// this park, which is inbound and syncs on its own path (DeliverSignal, §4).
@@ -25,10 +23,8 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 	}
 	defer tx.Rollback()
 
-	// Take the instance row lock first -- the same lock DeliverSignal takes -- so a signal
-	// arriving during arming serializes either fully before (we see it and do not park) or
-	// fully after (it finds us parked and un-parks us). No lost signal, no deadlock. The FOR
-	// UPDATE makes this read hand-written; everything else goes through sqlc.
+	// DeliverSignal's row lock: a signal arriving now lands fully before (no park) or fully after
+	// (it un-parks us). No lost signal, no deadlock.
 	var one int
 	switch err := raw.QueryRowContext(ctx, `SELECT 1 FROM process_instances WHERE id = ?`+db.forUpdate(), inst.ID).Scan(&one); {
 	case err == nil:
@@ -64,10 +60,8 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 		return false, tx.Commit()
 	}
 
-	// No buffered answer: park. Snapshot the input under external_input; UpdateInstance writes
-	// the parked state and clears worker_id/lease (the parked instance is non-runnable, so the
-	// engine returns noop). No token here: the occurrence is task_epoch on this very row, and a
-	// copy in the column would be a second thing to keep true.
+	// UpdateInstance writes the park and clears the lease. No token stored: it is task_epoch on
+	// this very row.
 	inst.State[model.StateExternalInput] = input
 	inst.Phase = model.PhaseExternal
 	inst.WakeAt = wakeAt
@@ -84,10 +78,9 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 	return true, tx.Commit()
 }
 
-// DeliverSignal delivers an outcome -- a result or a failure -- to (instance, external task).
-// Under the instance row lock it resolves the task immediately when armed now (and not
-// mid-timeout-claim), otherwise buffers it FIFO for the next arming (delivered reports which).
-// The caller validates it against what the task declares first.
+// DeliverSignal buffers an outcome FIFO for (instance, external task) and, if the task is armed
+// now with no live lease or claim, un-parks it (delivered reports which). The caller validates the
+// outcome against the task's declaration first.
 func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID string, outcome model.ExternalOutcome) (delivered bool, err error) {
 	outcomeJSON, err := model.MarshalOutcome(outcome)
 	if err != nil {
@@ -115,28 +108,22 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID string, outc
 	default:
 		return false, fmt.Errorf("lock instance: %w", err)
 	}
-	// A paused instance still accepts signals. A pause suspends execution, not delivery:
-	// rejecting here would make a pause lose events, which is exactly what a pause is
-	// not supposed to do.
+	// A pause suspends execution, not delivery: rejecting here would lose events.
 	if status != string(model.StatusRunning) &&
 		status != string(model.StatusPaused) && status != string(model.StatusPausing) {
 		return false, fmt.Errorf("instance is not running (status %s); cannot signal: %w", status, ErrConflict)
 	}
 
-	// Armed iff parked on an external wait at exactly this task. Status is deliberately NOT
-	// tested: delivering to a paused instance stores the result and leaves it unclaimable —
-	// treating it as unarmed would buffer a result no re-arm will ever read.
+	// Status deliberately NOT tested: a paused instance stores the result unclaimable, and treating
+	// it as unarmed would buffer a result no re-arm will ever read.
 	armed := model.Phase(phase) == model.PhaseExternal && currentTask == taskID
-	// A live lease or a live external CLAIM both mean someone is mid-flight on this row; don't
-	// race either — buffer instead, and the signal is consumed if the task re-arms. A signal
-	// carries no handle to fence with, so deferring is the only way it cannot answer over them.
+	// A live lease or external CLAIM means someone is mid-flight: do not un-park over them. A
+	// signal carries no handle to fence with, so deferring is the only safe answer.
 	liveLeased := (workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis()) ||
 		(extWorkerID.Valid && extLeaseExpiresAt.Valid && extLeaseExpiresAt.Int64 > nowMillis())
 
-	// One destination. `armed` no longer picks WHERE the outcome goes -- only whether this call
-	// also makes the row claimable, so the engine reaches it now rather than at the next arm.
-	// Minted here rather than passed in, like the buffered path's: one call gives the id and
-	// the seq beside it, so neither insert can write a row the FIFO cannot order.
+	// `armed` decides only whether the row also becomes claimable now. id and seq come from one
+	// mint, so the FIFO can order every row.
 	id, seq := db.nextSignalID()
 	if err := qtx.InsertSignal(ctx, dbgen.InsertSignalParams{
 		ID:         id,

@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// The config belongs where a CLI's config belongs, and an override must work. os.UserConfigDir
-// returns ~/Library/Application Support on macOS and ignores XDG_CONFIG_HOME entirely — a
-// surprise that has already cost one config file.
 func TestConfigDir_HonoursXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-probe")
 	got, err := configDir()
@@ -35,7 +32,7 @@ func TestConfigDir_DefaultsToDotConfig(t *testing.T) {
 	}
 }
 
-// An upgrade must not silently lose someone's token: the old path is still read.
+// An upgrade must not silently lose someone's token.
 func TestLoadConfig_FallsBackToTheLegacyPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -243,10 +243,8 @@ func (ctx *normContext) resolveRef(ref string, resourceBase string) (*defEntry, 
 	return nil, ErrUnsupportedRef{Ref: ref}
 }
 
-// resolveDef matches a "$defs/<name>" path to a collected definition, innermost
-// resource first (nearest-wins, matching JSON Schema resource scoping) before falling
-// back to the root. Root-first would make a definition sharing its resource's name
-// resolve to the resource itself — a self-loop that orphans the real definition.
+// resolveDef tries the innermost resource first (JSON Schema scoping). Root-first would resolve
+// a definition sharing its resource's name to the resource itself, orphaning the real one.
 func (ctx *normContext) resolveDef(path string, resourceBase string) *defEntry {
 	if resourceBase != "" {
 		if def, ok := ctx.definitions[resourceBase+"/"+path]; ok {

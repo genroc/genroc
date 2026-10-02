@@ -13,8 +13,6 @@ import (
 	"genroc/internal/numeric"
 )
 
-// loadSourceDocs keeps the file each document came from: a directive's path resolves against
-// it, and an error has to name it.
 func loadSourceDocs(files []string) ([]sourceDoc, error) {
 	var all []sourceDoc
 	for _, path := range files {

@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// A dropped key in a rule is not a cosmetic problem. An on_error rule whose "code" went
-// missing becomes a catch-all — the broadest shape there is — and the author is then told
-// about a rule they did not write. These are the two lists whose selector keys are easy to
-// swap, so each rejects the other's.
+// An on_error rule whose "code" was dropped becomes a catch-all. The two lists' selector keys
+// are easy to swap, so each rejects the other's.
 func TestRuleDecode_UnknownFields(t *testing.T) {
 	tests := []struct {
 		name     string

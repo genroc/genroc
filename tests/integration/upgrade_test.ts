@@ -1,11 +1,5 @@
-/**
- * Moving a process tree to another version of its definitions.
- *
- * The operation is tree-shaped on purpose: only the ROOT's target version is named, and
- * every live descendant's is derived from the definition its parent moves to. Naming a
- * child's version by hand is how a parent ends up running one its own definition never
- * mentions. specs/version-compatibility.md s3c.
- */
+/** Only the ROOT's target version is named; each live descendant's derives from its parent's new
+ *  definition. specs/version-compatibility.md s3c. */
 import { expect, test } from "vitest";
 import { client, startInstance } from "../helpers/client.ts";
 

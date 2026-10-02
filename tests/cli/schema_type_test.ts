@@ -4,9 +4,8 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// `genctl schema type` answers what shape a slot IS, in the same address space as
-// `schema context`, which answers what an expression written there may read. One slot, two
-// questions. specs/schema-command.md §7.
+// `schema type` answers what shape a slot IS; `schema context`, in the same address space, what
+// an expression written there may read. specs/schema-command.md §7.
 
 let bin: string;
 beforeAll(() => {
@@ -63,9 +62,7 @@ test("schema type — lists the contract boundaries, one line each", () => {
     .split("\n")
     .map((l) => l.split(/\s{2,}/)[0]);
 
-  // Every place someone generates code from, and nothing else: an expression slot has no shape,
-  // so `switch` and `on_error` are absent by construction, and what the ACTION has sits under
-  // the same `action` segment the definition writes.
+  // Only what code is generated from: an expression slot (`switch`, `on_error`) has no shape.
   expect(addresses).toEqual([
     "input",
     "output",
@@ -88,8 +85,7 @@ test("schema type — an address answers with a standalone document, and navigat
   expect(result.ok, result.stderr).toBe(true);
   expect(JSON.parse(result.stdout).properties.fee).toEqual({ type: "number" });
 
-  // Navigation continues past the slot, into the schema — the slot is the first three
-  // segments and the rest is `schema.At`.
+  // The slot is the first three segments; the rest is `schema.At`.
   const nested = typeAt(path, "tasks.price.action.result.tiers[0]");
   expect(nested.ok, nested.stderr).toBe(true);
   // An element of an optional array comes back nullable: the array may not be there.
@@ -101,8 +97,6 @@ test("schema type — an address answers with a standalone document, and navigat
   expect(JSON.parse(raised.stdout)).toEqual({ type: "string" });
 });
 
-// The fetch decision: `result` is what self.result sees, and the statuses that are NOT accepted
-// are the other half of the contract, addressed as what routed on — not a second address family.
 test("schema type — result is the accepted response, last_error the routed one", () => {
   const path = defFile();
 
@@ -115,8 +109,6 @@ test("schema type — result is the accepted response, last_error the routed one
   });
 });
 
-// The listing names a type in one line, and the three shapes that are easy to get wrong are the
-// ones a raise can carry: nothing at all, a union, and an array.
 test("schema type — the listing names null, a union and an element type", () => {
   const path = defFile(
     [
@@ -142,18 +134,14 @@ test("schema type — the listing names null, a union and an element type", () =
   expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
   const line = (a: string) => r.stdout.split("\n").find((l) => l.startsWith(a + " ")) ?? "";
 
-  // A raise attaching nothing is a DECLARATION that the code carries nothing — null, not absent,
-  // which is what tells a parent it can catch the code and find no data.
+  // Null, not absent: a raise attaching nothing declares that the code carries nothing.
   expect(line("raises.bare")).toContain("null");
   expect(line("raises.maybe"), "a union prints its members").toContain("string|null");
   expect(line("raises.many"), "an array prints what it holds").toContain("array<integer>");
 });
 
-// The two views share one address space, so a miss on one is usually a question asked of the
-// wrong half — and the answer says which half has it rather than only that this one does not.
-// Inference declares `<id>_output` for every task because that name is what a self-referencing
-// output resolves through. Where the output simply IS another definition, the placeholder is
-// left over saying nothing — and a generator reading the pool emits a type alias per task.
+// Inference declares `<id>_output` for every task (a self-referencing output resolves through it);
+// where the output IS another definition, that placeholder must not survive to a generator.
 test("both views — a definition that only names another is collapsed away", () => {
   const path = defFile(
     [
@@ -221,8 +209,7 @@ test("schema type — an address the other view answers names that view", () => 
   expect(neither.stderr).not.toContain("has it");
 });
 
-// A schema is a scope too — its properties are the roots — so `-e` works here as well, rooted
-// at whatever the address selected. It is the same navigation one step further.
+// A schema is a scope too: its properties are the roots `-e` reads.
 test("schema type -e — an expression is typed against the selected schema", () => {
   const path = defFile();
 
@@ -239,8 +226,6 @@ test("schema type -e — an expression is typed against the selected schema", ()
   expect(JSON.parse(navigated.stdout)).toEqual({ type: "number" });
 });
 
-// The claim the shared space rests on: `tasks.<id>.output` names one slot, and the two answers
-// are about that slot — what it produces, and what an expression in it may read.
 test("schema type and schema context answer about the same slot", () => {
   const path = defFile();
 

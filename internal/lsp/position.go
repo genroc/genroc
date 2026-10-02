@@ -7,10 +7,8 @@ import (
 	"genroc/internal/defdoc"
 )
 
-// The protocol counts lines from 0 and columns in UTF-16 code units from 0; defdoc reports
-// yaml.v3's 1-based line and 1-based BYTE column. Converting needs the source text, which is
-// why it happens here and not in defdoc: an index built once outlives any one editor's idea
-// of a column.
+// The protocol counts from 0, columns in UTF-16 code units; defdoc reports 1-based lines and
+// BYTE columns. Converting needs the source text, which is why it happens here, not in defdoc.
 func toRange(lines []string, r defdoc.Range) textRange {
 	return textRange{
 		Start: toPosition(lines, r.Line, r.Col),
@@ -44,9 +42,8 @@ func utf16Column(line string, col int) int {
 
 func splitLines(text string) []string { return strings.Split(text, "\n") }
 
-// byteColumn is the inverse of utf16Column: the protocol hands a UTF-16 offset and defdoc
-// indexes by byte column, so a cursor past a multi-byte character has to be translated back
-// before it can be looked up.
+// byteColumn is the inverse of utf16Column: the protocol hands a UTF-16 offset, and defdoc
+// indexes by byte column.
 func byteColumn(lines []string, p position) int {
 	if p.Line < 0 || p.Line >= len(lines) {
 		return 1

@@ -9,9 +9,8 @@ import {
   ServerOptions,
 } from "vscode-languageclient/node";
 
-// The extension is a launcher. Every answer a user sees — diagnostics, hover, completion,
-// go-to-definition — is `genctl lsp`'s, which is the server's own analysis rather than a
-// second implementation of it. specs/language-server.md.
+// The extension is a launcher: every answer is `genctl lsp`'s, never a second implementation.
+// specs/language-server.md.
 
 let client: LanguageClient | undefined;
 
@@ -27,9 +26,8 @@ export async function activate(context: vscode.ExtensionContext) {
   if (!(await hasLspCommand(command))) {
     const wasm = bundled && !isSet(config, "server.path") ? wasmServer(context) : undefined;
     if (wasm === undefined) {
-      // Said once and plainly. Without this the client starts, `genctl` prints its usage to
-      // stdout instead of a frame, and the user sees five restarts and a disposed connection —
-      // which is what a binary predating `genctl lsp` did before this check existed.
+      // Without this the client starts, `genctl` prints usage instead of a frame, and the user
+      // sees five restarts and a disposed connection.
       const version = await run(command, ["-v"]);
       vscode.window.showWarningMessage(
         version === undefined
@@ -58,9 +56,8 @@ export async function activate(context: vscode.ExtensionContext) {
   await client.start();
   context.subscriptions.push(client);
 
-  // A genctl on PATH is preferred over the bundled one, so an OLD genctl silently costs
-  // whatever it does not implement. Highlighting is the one a reader notices and cannot
-  // explain — it simply looks like the extension does nothing.
+  // A genctl on PATH beats the bundled one, so an OLD one silently lacks features; missing
+  // highlighting is the one a reader cannot explain.
   if (!client.initializeResult?.capabilities.semanticTokensProvider) {
     client.outputChannel.appendLine(
       "this genctl has no semanticTokens support, so expressions are not highlighted. Update genctl.",
@@ -79,18 +76,14 @@ export function deactivate(): Thenable<void> | undefined {
   return client?.stop();
 }
 
-// No `transport: TransportKind.stdio`. It is the default, and naming it makes the client APPEND
-// `--stdio` to argv — which this extension would then depend on the binary accepting. Asking for
-// a flag we do not need is how a genctl that predates it turns into five restarts and a disposed
-// connection. The server accepts `--stdio` for clients that do send it.
+// No `transport: TransportKind.stdio`: it is the default, and naming it APPENDS `--stdio`, which a
+// genctl predating it answers with five restarts and a disposed connection.
 function installedServer(command: string): Executable {
   return { command, args: ["lsp"] };
 }
 
-// wasmServer is the same server compiled to WebAssembly, shipped in the extension for a machine
-// with no genctl on it. One module covers every platform, which is what keeps this a single
-// universal .vsix; it is the FALLBACK because it is several times slower than the binary and
-// carries the version the extension shipped with rather than the one that applies.
+// wasmServer is the FALLBACK: slower than the binary, and the version the extension shipped
+// rather than the one that applies. specs/language-server.md §4.
 function wasmServer(context: vscode.ExtensionContext): Executable | undefined {
   const module = vscode.Uri.joinPath(context.extensionUri, "bin", "genctl.wasm").fsPath;
   if (!existsSync(module)) return undefined;
@@ -116,9 +109,8 @@ function isSet(config: vscode.WorkspaceConfiguration, section: string): boolean 
   );
 }
 
-// hasLspCommand asks for the subcommand's own help, which exits 0 only on a binary that has
-// it. `-v` is not enough: it succeeds on every genctl ever built, including the ones that
-// answer `genctl lsp` with a usage dump and exit 1.
+// Not `-v`: it succeeds on every genctl, including ones that answer `genctl lsp` with a usage
+// dump and exit 1.
 async function hasLspCommand(command: string): Promise<boolean> {
   return (await run(command, ["lsp", "-h"])) !== undefined;
 }

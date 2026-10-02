@@ -75,12 +75,8 @@ escaping would be a second grammar to keep true.
 
 **A hover is ONE line, and it always has one.** The answer order is: a type where the cursor is
 on an expression or a slot, else **what the key means** — the prose the struct tag already
-carries. Dropping the scope line without that fallback left hover silent on ten lines out of
-twelve, which reads as a hover that does not work, and was reported as one.
-
-**A hover is ONE line: the type of what the cursor is on.** It was three — the symbol, the
-expression around it, and the slot's scope — and the two extra lines answered questions nobody
-had asked at that moment. `genctl schema context` is where a scope is asked for.
+carries. Not the slot's scope too: `genctl schema context` answers that, and dropping it without
+the key fallback left hover silent on ten lines out of twelve.
 
 **The one block is a STRUCTURAL directive** (`directive.go`) — `$process` or a registered
 command — showing what it YIELDS, from `sources.StructuralValueAt`, the pass's own call for one

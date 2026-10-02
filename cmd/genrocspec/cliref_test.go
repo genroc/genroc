@@ -20,9 +20,8 @@ func buildGenctl(t *testing.T) string {
 	return path
 }
 
-// Every command `genctl -h` names must reach a page. The parse reads rows by indentation, so
-// the ways it fails are silent: a group heading whose format shifts takes its commands with it,
-// and the trailing "genctl <command> -h" block reads as a command row until something rejects it.
+// The parse reads rows by indentation, so it fails silently: a shifted group heading drops its
+// commands, and the trailing "genctl <command> -h" block reads as a row.
 func TestEveryCommandReachesAPage(t *testing.T) {
 	genctl := buildGenctl(t)
 	dir := t.TempDir()
@@ -84,9 +83,7 @@ func TestFrontmatterSurvivesAColon(t *testing.T) {
 	}
 }
 
-// Help text is written for a terminal, where `tasks.<id>` and a `(**` glob are literal. Markdown
-// reads the first as an HTML tag and drops it, and the second can open emphasis that closes on
-// some later heading -- both of which render a plausible page with content missing from it.
+// Unescaped, both render a plausible page with content missing from it.
 func TestProseIsEscapedOutsideCodeSpansOnly(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"tasks.<id>.output", "tasks.&lt;id>.output"},

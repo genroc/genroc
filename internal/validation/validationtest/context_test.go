@@ -412,10 +412,8 @@ func TestGenerate_Switch_ScalarNext_CreatesSequentialEdge(t *testing.T) {
 }
 
 func TestGenerate_Switch_ScalarStepRef_CreatesJumpEdge(t *testing.T) {
-	// "switch": "$fast" (scalar) must behave identically to [{"goto": "$fast"}].
-	// gate unconditionally jumps to fast, so fast always runs and its output
-	// is required (non-nullable) at merge — in contrast to a conditional branch
-	// where fast could be skipped (making it nullable).
+	// "switch": "$fast" behaves as [{"goto": "$fast"}]: fast always runs, so its output is
+	// required at merge.
 	out := runGenerate(t, `{
   "name": "p",
   "tasks": [

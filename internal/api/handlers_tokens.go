@@ -6,11 +6,8 @@ import (
 	"time"
 )
 
-// Token management over the API. specs/api-auth.md §5.
-//
-// Every action here is admin-gated: minting a token is granting access, and listing them tells
-// an attacker which credentials exist and what they can reach. `genroc token` is the same set
-// against the database, for when the API is not reachable (§5.3).
+// Token management, all admin-gated: minting grants access, and a listing maps credentials.
+// `genroc token` is the same set against the database. specs/api-auth.md §5.
 
 func (h *Handlers) createToken(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[CreateTokenReq](raw)
@@ -21,9 +18,8 @@ func (h *Handlers) createToken(raw json.RawMessage, actor string) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// 0: a machine credential does not expire. Rotating a worker token is a deploy, not a clock,
-	// and a fleet that starts failing at 3am because a token lapsed is worse than one that keeps
-	// working until someone revokes it.
+	// 0: a machine credential does not expire — rotating a worker token is a deploy, not a
+	// clock.
 	tok, err := h.db.MintToken(context.Background(), req.Label, perms, 0, actor)
 	if err != nil {
 		return errReply(err)
@@ -61,9 +57,8 @@ func (h *Handlers) revokeToken(id string, actor string) Reply {
 	return okReply(map[string]any{"revoked": true})
 }
 
-// validPerms refuses an unknown permission rather than dropping it. A token minted with a typo
-// would grant less than the caller asked for, and they would discover it from a 403 somewhere
-// unrelated.
+// validPerms refuses an unknown permission rather than dropping it: a typo would grant less,
+// discovered as a 403 elsewhere.
 func validPerms(in []string) ([]string, error) {
 	if len(in) == 0 {
 		return nil, invalid("perms is required (admin, deploy, operate, read, worker)")
@@ -79,9 +74,8 @@ func validPerms(in []string) ([]string, error) {
 	return out, nil
 }
 
-// millisTime renders a stored timestamp as RFC3339, matching every other response, and returns
-// "" for zero so `omitempty` drops the field. A never-used token showing 1970 would read as a
-// date rather than as an absence.
+// millisTime returns "" for zero so `omitempty` drops it: a never-used token must not show
+// 1970.
 func millisTime(ms int64) string {
 	if ms == 0 {
 		return ""

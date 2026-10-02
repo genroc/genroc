@@ -4,14 +4,8 @@ import { uid } from "../helpers/genctl.ts";
 import { client, waitForInstance } from "../helpers/client.ts";
 
 /**
- * `genctl upgrade`: the sweep across a fleet (`<process> --from --to`), and the single tree
- * an id names (`<instance-id> --to`).
- *
- * The server moves one tree per call and only settles rows, so finding the roots, pausing
- * the running ones and putting them back is the client's job. What this covers is the
- * sweep's own behaviour — which instances it selects, and that it leaves nothing paused —
- * and, for the id form, that it selects nothing at all: no --from, and the process the
- * channel resolves against comes off the row.
+ * `genctl upgrade`, sweep (`<process> --from --to`) and id (`<instance-id> --to`) forms. The
+ * server moves one tree per call; selecting, pausing and resuming the roots is the client's job.
  */
 
 let bin: string;
@@ -28,8 +22,7 @@ function parkedDef(name: string, requireNote: boolean) {
       properties: { note: { type: ["string", "null"] } },
       ...(requireNote ? { required: ["note"] } : {}),
     },
-    // `raises` is a closed set on an external task: an undeclared code cannot be
-    // submitted, so failing one in a test means declaring what it may raise.
+    // `raises` is a closed set on an external task: an undeclared code cannot be submitted.
     tasks: [
       { id: "hold", action: { type: "external", raises: { boom: null } }, switch: "end" },
     ],
@@ -80,8 +73,7 @@ test("selects only instances on the --from version", async () => {
   runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, false)])]);
   const old = await startParked(name);
 
-  // A genuinely different document: an identical one is deduped and no v2 exists, which
-  // would leave both instances on v1 and the sweep selecting two.
+  // A genuinely different document: an identical one is deduped and no v2 exists.
   const v2 = parkedDef(name, false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (v2.input_schema.properties as any).extra = { type: ["string", "null"] };
@@ -111,17 +103,14 @@ test("sweeps failed instances too, and --status narrows what it takes", async ()
   runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, false)])]);
   const live = await startParked(name);
 
-  // A failed root: settled, so it moves with no pause/resume dance. It is the case an
-  // upgrade is most FOR — move it, then retry it on the new version.
+  // A failed root is settled, so it moves with no pause/resume.
   const failedId = await startParked(name);
   const failRes = await client.POST("/external-tasks/signal", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     body: { instance_id: failedId, task: "hold", error: { code: "boom", message: "x" } } as any,
   });
   expect(failRes.error).toBeUndefined();
-  // waitForInstance THROWS on timeout; the hand-rolled loop this replaces fell through
-  // silently, so a slow settle surfaced as "moved 0 tree(s)" from the assertion below —
-  // a symptom three steps from the cause. 20s because CI on Postgres is slower than a laptop.
+  // 20s: CI on Postgres is slower than a laptop.
   const settled = await waitForInstance(failedId, 20_000);
   expect(settled, "the signalled instance must reach failed before the sweep runs").toBe("failed");
 
@@ -168,8 +157,6 @@ test("an id moves that one tree, with no --from and no process name", async () =
   expect(moved.data!.status, "paused to be moved, and not put back").toBe("running");
   expect(moved.data!.state?.input).toHaveProperty("note", null);
 
-  // The id selects one tree and nothing else: a sibling on the same version is not a
-  // candidate the way it would be under --from.
   const left = await client.GET("/instances/{id}/detail", { params: { path: { id: bystander } } });
   expect(left.data!.version, "the id form swept a sibling it was not given").toBe(1);
 });
@@ -199,15 +186,13 @@ test("an id takes no --status, is already-there rather than failed, and checks a
   expect(withStatus.ok).toBe(false);
   expect(withStatus.stderr).toContain("already name the trees that move");
 
-  // Idempotent: naming ids again after a partial run has to repair it, so a tree already on
-  // the target is reported and not counted against the exit code.
+  // Idempotent: naming ids again after a partial run has to repair it.
   const same = runCli(bin, ["upgrade", id, "--to", "1"]);
   expect(same.ok, `already-there was treated as a failure: ${same.stdout}`).toBe(true);
   expect(same.stdout).toContain("already on 1");
   expect(same.stderr).toContain("1 already there");
 
-  // --from is optional here, but a wrong one is a stale view of the row, not a redundant
-  // argument to drop: silently moving it anyway is the race the assertion exists to catch.
+  // --from is optional here, but a wrong one is a stale view of the row, not one to ignore.
   const stale = runCli(bin, ["upgrade", id, "--from", "7", "--to", "2"]);
   expect(stale.ok).toBe(false);
   expect(stale.stdout).toContain("--from resolves to version 7");
@@ -291,8 +276,7 @@ test("a child id is refused, and is not paused on the way", async () => {
 
   let childId = "";
   for (let i = 0; i < 100 && !childId; i++) {
-    // children: true — the listing is roots only by default, and this process only ever
-    // exists as a child.
+    // The listing is roots only by default, and this process only exists as a child.
     const list = await client.GET("/instances", {
       params: { query: { process: kid, children: true } },
     });

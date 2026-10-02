@@ -81,10 +81,8 @@ func TestValidateRejectsInvalidDefaultAtFillTime(t *testing.T) {
 	}
 }
 
-// `default: null` and no default at all both decode to a nil `any`, so null cannot be
-// declared as what an absent property becomes. Nothing may be built on reading one back —
-// the absent-as-null migration is the one thing that writes a null in, and it decides on
-// the type admitting null rather than on any default.
+// Both decode to a nil `any`, so nothing may be built on reading one back; the absent-as-null
+// migration decides on the type admitting null instead.
 func TestDefaultNullIsIndistinguishableFromNoDefault(t *testing.T) {
 	sc := mustParse(t, `{"type":"object","properties":{"b":{"type":["number","null"],"default":null}}}`)
 	if d := sc.Properties()["b"].Default(); d != nil {

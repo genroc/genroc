@@ -1,9 +1,7 @@
 package main
 
-// The HTTP reference is read from the OpenAPI document this binary already builds, so the
-// paths, parameters and statuses are never walked twice. api.Reference() supplies the two
-// things the document has no vocabulary for -- which permission admits a call, and the example
-// payloads the spec drops when it reflects zero values. specs/docs-site.md.
+// The HTTP reference reads the OpenAPI document this binary builds; api.Reference() adds what
+// it cannot say -- permissions, and the examples it drops as zero values. specs/docs-site.md.
 
 import (
 	"encoding/json"
@@ -71,9 +69,8 @@ func writeHTTPReference(dir string) error {
 	if len(doc.Servers) > 0 {
 		base = strings.TrimSuffix(doc.Servers[0].URL, "/")
 	}
-	// A parameter whose type is a named one carries a $ref instead of the enum itself, and the
-	// values are what a reader needs. Derived sets land here: the status filter's values come
-	// from model.Status.Enum(), so the parameter names a schema rather than repeating them.
+	// A named type's parameter carries a $ref, not the enum, so resolve it: derived sets such as
+	// model.Status.Enum() land here.
 	enums := map[string][]string{}
 	for name, s := range doc.Components.Schemas {
 		if len(s.Enum) > 0 {
@@ -103,9 +100,8 @@ func writeHTTPReference(dir string) error {
 		items[path] = item
 	}
 
-	// Registry order throughout: it decides which tag a page is for, the order the pages sit
-	// in, and the order of the endpoints on one. Ranging the paths map instead would reorder
-	// the whole reference on every run, since Go randomises it.
+	// Registry order throughout: ranging the paths map would reorder the whole reference on
+	// every run.
 	var tags []string
 	byTag := map[string][]endpoint{}
 	for _, ref := range api.Reference() {

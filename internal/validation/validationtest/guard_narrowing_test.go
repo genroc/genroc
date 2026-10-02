@@ -2,11 +2,9 @@ package validationtest
 
 import "testing"
 
-// A `switch` case's proof travels the edge it selects, so the task it routes to can read what
-// was proved. The cost of getting this wrong is asymmetric — a refinement that does not follow
-// turns a registration error into an uncatchable engine.expression — so every accepting row
-// here is paired with the shape that must still be refused.
-// specs/guard-narrowing.md.
+// A switch case's proof travels the edge it selects. A wrong refinement turns a registration
+// error into an uncatchable engine.expression, so every accepting row is paired with the shape
+// that must still be refused. specs/guard-narrowing.md.
 
 // twoTask builds `a` (guarded switch) routing to `b`, which uses what `a` proved.
 func twoTask(cases, use string) string {
@@ -36,9 +34,8 @@ func TestGuardNarrowing_AcrossAnEdge(t *testing.T) {
 			cases: `[{"case":"self.output.v != null && self.output.w != null","goto":"$b"},{"goto":"$c"}]`,
 			use:   `outputs.a.v + outputs.a.w`},
 
-		// Ordered-case negation: reaching case 1 means case 0 was FALSE. This is the
-		// guard-clause shape — handle the bad case, fall through — and it gets all of its
-		// narrowing from the negation.
+		// Reaching case 1 means case 0 was FALSE: the guard-clause shape gets all its narrowing
+		// from that negation.
 		{name: "falling past a null check narrows the fall-through", wantOK: true,
 			cases: `[{"case":"self.output.v == null","goto":"$c"},{"goto":"$b"}]`,
 			use:   `outputs.a.v + 1`},
@@ -68,13 +65,11 @@ func TestGuardNarrowing_AcrossAnEdge(t *testing.T) {
 	}
 }
 
-// A refinement survives only if EVERY edge into the task establishes it. One route that
-// proves nothing is enough to make the value nullable again — the task cannot know which
-// edge it arrived on.
+// The task cannot know which edge it arrived on, so one route proving nothing makes the value
+// nullable again.
 func TestGuardNarrowing_MergeNeedsEveryEdge(t *testing.T) {
-	// `input.n == 1` proves non-null when TRUE and nothing when false, so the fall-through to
-	// b carries no fact about n. That is what isolates the meet: a union would let a's proof
-	// reach c through an edge that never established it.
+	// The fall-through to b carries no fact about n, which isolates the meet: a union would let
+	// a's proof reach c through an edge that never established it.
 	def := func(secondCase string) string {
 		return `{"name":"p",
 		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
@@ -100,9 +95,7 @@ func TestGuardNarrowing_MergeNeedsEveryEdge(t *testing.T) {
 	})
 }
 
-// A loop re-enters the task that produced the output, overwriting it — so a refinement about
-// `outputs.<self>` cannot survive the trip back. Without the kill a loop would keep asserting
-// what only the first iteration proved.
+// Without the kill a loop would keep asserting what only the first iteration proved.
 func TestGuardNarrowing_LoopKillsItsOwnOutput(t *testing.T) {
 	src := `{"name":"p",
 	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
@@ -160,9 +153,8 @@ func TestGuardNarrowing_ConfigNeverTravels(t *testing.T) {
 	}
 }
 
-// The negation of a conjunction is not a fact about either reference: falling past
-// `a != null && b != null` tells you one of them failed, not which. The catalogue enforces it,
-// and this is the edge-level pairing — the shape an author actually writes.
+// Falling past `a != null && b != null` says one failed, not which. The catalogue enforces it;
+// this pins it at the edge, the shape an author writes.
 func TestGuardNarrowing_NegatedConjunctionProvesNothing(t *testing.T) {
 	src := func(use string) string {
 		return `{"name":"p",
@@ -199,9 +191,8 @@ func TestGuardNarrowing_NegatedConjunctionProvesNothing(t *testing.T) {
 // A guard belongs to the switch it was written in. One task's case ordering must not supply
 // negations to an edge leaving a DIFFERENT task, however similar the two look.
 func TestGuardNarrowing_NoCrossEdgeAccumulation(t *testing.T) {
-	// `!= 1` proves nothing when true and non-null when false, so a's two edges differ: the
-	// fall-through to c carries the proof, the edge to b carries nothing. b then reaches c
-	// having established nothing of its own — and a's case ordering is not b's to borrow.
+	// a's fall-through to c carries the proof, its edge to b nothing; b reaches c having proved
+	// nothing, and a's case ordering is not b's to borrow.
 	src := `{"name":"p",
 	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
 	 "tasks":[
@@ -216,9 +207,8 @@ func TestGuardNarrowing_NoCrossEdgeAccumulation(t *testing.T) {
 	}
 }
 
-// `self.result` is the GUARDING task's, and the target has its own under that name — so a
-// proof about it does not travel even when the exported output is derived from it. The two
-// reads below differ only in which frame the guard was written in.
+// The target has its own `self.result`, so the proof stays behind even when the exported output
+// derives from it.
 func TestGuardNarrowing_SelfResultDoesNotTravel(t *testing.T) {
 	src := func(guard string) string {
 		return `{"name":"p","tasks":[
@@ -241,9 +231,7 @@ func TestGuardNarrowing_SelfResultDoesNotTravel(t *testing.T) {
 	})
 }
 
-// The process output is built from the terminals rather than from a task's entry context, so
-// refinements do not reach it. Pinned as a LIMIT, not a claim it is right: if it is lifted,
-// this is the test that says so.
+// Pinned as a LIMIT, not a claim it is right: refinements do not reach the process output.
 func TestGuardNarrowing_ProcessOutputIsNotNarrowed(t *testing.T) {
 	src := `{"name":"p",
 	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
@@ -257,10 +245,8 @@ func TestGuardNarrowing_ProcessOutputIsNotNarrowed(t *testing.T) {
 	}
 }
 
-// Switch cases are evaluated in order and the first match wins (`evalSwitch`), so case k runs
-// only when every earlier case was false. A definition that guards a value in one case and
-// reads it in the next is the shape authors write first, and refusing it sends them to a
-// `?? default` that provably never evaluates.
+// Case k runs only when every earlier case was false (`evalSwitch`); refusing this sends authors
+// to a `?? default` that provably never evaluates.
 func TestGuardNarrowing_LaterCaseSeesEarlierOnesFailing(t *testing.T) {
 	// The whole output is an indexed element, so it is genuinely nullable — an empty array
 	// gives null, which is what the first case is guarding.
@@ -296,10 +282,8 @@ func TestGuardNarrowing_LaterCaseSeesEarlierOnesFailing(t *testing.T) {
 	})
 }
 
-// A guard on the WHOLE output, rather than a property of it, travels the same way — the
-// output of a task whose `output` is a bare expression is the value itself.
-// (The `$ref` that such an output is carried as is covered by the case above, where
-// `self.output` resolves through one; here `outputs.a` is inline.)
+// The `$ref` an output is carried as is covered above, where `self.output` resolves through one;
+// here `outputs.a` is inline.
 func TestGuardNarrowing_GuardOnAWholeOutput(t *testing.T) {
 	src := `{"name":"p","tasks":[
 	 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
@@ -313,10 +297,8 @@ func TestGuardNarrowing_GuardOnAWholeOutput(t *testing.T) {
 	}
 }
 
-// An `on_error` rule's predicate is `(code == a || code == b) && case`, so falling past rule j
-// proves only the NEGATION of that conjunction — which is not a fact about either half, since
-// the rule may have been skipped on the code before its `case` was ever evaluated. Exactly one
-// shape survives: a rule with no `code` is a pure `case`, and falling past it proves it false.
+// Falling past `(code == a || code == b) && case` proves neither half: the rule may have been
+// skipped on the code. Only a rule with no `code` negates.
 func TestGuardNarrowing_OnErrorRulesNegateOnlyPureCases(t *testing.T) {
 	def := func(rules string) string {
 		return `{"name":"p","tasks":[
@@ -350,8 +332,6 @@ func TestGuardNarrowing_OnErrorRulesNegateOnlyPureCases(t *testing.T) {
 	})
 }
 
-// A `panic` or `raise` beside a case renders only when that case MATCHED, so it reads a scope
-// the case has narrowed — the expression beside it cannot, being what establishes the fact.
 // Refusing this splits a guard from the message it was written to make safe.
 func TestGuardNarrowing_SwitchClausesAssumeTheirCase(t *testing.T) {
 	// `self.result[0]` is genuinely nullable — an empty array indexes to null — so every row
@@ -399,9 +379,8 @@ func TestGuardNarrowing_SwitchClausesAssumeTheirCase(t *testing.T) {
 	}
 }
 
-// The same for `on_error`, and it is the direction priorRuleRefs cannot use: a rule's predicate
-// is `(code…) && case`, whose NEGATION is a fact about neither half — but whose holding is a
-// fact about both. So a rule that CAUGHT proves its case, however it is coded.
+// `(code…) && case` holding is a fact about both halves, though its negation is about neither:
+// a rule that CAUGHT proves its case, however coded.
 func TestGuardNarrowing_OnErrorClausesAssumeTheirCase(t *testing.T) {
 	src := func(rules string) string {
 		return `{"name":"p","tasks":[
@@ -438,10 +417,8 @@ func TestGuardNarrowing_OnErrorClausesAssumeTheirCase(t *testing.T) {
 	}
 }
 
-// An `on_error` rule's `goto` is an edge like a switch case's, and it carries what the rule
-// proved for the same reason: the rule fired, so its whole predicate held. What cannot travel
-// is everything that belongs to the task that FAILED — it produced no output, and the `error`
-// it caught is the target's own `last_error`, a different value under a different name.
+// The rule fired, so its predicate held. What cannot travel is the FAILED task's: no output, and
+// the `error` it caught is the target's `last_error`, a different name.
 func TestGuardNarrowing_OnErrorGotoCarriesItsCase(t *testing.T) {
 	src := func(rule, use string) string {
 		return `{"name":"p",
@@ -499,10 +476,8 @@ func TestGuardNarrowing_OnErrorGotoCarriesItsCase(t *testing.T) {
 	}
 }
 
-// The error edge meets with every other edge into the handler, exactly as a switch edge does.
-// A handler reached BOTH by a guarded rule and by an unguarded route cannot know which it
-// arrived on — and what held before the task failed still holds, since failing proves nothing
-// about the process input.
+// A handler reached by a guarded rule AND an unguarded route cannot know which; what held before
+// the task failed still holds.
 func TestGuardNarrowing_ErrorEdgeMeetsAndInherits(t *testing.T) {
 	t.Run("a second unguarded edge loses the proof", func(t *testing.T) {
 		src := `{"name":"p",
@@ -534,9 +509,8 @@ func TestGuardNarrowing_ErrorEdgeMeetsAndInherits(t *testing.T) {
 	})
 }
 
-// A `$ref` CHAIN, built by a definition rather than by hand: task b's `output` is task a's, so
-// `b_output` is a ref to `a_output` and the null is two links away from the guard. A guard
-// materializes the reference it names, and `deref` follows the whole chain in one step.
+// `b_output` refs `a_output`, so the null is two links from the guard; `deref` follows the whole
+// chain in one step.
 func TestGuardNarrowing_ThroughARefChain(t *testing.T) {
 	src := func(cases string) string {
 		return `{"name":"p","tasks":[
@@ -567,10 +541,8 @@ func TestGuardNarrowing_ThroughARefChain(t *testing.T) {
 	}
 }
 
-// `outputs.a ?? outputs.b` over two nullable outputs puts the null inside a `$ref` that is an
-// ARM of a union — the shape the unit test in schematest pins, here shown to be something a
-// definition produces. What a reader is told about it is the whole point: the type is right,
-// and the summary beside it has to agree.
+// The null sits inside a `$ref` that is an ARM of a union (schematest pins the shape): the type
+// is right, and the summary beside it has to agree.
 func TestGuardNarrowing_CoalesceOfTwoNullableOutputs(t *testing.T) {
 	src := `{"name":"p","tasks":[
 	 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
@@ -594,10 +566,8 @@ func TestGuardNarrowing_CoalesceOfTwoNullableOutputs(t *testing.T) {
 		t.Errorf("Summary = %q, want %q — the published contract reads this", got, "object{n}|null")
 	}
 
-	// The hover's own path, which does NOT navigate: it infers the expression in the slot's
-	// context and summarises what comes back. Resolution reads the pool off the ROOT node, and
-	// a union built by inference has to carry it up from its arms — `At` above attaches one on
-	// the way down and would hide a union that lost it.
+	// The hover's path, which does NOT navigate: resolution reads the pool off the ROOT, so an
+	// inferred union must carry it up from its arms. `At` above would hide the loss.
 	ctx := slotContext(t, src, "tasks.c.output")
 	inferred, err := ctx.Infer("outputs.a ?? outputs.b")
 	if err != nil {

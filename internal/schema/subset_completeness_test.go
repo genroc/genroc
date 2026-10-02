@@ -5,10 +5,8 @@ import (
 	"testing"
 )
 
-// The subset relation is NOT driven by the walk table, so nothing mechanical says a keyword
-// was left out of it — minItems/maxItems were, and every example-based test still passed.
-// This closes it by construction: a new field on node fails here until someone proves the
-// relation reads it or records why it cannot narrow anything.
+// The subset relation is NOT driven by the walk table, so a new node field fails here until
+// someone proves the relation reads it or records why it cannot narrow anything.
 
 type narrowing struct {
 	sub, super string

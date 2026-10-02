@@ -9,10 +9,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWTAuth is `mode: jwt` -- a token minted by genroc-ui (or anything else able to produce a
-// conforming one) and signed with a secret shared with this server. It VERIFIES and RESOLVES
-// NOTHING: the token carries the permissions its issuer computed, so there is no role map, no
-// group claim and no per-provider quirk here. specs/ui-issued-tokens.md §1.
+// JWTAuth is `mode: jwt`: it verifies a token signed with a shared secret and RESOLVES
+// NOTHING -- the token carries its issuer's permissions. specs/ui-issued-tokens.md §1.
 type JWTAuth struct {
 	cfg    JWTModeConfig
 	secret []byte
@@ -29,9 +27,7 @@ func NewJWTAuth(cfg JWTModeConfig) (*JWTAuth, error) {
 	}
 	secret, _ := cfg.resolveSecret()
 	leeway, _ := parseLeeway(cfg.Leeway)
-	// Every one of these is a §2.4 validation, and they are parser OPTIONS rather than checks
-	// written below, so that no path verifies without them. HS256 is the only accepted method:
-	// with one symmetric key there is no algorithm set to misconfigure.
+	// §2.4's validations, as parser OPTIONS so no path verifies without them. HS256 only.
 	return &JWTAuth{
 		cfg:    cfg,
 		secret: []byte(secret),
@@ -45,10 +41,8 @@ func NewJWTAuth(cfg JWTModeConfig) (*JWTAuth, error) {
 	}, nil
 }
 
-// Authenticate verifies a bearer token and reads the permissions off it. A credential that is
-// not a JWT, and a JWT that fails verification, both return (nil, nil) rather than an error --
-// this mode runs beside `token` mode, and authorize turns "not authenticated" into 401. Only a
-// failure to DECIDE is an error.
+// Authenticate returns (nil, nil), not an error, for a non-JWT and for a JWT that fails
+// verification, since it runs beside `token` mode. Only a failure to DECIDE is an error.
 func (a *JWTAuth) Authenticate(ctx context.Context, credential string) (*Principal, error) {
 	if credential == "" || strings.HasPrefix(credential, "genroc_sk_") {
 		return nil, nil
@@ -71,17 +65,14 @@ func (a *JWTAuth) Authenticate(ctx context.Context, credential string) (*Princip
 	}
 	grants := permGrants(claims[permsClaim])
 	if len(grants) == 0 {
-		// A verified token granting nothing is not an authentication failure -- the issuer
-		// authenticated this person and decided they may do nothing here. 403, not 401, which
-		// authorize produces from a principal holding no grants.
+		// Granting nothing is 403, not 401: the issuer authenticated this person.
 		return &Principal{Subject: subject, Source: "jwt"}, nil
 	}
 	return &Principal{Subject: subject, Grants: grants, Source: "jwt"}, nil
 }
 
-// permGrants reads the `perms` claim. An unrecognised string is kept rather than filtered: it
-// grants nothing, because Allows only ever compares against permissions this server declares, so
-// a newer issuer naming a permission this build predates degrades instead of failing.
+// permGrants keeps an unrecognised permission: Allows never matches it, so a newer issuer
+// degrades instead of failing.
 func permGrants(v any) []Grant {
 	list, ok := v.([]any)
 	if !ok {

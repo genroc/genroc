@@ -66,9 +66,7 @@ func TestNullCoalesce_DistinctTypesMergeToATypeArray(t *testing.T) {
 }
 
 func TestNullCoalesce_ChainedDefaultRecoversNonNull(t *testing.T) {
-	// The authoring idiom that used to be impossible: once the left had become a raw
-	// union, no number of trailing defaults could strip its null, because stripNull only
-	// dropped whole {"type":"null"} arms and never looked inside one.
+	// Once the left is a raw union, a trailing default must still strip its null.
 	got := inferIn(t, coalesceCtx("boolean"), "a ?? b ?? false")
 	assertJSONEq(t, got, `{"type":"boolean"}`,
 		"a non-null literal at the end of a ?? chain must make the whole chain non-null")

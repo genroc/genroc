@@ -1,7 +1,5 @@
-# A field added to a task output but NOT required is nullable, and an old row simply lacks
-# the key. Navigation yields null either way, so no reader can tell absence from a stored
-# null — requiring presence would refuse data that works. The two downstream readers make
-# the point twice over: one difference in the data is reported once, not once per reader.
+# An added, non-required output field is nullable: an old row lacking the key reads null
+# either way. Two readers, one finding.
 apply:
   - channel: nullfield_a
     definitions:

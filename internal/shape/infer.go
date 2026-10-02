@@ -10,10 +10,8 @@ import (
 	"genroc/internal/template"
 )
 
-// Infer returns the static type of a templated value evaluated against context ctx: a string
-// leaf yields its template's inferred type, an array joins its element types, an object infers
-// each value (all keys required), and a scalar/null types as its JSON kind. It operates on a raw
-// value so a bare templated string can be typed like a full Shape. label prefixes errors.
+// Infer types a raw templated value against ctx; an object's keys are all required, and label
+// prefixes errors.
 func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 	switch n := node.(type) {
 	case string:
@@ -25,9 +23,7 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 		if err != nil {
 			return schema.Schema{}, fmt.Errorf("%s: %w", label, err)
 		}
-		// The inferred sub-schema carries the context's root $defs for its own
-		// resolvability; the leaf is embedded into a structure whose root owns the
-		// defs, so re-root it bare.
+		// The leaf carries ctx's $defs; the structure it is embedded in owns them.
 		return inferred.WithoutDefs(), nil
 	case []any:
 		elems := make([]schema.Schema, len(n))
@@ -57,8 +53,7 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 	case bool:
 		return schema.Type("boolean"), nil
 	case float64:
-		// JSON numbers decode to float64; a whole number types as integer so a literal
-		// like 3 is a subset of an `integer` slot, a fractional one as number.
+		// A whole number types as integer, so a literal 3 fits an `integer` slot.
 		if n == math.Trunc(n) {
 			return schema.Type("integer"), nil
 		}
@@ -70,26 +65,17 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 	}
 }
 
-// CheckHooks turn Check's raw findings into tailored errors. Both are optional; a nil hook
-// leaves Check's default behavior. They separate the two kinds of problem a shape can have:
-// a ROOT problem (an expression touches something that exists in general but is not usable
-// here) and a RESULT problem (what the shape produces does not fit its required schema).
+// CheckHooks tailor Check's errors; a nil hook keeps the default. Roots words a ROOT problem (an
+// expression touches something not usable here), Result a RESULT one (the value misfits Schema).
 type CheckHooks struct {
-	// Roots is called before inference with the roots the shape's expressions reference,
-	// aggregated across every leaf. Return a non-nil error to reject the shape — e.g.
-	// self.result is referenced but the action has no result_schema, so it is not available
-	// here. This is how a caller crafts a message for touching an unavailable root.
+	// Roots runs before inference with every root the shape references; an error rejects it.
 	Roots func(refs expression.Roots) error
-	// Result is called when the shape declares a required Schema and the inferred type is
-	// not a subset of it, with both schemas so the caller can inspect the mismatch
-	// (inferred.HasNull(), inferred.TypeName(), inferred.IsType("array"), …) and craft the
-	// message. Return nil to fall back to Check's default message.
+	// Result runs when the inferred type misfits Schema; nil keeps the default message.
 	Result func(inferred, required schema.Schema) error
 }
 
-// fits is the relation this shape's Schema is checked with. A fixed target (headers, query)
-// has no conform behind it and takes plain subset; a declared slot schema is what the value is
-// conformed to, so it takes the relation paired with that conform.
+// A fixed target (headers, query) has no conform behind it and takes plain subset; a declared
+// slot schema takes the relation paired with the conform it gets.
 func (s *Shape) fits(norm schema.Schema) bool {
 	if s.Conformed {
 		return norm.ConformsExactlyTo(*s.Schema)
@@ -102,8 +88,6 @@ func (s *Shape) Check(ctxSchema schema.Schema) (schema.Schema, error) {
 	return s.CheckWith(ctxSchema, CheckHooks{})
 }
 
-// refs returns the roots the shape's expressions reference — from the bare expression for
-// an Expr shape, aggregated across every leaf otherwise.
 func (s *Shape) refs() (expression.Roots, error) {
 	if s.Expr {
 		return expression.RootRefs(s.exprString())
@@ -111,8 +95,6 @@ func (s *Shape) refs() (expression.Roots, error) {
 	return Roots(s.Raw)
 }
 
-// inferType infers the shape's type against ctxSchema: a bare expression for an Expr shape
-// (directly, preserving type), the recursive templated value otherwise.
 func (s *Shape) inferType(ctxSchema schema.Schema, label string) (schema.Schema, error) {
 	if s.Expr {
 		t, err := ctxSchema.Infer(s.exprString())
@@ -124,11 +106,9 @@ func (s *Shape) inferType(ctxSchema schema.Schema, label string) (schema.Schema,
 	return Infer(s.Raw, ctxSchema, label)
 }
 
-// CheckWith is the static-validation phase. ctxSchema is an object schema whose properties are
-// the roots expressions may navigate. It runs in order: the Roots hook, then inference, then — if
-// the shape declares a required Schema — a conformance check handed to the Result hook, and
-// returns the inferred type, which is the whole answer when Schema is nil. Both schemas are
-// assumed normalized; the inferred type is normalized against ctxSchema's $defs first.
+// CheckWith runs the Roots hook, inference, then (when Schema is set) the conformance check
+// Result words, and returns the inferred type. ctxSchema's properties are the roots; both
+// schemas must be normalized.
 func (s *Shape) CheckWith(ctxSchema schema.Schema, hooks CheckHooks) (schema.Schema, error) {
 	label := s.Name
 	if label == "" {

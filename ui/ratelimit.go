@@ -7,17 +7,13 @@ import (
 	"time"
 )
 
-// Failure throttling for the password endpoint -- the only guessable secret reachable from
-// outside, since bcrypt is a constant factor an attacker parallelises away rather than a limit.
-// Two keys, because they stop different attacks: per-EMAIL stops one account being ground down,
-// per-ADDRESS stops one attacker spraying many, which per-email counting never sees.
+// Failure throttling for the password endpoint, the only guessable secret reachable from
+// outside. Per-EMAIL stops one account being ground down; per-ADDRESS stops one attacker
+// spraying many.
 
 const (
-	// Ten rather than five, and five minutes rather than fifteen. A person typing a generated
-	// 16-character password gets it wrong more than twice, and locking them out for a quarter of
-	// an hour is a worse outcome than the guesses it prevents -- which bcrypt has already made
-	// expensive. 10 per 5 minutes is 120 an hour: far too slow to search anything but a list of
-	// the most common passwords, which is not what a rate limit is the defence against.
+	// 10 per 5 minutes: generous to a person mistyping a generated password, and still far too
+	// slow to search anything beyond a common-password list.
 	maxEmailFailures = 10
 	// Higher, because one address is legitimately many people behind NAT -- and because behind
 	// a proxy this counts everyone at once (see clientIP).
@@ -89,10 +85,8 @@ func (l *limiter) succeed(key string) {
 	delete(l.windows, key)
 }
 
-// clientIP is the address to count against, taken from the CONNECTION and never from a header:
-// X-Forwarded-For is the client's to write on a direct connection, so counting it would let an
-// attacker reset their own budget every request. Behind a proxy this collapses to one key for
-// everyone, which throttles more than intended rather than less.
+// clientIP counts the CONNECTION address, never X-Forwarded-For, which a direct client could
+// forge to reset its budget. Behind a proxy everyone shares one key, which over-throttles.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

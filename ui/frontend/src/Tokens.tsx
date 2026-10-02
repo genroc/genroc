@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, PERMS, createToken, listTokens, revokeToken, type ApiToken } from "./api.ts";
 
-// Credential management. specs/api-auth.md §5.
-//
-// Exists so a proxy-backed deployment needs no seeded credential: an operator logs in as a
-// person and mints a machine token here.
+// Credential management (specs/api-auth.md §5): an operator signed in as a person mints machine
+// tokens here, so a deployment needs no seeded credential.
 
 const DESC: Record<string, string> = {
   worker: "claim and resolve external tasks — the low-trust inbound zone",

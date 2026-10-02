@@ -6,14 +6,8 @@ import (
 	"genroc/internal/schema"
 )
 
-// ConformsExactlyTo and ConformToSchemaExactly are a pair, and this file is that claim: the
-// relation must accept exactly the gaps the conform closes. A relation that tolerates more
-// promises a definition the checker blessed whose conform then fails at runtime — and that
-// conform is an ASSERTION (specs/declared-slot-schemas.md §4), so its failure would be read as
-// a bug in the type system rather than as the relation being too generous.
-//
-// It differs from IsSubsetAsStored in one rule, and `TestConformsExactlyToHasNoDefaultsRule` is
-// the whole reason it is a separate relation.
+// The relation must accept exactly the gaps the conform closes: the conform is an ASSERTION
+// (specs/declared-slot-schemas.md §4), so a too-generous relation reads as a type-system bug.
 
 // pairing is one accepted gap written as the whole transformation: the two schemas, a value of
 // `sub`, and the exact value the conform must hand back.
@@ -239,10 +233,8 @@ func TestConformsExactlyToLeavesAnOpenSuperAlone(t *testing.T) {
 	}
 }
 
-// The one rule that makes this a separate relation rather than IsSubsetAsStored with a flag.
-// IsSubsetAsStored reads a default on the SUB side as a guarantee of presence, because whatever
-// produced the data filled it. Nothing filled ours, and ConformToSchemaExactly does NOT fill
-// defaults — so borrowing that relation would bless a value the conform then rejects.
+// IsSubsetAsStored reads a SUB default as present because something filled it; nothing filled
+// ours, and ConformToSchemaExactly does NOT fill defaults.
 func TestConformsExactlyToHasNoDefaultsRule(t *testing.T) {
 	sub := mustSchema(t, `{"type":"object","properties":{"a":{"type":"string","default":"x"}}}`)
 	sup := mustSchema(t, `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`)

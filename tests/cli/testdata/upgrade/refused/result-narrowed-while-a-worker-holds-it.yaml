@@ -1,12 +1,6 @@
-# The half a layer cannot see. The instance is PARKED on an external task: a worker has been
-# handed the old version's contract and will answer against it, and that result is not on the
-# row for any layer to describe. The stored state migrates cleanly here — nothing about it
-# changed — so a check that only conformed state would let this move and the work already in
-# flight would land on a schema that refuses it.
-#
-# v2 narrows the result from `number` to `integer`. What we CANNOT check is the request: `input`
-# is an expression whose value the worker already holds, so this guarantees a result the worker
-# was entitled to produce is still accepted, never that it was asked the right question.
+# Parked on an external: state migrates cleanly, but the worker's in-flight result would meet a
+# narrowed schema (number → integer). Only the result is guaranteed, never that the worker was
+# asked the right question: `input` is already in its hands.
 apply:
   - definitions:
       - name: waitproc
@@ -36,9 +30,8 @@ apply:
               result_schema: {type: integer}
             output: {r: '$: self.result'}
             switch: end
-# Both sides of the boundary, from ONE pair of definitions. The narrowing is identical at both
-# positions; what differs is whether this row has work outstanding — which is the question the
-# gate asks, rather than "is this the kind of task that could have".
+# One pair of definitions, both sides of the boundary: the gate asks whether this row has work
+# outstanding, not whether the task kind could.
 start: {process: waitproc, input: {n: 1}}
 at:
   # Sitting ON the task, nothing asked. No promise has been made, so the narrowing is free.
