@@ -146,15 +146,18 @@ a widening rule to terminate. That is a different piece of work with a different
 profile.
 
 The workaround is a trailing default (`?? false`), which is exactly what an author would
-write anyway, and it now behaves correctly thanks to the `StripNull` fix above.
+write anyway, and it now behaves correctly thanks to the `StripNull` fix above. Since guard
+narrowing there is a second one: route on each branch (`case: outputs.a != null`, then
+`case: outputs.b != null`, then a `panic`), and each target reads its branch non-null.
 
 Reopen this if the mid-process case shows up in real definitions often enough to justify
 the lattice change. The signal to watch for: definitions carrying a `?? default` whose
 default is provably unreachable.
 
-Note that [guard-narrowing.md](guard-narrowing.md) (proposed) removes a *different* slice of
-the same annoyance and is tractable, because it refines one reference at a time rather than
-correlating two. If both existed, this section would still be open: they do not overlap.
+Note that [guard-narrowing.md](guard-narrowing.md) (built 2026-09-15) removes a *different*
+slice of the same annoyance and was tractable, because it refines one reference at a time rather
+than correlating two. It does not close this section: after `case: outputs.a != null`, the
+fallthrough edge knows `outputs.a` is null, not that `outputs.b` is present.
 
 ## 6. Rejected alternative: a coverage check inside `??`
 

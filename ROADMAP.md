@@ -21,21 +21,28 @@ One line per item. The argument lives in `specs/`; this is the index.
   (specs/path-sensitive-output.md §5)
 - [] **action extensibility from a parent** — what a parent can hand a child is a fixed shape
   (specs/custom-tasks.md)
-- [] **source resolution**: the structural phase and `$infer` (specs/source-resolution.md)
+- [] **source resolution**: `$infer` (specs/source-resolution.md)
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
-- [] **docs** — the site ships four pages; the reference gap it was written to close is open
+- [] **docs** — the language and the API are covered; running the server is not (flags,
+  Postgres, durability, auth setup, genroc-ui config)
 - [] **`$openapi` resolver** — an operation's response types spread into a fetch; `allOf`
   flattened in the resolver, not the language (specs/openapi-resolver.md)
 
 ## Shipped
+- [x] **declared slot schemas** — an optional `<slot>_schema` beside every shape, checked
+      against inference and conformed on the way out (specs/declared-slot-schemas.md)
+- [x] **source resolution, structural phase** — the spread form, `$process` and registered
+      structural resolvers; `resolvers` as an ordered first-match list (specs/source-resolution.md)
+- [x] **`genctl schema`** — `context` and `type`: the scope at a slot and the shape of one,
+      queryable offline (specs/schema-command.md)
 - [x] **guard narrowing** — a `switch` case's proof travels the edge it selects, so the task
       it routes to reads the value without a `?? default` that can never evaluate. Ordered-case
       negation included, so the guard-clause shape narrows (specs/guard-narrowing.md)
 - [x] **expression-level narrowing** — a guard on the left of `&&` (or `||`) narrows its
       right operand, because the evaluator short-circuits; `!` swaps the branches and
-      chains accumulate. The CROSS-TASK case is still open above (specs/guard-narrowing.md)
+      chains accumulate (specs/guard-narrowing.md)
 - [x] **`required` + `default` refused everywhere** — the pair was rejected only in
       `config_schema`; `schema.CheckDoc` now rejects it in every authored schema, so
       "guaranteed present" has exactly two spellings and neither is dead
