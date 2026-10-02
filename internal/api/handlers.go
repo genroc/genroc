@@ -44,7 +44,7 @@ type Envelope struct {
 	// consumed by the transport and cleared before dispatch, so no handler can read it.
 	Token string `json:"token,omitempty"`
 	// principal is attached by the TRANSPORT; unexported so a client cannot decode its own
-	// grants into it. specs/api-auth.md §2.
+	// grants into it. specs/api-auth.md §3.
 	principal *Principal
 }
 

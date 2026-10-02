@@ -149,6 +149,8 @@ export async function tick(
 interface MockServiceOptions {
   // The JSON body sent for every response. Defaults to {}.
   response?: Record<string, unknown>;
+  // Sent verbatim as text/plain in place of `response`: the only way to answer with non-JSON.
+  rawBody?: string;
   // HTTP status code to return. Defaults to 200.
   statusCode?: number;
   // Delay before answering the first request; Infinity holds it until release().
@@ -156,8 +158,9 @@ interface MockServiceOptions {
 }
 
 export async function startMockService(port: number, options: MockServiceOptions = {}) {
-  const { response = {}, statusCode = 200, firstRequestDelayMs = 0 } = options;
-  const body = JSON.stringify(response);
+  const { response = {}, rawBody, statusCode = 200, firstRequestDelayMs = 0 } = options;
+  const body = rawBody ?? JSON.stringify(response);
+  const contentType = rawBody === undefined ? "application/json" : "text/plain";
 
   let count = 0;
   // The request line as received: query encoding is only observable here.
@@ -182,7 +185,7 @@ export async function startMockService(port: number, options: MockServiceOptions
     res.on("error", () => {});
 
     const send = () => {
-      res.writeHead(statusCode, { "Content-Type": "application/json" });
+      res.writeHead(statusCode, { "Content-Type": contentType });
       res.end(body);
     };
 

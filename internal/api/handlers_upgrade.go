@@ -96,6 +96,18 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 			resp.Moves = append(resp.Moves, move)
 			return okReply(resp)
 		}
+		// Pause settles a row whose lease lapsed without clearing worker_id, and the write refuses
+		// it. Never clear worker_id to admit the move: it is the ReclaimedExpired/only_once evidence.
+		if m.Instance.WorkerID != nil {
+			verb := "resume"
+			if m.Instance.Status == model.StatusFailed {
+				verb = "retry"
+			}
+			move.Reason = fmt.Sprintf("a lapsed lease from worker %s is still recorded on it; %s the instance "+
+				"so a worker reclaims it, then pause and upgrade", *m.Instance.WorkerID, verb)
+			resp.Moves = append(resp.Moves, move)
+			return okReply(resp)
+		}
 		def, defErr := h.db.GetDefinition(m.Instance.ProcessName, m.ToVersion)
 		if defErr != nil {
 			move.Reason = defErr.Error()

@@ -252,7 +252,7 @@ from `membersOf`'s source. Three things are silent when broken: the declaration 
 `definition()` and never off `Doc` (a `$process` spread has no node in the index); a task is
 addressed by its **`id`** where it has one, so matching only the index offers nothing at all;
 and an empty remainder is the slot's own root, where `At` errors rather than walking zero steps.
-specs/declared-slot-schemas.md §6.
+specs/declared-slot-schemas.md §7.
 
 **Hover on a KEY inside a shape answers about the key** (`shapeKeyHover`), on the key span only —
 inside the value the expression's own type is still the question. It reads the TYPE VIEW and

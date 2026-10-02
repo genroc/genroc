@@ -194,7 +194,7 @@ func under(path, head string) (string, bool) {
 
 // shapeKeyHover answers for a cursor on a KEY span inside a shape, from the TYPE VIEW only —
 // what the CLI reads too. Consulting the declaration here makes the two disagree
-// (TestKeyHoverIsTheCLIsOwnAnswer). specs/declared-slot-schemas.md §6.
+// (TestKeyHoverIsTheCLIsOwnAnswer). specs/declared-slot-schemas.md §7.
 func shapeKeyHover(doc *defdoc.Doc, types map[string]schema.Schema, path string, line, col int) string {
 	span, ok := doc.Span(path)
 	if !ok || !span.Key.Contains(line, col) {

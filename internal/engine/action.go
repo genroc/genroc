@@ -101,6 +101,10 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(err.Error())})
 		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), code))
 	}
+	// A `null` entry ignores the body on both channels, so whatever it held cannot fail the call.
+	if sc, declared := task.Action.ResponseFor(resp.Status); declared && sc == nil {
+		resp.Body, resp.BodyCode = nil, ""
+	}
 	if resp.ErrorCode != "" {
 		code, msg, extra := resp.ErrorCode, resp.ErrorMessage, map[string]any(nil)
 		if msg == "" {
@@ -123,8 +127,8 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		return nil, nil, stop(e.handleCallErrorWith(inst, task, msg, code, extra))
 	}
 
-	// An undecodable body fails whatever was declared: the decode is JSON-only and an empty
-	// body already came back as null, so nothing could have read this.
+	// An undecodable body fails whatever schema was declared: the decode is JSON-only and an
+	// empty body already came back as null, so nothing could have read this.
 	if resp.BodyCode != "" {
 		msg := resp.ErrorMessage
 		if msg == "" {

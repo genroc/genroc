@@ -165,3 +165,48 @@ test("responses — a lone error declaration types the failure without accepting
 
   svc.stop();
 });
+
+// A `null` entry ignores the body, so a non-JSON one must not fail the call with result.parse.
+for (const c of [
+  { side: "an accepted status", status: 202, body: "Accepted", want: { kick: { ignored: true } } },
+  { side: "an error status", status: 404, body: "<html>Not Found</html>", want: { caught: { code: "http.404" } } },
+]) {
+  test(`responses — a null entry ignores a non-JSON body on ${c.side}`, async () => {
+    const svc = await startMockService(0, { statusCode: c.status, rawBody: c.body });
+    const name = `null_ignores_${crypto.randomUUID()}`;
+    const { error: putErr } = await client.PUT("/definitions", {
+      body: {
+        name,
+        tasks: [
+          {
+            id: "kick",
+            action: {
+              type: "fetch" as const,
+              method: "post",
+              url: `http://localhost:${svc.port}/jobs`,
+              responses: { 200: { type: "object" }, 202: null, 404: null },
+              timeout: 2000,
+            },
+            on_error: [{ code: ["http.%", "result.%"], goto: "$caught" }],
+            output: { ignored: "$: self.result == null" },
+            switch: [{ goto: "end" }],
+          },
+          { id: "caught", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
+        ],
+      } as never,
+    });
+    expect(putErr).toBeUndefined();
+
+    const { data: started } = await client.POST("/instances", { body: { process: name } });
+    const id = started!.id;
+    expect(await waitForInstance(id)).toBe("completed");
+
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    expect(
+      data?.state?.outputs,
+      "a status declared `null` has no body to parse; result.parse here breaks the 202 ACK / HTML 404 it exists for",
+    ).toEqual(c.want);
+
+    await svc.stop();
+  });
+}

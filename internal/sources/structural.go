@@ -88,10 +88,51 @@ func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack [
 			return nil, err
 		}
 		for i, s := range m.flatten() {
+			if err := refuseNestedStructural(docs[s.docIdx].File, cfg, rc, s, values[i]); err != nil {
+				return nil, err
+			}
 			out[s.ord] = values[i]
 		}
 	}
 	return out, nil
+}
+
+// refuseNestedStructural refuses a structural directive inside a resolver's answer: the pass runs
+// once, so it would reach the server as a literal. specs/source-resolution.md §Registered structural resolvers.
+func refuseNestedStructural(file string, cfg projectConfig, rc resolverConfig, s site, value any) error {
+	at := append([]any(nil), s.Pointer...)
+	if s.spread() {
+		at = at[:len(at)-1]
+	}
+	var walk func(v any, path []any) error
+	walk = func(v any, path []any) error {
+		switch t := v.(type) {
+		case map[string]any:
+			for k, child := range t {
+				if err := walk(child, append(path, k)); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for i, child := range t {
+				if err := walk(child, append(path, i)); err != nil {
+					return err
+				}
+			}
+		case string:
+			name, argument, ok := defdoc.Directive(t)
+			if !ok {
+				return nil
+			}
+			if idx, _, ok := cfg.matchResolver(name, argument); ok && cfg.Resolvers[idx].Phase == phaseStructural {
+				return fmt.Errorf("%s: %s: resolver %q answered with the structural directive %q, which is never "+
+					"resolved: structural resolution is one pass, so return the resolved value instead",
+					file, renderPointer(path), rc.Name, t)
+			}
+		}
+		return nil
+	}
+	return walk(value, at)
 }
 
 // unescapeDocs collapses `$$name: …` to `$name: …` in every string leaf. It must run LAST, after

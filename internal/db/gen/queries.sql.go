@@ -416,6 +416,31 @@ func (q *Queries) GetAPITokenByHash(ctx context.Context, arg GetAPITokenByHashPa
 	return i, err
 }
 
+const getAnyAPITokenByHash = `-- name: GetAnyAPITokenByHash :one
+SELECT id, label, revoked_at, expires_at FROM api_tokens WHERE hash = ?1
+`
+
+type GetAnyAPITokenByHashRow struct {
+	ID        string
+	Label     string
+	RevokedAt sql.NullInt64
+	ExpiresAt sql.NullInt64
+}
+
+// Revoked and expired rows INCLUDED, unlike the read above: seeding and bootstrap must tell a
+// dead secret from an absent one, or their insert hits UNIQUE(hash). Never authenticate from it.
+func (q *Queries) GetAnyAPITokenByHash(ctx context.Context, hash string) (GetAnyAPITokenByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getAnyAPITokenByHash, hash)
+	var i GetAnyAPITokenByHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.Label,
+		&i.RevokedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getChannel = `-- name: GetChannel :one
 SELECT version FROM process_channels
 WHERE name = ?1 AND channel = ?2
@@ -1542,6 +1567,49 @@ func (q *Queries) TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) er
 	return err
 }
 
+const unparkAnsweredExternal = `-- name: UnparkAnsweredExternal :many
+UPDATE process_instances
+SET phase = '',
+    wake_at    = NULL,
+    updated_at = ?1
+WHERE id IN (SELECT value FROM json_each(?2))
+  AND phase = 'external'
+  AND status IN ('running', 'paused', 'pausing')
+  AND EXISTS (SELECT 1 FROM process_signals s
+              WHERE s.instance_id = process_instances.id AND s.task_id = process_instances.task)
+RETURNING id
+`
+
+type UnparkAnsweredExternalParams struct {
+	UpdatedAt int64
+	Ids       interface{}
+}
+
+// UnparkExternal for those of the listed rows holding an answer for their current task: one that
+// deferred to a claim which has since ended. Statuses are AcceptsExternalOutcome's.
+func (q *Queries) UnparkAnsweredExternal(ctx context.Context, arg UnparkAnsweredExternalParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, unparkAnsweredExternal, arg.UpdatedAt, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const unparkExternal = `-- name: UnparkExternal :exec
 UPDATE process_instances
 SET phase = '',
@@ -1775,10 +1843,9 @@ type UpgradeInstanceVersionParams struct {
 // task predicate is what turns that into a lost race a re-run picks up rather than a
 // clobber.
 //
-// worker_id IS NULL is defence, not a live case: a claim only takes the live and draining
-// rows, so a paused or failed one is never leased. It is here because the status filter and
-// the claim predicate are separate statements that could drift apart, and this write must
-// not be the place that discovers it.
+// worker_id IS NULL is a live case: pause settles a row whose lease lapsed without clearing
+// worker_id, which is the ReclaimedExpired/only_once evidence -- never clear it to admit a move.
+// The handler refuses such a row by name first; this catches one that gained it after the plan.
 func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanceVersionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, upgradeInstanceVersion,
 		arg.ToVersion,

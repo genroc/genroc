@@ -203,6 +203,20 @@ SET phase = '',
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
+-- name: UnparkAnsweredExternal :many
+-- UnparkExternal for those of the listed rows holding an answer for their current task: one that
+-- deferred to a claim which has since ended. Statuses are AcceptsExternalOutcome's.
+UPDATE process_instances
+SET phase = '',
+    wake_at    = NULL,
+    updated_at = sqlc.arg(updated_at)
+WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
+  AND phase = 'external'
+  AND status IN ('running', 'paused', 'pausing')
+  AND EXISTS (SELECT 1 FROM process_signals s
+              WHERE s.instance_id = process_instances.id AND s.task_id = process_instances.task)
+RETURNING id;
+
 -- name: CountBufferedSignals :one
 SELECT COUNT(*) FROM process_signals
 WHERE instance_id = sqlc.arg(instance_id) AND task_id = sqlc.arg(task_id);
@@ -503,10 +517,9 @@ UPDATE durability_marker SET n = n + 1 WHERE id = 1;
 -- task predicate is what turns that into a lost race a re-run picks up rather than a
 -- clobber.
 --
--- worker_id IS NULL is defence, not a live case: a claim only takes the live and draining
--- rows, so a paused or failed one is never leased. It is here because the status filter and
--- the claim predicate are separate statements that could drift apart, and this write must
--- not be the place that discovers it.
+-- worker_id IS NULL is a live case: pause settles a row whose lease lapsed without clearing
+-- worker_id, which is the ReclaimedExpired/only_once evidence -- never clear it to admit a move.
+-- The handler refuses such a row by name first; this catches one that gained it after the plan.
 UPDATE process_instances
 SET process_version = sqlc.arg(to_version),
     input_data      = sqlc.arg(input_data),
@@ -568,6 +581,11 @@ VALUES (sqlc.arg(id), sqlc.arg(hash), sqlc.arg(label), sqlc.arg(perms), sqlc.arg
 SELECT id, perms, label FROM api_tokens
 WHERE hash = sqlc.arg(hash) AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > sqlc.arg(now));
+
+-- name: GetAnyAPITokenByHash :one
+-- Revoked and expired rows INCLUDED, unlike the read above: seeding and bootstrap must tell a
+-- dead secret from an absent one, or their insert hits UNIQUE(hash). Never authenticate from it.
+SELECT id, label, revoked_at, expires_at FROM api_tokens WHERE hash = sqlc.arg(hash);
 
 -- name: TouchAPIToken :exec
 UPDATE api_tokens SET last_used_at = sqlc.arg(last_used_at) WHERE id = sqlc.arg(id);

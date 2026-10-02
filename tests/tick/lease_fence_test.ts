@@ -5,7 +5,7 @@ import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
 // The sleeping-laptop case over HTTP: tick #1 parks mid-fetch on a blocking mock, /tick
 // advance_ms sleeps past the lease, a concurrent tick #2 wakes and reclaims. Fence half
-// only — Tick has no gate. specs/lease-fencing.md, "The e2e layer".
+// only — Tick has no gate. specs/lease-fencing.md §Tests.
 
 
 // Parks the FIRST request until release() and answers all later ones instantly, so a

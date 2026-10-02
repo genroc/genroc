@@ -183,7 +183,7 @@ than from the DB.
 
 `handlers_compat.go` turns two selectors into two `name → version` tables and reconciles
 them. The comparison itself judges; this decides what is answerable.
-[specs/version-compatibility.md](../../specs/version-compatibility.md) is the design.
+[specs/compat-command.md](../../specs/compat-command.md) is the design.
 
 - **An entry is explicit or implicit, and that is the whole rule.** Explicit = the caller
   named it (a `versions` entry, or a submitted document). Implicit = it arrived via a

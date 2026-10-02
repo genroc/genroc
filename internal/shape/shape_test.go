@@ -144,8 +144,8 @@ func TestShape_Eval_ComputesStructure(t *testing.T) {
 	if m["label"] != "hi ann" {
 		t.Errorf("label = %#v, want %q", m["label"], "hi ann")
 	}
-	if m["n"] != float64(5) {
-		t.Errorf("n = %#v, want float64 5", m["n"])
+	if m["n"] != json.Number("5") {
+		t.Errorf("n = %#v, want the exact literal json.Number 5", m["n"])
 	}
 	tags := m["tags"].([]any)
 	if len(tags) != 2 || tags[0] != "a" || tags[1] != "ann" {
@@ -280,5 +280,41 @@ func TestShape_Present(t *testing.T) {
 	}
 	if !sh.Present() {
 		t.Error("shape should be Present")
+	}
+}
+
+func TestShape_ANumberLiteralSurvivesDecodeEvalAndMarshal(t *testing.T) {
+	const beyond = "9007199254740993" // 2^53+1: float64 rounds it to ...992
+	var sh shape.Shape
+	if err := json.Unmarshal([]byte(`{"id": `+beyond+`, "ids": [`+beyond+`]}`), &sh); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(sh); !strings.Contains(string(b), beyond) {
+		t.Errorf("the stored definition is the marshalled shape, so a literal it rounds is lost for good: %s", b)
+	}
+	got, err := sh.Eval(nil)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if b, _ := json.Marshal(got); string(b) != `{"id":`+beyond+`,"ids":[`+beyond+`]}` {
+		t.Errorf("evaluating a literal must yield it exactly (specs/number-precision.md): %s", b)
+	}
+}
+
+func TestShape_ALiteralTypesAsItsExpressionDoes(t *testing.T) {
+	ctx := ctxSchema(t)
+	for _, lit := range []string{"3", "-3", "3.0", "0.5", "1e3", "1E3", "9007199254740993"} {
+		literal, err := (&shape.Shape{Raw: mustShapeVal(t, lit)}).Check(ctx)
+		if err != nil {
+			t.Fatalf("%s: %v", lit, err)
+		}
+		expr, err := (&shape.Shape{Raw: "$: " + lit}).Check(ctx)
+		if err != nil {
+			t.Fatalf("$: %s: %v", lit, err)
+		}
+		if literal.TypeName() != expr.TypeName() {
+			t.Errorf("%s types as %q written as a literal but %q as an expression; one spelling, one type",
+				lit, literal.TypeName(), expr.TypeName())
+		}
 	}
 }

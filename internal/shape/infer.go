@@ -1,9 +1,10 @@
 package shape
 
 import (
+	"encoding/json"
 	"fmt"
-	"math"
 	"slices"
+	"strings"
 
 	"genroc/internal/expression"
 	"genroc/internal/schema"
@@ -52,12 +53,12 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 		return out, nil
 	case bool:
 		return schema.Type("boolean"), nil
-	case float64:
-		// A whole number types as integer, so a literal 3 fits an `integer` slot.
-		if n == math.Trunc(n) {
-			return schema.Type("integer"), nil
+	case json.Number:
+		// Spelling decides, as for an expression literal: a fraction or exponent is a number.
+		if strings.ContainsAny(string(n), ".eE") {
+			return schema.Type("number"), nil
 		}
-		return schema.Type("number"), nil
+		return schema.Type("integer"), nil
 	case nil:
 		return schema.Type("null"), nil
 	default:

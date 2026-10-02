@@ -237,7 +237,7 @@ func (s *Server) ListenUDS(ctx context.Context, path string) error {
 	}
 	s.log.Info("UDS listening", "path", path)
 	// A unix socket's file mode is the boundary, which is the standard answer for local IPC
-	// and the one the docker socket uses. specs/api-auth.md §5.
+	// and the one the docker socket uses. specs/api-auth.md §3.
 	return s.acceptLoop(ctx, ln, true)
 }
 

@@ -60,7 +60,10 @@ Design: [specs/lease-fencing.md](../../specs/lease-fencing.md); the engine half 
   since no claim can move it under `SKIP LOCKED`. `UnparkExternal` is deliberately
   unfenced: its only callers (`ResolveExternalTask`, `DeliverSignal`) act on a parked row
   under the instance row lock, where no grant exists to check, and it writes no outcome —
-  only the buffer does. The engine's consume path writes through the fenced
+  only the buffer does. `UnparkAnsweredExternal` is that un-park for an answer that deferred to a
+  claim, run where the claim ends: `ReleaseExternalClaim`, and `ClaimExternalTasks` in place of a
+  grant, since expiry writes nothing. Drop either and the task is re-offered with its answer
+  already buffered. The engine's consume path writes through the fenced
   `UpdateInstanceProgress` instead. A fenced write that
   matches no row for *any* reason (including a vanished row) reads as `ErrLeaseLost`:
   either way the row is not the caller's to write.
@@ -334,7 +337,7 @@ bookkeeping, never a reference.
 
 ## Process lifecycle: pause/resume vs retry
 
-Full rationale, prior art and known gaps: [specs/pause-resume.md](../../specs/pause-resume.md).
+Full rationale and known gaps: [specs/pause-resume.md](../../specs/pause-resume.md).
 The invariants below are the ones that break silently if you touch this code.
 
 `paused` is **not an outcome**. It means only "does not advance automatically" — the

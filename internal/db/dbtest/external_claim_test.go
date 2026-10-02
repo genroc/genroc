@@ -389,3 +389,92 @@ func claimDirect(t *testing.T, db *dbpkg.DB, instanceID, worker string, dur time
 		t.Fatalf("claimDirect: %v", err)
 	}
 }
+
+// A signal under a live claim buffers without un-parking, so the claim's end must hand the answer
+// to the engine. specs/external-task-queue.md §Renew and release.
+func TestReleaseExternalClaim_HandsABufferedAnswerToTheEngine(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			insertExternalParked(t, b.db, "inst-relsig", 4, nil)
+			claimed, err := b.db.ClaimExternalTasks("w1", claimLease, 1, "", 0, "")
+			if err != nil || len(claimed) != 1 {
+				t.Fatalf("claim: got %d err=%v", len(claimed), err)
+			}
+			if delivered, err := b.db.DeliverSignal(ctx, "inst-relsig", "approval",
+				model.ExternalOutcome{Result: map[string]any{"n": 1}}); err != nil || delivered {
+				t.Fatalf("signal under a live claim: delivered=%v err=%v, want buffered", delivered, err)
+			}
+
+			if err := b.db.ReleaseExternalClaim(ctx, "inst-relsig", 4, claimed[0].ExternalClaimEpoch); err != nil {
+				t.Fatalf("release: %v", err)
+			}
+			assertAnswerGoesToTheEngine(t, b.db, "inst-relsig", "release")
+		})
+	}
+}
+
+// Expiry writes nothing, so the next claim is where a lapse is observed: it must hand the answer
+// buffered under it to the engine rather than grant the task again.
+func TestClaimExternalTasks_HandsAnAnswerBufferedUnderALapsedClaimToTheEngine(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			insertExternalParked(t, b.db, "inst-lapsesig", 2, nil)
+			if claimed, err := b.db.ClaimExternalTasks("w1", shortLease, 1, "", 0, ""); err != nil || len(claimed) != 1 {
+				t.Fatalf("claim: got %d err=%v", len(claimed), err)
+			}
+			if delivered, err := b.db.DeliverSignal(ctx, "inst-lapsesig", "approval",
+				model.ExternalOutcome{Result: map[string]any{"n": 1}}); err != nil || delivered {
+				t.Fatalf("signal under a live claim: delivered=%v err=%v, want buffered", delivered, err)
+			}
+
+			insertExternalParked(t, b.db, "inst-lapse-plain", 0, nil) // after w1's claim, so it stays unclaimed
+
+			expire(t)
+			again, err := b.db.ClaimExternalTasks("w2", claimLease, 10, "", 0, "")
+			if err != nil {
+				t.Fatalf("claim after the lapse: %v", err)
+			}
+			for _, inst := range again {
+				if inst.ID == "inst-lapsesig" {
+					t.Fatal("a claim after the lapse granted the task again; with an answer buffered, FIFO " +
+						"would consume it over the new worker's")
+				}
+			}
+			if len(again) != 1 || again[0].ID != "inst-lapse-plain" {
+				t.Fatalf("claim after the lapse got %d task(s), want just inst-lapse-plain: an answered row "+
+					"must not strand the rest of the batch", len(again))
+			}
+			assertAnswerGoesToTheEngine(t, b.db, "inst-lapsesig", "a lapsed claim")
+		})
+	}
+}
+
+func assertAnswerGoesToTheEngine(t *testing.T, db *dbpkg.DB, instanceID, how string) {
+	t.Helper()
+	got, err := db.GetInstance(instanceID)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if got.Phase != model.PhaseNone || got.WakeAt != nil {
+		t.Fatalf("after %s: phase=%q wake_at=%v, want un-parked; parked, the buffered answer waits for "+
+			"some later resolve, or forever with no deadline", how, got.Phase, got.WakeAt)
+	}
+	if c, _ := db.CountBufferedSignals(instanceID, "approval"); c != 1 {
+		t.Fatalf("after %s: %d buffered, want 1; un-parking must leave the answer for phase 2", how, c)
+	}
+	if again, err := db.ClaimExternalTasks("w3", claimLease, 10, "", 0, ""); err != nil || len(again) != 0 {
+		t.Fatalf("after %s: a worker claim got %d task(s) (err=%v), want none", how, len(again), err)
+	}
+	engine, err := db.ClaimInstances("engine-1", time.Minute, 10, dbpkg.AllowTakeover())
+	if err != nil {
+		t.Fatalf("ClaimInstances: %v", err)
+	}
+	for _, inst := range engine {
+		if inst.ID == instanceID {
+			return
+		}
+	}
+	t.Fatalf("after %s the engine was not offered %s; nothing would consume the buffered answer", how, instanceID)
+}

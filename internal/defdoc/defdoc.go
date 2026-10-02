@@ -198,7 +198,7 @@ func (d *Doc) node(n *yaml.Node, phys, logi string, key Range) (any, Range, erro
 func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, error) {
 	out := make(map[string]any, len(n.Content)/2)
 	r := start(n)
-	var merges []*yaml.Node
+	var mergeKeyNode, merge *yaml.Node
 
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		kn, vn := n.Content[i], n.Content[i+1]
@@ -206,10 +206,17 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 		if err := kn.Decode(&name); err != nil {
 			return nil, r, fmt.Errorf("line %d: object key must be a scalar: %w", kn.Line, err)
 		}
+		if name == mergeKey {
+			if mergeKeyNode != nil {
+				return nil, r, fmt.Errorf("line %d: a mapping takes one `<<` - this one would silently "+
+					"shadow the spread on line %d", kn.Line, mergeKeyNode.Line)
+			}
+			mergeKeyNode = kn
+		}
 		// A directive `<<` stays a literal key for genctl's structural phase.
 		// specs/source-resolution.md §The split defdoc keeps.
 		if name == mergeKey && !isDirectiveValue(vn) {
-			merges = append(merges, vn)
+			merge = vn
 			continue
 		}
 		v, vr, err := d.node(vn, join(phys, name), join(logi, name), d.scalarRange(kn))
@@ -222,8 +229,8 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 
 	// After the loop: a merge may sit above the explicit key that beats it, and a merged key that
 	// lost must not leave its span on the winner.
-	for _, m := range merges {
-		src, err := mergeTarget(m)
+	if merge != nil {
+		src, err := mergeTarget(merge)
 		if err != nil {
 			return nil, r, err
 		}

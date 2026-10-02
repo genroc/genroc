@@ -28,7 +28,7 @@ func conformDeclared(v any, declared *schema.Schema, what string) (any, error) {
 }
 
 // declaredFailureCode keeps two facts an operator reads apart. A request payload folds into
-// engine.input rather than a code of its own (specs/declared-slot-schemas.md §0).
+// engine.input rather than a code of its own (specs/declared-slot-schemas.md §4).
 func declaredFailureCode(err error, violation, ordinary errcode.Code) errcode.Code {
 	if errors.Is(err, errDeclaredViolation) {
 		return violation

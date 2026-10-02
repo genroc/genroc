@@ -14,7 +14,7 @@ func (h *Handlers) createToken(raw json.RawMessage, actor string) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	perms, err := validPerms(req.Perms)
+	perms, err := ValidPerms(req.Perms)
 	if err != nil {
 		return errReply(err)
 	}
@@ -57,9 +57,9 @@ func (h *Handlers) revokeToken(id string, actor string) Reply {
 	return okReply(map[string]any{"revoked": true})
 }
 
-// validPerms refuses an unknown permission rather than dropping it: a typo would grant less,
-// discovered as a 403 elsewhere.
-func validPerms(in []string) ([]string, error) {
+// ValidPerms returns in, or an error naming the first unknown permission and the valid set; an
+// empty list is refused. Every operator-supplied list goes through it: a typo grants less, found as a 403.
+func ValidPerms(in []string) ([]string, error) {
 	if len(in) == 0 {
 		return nil, invalid("perms is required (admin, deploy, operate, read, worker)")
 	}

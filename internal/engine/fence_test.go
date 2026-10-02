@@ -1,6 +1,6 @@
 package engine
 
-// Engine-side lease fence behaviour (specs/lease-fencing.md, Testing §4–§5). The epoch
+// Engine-side lease fence behaviour (specs/lease-fencing.md §Tests). The epoch
 // mechanics and per-entry-point fence live in internal/db/dbtest/lease_epoch_test.go.
 
 import (

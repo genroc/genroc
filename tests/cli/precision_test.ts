@@ -88,6 +88,22 @@ test("genctl — an integer just past float64 range is not rounded to its neighb
   expect(out).not.toContain(FLOAT64_NEIGHBOUR);
 });
 
+test("genctl — an integer past float64 written as a shape literal is not rounded", async () => {
+  const name = uid("precshape");
+  const def = `name: ${name}
+tasks:
+  - id: pass
+    output: { id: ${BEYOND_FLOAT64}, ratio: 1.10 }
+    switch: end
+output: "$: outputs.pass"
+`;
+  const out = await applyRunGet(def, name);
+  expect(out, "a literal in a shape must reach the stored definition and the output exactly").toContain(
+    BEYOND_FLOAT64,
+  );
+  expect(out).not.toContain(FLOAT64_NEIGHBOUR);
+});
+
 test("genctl — a high-precision fraction in a schema default is not rounded", async () => {
   const name = uid("precfraction");
   const def = `name: ${name}

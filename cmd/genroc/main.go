@@ -183,18 +183,22 @@ func main() {
 			seeds = strings.Join(strings.Fields(string(raw)), ",")
 		}
 		if seeds != "" {
-			n, skipped, err := seedSuppliedTokens(database, seeds)
+			seeded, err := seedSuppliedTokens(database, seeds)
 			if err != nil {
 				log.Error("seed-tokens", "err", err)
 				os.Exit(1)
 			}
-			if len(skipped) > 0 {
+			if len(seeded.dead) > 0 {
+				log.Warn("seed-tokens: these secrets belong to revoked or expired tokens and stay dead; "+
+					"generate a new secret for each", "labels", strings.Join(seeded.dead, ","))
+			}
+			if len(seeded.noSecret) > 0 {
 				// Named, so a credential that vanished by accident looks different from one
 				// removed on purpose.
-				log.Info("seeded operator-supplied credentials", "created", n,
-					"no_secret_supplied", strings.Join(skipped, ","))
+				log.Info("seeded operator-supplied credentials", "created", seeded.created,
+					"no_secret_supplied", strings.Join(seeded.noSecret, ","))
 			} else {
-				log.Info("seeded operator-supplied credentials", "created", n)
+				log.Info("seeded operator-supplied credentials", "created", seeded.created)
 			}
 		}
 		secret := *bootstrapToken
@@ -350,9 +354,41 @@ func exposedAddr(addr string) bool {
 	return true
 }
 
+type seedEntry struct {
+	label, secret string
+	perms         []string
+}
+
+type seedReport struct {
+	created        int
+	noSecret, dead []string // labels
+}
+
 // seedSuppliedTokens parses `label=perms=secret`, perms joined by `+`: flat to survive a compose
 // `environment:` value and a shell. Token bodies are unpadded base64url, so they hold no `=`.
-func seedSuppliedTokens(database *db.DB, spec string) (created int, skipped []string, err error) {
+func seedSuppliedTokens(database *db.DB, spec string) (seedReport, error) {
+	entries, noSecret, err := parseSeedTokens(spec)
+	if err != nil {
+		return seedReport{}, err
+	}
+	report := seedReport{noSecret: noSecret}
+	for _, e := range entries {
+		outcome, err := database.SeedToken(context.Background(), e.label, e.perms, e.secret)
+		if err != nil {
+			return seedReport{}, err
+		}
+		switch outcome {
+		case db.SeedCreated:
+			report.created++
+		case db.SeedDead:
+			report.dead = append(report.dead, e.label)
+		}
+	}
+	return report, nil
+}
+
+// parseSeedTokens checks every entry before any is stored, so a refused list writes nothing.
+func parseSeedTokens(spec string) (entries []seedEntry, noSecret []string, err error) {
 	for _, entry := range strings.Split(spec, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
@@ -360,33 +396,28 @@ func seedSuppliedTokens(database *db.DB, spec string) (created int, skipped []st
 		}
 		parts := strings.SplitN(entry, "=", 3)
 		if len(parts) != 3 {
-			return 0, nil, fmt.Errorf("bad entry %q: want label=perms=secret", redactSeed(entry))
+			return nil, nil, fmt.Errorf("bad entry %q: want label=perms=secret", redactSeed(entry))
 		}
 		label, permSpec, secret := parts[0], parts[1], parts[2]
 		// An empty SECRET is one the operator removed after first start, as intended; the row
 		// already exists. Fewer than three parts is still an error, so a typo is not swallowed.
 		if secret == "" {
-			skipped = append(skipped, label)
+			noSecret = append(noSecret, label)
 			continue
 		}
-		var perms []string
-		for _, p := range strings.Split(permSpec, "+") {
-			if p = strings.TrimSpace(p); p != "" {
-				perms = append(perms, p)
-			}
+		if label == "" {
+			return nil, nil, fmt.Errorf("bad entry %q: label is required", redactSeed(entry))
 		}
-		if label == "" || len(perms) == 0 {
-			return 0, nil, fmt.Errorf("bad entry %q: label and perms are both required", redactSeed(entry))
+		perms, err := api.ValidPerms(splitPerms(permSpec, "+"))
+		if err != nil {
+			return nil, nil, fmt.Errorf("seed token %q: %w", label, err)
 		}
-		ok, seedErr := database.SeedToken(context.Background(), label, perms, secret)
-		if seedErr != nil {
-			return 0, nil, seedErr
+		if err := db.ValidateTokenSecret(secret); err != nil {
+			return nil, nil, fmt.Errorf("seed token %q: %w", label, err)
 		}
-		if ok {
-			created++
-		}
+		entries = append(entries, seedEntry{label: label, secret: secret, perms: perms})
 	}
-	return created, skipped, nil
+	return entries, noSecret, nil
 }
 
 // redactSeed keeps a malformed entry out of the logs intact — the reason it is malformed is

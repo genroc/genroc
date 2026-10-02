@@ -390,3 +390,94 @@ func TestTokens_EveryMintingPathRecordsItsOwnActor(t *testing.T) {
 		})
 	}
 }
+
+func TestTokens_SeedLeavesARevokedSecretRevoked(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			secret, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := b.db.SeedToken(ctx, "ci", []string{"deploy"}, secret); err != nil {
+				t.Fatalf("first seed: %v", err)
+			}
+			rows, err := b.db.ListTokens(ctx)
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("list: %d rows, err=%v", len(rows), err)
+			}
+			if err := b.db.RevokeToken(ctx, rows[0].ID, dbpkg.ActorTokenRevoke); err != nil {
+				t.Fatalf("revoke: %v", err)
+			}
+
+			outcome, err := b.db.SeedToken(ctx, "ci", []string{"deploy"}, secret)
+			if err != nil {
+				t.Fatalf("re-seeding a revoked secret failed (%v); a restart with the seed still "+
+					"configured must not crash the server", err)
+			}
+			if outcome != dbpkg.SeedDead {
+				t.Errorf("outcome = %v, want SeedDead -- startup warns by it, naming the label", outcome)
+			}
+			if _, ok, _ := b.db.LookupToken(ctx, secret); ok {
+				t.Error("a revoked seed authenticates again after a restart; revocation must survive it")
+			}
+			if rows, _ := b.db.ListTokens(ctx); len(rows) != 1 {
+				t.Errorf("%d rows after re-seeding, want the one revoked row", len(rows))
+			}
+		})
+	}
+}
+
+func TestTokens_BootstrapRefusesARevokedSecretByName(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			secret, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
+			tok, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", secret)
+			if err != nil || !created {
+				t.Fatalf("first bootstrap: created=%v err=%v", created, err)
+			}
+			if err := b.db.RevokeToken(ctx, tok.ID, dbpkg.ActorTokenRevoke); err != nil {
+				t.Fatalf("revoke: %v", err)
+			}
+
+			_, created, err = b.db.EnsureBootstrapToken(ctx, "bootstrap", secret)
+			if err == nil || created {
+				t.Fatalf("a revoked bootstrap secret was accepted (created=%v); it must stay dead", created)
+			}
+			if !strings.Contains(err.Error(), "revoked") || strings.Contains(err.Error(), "attempts") {
+				t.Errorf("err = %q; the operator must be told the secret was revoked, not shown a "+
+					"constraint failure after retries", err)
+			}
+			if _, ok, _ := b.db.LookupToken(ctx, secret); ok {
+				t.Error("the revoked bootstrap secret authenticates again")
+			}
+		})
+	}
+}
+
+func TestTokens_BootstrapRefusesASecretANonAdminTokenHolds(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			secret, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := b.db.SeedToken(ctx, "evaluator", []string{"worker"}, secret); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			_, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", secret)
+			if err == nil || created {
+				t.Fatalf("bootstrap reused a worker token's secret (created=%v)", created)
+			}
+			if !strings.Contains(err.Error(), "evaluator") || strings.Contains(err.Error(), "attempts") {
+				t.Errorf("err = %q; it must name the token already holding the secret, not report "+
+					"a constraint failure after retries", err)
+			}
+		})
+	}
+}

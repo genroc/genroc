@@ -4,7 +4,7 @@ import "sort"
 
 // Conformed is the type of s after Validate(v, ConformToSchemaExactly) against declared — what
 // LEAVES a declared slot — derived from s and changed only where the fill changes the value.
-// Sound only for a pair ConformsExactlyTo accepted. specs/declared-slot-schemas.md §1, §6.
+// Sound only for a pair ConformsExactlyTo accepted. specs/declared-slot-schemas.md §1, §4.
 func (s Schema) Conformed(declared Schema) Schema {
 	if s.n == nil {
 		return s

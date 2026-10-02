@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"genroc/internal/numeric"
 	"genroc/internal/schema"
 )
 
 // Shape is a templated value plus the structure it must produce. Only Raw survives JSON
 // (un)marshaling; Schema, Name, Expr and Conformed are attached by the owning slot.
 type Shape struct {
-	Raw    any            // the templated value: string | float64 | bool | nil | []any | map[string]any
+	Raw    any            // the templated value: string | json.Number | bool | nil | []any | map[string]any
 	Schema *schema.Schema // optional: the required structure Check verifies conformance to
 	Name   string         // optional: locates the shape in error messages (e.g. "task X headers")
 	// Expr marks an expression-only slot (a switch case, child_list over): Raw is one bare
@@ -32,7 +33,7 @@ func (s *Shape) exprString() string {
 
 func (s *Shape) UnmarshalJSON(b []byte) error {
 	var raw any
-	if err := json.Unmarshal(b, &raw); err != nil {
+	if err := numeric.Decode(b, &raw); err != nil {
 		return err
 	}
 	if err := checkShape(raw); err != nil {
@@ -52,10 +53,9 @@ func (s *Shape) Present() bool {
 }
 
 // checkShape enforces string | number | boolean | null | Shape[] | Record<string, Shape>.
-// JSON numbers decode to float64, so that is the only numeric kind.
 func checkShape(n any) error {
 	switch v := n.(type) {
-	case string, float64, bool, nil:
+	case string, json.Number, bool, nil:
 		return nil
 	case []any:
 		for i, c := range v {

@@ -1,6 +1,7 @@
 package shape
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"genroc/internal/expression"
@@ -37,7 +38,7 @@ func Eval(node any, env map[string]any) (any, error) {
 			out[k] = ev
 		}
 		return out, nil
-	case bool, float64, nil:
+	case bool, json.Number, nil:
 		return n, nil
 	default:
 		return nil, fmt.Errorf("invalid shape node %T", node)

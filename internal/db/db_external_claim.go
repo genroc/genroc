@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	dbgen "genroc/internal/db/gen"
@@ -20,7 +21,8 @@ const claimableWhere = `phase = 'external' AND status = 'running'
 
 // ClaimExternalTasks atomically leases up to limit parked external tasks to workerID, oldest park
 // first, filtered by name/version/task (empty/0 = any). The ONLY place external_claim_epoch moves;
-// it must touch neither task_epoch (every handle out) nor the engine's lease columns.
+// it must touch neither task_epoch (every handle out) nor the engine's lease columns. A candidate
+// already holding an answer goes to the engine instead, so fewer than limit may come back.
 func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit int, processName string, processVersion int, task string) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
@@ -42,22 +44,30 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	}
 
 	if db.dialect == "postgres" {
+		// `unparked` is UnparkAnsweredExternal inline: the candidates are locked only for this statement.
 		query := `
 			WITH cand AS (
-				SELECT id AS cand_id, external_worker_id AS prev_holder
+				SELECT id AS cand_id, external_worker_id AS prev_holder,
+				       EXISTS (SELECT 1 FROM process_signals s
+				                WHERE s.instance_id = process_instances.id
+				                  AND s.task_id = process_instances.task) AS answered
 				FROM process_instances
 				WHERE ` + where + `
 				ORDER BY updated_at ASC, id ASC
 				LIMIT ? FOR UPDATE SKIP LOCKED
+			), unparked AS (
+				UPDATE process_instances SET phase = '', wake_at = NULL, updated_at = ?
+				FROM cand
+				WHERE process_instances.id = cand.cand_id AND cand.answered
 			)
 			UPDATE process_instances
 			SET external_worker_id = ?, external_lease_expires_at = ?,
 			    external_claim_epoch = process_instances.external_claim_epoch + 1
 			FROM cand
-			WHERE process_instances.id = cand.cand_id
+			WHERE process_instances.id = cand.cand_id AND NOT cand.answered
 			RETURNING ` + instanceColumns + `, cand.prev_holder`
 
-		rows, err := db.exec.QueryContext(ctx, query, append(args, limit, workerID, leaseExpiry)...)
+		rows, err := db.exec.QueryContext(ctx, query, append(args, limit, now, workerID, leaseExpiry)...)
 		if err != nil {
 			return nil, err
 		}
@@ -126,6 +136,20 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	idsJSON, err := json.Marshal(ids)
 	if err != nil {
 		return nil, err
+	}
+	unparked, err := qtx.UnparkAnsweredExternal(ctx, dbgen.UnparkAnsweredExternalParams{UpdatedAt: now, Ids: string(idsJSON)})
+	if err != nil {
+		return nil, err
+	}
+	if len(unparked) > 0 {
+		result = slices.DeleteFunc(result, func(inst *model.ProcessInstance) bool { return slices.Contains(unparked, inst.ID) })
+		ids = slices.DeleteFunc(ids, func(id string) bool { return slices.Contains(unparked, id) })
+		if len(ids) == 0 {
+			return nil, tx.Commit()
+		}
+		if idsJSON, err = json.Marshal(ids); err != nil {
+			return nil, err
+		}
 	}
 	if err := qtx.GrantExternalLeases(ctx, dbgen.GrantExternalLeasesParams{
 		ExternalWorkerID:       sql.NullString{String: workerID, Valid: true},
@@ -232,6 +256,14 @@ func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskE
 		}
 		if n == 0 {
 			return fmt.Errorf("claim is no longer held (it may have expired and been re-claimed): %w", ErrConflict)
+		}
+		// A signal that deferred to this claim is now the answer: the engine's, not the queue's.
+		idJSON, err := json.Marshal([]string{instanceID})
+		if err != nil {
+			return err
+		}
+		if _, err := qtx.UnparkAnsweredExternal(ctx, dbgen.UnparkAnsweredExternalParams{UpdatedAt: nowMillis(), Ids: string(idJSON)}); err != nil {
+			return fmt.Errorf("release external claim: %w", err)
 		}
 		return nil
 	})

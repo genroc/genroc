@@ -144,3 +144,24 @@ func TestObjectKeyMustBeAScalar(t *testing.T) {
 		t.Fatalf("a complex key has no path spelling and must be refused, got %v", err)
 	}
 }
+
+func TestASecondMergeKeyInOneMappingIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		line string
+	}{
+		"two directives":           {"task:\n  <<: \"$process: ./a.genroc.yaml\"\n  <<: \"$process: ./b.genroc.yaml\"\n", "line 3"},
+		"two aliases":              {"a: &a {p: 1}\nb: &b {q: 2}\ntask:\n  <<: *a\n  <<: *b\n", "line 5"},
+		"an alias and a directive": {"a: &a {p: 1}\ntask:\n  <<: *a\n  <<: \"$process: ./b.genroc.yaml\"\n", "line 4"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.src))
+			if err == nil {
+				t.Fatal("a second `<<` in one mapping was accepted: one spread silently shadows the other")
+			}
+			if !strings.Contains(err.Error(), tc.line) {
+				t.Errorf("the refusal must name %s, where the second `<<` is written, got: %v", tc.line, err)
+			}
+		})
+	}
+}

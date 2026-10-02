@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"genroc/internal/api"
 	"genroc/internal/db"
 )
 
@@ -93,25 +94,18 @@ func openTokenDB(dbPath, pgDSN string) (*db.DB, error) {
 	return db.OpenSQLite(dbPath, "")
 }
 
-// parsePerms rejects an unknown permission rather than dropping it: a token minted with a typo
-// would silently grant less than the operator asked for, and they would find out from a 403.
 func parsePerms(csv string) ([]string, error) {
-	valid := map[string]bool{"admin": true, "deploy": true, "operate": true, "read": true, "worker": true}
+	return api.ValidPerms(splitPerms(csv, ","))
+}
+
+func splitPerms(list, sep string) []string {
 	var out []string
-	for _, p := range strings.Split(csv, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
+	for _, p := range strings.Split(list, sep) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
-		if !valid[p] {
-			return nil, fmt.Errorf("unknown permission %q; valid: admin, deploy, operate, read, worker", p)
-		}
-		out = append(out, p)
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no permissions given")
-	}
-	return out, nil
+	return out
 }
 
 func printTokens(rows []db.APIToken) {

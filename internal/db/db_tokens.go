@@ -203,6 +203,9 @@ func (db *DB) EnsureBootstrapToken(ctx context.Context, label string, secret str
 		if err == nil {
 			return tok, created, nil
 		}
+		if errors.As(err, new(secretHeldError)) {
+			return APIToken{}, false, err
+		}
 	}
 	return APIToken{}, false, fmt.Errorf("bootstrap token after %d attempts: %w", attempts, err)
 }
@@ -231,6 +234,10 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 		}
 	} else if err := ValidateTokenSecret(secret); err != nil {
 		return APIToken{}, false, err
+	} else if held, err := holderOf(ctx, qtx, secret); err != nil {
+		return APIToken{}, false, err
+	} else if held != nil {
+		return APIToken{}, false, held.bootstrapRefusal()
 	}
 	perms, _ := json.Marshal([]string{"admin"})
 	tok = APIToken{
@@ -249,21 +256,30 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	return tok, true, nil
 }
 
-// SeedToken ensures a token with this exact secret exists, granting perms under label. Idempotent
-// by SECRET, not label: a new value mints a second token, so rotation is additive and a fleet
-// rolls without refusals. created reports whether this call inserted.
-func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secret string) (created bool, err error) {
+type SeedOutcome int
+
+const (
+	SeedCreated SeedOutcome = iota + 1
+	SeedPresent
+	// SeedDead: a revoked or expired token holds the secret, and it stays that way.
+	SeedDead
+)
+
+// SeedToken stores a token with this exact secret, granting perms under label, unless some token
+// already holds the secret, live or dead. Idempotent by SECRET, not label: a new value mints a
+// second token, so rotation is additive and a fleet rolls without refusals.
+func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secret string) (SeedOutcome, error) {
 	if err := ValidateTokenSecret(secret); err != nil {
-		return false, fmt.Errorf("seed token %q: %w", label, err)
+		return 0, fmt.Errorf("seed token %q: %w", label, err)
 	}
-	if _, ok, err := db.LookupToken(ctx, secret); err != nil {
-		return false, err
-	} else if ok {
-		return false, nil
+	if held, err := holderOf(ctx, db.q, secret); err != nil {
+		return 0, err
+	} else if held != nil {
+		return held.seedOutcome(), nil
 	}
 	encoded, err := json.Marshal(perms)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
 		ID: db.nextTokenID(), Hash: HashToken(secret), Label: label,
@@ -272,10 +288,57 @@ func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secre
 	if err != nil {
 		// A concurrent replica seeding the same secret loses the UNIQUE(hash) race, which is
 		// success rather than failure: the row it wanted exists.
-		if _, ok, lookupErr := db.LookupToken(ctx, secret); lookupErr == nil && ok {
-			return false, nil
+		if held, lookupErr := holderOf(ctx, db.q, secret); lookupErr == nil && held != nil {
+			return held.seedOutcome(), nil
 		}
-		return false, fmt.Errorf("seed token %q: %w", label, err)
+		return 0, fmt.Errorf("seed token %q: %w", label, err)
 	}
-	return true, nil
+	return SeedCreated, nil
+}
+
+// secretHolder is the token row a secret hashes to, whatever its state. dead is "revoked" or
+// "expired", or "" while it still authenticates.
+type secretHolder struct {
+	id, label, dead string
+}
+
+// holderOf returns nil when no row holds secret. Never authenticate from it: it sees dead rows.
+func holderOf(ctx context.Context, q *dbgen.Queries, secret string) (*secretHolder, error) {
+	row, err := q.GetAnyAPITokenByHash(ctx, HashToken(secret))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("look up token secret: %w", err)
+	}
+	h := &secretHolder{id: row.ID, label: row.Label}
+	switch {
+	case row.RevokedAt.Valid:
+		h.dead = "revoked"
+	case row.ExpiresAt.Valid && row.ExpiresAt.Int64 <= nowMillis():
+		h.dead = "expired"
+	}
+	return h, nil
+}
+
+func (h *secretHolder) seedOutcome() SeedOutcome {
+	if h.dead != "" {
+		return SeedDead
+	}
+	return SeedPresent
+}
+
+// secretHeldError is permanent, so EnsureBootstrapToken does not retry it.
+type secretHeldError struct{ msg string }
+
+func (e secretHeldError) Error() string { return e.msg }
+
+// bootstrapRefusal runs only when no live admin exists, so a live holder is a non-admin one.
+func (h *secretHolder) bootstrapRefusal() error {
+	if h.dead != "" {
+		return secretHeldError{fmt.Sprintf("the bootstrap secret belongs to token %s (%q), which is %s; "+
+			"a dead secret is never reinstated, so supply a new one (genctl token generate)", h.id, h.label, h.dead)}
+	}
+	return secretHeldError{fmt.Sprintf("the bootstrap secret already belongs to token %s (%q), which does "+
+		"not grant admin; supply a different one (genctl token generate)", h.id, h.label)}
 }

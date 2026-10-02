@@ -232,7 +232,7 @@ same gaps — the pairing is in `internal/schema/schematest/conforms_exactly_tes
 task as the parent stands now — `task.Action.ResultSchema`, or `task.Action.Children[key]`
 for a `child_map` — never from a copy taken at spawn. The schema used to be marshalled onto
 every child row as `_spawn_result_schema`; dropping it was the prerequisite for upgrading a
-live instance ([specs/version-compatibility.md](../../specs/version-compatibility.md) §5a).
+live instance ([specs/version-compatibility.md](../../specs/version-compatibility.md) §3a).
 
 Three things that break silently if it goes back:
 

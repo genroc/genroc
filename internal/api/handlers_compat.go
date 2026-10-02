@@ -11,7 +11,7 @@ import (
 )
 
 // Everything here is resolution, never judgement: two selectors into two
-// one-version-per-process tables, reconciled. Design: specs/version-compatibility.md.
+// one-version-per-process tables, reconciled. Design: specs/compat-command.md.
 
 // resolvedEntry is one process on one side, with the thing that decides what a missing
 // counterpart means: whether the caller named it, or it came along.
