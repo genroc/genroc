@@ -196,11 +196,13 @@ In the examples above that is:
 | `url`, `method` | `fetch` action | string template |
 | `body` | `fetch` action | shape |
 | `for` | `delay` action | literal duration, or a `$:` yielding integer * |
+| `until` | `delay` action | literal instant, or a `$:` yielding integer * |
 | `case` | `switch` | raw expression |
 | `output` | `task` | shape |
 | `output` | `process` | shape |
 
-> \* A static `for` can use human-readable syntax, e.g. `2h30s`; a dynamic one can only give milliseconds as a number.
+> \* A static `for` or `until` can use human-readable syntax, e.g. `2h30s` or `mon 09:00`; a dynamic one can only give
+> milliseconds as a number — a duration for `for`, a Unix timestamp for `until`.
 
 Every action and clause introduced later brings its own slots, but the syntax is always one of these.
 
