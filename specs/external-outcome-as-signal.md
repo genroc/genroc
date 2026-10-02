@@ -9,7 +9,7 @@ unified a result and a failure into one `ExternalOutcome`, and
 An outcome reaches a parked instance one way: it is appended to `process_signals`, and the
 instance is made claimable. Nothing writes an outcome onto the instance row.
 
-## What is there now
+## What was there (before 2026-08-24)
 
 Both API paths — `ResolveExternalTask` and `DeliverSignal` — carry **two** delivery mechanisms and
 choose between them at runtime:
@@ -61,8 +61,8 @@ added.
 It also narrows what the arm's non-parking branch is *for*: not the ordinary early-signal case,
 but purely the race where a delivery lands between phase 2's check and the park write.
 
-**The arm stops consuming.** `ArmExternalOrConsumeSignal` currently pops a buffered signal, writes
-it to the row and yields the lease. It becomes a narrower decision — *park only if the buffer is
+**The arm stops consuming.** `ArmExternalOrConsumeSignal` (now `ArmExternalUnlessSignalled`) popped a buffered signal, wrote
+it to the row and yielded the lease. It becomes a narrower decision — *park only if the buffer is
 empty* — still as one read-modify-write under the row lock, because that atomicity is what stops
 the race it exists for: a signal that lands between "the buffer looked empty" and "we parked"
 would find the row unparked, buffer without un-parking, and leave the instance asleep until its
@@ -86,13 +86,13 @@ about the arm, where the database arbitrates park-xor-consume under the row lock
 `withExternalOutcome`, `withExternalSlot`, `SetExternalOutcome`; the `_external_result` and
 `_external_error` context keys; the `result` / `has_result` / `error` / `has_error` keys in the
 column; the arm's pop-and-write branch; and `decodeState`'s lift-after-place ordering.
-`external_input` becomes the parked input and nothing else. `withExternalKeys` stays for the
-`lost` marker.
+`external_input` becomes the parked input and nothing else. `withExternalKeys` stayed for the
+`lost` marker until 2026-09-24, when the marker became the `external_lost` column.
 
 ## What must not break
 
 - **The token binds an arming, not an instance.** `ResolveExternalTask` compares the submitted
-  `task_epoch` against the row under the same lock that checks the wait state. Buffering must not
+  `task_epoch` against the row under the same lock that checks the `phase`. Buffering must not
   loosen that: a signal for a stale epoch is refused, not queued, or a re-armed task consumes an
   answer to the previous occurrence.
 - **`only_once`.** An outcome that is buffered but never consumed must not become a second
@@ -122,7 +122,9 @@ Two things came out better than the design said, and one worse:
   returns no error, so it fails the instance with `engine.spawn` (whose remit already covered
   "arming an external task"), which is terminal — a transient database blip would kill the
   instance rather than retrying. Recorded rather than fixed: the honest fix is a way for an
-  advance to report a transient failure, which is a bigger change than this one.
+  advance to report a transient failure, which is a bigger change than this one. **Softened
+  2026-08-25:** the read goes through `retryRead` (3 attempts, 50 ms apart), so only a fault
+  that survives every attempt reaches `engine.spawn`.
 
 ## Tests that must bite
 

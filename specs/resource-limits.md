@@ -98,7 +98,10 @@ retry loop against an endpoint that is already failing. `retries` has no upper b
 validation, so reaching those attempt counts needs nothing but a definition that asks for
 them.
 
-**Shipped:** the exponent is clamped at 9 (2^9s is already past the 5-minute cap, so this
+**Shipped, then reshaped the same day by [retry-policy.md](retry-policy.md):** the clamp below
+gave way to float64 growth from the policy's `delay`/`factor` that stops at `max_delay`
+(`internal/engine/backoff.go`); the jitter is unchanged. As first shipped, the exponent was
+clamped at 9 (2^9s is already past the 5-minute cap, so this
 changes no delay the un-clamped formula produced), and the result is jittered:
 
 ```go
@@ -109,7 +112,7 @@ Jitter is applied to the **upper half** of the window, not the full window. Full
 (`rand[0, d]`) halves the expected backoff, which weakens the property backoff exists for;
 equal jitter keeps the growth curve while still spreading a cohort. The important
 consequence either way is that jitter only ever **shortens** the nominal delay, so the
-5-minute cap remains a true ceiling — and a test that advances the clock by the nominal
+ceiling (`max_delay`, default 5 minutes) remains a true ceiling — and a test that advances the clock by the nominal
 amount still expires the timer, which is how the existing retry suite keeps working
 unchanged.
 
@@ -180,7 +183,6 @@ property in place.
   listener.
 - **`retries` has no upper bound at registration.** The overflow it used to cause is fixed
   in `retryDelay` (`internal/engine/backoff.go`), so a large value is now merely a
-  long-running retry loop — the author's
-  choice — but nothing tells them the delay stops growing after attempt 9.
+  long-running retry loop at the policy's `max_delay` — the author's choice.
 - **No metrics.** `/healthz` answers "is this worker serving"; it does not answer "how many
   instances are in flight, how deep is the backlog, how often are leases being taken over".

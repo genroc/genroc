@@ -15,7 +15,7 @@ and are marked where they no longer describe behaviour.
 shape, not §4's: genroc-ui resolves groups to permissions and mints an HS256 token carrying
 them, so the server verifies one issuer and reads a `perms` claim.
 
-The default remains `none` — no `Authorization` handling, no actor recorded, every endpoint open
+The default remains `none` — no `Authorization` handling, every row attributed `no-auth:anonymous`, every endpoint open
 and `PUT /definitions` arbitrary code execution — with a startup warning when that is also bound
 beyond loopback (§6).
 
@@ -72,7 +72,7 @@ Both are now resolved, and neither by the rename this section originally propose
 | **inbound** (low trust) | `POST /api/external-tasks/*` — claim, renew, release, resolve, signal | direct |
 | **shared** | `GET /api/objects/{ref}` | direct — workers fetch externalized inputs, operators read the same refs |
 | **control plane** | the rest of `/api/*` — definitions, instances, channels, tick | direct |
-| **human** | everything else — the UI (`-ui`) | through the SSO proxy |
+| **human** | the UI — served by genroc-ui, not this server ([ui-component.md](ui-component.md)) | through genroc-ui |
 
 **A `/api/queue/*` prefix was proposed here and dropped.** Its whole justification was that the
 operator listing sat under the prefix a worker rule would open; deleting that listing did the
@@ -275,7 +275,7 @@ than the one it names is worse than no test: it reports coverage of a guard noth
 
 ```go
 {
-    Name:   "put_definitions",
+    Name:   "put_definition",
     Method: http.MethodPut,
     Path:   "/definitions",
     Allow:  []Perm{PermDeploy},
@@ -294,7 +294,7 @@ Five permissions, deliberately coarse:
 |---|---|
 | `worker` | the inbound zone — claim, renew, release, resolve, **signal** — and `GET /objects/{ref}` |
 | `read` | every `GET`, plus `/definitions/validate` and `/definitions/compat` — analyses that write nothing |
-| `operate` | start, pause, resume, retry — acting on *runs* |
+| `operate` | start, pause, resume, cancel, retry — acting on *runs* |
 | `deploy` | `PUT /definitions`, channels, upgrade — changing *what runs* |
 | `admin` | tokens, `/tick`, and anything that declares nothing |
 
@@ -351,11 +351,11 @@ presents its credential on the envelope's `Token` field, since a stream protocol
 **Not in the server.** It moved to genroc-ui on 2026-09-02 along with the group→permission
 resolution it exists for, so the server verifies one issuer and reads the resolved `perms` claim.
 [ui-issued-tokens.md](ui-issued-tokens.md). The `-auth-config` YAML this section specified was
-never built; what it argued — policy must not be editable through the API it governs — is
+built 2026-09-01 and removed 2026-09-02; what it argued — policy must not be editable through the API it governs — is
 satisfied more completely by the map living in a different binary.
 
 What the server takes instead is four scalars describing which tokens to accept:
-`-jwt-secret-file` (or `-jwt-secret`), `-jwt-issuer`, `-jwt-audience`, `-jwt-leeway`. A file for
+`-jwt-secret-file` (or `$GENROC_JWT_SECRET`), `-jwt-issuer`, `-jwt-audience`, `-jwt-leeway`. A file for
 that is a parser, a schema and a mount for no benefit. `internal/api/authconfig.go`.
 
 `-jwt-secret-file` and `-auth token` are **independent flags**, not one setting with several
@@ -408,10 +408,12 @@ Bootstrap is §5.3 — it is more than one line, and it is where designs of this
 
 ### 5.1 One host, split by path — the proxy sits in front of the UI, not the API
 
-**PARTLY SUPERSEDED.** `-ui` serves the SPA at `/` and still does. The `/session/token` exchange
+**SUPERSEDED.** `-ui` served the SPA at `/` until the UI moved to genroc-ui (2026-09-02,
+[ui-component.md](ui-component.md)). The `/session/token` exchange
 described below was built 2026-09-01 and **removed 2026-09-02**: the routing split it worked
-around is gone, so the proxy attaches a JWT to every browser request and the SPA holds no
-credential at all. [auth-two-credentials.md](auth-two-credentials.md) §2, §3.
+around is gone, so genroc-ui attaches a token it mints to every browser request and the SPA holds no
+credential at all. [auth-two-credentials.md](auth-two-credentials.md) §2, §3;
+[ui-issued-tokens.md](ui-issued-tokens.md).
 
 An SSO proxy answers a request carrying no session cookie with a redirect to the login page, so a
 script presenting `Authorization: Bearer genroc_sk_…` receives HTML instead of a reply. The two
@@ -639,8 +641,8 @@ guards are **BUILT 2026-09-01**:
 
 **BUILT 2026-09-02** (migrations 038, 039). `process_definitions.actor` answers *"who deployed
 v7?"*; `process_channels.actor` (with `updated_at`, which was also unexposed) answers *"who
-promoted v7 to prod, and when?"*; `process_logs.actor` answers it for a pause, resume, retry,
-upgrade and an instance's creation. Everything written before the migrations stays anonymous
+promoted v7 to prod, and when?"*; `process_logs.actor` answers it for a pause, resume, cancel,
+retry, upgrade and an instance's creation. Everything written before the migrations stays anonymous
 permanently, which was the argument for landing this early rather than when it was next asked for.
 
 **`api_tokens` got TWO columns (migration 043), not one.** A token has two attributable events —
@@ -735,16 +737,17 @@ describes is.)
   mode consumes an identity someone else established.
 - **TLS.** Terminated in front of genroc — an ingress, a load balancer, a reverse proxy — as it
   is for any other service. Nothing about it is genroc's to configure.
-- **Cookies.** The API accepts `Authorization` and configured headers only. A cookie is an
+- **Cookies.** The API accepts `Authorization` only (configured headers went with `header`
+  mode, 2026-09-02). A cookie is an
   *ambient* credential: a malicious page makes the browser issue a cross-site request, the
   cookie rides along, and the proxy dutifully forwards the identity header — so header trust
   does not save a cookie-authenticated control plane from CSRF. A UI should exchange its session
   for a short-lived bearer token; the cookie then authenticates only the minting endpoint.
 
   **Still true, and now absolute: genroc reads no cookie anywhere.** The exchange that once did
-  (`/session/token`) is gone. A browser's cookie is converted to a JWT by the proxy and genroc
-  sees only that, which means the CSRF surface belongs entirely to the proxy — `SameSite` is what
-  closes it. [auth-two-credentials.md](auth-two-credentials.md) §4.
+  (`/session/token`) is gone. genroc-ui turns its own `SameSite=Lax` session cookie into a token
+  it mints, and genroc sees only that, so the CSRF surface belongs entirely to genroc-ui —
+  `SameSite`, set in our code, is what closes it. [ui-component.md](ui-component.md) §2.
 - **Scoped grants** — a permission narrowed by a filter rather than held over everything. The
   driver is concrete: a UI that renders forms for one process's approvals should hold something
   that resolves tasks *in that process*, not `worker` over the whole queue.
@@ -805,10 +808,12 @@ describes is.)
   as no default at all.
 - ~~**Where does the UI's short-lived token come from?**~~ **Answered twice.** Settled
   2026-09-01 as a new endpoint (`GET /session/token`, minting a real token row). Re-answered
-  2026-09-02 by deleting the question: the proxy attaches a JWT to every browser request, so the
-  UI needs no token of its own and there is nothing to mint, store or expire.
-  [auth-two-credentials.md](auth-two-credentials.md) §2.
-- **Should genroc run the OIDC login flow itself?** §5.1 unifies onto one host but still needs a
+  2026-09-02 by deleting the question: genroc-ui attaches a token it mints to every browser
+  request, so the SPA needs no token of its own and there is nothing to store or expire.
+  [auth-two-credentials.md](auth-two-credentials.md) §2, [ui-issued-tokens.md](ui-issued-tokens.md).
+- ~~**Should genroc run the OIDC login flow itself?**~~ **Answered 2026-09-02 by
+  [ui-component.md](ui-component.md) §2: no, but genroc-ui — which we ship — does.** The case as
+  it stood before (`-ui` and `header` mode are both gone): §5.1 unifies onto one host but still needs a
   proxy in front of the browser zone (`/`, where `-ui` serves the SPA). The full unification is genroc implementing the authorization-code
   flow — what Grafana, Argo CD and Gitea all converged on — after which no component in the
   deployment exists to establish identity. It is a real feature, not a config change, and it is the
@@ -821,6 +826,6 @@ describes is.)
   `jwt` would not remove it either — it verifies a token someone else minted. So this remains
   the only thing that would make the proxy optional for a browser, which is both the argument
   for it and the measure of how much surface it buys.
-- **Does `Principal.Roles` need to survive into expressions?** A definition that behaves
+- **Does the caller's `Principal` need to survive into expressions?** A definition that behaves
   differently per caller is a large idea with no demand behind it, and naming it here is enough
   to stop it being added accidentally.

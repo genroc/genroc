@@ -9,7 +9,7 @@ mode below is the one part still unbuilt. Invariants live in
 
 An `unknown` is a value a process **handles but does not inspect**; whoever wants to
 read it must narrow it first — exactly how a `fetch` response already needs a
-`result_schema`. This makes a child process able to play the same opaque-source role,
+`responses` schema. This makes a child process able to play the same opaque-source role,
 uniformly. Motivation: a forwarding process should not have to declare a shape that is
 the *caller's* concern.
 
@@ -42,7 +42,7 @@ narrowing point already existed: the `result_schema` on the producing action, co
 at collect from the parent's pinned definition. The entire build was one relation:
 `Schema.NarrowsTo` = `IsSubset` with the `isEmptyNode(sub)` rule flipped, checked
 inside the recursion (so an unknown narrows at any depth), used by
-`checkChildOutputType` and nowhere else. A typed **input** still rejects `{}` — not for
+`checkChildOutputType` and nowhere else (later also `checkDeclaredRaises`, for X2's payloads). A typed **input** still rejects `{}` — not for
 symmetry, but because nothing conforms a child input on the parent's behalf; the
 privilege belongs exactly where a real check stands behind it.
 

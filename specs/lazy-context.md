@@ -34,6 +34,7 @@ loads what that path needs and nothing else.
 2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
 3. `resolveNested` **writes back through `inst.ContextData`**. First read destroys the markers,
    so the next write re-marshals and re-hashes the slot to arrive at the hash it already had.
+   [fixed -- see §4]
 
 ## Design
 
@@ -53,6 +54,10 @@ Every value column is now `Envelope{data, refs}` with paths rooted at the slot, 
 collected in ONE place instead of five. Two things kept their shape and earn it: `outputs_data`
 keeps its `{order, items}` wrapper (per-task cut budgets, completion order), and `engine_state`
 is not a value slot at all — it never carries a reference.
+
+[superseded the same day: `model.Envelope` was deleted and references moved to one `objects`
+column per owner, rooted at the context — object-store.md §Every owner declares its references;
+`order` left `outputs_data` 2026-08-26.]
 
 ### 2. The context owns the decoded data, a loader and a memo [built]
 
@@ -96,9 +101,10 @@ through (it stringifies); a `$:` expression does not (it hands the value on).
 through are materialized exactly as before, so nothing regresses. It is a strictly coarser
 analysis than wish 2 and needs none of its machinery.
 
-A side effect worth recording: `last_error.data` laziness had never worked. The `ErrorData` root
+A side effect worth recording: `error.data` laziness had never worked. The `ErrorData` root
 existed and was correct, and `resolveNested` defeated it by materializing every child of the map
-it walked, so `last_error.code` always paid for the body. `Through.ErrorData` restores the intent.
+it walked, so `error.code` always paid for the body. `Through.ErrorData` restores the intent
+(and `Through.LastErrorData` for `last_error`, its own namespace since 2026-09-04).
 
 ### 4. Resolution is a view, never a write-back
 
@@ -185,7 +191,7 @@ laziness deliberately broken. The load count only exists in memory, so the test 
 
 - `At` loads nothing on a disjoint path, keeps the marker when the walk stops above one, loads
   once when it steps through, and never writes back (`internal/model/context_test.go`).
-- `Through` separates copy from read-through per output id, and `last_error.code` does not pull the
+- `Through` separates copy from read-through per output id, and `error.code` does not pull the
   body (`roots_through_test.go`).
 - Copying a marker evaluates; indexing, comparing, interpolating or passing one to a function
   fails and names the object (`external_marker_test.go`).

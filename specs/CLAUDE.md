@@ -1,7 +1,7 @@
 # specs/
 
-Specs and design records. **Not every doc here describes shipped behavior** — the ones
-listed below are proposals. Do not cite them as current behavior.
+Specs and design records. **Not every doc here describes shipped behavior** — each says
+which in its §0. Do not cite a proposal as current behavior.
 
 `specs/` and `docs/` are divided by what the text asserts, not by polish or audience.
 **A spec records a decision** — why a design was chosen, what was rejected, what is still
@@ -33,11 +33,13 @@ time something landed). A doc stays put when it is built — a spec records the 
 the behaviour is documented separately — so the entry text below says what a reader should
 take from it, never whether it shipped.
 
-As of 2026-09-16 four are wholly unbuilt — `custom-tasks` (north-star), `literal-types`,
-`discriminated-unions` (blocked on literal types) and `deterministic-simulation` — and four
-more are partial, each saying which half in its own §0: `error-extensions` (X1, X3),
-`source-resolution`, `durability-levels` and `docs-site`. That is a sanity check, not a
-register; when it disagrees with a §0, the §0 is right.
+As of 2026-10-02 five are wholly unbuilt — `custom-tasks` (north-star), `literal-types`,
+`discriminated-unions` (blocked on literal types), `deterministic-simulation` and
+`openapi-resolver` — and seven more are partial, each saying which half in its own §0:
+`error-extensions` (X1, X3; X1-b shipped as child-error-handling §5.5), `source-resolution`
+(`$infer`), `durability-levels` (the per-definition field), `docs-site`, `lazy-context` (wish
+2), `external-task-queue` (the long-poll) and `version-compatibility` (§3b). That is a sanity
+check, not a register; when it disagrees with a §0, the §0 is right.
 
 - [error-extensions.md](error-extensions.md) — three considered extensions to the child
   error model, of which **X2 (a payload on `raise`) is BUILT (2026-08-22)** — read its §X2-c
@@ -53,9 +55,9 @@ register; when it disagrees with a §0, the §0 is right.
   narrows an **unknown child output** moved off `engine.collect` onto a catchable
   `result.invalid` — which is why a child task's catchable set is now
   `raises(D) ∪ {result.invalid}` (child-error-handling.md E6).
-- [api-auth.md](api-auth.md) — **BUILT, with nothing outstanding**; path layout, permissions and
-  `token` mode landed 2026-08-28, `header` mode and the session exchange 2026-09-01, attribution
-  (§7) and `jwt` mode 2026-09-02. How genroc gets authenticated at all. The decision everything rests on is
+- [api-auth.md](api-auth.md) — how genroc gets authenticated at all. `header` mode and the session
+  exchange were **removed 2026-09-02** (auth-two-credentials.md), so passages on them below are
+  history. The decision everything rests on is
   a split — **genroc owns authorization, the deployment owns identity** — because which
   endpoints a caller may reach is a statement about our own API surface, and pushing it into
   ingress rules means every user keeps a hand-copied list of our routes that goes stale the next
@@ -85,8 +87,8 @@ register; when it disagrees with a §0, the §0 is right.
   — the sharpest argument for `jwt` there is. And the **session exchange** (§5.1) settled §10's
   open question in favour of a new endpoint outside `/api/`, minting a real token row rather than
   a signed blob so a person's session is listable, revocable and attributable like any other
-  credential; it must never permit a cross-origin read, which is why the UI is served from
-  genroc's own origin and no CORS exists anywhere in the system.
+  credential; it must never permit a cross-origin read, which is why no CORS exists anywhere in
+  the system.
 
   **Attribution (§7) landed last and is the one to read before adding a column anywhere near
   logs.** The actor is ONE value, `source:subject`, because the subject alone cannot say whether
@@ -111,8 +113,9 @@ register; when it disagrees with a §0, the §0 is right.
   Two findings worth carrying: `jwt` and `token` share the bearer header so they compose in a
   **chain**, where a mode that cannot DECIDE must stop it rather than fall through (an
   unreachable database silently becoming a 401 is an outage no operator can diagnose); and §2.2's
-  Google hybrid ships as an **overlay** in the transport, not a mode, because it needs the
-  request that `Authenticate` never sees. The `jwks_file` the spec insisted on is what made the
+  Google hybrid shipped as an **overlay** in the transport (removed 2026-09-02), not a mode,
+  because it needs the request that `Authenticate` never sees. The `jwks_file` the spec insisted
+  on (gone since jwt went HS256-only) was what made the
   edge cases testable at all — and testing them revealed that the algorithm pin was NOT actually
   covered by the obvious cases, since `alg: none` and HS256 confusion both fail on key typing
   anyway.
@@ -153,8 +156,9 @@ register; when it disagrees with a §0, the §0 is right.
   "security in a file genroc cannot check" that retired `header` mode. Its sharpest structural
   consequence: **the credential-presence matcher disappears rather than moving**, because browsers
   and machines now arrive at different components and nothing has to route on what a request
-  carries. Took Caddy AND oauth2-proxy out of `examples/proxy/`, which was removed with them. §5.1 draws the boundary that
-  keeps it small: **it relays, it never issues.** Google and every other OIDC provider connect
+  carries. Took Caddy AND oauth2-proxy out of `examples/proxy/`, which was removed with them. §5.1 drew the boundary that
+  kept it small — **it relays, it never issues** — later reversed by ui-issued-tokens.md; the
+  reasoning still holds against a broker's connectors. Google and every other OIDC provider connect
   directly and cost nothing; GitHub cannot, because with no ID token to forward genroc-ui would
   have to MINT one — a signing key and a JWKS — and an issuer with connectors is Dex, which would
   cost us the very argument §1 of auth-two-credentials rests on. **Embedding Dex** as a library is
@@ -191,15 +195,14 @@ register; when it disagrees with a §0, the §0 is right.
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
   child-as-worker contract (idempotency, cancel, versioning).
-- [script-tasks.md](script-tasks.md) — **built** (`eval-node/`, 2026-08-19; moved onto
-  `external` + the claim queue 2026-08-24), unlike the rest of this list. Its thesis held:
+- [script-tasks.md](script-tasks.md) — its thesis held:
   running user TypeScript needed **no new engine capability**, and the `external`-plus-worker
   shape it argued for is now what ships — the evaluator claims parked script tasks off the
   queue instead of serving `POST /eval`. Read
   [eval-node/README.md](../eval-node/README.md) for shipped behavior and this doc for the
   decisions. Running user TypeScript needs **no new engine
   capability**: a script task is an `external` task whose input carries a code string, so
-  the feature is a setup experience (`create-genroc-app` scaffolds the type generator,
+  the feature is a setup experience (`genctl init --eval-node` scaffolds the type generator,
   bundler, tsconfig and worker) rather than a subsystem. The sidecar tier of
   [custom-tasks.md](custom-tasks.md) made turnkey, spending none of its no-plugins
   guarantee — "plugin" here is an optional external component, never loaded code. genroc's
@@ -216,18 +219,12 @@ register; when it disagrees with a §0, the §0 is right.
   clock (retries re-execute; deleting `Date` leaves the generated types asserting what the
   runtime contradicts), and error codes split by honest retryability (a type error and a
   throw are permanent; folding them in with evaluator faults makes the retry budget worse
-  than useless). Defers the `process_objects` work until bundles carry libraries — two
-  blockers that are one change: definition-embedded values are never externalized, and
-  ownership is `(instance_id, hash)` with instance-scoped GC, so code outlives its object;
-  routing definition values through the store puts the object under the definition version,
-  which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
-  context-only objects are never served).
-- [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
-  `internal/sources/sources.go`, `eval-node/import.ts`); **structural phase, spread form, `$process`
-  and the config reshape built** (2026-09-17; `internal/sources/structural.go`); **registered
-  structural resolvers built** (2026-09-19, the phase-2 manifest in `mode: "structural"`, answered
-  with `values`). `$infer` is still unbuilt.
-  How a definition **source file** becomes a definition: a `.genroc` in the repo registers resolver binaries and a
+  than useless). Deferred the `process_objects` work until bundles carried libraries — two
+  blockers that were one change: definition-embedded values were never externalized, and
+  ownership was `(instance_id, hash)` with instance-scoped GC, so code outlived its object.
+  [object-store.md](object-store.md) resolved both; the table is gone.
+- [source-resolution.md](source-resolution.md) — how a definition **source file** becomes a
+  definition: a `.genroc` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
   fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass
   directive, which cannot work — the `Input` declarations a script typechecks against are the
@@ -257,9 +254,9 @@ register; when it disagrees with a §0, the §0 is right.
   data (`properties`, `$defs`, `raises`, `responses` are all user-keyed), so the registry would
   become a namespace over them and adding a resolver would change what an existing file means —
   `<<` is already defdoc's spread with the precedence wanted. Its one built-in client is
-  **`$process`**, another definition's `name` / `result_schema` / `raises` spread into a child
-  task; built-in because two of those three are not fields to read (`Output` is a Shape,
-  `Raises()` a scan), so only genctl can answer — registered as if the config held
+  **`$process`**, another definition's `name` / `input_schema` / `result_schema` / `raises` spread
+  into a child task; built-in because `Output` is a Shape and `Raises()` a scan, not fields to
+  read, so only genctl can answer — registered as if the config held
   `ext: [.genroc.yaml, .genroc.yml, .genroc.json]`, and **appended after everything in `.genroc`**,
   which is what keeps the built-in namespace non-breaking as genroc adds to it. That reshapes the
   config: `resolvers` becomes an **ordered list** taken **first match**, on name and
@@ -295,7 +292,7 @@ register; when it disagrees with a §0, the §0 is right.
   invariant — a relation must accept exactly what the fill closes — and the finding is that
   `ConformToSchemaExactly`'s two halves are pinned against two DIFFERENT relations
   (`IsSubsetAbsentAsNull` for the insert, `IsSubsetAsStored` for the remove), so the
-  combination this needs is a fourth one nobody has pinned. The check is **closed**: an
+  combination this needs is a fourth, now pinned (`schematest/conforms_exactly_test.go`). The check is **closed**: an
   undeclared key is refused, and `additionalProperties` with it — the argument sharpened in the
   revision, since the conform would now *silently delete* a key the author wrote rather than
   merely ignore it. **The conform is an ASSERTION**, and that is the part with the most reach:
@@ -316,9 +313,7 @@ register; when it disagrees with a §0, the §0 is right.
   fixture, which held a latent type error nothing could report before**, and the closed rule's
   open-map arm is load-bearing rather than thorough — without it the conform's strip stays
   reachable and the assertion is silently false.
-- [external-task-queue.md](external-task-queue.md) — **BUILT through phase 3** (error channel
-  2026-08-23; claim/lease/renew/release and `external.lost` 2026-08-24). Only the long-poll and
-  the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet
+- [external-task-queue.md](external-task-queue.md) — turns `external` into a queue a worker fleet
   **pulls** from. One thing it proposed was **dropped as unsound** on contact with the code:
   splitting `external.timeout` so a never-claimed timeout counts as never-reached and stays
   retryable under `only_once`. The unclaimed path publishes `input` (on the instance detail) and
@@ -369,14 +364,14 @@ register; when it disagrees with a §0, the §0 is right.
 - [external-outcome-as-signal.md](external-outcome-as-signal.md) — **BUILT (2026-08-24).** An external
   outcome stops being written onto the instance row and becomes a buffered signal like any other;
   the resolve/deliver APIs enqueue and un-park, and `runExternal` phase 2 pops from the queue.
-  Both API paths carry two delivery mechanisms today, chosen by a subtle runtime condition
-  (`armed && !liveLeased`), and the row-write branch is the store's last non-uniform corner: an
-  outcome's references are rooted at `_external.result` while its context key is
-  `_external_result`, which is the only `objects` path that does not address the context and
-  forces `decodeState` to place references before it lifts the outcomes. The reason that is
-  worth spending a change on is the third cost rather than the tidiness: `SetExternalOutcome`
-  holds only the row lock and has no reference set to reconcile, so it writes the outcome **uncut
-  and undeclared** whatever its size — through the buffer, the engine consumes it under lease and
+  Both API paths carried two delivery mechanisms, chosen by a subtle runtime condition
+  (`armed && !liveLeased`, which now decides only the un-park), and the row-write branch was the
+  store's last non-uniform corner: an outcome's references were rooted at `_external.result`
+  while its context key was `_external_result`, the only `objects` path that did not address the
+  context, forcing `decodeState` to place references before it lifted the outcomes. The reason
+  that was worth spending a change on is the third cost rather than the tidiness:
+  `SetExternalOutcome` (removed) held only the row lock and had no reference set to reconcile, so
+  it wrote the outcome **uncut and undeclared** whatever its size — through the buffer, the engine consumes it under lease and
   writes it through the ordinary `encodeState`. Names the one implementation trap (phase 2 must
   READ in advance and POP in persist; consume-then-yield adds a poll interval to every external
   task, which for the evaluator is every script task) and the behaviour change to state rather
@@ -386,7 +381,8 @@ register; when it disagrees with a §0, the §0 is right.
   expressions, which stays proposal. The read side of the object store: one
   `Slot` shape, a `Context` that answers a PATH (`outputs.x.y`) and loads only what that path
   needs, and `Roots` refined from slot names to static path prefixes. Its load-bearing change is
-  the smallest one: `resolveNested` stops writing resolved values back through `ContextData`, so
+  the smallest one: `resolveNested` stopped writing resolved values back through `ContextData`
+  (both since removed), so
   a value nothing read reaches the next write as the reference it already was -- no load, no
   re-hash. Pass-through *storage* already works (`cutForSize` re-emits an `*ObjectRef` leaf), so
   the blocker was only ever the read path. What shipped needed one thing the doc did not
@@ -412,12 +408,12 @@ register; when it disagrees with a §0, the §0 is right.
   Records what the change is most able to break and must be hunted: **a dereference deleting
   content another instance still holds**, deletion being "no live refs remain" and never "my ref
   is gone". Two decisions settled in discussion cut it down further: `owner_kind` governs
-  **lifetime, not access**, so reads are one endpoint (`GET /objects/{hash}`) with the content
+  **lifetime, not access**, so reads are one endpoint (`GET /objects/{ref}`) with the content
   address as the whole access rule — knowing a hash is knowing the bytes, so serving by hash
   discloses only **existence**, which is written down as the scheme's honest limit rather than
   claimed away. And **redaction is a display concern, not a boundary**: `secret: true` means "do
   not print this", protecting values at rest is encryption's job, and migration 018's
-  unservable-context rule plus `?resolve=true` are retired rather than reimplemented. The
+  unservable-context rule is retired while `?resolve=true` returns bounded per object. The
   inconsistency that exposes (inline context redacted, the same value over 2 KiB returned whole)
   is not introduced by the change but *revealed* by it. Records one apparent regression that
   dissolves on inspection and is kept so it is not rediscovered: shared content surviving one
@@ -427,10 +423,11 @@ register; when it disagrees with a §0, the §0 is right.
   owners that independently produced them. Collection gained a **grace window** on contact with the split read: handing out a
   reference and fetching it are two calls, so the data can move on in between and take the object
   with it — a race `?resolve=true` never had, because materializing was atomic with the read. So
-  releasing a claim leaves a `grace` ref (`--object-grace`, default 1h) rather than deleting, the
-  GC rule is untouched, and the contract becomes sayable: *a reference you hold is fetchable for
-  the window whatever happens to the data*. Only owners stamp grace claims, never the sweep,
-  which is what stops an expiring grace earning another window forever. An object on nothing but a grace claim is **unclaimed, not dead** — writing the same
+  the sweep marks an object nothing claims (`objects.released_at`) and collects it
+  `--object-grace` (default 1h) later, and the contract becomes sayable: *a reference you hold is
+  fetchable for the window whatever happens to the data*. The first cut, a `grace` ref only
+  owners stamped, was removed the same day: no owner can tell it dropped the last claim. An
+  object nothing claims is **unclaimed, not dead** — writing the same
   bytes again claims the row that is already there — and that resurrection races the sweep in a
   way `ON CONFLICT DO NOTHING` causes: it writes nothing, takes no lock, and the collector can
   delete the object between the content upsert and the claim, leaving a dangling ref. The upsert
@@ -471,7 +468,7 @@ register; when it disagrees with a §0, the §0 is right.
   the number-precision constraint (a literal must keep its exact source text) and that
   `IsSubset` needs no change.
 - [discriminated-unions.md](discriminated-unions.md) — **deferred, blocked on literal
-  types**, unlike the rest of this list, which is merely unscheduled. Narrowing a `oneOf` by
+  types.** Narrowing a `oneOf` by
   a tag check would work against a hand-declared union, but inference does not produce
   literal types (`kind: sent` infers as plain `string`), so a definition cannot build a
   narrowable union and the use case that justifies the feature is unreachable. Read §0 first.
@@ -479,12 +476,11 @@ register; when it disagrees with a §0, the §0 is right.
   that routed to a task, so a definition that proves `x != null` can then use `x`. Records
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
-  refinements need a dataflow kill). **Part of this one ships already**: the guard catalogue
-  narrows within a single expression; only the cross-task half is proposal.
+  refinements need a dataflow kill).
 - [compat-command.md](compat-command.md) — the compat **check**: two questions, not one.
   Can a running instance continue (**upgrade** — non-negotiable), and does the process still
   honour its contracts (**contract** — excusable with `--ignore contract`). Two shipped
-  fixtures report the wrong thing because the two are folded into one word. Records the
+  fixtures reported the wrong thing because the two were folded into one word. Records the
   direction rule (**who submits the value**: what they submit may only widen, what we produce
   may only narrow; a verdict only where a conform stands between the parties), that a result
   schema is an *upgrade* concern wherever a task can park mid-flight (external and the child
@@ -493,7 +489,7 @@ register; when it disagrees with a §0, the §0 is right.
   denotes two different sets**, what may arrive and what is stored once the conform filled its
   defaults, so the same pair in the same direction answers differently; `Validate` already
   distinguishes the cases by mode and `IsSubset` gains the matching one, reading the sub side
-  only. An implementation was written and rolled back; findings marked **[run]** came from
+  only. An implementation was written and rolled back before the one that shipped; findings marked **[run]** came from
   running it, and three contradicted the design as written — chiefly that a slot that changed
   and a value that broke must never share a row, since that claims a cause no comparison can
   know. `config_schema` is deliberately outside the whole check — validation type-checks
@@ -503,16 +499,15 @@ register; when it disagrees with a §0, the §0 is right.
   say "required, not deferred"; the doc now rejects it outright** and the shipped code has
   none, so read §2f rather than this line: pruning `mustNew(T)` to what is actually read
   would promise an upgrade whose instance then reads a value that is not there.
-- [schema-command.md](schema-command.md) — **`context` BUILT (2026-09-04); `type` proposed.** `genctl schema` hands
+- [schema-command.md](schema-command.md) — `genctl schema` hands
   back a piece of a definition's inferred view: `context` for what an expression at a slot may
   read — or, with `-e`, what one expression written there produces — `type` for the shape of a
   slot, so a client, a consumer or an `external` worker can be generated from it. Possible only since the types moved into genctl the same day
   (source-resolution.md §One roundtrip) — as a roundtrip per question it is not a thing anyone
   runs while writing YAML. `context` is specced in full and rests on one finding: the scope
   varies along **exactly two axes**, `self` and `error`, so five addresses cover every
-  expression slot in a process and the rest resolve into them. `type` is deferred on a hole it
-  exposes — `TaskSchemas` carries no `result`, which is why genctl reads the declared
-  `result_schema` out of the raw YAML to fill the resolver manifest. **Step 1 is not the command
+  expression slot in a process and the rest resolve into them. `type` waited on `TaskSchemas`
+  growing a `Result`. **Step 1 is not the command
   at all**: writing it turned up `error` naming two different failures — the one an `on_error`
   rule caught, and the one that routed control into the task — with `retry.*` sitting in the
   first and reading the second, on a restriction that turned out to be its own implementation
@@ -529,7 +524,7 @@ register; when it disagrees with a §0, the §0 is right.
   a second grammar; recovery for collect-don't-stop is `{}`, the unknown, plus a poison mark so
   derived diagnostics are suppressed instead of cascading (and suppression consults who can
   SEE the poison, because a blanket rule hides real findings); positions come from
-  `yamlToAny`'s existing walk, moved to `internal/defdoc`. **§4 was reversed by building it**:
+  `yamlToAny`'s existing walk, moved to `internal/defdoc` (now `defdoc.Parse`). **§4 was reversed by building it**:
   the server had its own `genroc/lsp` module for a day and lost it — it inherited all 27 of its
   dependencies from `genroc` so fenced nothing, and `package main` put `cmd/genctl`'s project
   config out of reach — that second half expired on 2026-09-17, when resolution moved to
@@ -553,15 +548,14 @@ register; when it disagrees with a §0, the §0 is right.
   no fields on them, while their hand-written `JSONSchemaBytes` describes them exactly.
 - [id-list-commands.md](id-list-commands.md) — **BUILT (2026-08-26).** `genctl pause`,
   `resume` and `retry` take several instance ids, iterating client-side like `upgrade`'s id
-  form and adding no endpoint. Its premise is that these three verbs **refuse a no-op** by
-  design (`db_lifecycle.go:255`, "Report it rather than silently succeeding"), so unlike an
-  upgrade sweep a partially applied group does NOT converge on a re-run — which is what
+  form and adding no endpoint. Its premise was that these three verbs **refused a no-op** by
+  design, so unlike an upgrade sweep a partially applied group did NOT converge on a re-run — which is what
   forces a third outcome, `already`, beside done and refused. What generates the taxonomy is
   a per-verb promise carried by exit 0 (pause: nothing you named is advancing; resume:
   everything is; retry: everything got a fresh attempt), so `completed` counts as `already`
   for pause and as `refused` for resume — the asymmetry is the point, not a wart. Two rules
   keep it honest: classify on the wire error's `code` and never on its prose (genctl
-  currently discards the code). It also proposes **the API change that follows from taking
+  currently discards the code). It also makes **the API change that follows from taking
   the assertion model seriously**: `already` is not an error, so `pause`/`resume` return
   a derived status code — `Outcome` on `Reply` beside `Code`, for the same reason `Code`
   lives there (TCP and UDS have no status line), mapping to **200 applied / 202 accepted /
@@ -585,10 +579,9 @@ register; when it disagrees with a §0, the §0 is right.
   an object already holding the target state is success by default (`systemctl stop` a
   stopped unit) — and `pause`/`resume` are the `systemctl stop`/`start` analogue, which is
   also why `retry` has no counterpart there.
-- [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
-  which changes no default); the rest is proposal. Move the fsync off every persist onto a
-  few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →
-  `terminal` → `strict`, defaulting to `only-once`). Opens with a measurement, not a
+- [durability-levels.md](durability-levels.md) — move the fsync off every persist onto a
+  few boundaries, exposed as `--durability` (`only-once` → `terminal` → `strict`; §5 also
+  designs `none` and `accepted` below them). Opens with a measurement, not a
   design: macOS `fsync(2)` does not flush the drive cache, so **every benchmark number
   collected on a Mac is durability-blind** — honest `synchronous=FULL` is 183 inst/s on
   `bench-drain` against the 5,133 the same run reports today, and the 21× is the whole
@@ -653,7 +646,7 @@ register; when it disagrees with a §0, the §0 is right.
   guarantee is checkable **only** here (the oracle is a service that counts its own
   invocations, not anything the DB can be asked), that the fetch timeout must stop being a
   `context` under a simulated transport — inverting the reasoning at
-  [action.go:30](../internal/engine/action.go#L30) and leaving two implementations of one
+  [action.go:37](../internal/engine/action.go#L37) and leaving two implementations of one
   rule — one oracle that is **not** sound (audit-trail ordering, since buffered log rows are
   best-effort by design and a crash is entitled to drop them), and the crash trap that
   outlives the object graph: **package-level state cannot be dropped**, so a restarted
@@ -662,8 +655,8 @@ register; when it disagrees with a §0, the §0 is right.
   Rejects storage-fault accuracy (a `modernc.org/sqlite` VFS) as covering little the `DBTX`
   decorator does not, with `durability-levels.md` named as the signal to reopen.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
-  about **user-facing tooling rather than the language**. The gap it fills is *reference*: nothing today
-  says what `accepted_status` accepts or what `genctl channel promote` does. Draws the
+  about **user-facing tooling rather than the language**. The gap it filled was *reference* — what
+  `accepted_status` accepts, what `genctl channel promote` does. Draws the
   spec-vs-doc line quoted above, and follows it: `docs/` is shipped behavior only, the site
   never links into `specs/`, and the explanation a *user* needs lives in guides rather than
   being outsourced to a spec's argument. Records why plain Astro
@@ -680,17 +673,17 @@ register; when it disagrees with a §0, the §0 is right.
 `pause-resume.md`, `only-once-interrupted.md`, `unknown-type.md`, `delay-syntax.md`,
 `recursive-type-inference.md`, `resource-limits.md`, `retry-policy.md`,
 `lease-fencing.md`, `typed-values.md`, `map-expressions.md`, `number-precision.md`,
-`error-handling-audit.md`, `child-error-handling.md`, `fetch-http-surface.md` describe code
-that exists. The invariants extracted from them live in
+`error-handling-audit.md`, `child-error-handling.md`, `fetch-http-surface.md`,
+`path-sensitive-output.md`, `task-scopes.md` describe code that exists. The invariants extracted from them live in
 the `CLAUDE.md` of the owning package.
 
-`child-error-handling.md` is the newest of these: **§5.5 and §12 shipped 2026-08-27**,
+`child-error-handling.md`: **§5.5 and §12 shipped 2026-08-27**,
 reversing D7 so a child task retries like any other and the operator's `retry` re-spawns a
 raised child rather than keeping it. Read §5.5 before touching `RetryProcess` or the collect —
 it records what breaks silently, including the two defects in the revive walk that the same
 work fixed.
 
-`fetch-http-surface.md` is the newest of these and the largest: `query`, the status-keyed
+`fetch-http-surface.md` covers `query`, the status-keyed
 `responses` map that replaced `result_schema` on a fetch, and `self.status` / `self.headers`.
 Read it for the decisions rather than the behaviour — `docs/src/content/docs/guides/process-definition/error-handling.mdx` is the
 present-tense account. Two things it records are not about `fetch` at all and bit elsewhere:

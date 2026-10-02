@@ -1,7 +1,8 @@
 # `retry`: from a count to a policy
 
 Status: **implemented (2026-08-02).** An `on_error` rule's `retries: N` became
-`retry: {attempts, delay, factor, max_delay}`, with `retry: 3` as the scalar shorthand.
+`retry: {retries, delay, factor, max_delay}`, with `retry: 3` as the scalar shorthand (the
+count was `attempts` until 2026-09-11).
 Line numbers and behaviour are as of that date. **Every slot also accepts a `$:`
 expression (2026-08-22)** — see §"Expression-valued slots" below, which supersedes the
 first bullet of "What was deliberately left out".
@@ -45,16 +46,16 @@ lists over the same error names.
 ```yaml
 on_error:
   - code: [pre.error, pre.timeout]
-    retry: 3                                            # == {attempts: 3}
+    retry: 3                                            # == {retries: 3}
   - code: [http.429]
-    retry: { attempts: 4, delay: 30s, factor: 2, max_delay: 10m }
+    retry: { retries: 4, delay: 30s, factor: 2, max_delay: 10m }
 ```
 
 Decisions worth recording, since each had a cheaper alternative:
 
 - **An object, not four flat fields.** `ErrorCase` already carried six keys. A nested
-  policy keeps the rule readable, makes D7's child-task rejection one key rather than
-  four, and leaves an obvious home for a budget or a jitter setting later.
+  policy keeps the rule readable, makes D7's child-task rejection (since reversed) one key
+  rather than four, and leaves an obvious home for a budget or a jitter setting later.
 - **A scalar shorthand, following `Timeout`.** Same reason and same mechanism: the
   shorthand lives on a wrapper type nothing embeds, and `MarshalJSON` writes the object
   form, so a stored definition is canonical and everything downstream sees one shape.
@@ -67,28 +68,29 @@ Decisions worth recording, since each had a cheaper alternative:
 - **The ceiling is absolute, not relative to the base.** A relative ceiling is only safe
   when a wall-clock budget backstops it; genroc deferred that budget (below), so a
   relative ceiling would have nothing behind it.
-- **A default ceiling never truncates an authored base.** `Ceiling()` is
-  `max(5m, Base())`, so `delay: 1h` alone does not clamp back to 5m; an *authored*
+- **A default ceiling never truncates an authored base.** `Retry.Resolve` takes the
+  ceiling as `max(5m, delay)`, so `delay: 1h` alone does not clamp back to 5m; an *authored*
   `max_delay` below `delay` is refused instead of silently winning.
 - **Durations are fixed-unit only.** `delay: 1d` is refused with `"24h"` as the fix: the
   curve multiplies the value and compares it to a ceiling, and a calendar duration has no
   length until a timezone and a start instant fix it. This is why `RetryDuration` is its
   own type rather than a reuse of `DelaySpec`.
-- **`retries` is refused, not accepted as an alias.** Two spellings for one field is a
+- **A rule-level `retries` is refused, not accepted as an alias** — since 2026-09-11 it is
+  valid only inside `retry`, and the hint says so. Two spellings for one field is a
   second thing to keep true, and the hint names the replacement. Accepting it silently
   was never an option: a dropped key leaves a rule that still matches and still routes,
   and only never retries.
 
 ## Expression-valued slots
 
-Every slot — `attempts`, `delay`, `factor`, `max_delay` — accepts a `$:` expression
+Every slot — `retries`, `delay`, `factor`, `max_delay` — accepts a `$:` expression
 alongside its literal form:
 
 ```yaml
 on_error:
   - code: [pre.error, pre.timeout]
     retry:
-      attempts: "$: config.retry_attempts"
+      retries: "$: config.retry_attempts"
       delay: "$: config.retry_delay_ms"
 ```
 
@@ -105,7 +107,7 @@ Three consequences, each of which is a way this goes silently wrong:
 - **A policy resolves once per error, before it is consulted, and a resolution failure
   fails the instance.** Falling through instead would turn an unreadable policy into "no
   retries" — the author's attempt budget vanishing with nothing reporting it.
-- **An expression `attempts` counts as retries for the `only_once` tiers.** Its value is
+- **An expression `retries` counts as retries for the `only_once` tiers.** Its value is
   unknown at registration and the conservative reading is the one that keeps the tiers in
   force; the runtime half (`isRetryAllowed`) gates by code regardless.
 
@@ -125,10 +127,10 @@ header. specs/task-scopes.md §The error axis.
 - **A wall-clock budget** (`retry_for: 10m`, or `until:`). The right unit conceptually,
   but it collides with pause/resume (does a 10-minute budget survive a two-day pause?)
   and with the per-attempt `timeout`. Real design work, deferred until asked for.
-- **`Retry-After`** — a server saying when to come back. Still the frontier: it needs
-  response headers, string-literal indexing, and a seconds→ms conversion, all listed in
-  [fetch-http-surface.md](fetch-http-surface.md). Expression-valued slots (below) are the
-  syntax it will use; what is missing is the value to put in them.
+- **`Retry-After`** — a server saying when to come back. Still the frontier: response
+  headers and string-literal indexing shipped ([fetch-http-surface.md](fetch-http-surface.md)),
+  but a failed fetch's `error` carries no headers and there is no seconds→ms conversion.
+  Expression-valued slots (below) are the syntax it will use; what is missing is the value to put in them.
 
   This deferral once covered expression-valued slots as a whole, on the reasoning that
   they existed *for* `Retry-After`. That turned out to be wrong: the case that arrived

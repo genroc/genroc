@@ -57,8 +57,8 @@ upfront graph is stale by construction. Instead `solve(def)` *is* the DFS:
   cluster expands and the fixpoint restarts. Membership only grows and is
   bounded by the def count — termination is structural.
 
-`outputorder.go`'s syntactic graph is deleted (`OutputRefs` remains only for
-its runtime consumers). Validation keeps what is task-shaped: context
+`outputorder.go`'s syntactic graph is deleted (`OutputRefs` remained only for
+its runtime consumers, and later went too). Validation keeps what is task-shaped: context
 construction, the `loops` gate, and mapping `<id>_output` + the solver's demand
 chain back to task-attributed errors.
 
@@ -136,7 +136,7 @@ input alike.
 
 | step | content | payoff if stopped here |
 |---|---|---|
-| 1 | Inference moves into `schema`: `Schema.Infer(expr)`, `Schema.ReferencesSecret(expr)`; `At(path)` keeps plain navigation; `expression` keeps `Eval` + refs analysis (op tables split; the `union_*` conformance tests guard drift) | ergonomics; prerequisite — the solver must own deref |
+| 1 | Inference moves into `schema`: `Schema.Infer(expr)`, ~~`Schema.ReferencesSecret(expr)`~~ (deleted 2026-09-04 with the taint system); `At(path)` keeps plain navigation; `expression` keeps `Eval` + refs analysis (op tables split; the `union_*` conformance tests guard drift) | ergonomics; prerequisite — the solver must own deref |
 | 2 | Algebra hardening + productivity in `CheckDoc` + `conform` guard | fixes the latent user-schema hang |
 | 3 | The Tarjan solver in `schema`; `outputorder.go` ported onto it; syntactic graph deleted | exact dependency graph, demand-chain errors, one recursion mechanism |
 | 4 | Symbolic fragment + collapse-or-keep | recursive types become a feature |

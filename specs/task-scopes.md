@@ -92,7 +92,8 @@ Handler tasks change `error.*` to `last_error.*`; `on_error` clauses do not move
 silently wrong — `error` is simply not in a handler task's context afterwards, so an unconverted
 definition is refused at registration.
 
-No migration: the failure has had its own column since migration 019 (`error_data`), so the name
+No migration: the failure has had its own column since migration 019 (`error_internal` since
+034), so the name
 lives only in `inst.State`'s key and in the inferred context. `state.error` on the instance
 detail becomes `state.last_error`.
 

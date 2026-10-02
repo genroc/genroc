@@ -24,7 +24,8 @@ only the first designed. The work gave the second a design too, without merging 
 share `Reply` (TCP/UDS have no status line); HTTP status is the *rendering* of the
 code, mapped in one table. The set is small because it is what a **client** can act on:
 `invalid` 400, `not_found` 404, `conflict` 409 (same call may succeed later),
-`unsupported` 501, `internal` 500. Engine-level detail belongs in `errcode` on the
+`unsupported` 501, `internal` 500; auth and readiness later added `unauthenticated` 401,
+`forbidden` 403 and `unavailable` 503. Engine-level detail belongs in `errcode` on the
 instance. **Unclassified defaults to 500, not 400** — that made the migration
 self-driving: an unclassified error is a server fault until shown otherwise, so every
 remaining 500 was an unexamined path. (Before: two status writes total; outage, missing
@@ -56,8 +57,8 @@ un-advancing time under whole tests. `DecodeStrict` is a separate function, not 
 `Decode` also reads stored rows and already-accepted payloads, where an unknown field
 is history — strictness belongs only at the entry boundary. Layering bounds what this
 catches: syntactically bad JSON is rejected a layer up; a JSON `null` into a struct
-stays a no-op; over HTTP only `/tick` passes a client body to `decodeOptionalBody`
-(hence the coverage lives in `tests/tick/optional_body_test.ts`).
+stays a no-op; over HTTP only `/tick` and `/instances/{id}/upgrade` pass a client body to
+`decodeOptionalBody` (the coverage lives in `tests/tick/optional_body_test.ts`).
 
 # Part 2 — Go-level plumbing
 
@@ -74,7 +75,8 @@ stays a no-op; over HTTP only `/tick` passes a client body to `decodeOptionalBod
   shutdown into a logged-error hot loop.
 - **`errcode.Code` is a type**, not a bare string; the three places a non-code string
   legitimately becomes a code (authored panic, authored raise, a child's persisted
-  code) are explicit conversions, each commented.
+  code) are explicit conversions, each commented. A worker's submitted code, added later,
+  is a fourth.
 
 ## The panic barrier
 

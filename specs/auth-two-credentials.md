@@ -22,8 +22,8 @@ two credentials without the proxy sandwich.
 | a signed JWT, HS256 against a shared secret | people, via genroc-ui | **verifies only** — never issues, never refreshes |
 
 Nothing else is an identity. No trusted headers, no cookies, no client certificates, and **no
-path by which a proxy obtains a genroc token on a person's behalf**. A deployment configures
-genroc to accept its IdP's tokens correctly; that configuration is the whole integration.
+path by which a proxy obtains a genroc token on a person's behalf**. A deployment shares
+genroc-ui's signing secret with genroc; that configuration is the whole integration.
 
 This is api-auth.md §0 unchanged — the deployment owns identity, genroc owns authorization — with
 the header-shaped exception removed.
@@ -144,8 +144,8 @@ snippets, which have nothing left to protect.
 **§7's asserted attribution goes with them.** It reads an identity header in `none` mode to
 record — never to trust — which is defensible on its own terms, but it is the last header-reading
 path and its premise (a deployment behind a proxy that has not configured auth) is a state this
-design says should not exist. Attribution itself is untouched: `token:`, `jwt:` and `none:` all
-still resolve, and `jwt:ada@example.com` is strictly better than the `asserted:` it replaces.
+design says should not exist. Attribution itself is untouched: `token:`, `jwt:` and `no-auth:` (spelled `none:` until
+migration 044) all still resolve, and `jwt:ada@example.com` is strictly better than the `asserted:` it replaces.
 
 ## 6.1 One thing added: `X-Genroc-Actor`
 
@@ -155,7 +155,7 @@ auth"* — which held only while the SPA always carried a token. Behind a proxy 
 none and still succeeds, so the inference reads a working login as an unauthenticated server.
 
 Genroc therefore reports the calling principal on every HTTP response, as the same
-`source:subject` the audit trail records: `jwt:ada@example.com`, `token:ci`, `none:anonymous`. A
+`source:subject` the audit trail records: `jwt:ada@example.com`, `token:ci`, `no-auth:anonymous`. A
 header rather than a `/whoami` endpoint, which was the first design: no extra round trip, nothing
 to keep fresh, and no need to decide what permission an endpoint reachable by *every*
 authenticated principal should declare. It is absent on a 401 — that absence is what tells a
@@ -176,7 +176,8 @@ day, which is the one line of this section that did not hold.
 
 - **mTLS / mesh identity.** Still no OIDC token. A future `mtls` mode reads the connection, not
   a header; until then those callers use `token`.
-- **Whether genroc runs the OIDC flow itself** (api-auth.md §10). This design makes the proxy's
+- ~~**Whether genroc runs the OIDC flow itself**~~ **Answered 2026-09-02 by
+  [ui-component.md](ui-component.md) §2: genroc-ui runs it.** (api-auth.md §10.) This design makes the proxy's
   job small and precise — turn a cookie into a JWT — which sharpens that question rather than
   answering it: a deployment still runs one extra component purely to hold a session.
 - **PKCE in the SPA.** Would remove the proxy from the browser path entirely and is the other

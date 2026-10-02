@@ -9,10 +9,10 @@ the rejected alternatives.
 Two deviations from the draft as shipped:
 
 - The consume branch of the external arm does **not** keep the lease for a second advance
-  pass. It is an ordinary fenced `UpdateInstanceProgress` that releases; the result lands
-  durably in `external_input` and the next claim resumes via `runExternal` phase 2. Retired
+  pass. It is an ordinary fenced `UpdateInstanceProgress` that releases; the answer stays
+  buffered in `process_signals` and the next claim pops it in `runExternal` phase 2. Retired
   for uniformity ("no outcome keeps the lease") at the cost of one claim round trip per
-  pre-buffered signal; the pop still rolls back with a refused write. The inbound write is
+  pre-buffered signal; phase 2's pop, in its persist, still rolls back with a refused write. The inbound write is
   therefore unfenced — its only callers act on parked rows under the row lock. (That write was
   `SetExternalResult` then, `SetExternalOutcome` after; both are gone — see
   [external-outcome-as-signal.md](external-outcome-as-signal.md) — and `DeliverSignal` is it now.)
@@ -69,9 +69,9 @@ how many times the row has been **granted**.
 
 ## The fenced write surface
 
-Six lease-holding entry points; the fence goes on the leased row's UPDATE inside each
+Seven lease-holding entry points; the fence goes on the leased row's UPDATE inside each
 transaction, so a lost lease leaks no partial effects — a stale spawn inserts no
-children, a stale arm-consume rolls its signal pop back to its FIFO position.
+children, a stale phase-2 write rolls its signal delete back to its FIFO position.
 
 A consequence to keep in mind when reading the table: a fenced write **releases** the lease
 (`worker_id = NULL`) on success, and releasing does not move the epoch. So a second write
@@ -85,6 +85,7 @@ predicate it passed on the still-matching epoch.
 | `FinishChild` | child's `UpdateInstance` | `WakeParent` |
 | `FailInstanceAndAncestors` | child's `UpdateInstance` | `FailAncestors`, `WakeParent` |
 | `SpawnChildrenAndWait` | parent's `UpdateInstance` | every `InsertInstance` |
+| `RespawnSlotsAndWait` | parent's `UpdateInstance` (`parkParentWaiting`) | slot retire, every `InsertInstance` |
 | `ArmExternalUnlessSignalled` | `UpdateInstanceProgress` (skip park) / `UpdateInstance` (park) | — |
 
 Deliberately unfenced: inserts (no prior grant); operator verbs (pause/resume/retry act

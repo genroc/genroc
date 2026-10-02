@@ -22,10 +22,10 @@ identity surface (auth-two-credentials.md §0).
 and proxies `/api/*` to the server with a bearer token attached.
 
     browser  ->  genroc-ui   serves the SPA, runs OIDC, holds the cookie,
-                             attaches `Authorization: Bearer <ID token>`, proxies /api/*
+                             attaches a minted `Authorization: Bearer {sub, perms}`, proxies /api/*
                      |
                      v
-                  genroc     verifies the JWT, applies the role map -- unchanged
+                  genroc     verifies the JWT, reads `perms` (ui-issued-tokens.md)
 
     genctl, workers, your own service  ->  genroc directly, with `genroc_sk_*`
 
@@ -62,10 +62,12 @@ Three cases, in order, and the first that matches wins:
 1. **`Authorization` already present** -- pass it through untouched. This is what makes a pasted
    `genroc_sk_*` work against a UI with no IdP configured, and it means genroc-ui never has to
    decide whether a credential is good; the server does.
-2. **A valid session cookie** -- attach the ID token from it as `Authorization: Bearer`.
-3. **Neither** -- if OIDC is configured, redirect to the IdP for a document request and answer
+2. **A valid session cookie** -- mint a short-lived token from the session's groups through the
+   role map and attach it as `Authorization: Bearer` (ui-issued-tokens.md; this once relayed the ID token).
+3. **Neither** -- if a login (providers or passwords) is configured, redirect to `/auth/login`
+   for a document request and answer
    **401** for an XHR (a fetch cannot follow a login redirect usefully; the SPA reloads instead).
-   If OIDC is NOT configured, pass through unauthenticated, which is the laptop case against a
+   If no login is configured, pass through unauthenticated, which is the laptop case against a
    server running `-auth none`.
 
 Case 1 is why the credential-presence matcher disappears rather than moving: browsers and
@@ -73,22 +75,23 @@ machines now arrive at *different components*, so nothing has to route on what a
 
 ## 4. Session shape
 
-- The IdP's **ID token in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie**. No server-side session
+- A **genroc-ui-signed session JWT `{sub, groups}` in an `HttpOnly`, `SameSite=Lax`, `Secure`
+  cookie** (the IdP's ID token until ui-issued-tokens.md §4; it is now discarded at login). No server-side session
   store, no database, no user directory -- the cookie holds the credential and expires with it.
 - `state` and `nonce` ride in short-lived cookies across the redirect, and the callback refuses a
   mismatch.
 - **On expiry, redirect to the IdP again.** Silent while the user's SSO session is alive, which is
   what makes this acceptable without refresh tokens. Adding refresh later means storing one, and
   that is the first thing here that would need persistence -- so it is deliberately not in v1.
-- Logout clears the cookie. RP-initiated logout at the IdP is optional and configured, not assumed.
+- Logout (`POST /auth/logout`) clears the cookie. RP-initiated logout at the IdP is not built.
 - **A confidential client**, not PKCE-with-a-public-client: genroc-ui is a server, so it can hold
   a client secret, which is both stronger and simpler.
 
 ## 5. What genroc-ui does NOT do
 
-It does not verify permissions, hold a role map, or interpret genroc's model. It attaches a
-credential and forwards. Everything about who may do what stays in the server, where
-`auth-two-credentials.md` put it -- and the SPA learns its own identity from `X-Genroc-Actor` on
+It does not verify permissions or interpret genroc's model. It attaches a
+credential and forwards. It does hold the group→permission map since ui-issued-tokens.md, but
+the endpoint→permission mapping stays in the server on `actionDef.Allow` -- and the SPA learns its own identity from `X-Genroc-Actor` on
 any response, so genroc-ui does not have to tell it either.
 
 It is also **not on the machine path**. Workers, `genctl` and an embedding service talk to the
@@ -155,8 +158,9 @@ From the server: the `-ui` flag, `Server.SetUI`, `Server.uiDir` and the root fil
 
 From `examples/proxy/`: **Caddy and oauth2-proxy both**, with `Caddyfile`, the forward_auth
 wiring, the `@credentialed` matcher, `--set-authorization-header`, `--cookie-samesite`,
-`--cookie-refresh` and the cookie-secret footgun. The stack becomes **genroc + genroc-ui + Dex**
-(+ the evaluator, which is the machine half of the story). Two of the five "things that cost an
+`--cookie-refresh` and the cookie-secret footgun. The directory went with them: `examples/ui/` is
+**genroc + genroc-ui** (+ the evaluator, which is the machine half of the story), with
+`passwords:` login and no Dex. Two of the five "things that cost an
 hour each" in its README are about oauth2-proxy flags and go with it.
 
 ## 7. Build
@@ -170,8 +174,10 @@ single binary and there is no path to misconfigure.
 - **The dev loop.** `ui/frontend/`'s Vite dev server proxies to genroc today and can keep doing so
   with auth off. Whether `npm run dev` should instead point at a local genroc-ui, so the login
   path is exercised in development, is unsettled.
-- **Does genroc-ui proxy or redirect for `/public/*` and `/healthz`?** They are unauthenticated on
+- ~~**Does genroc-ui proxy or redirect for `/public/*` and `/healthz`?**~~ **Answered: it
+  proxies them ungated** (`isOpen` in `ui/main.go`). They are unauthenticated on
   the server, so either works; proxying keeps one origin, which is the reason CORS does not exist
   anywhere in this design.
-- **Config surface.** Issuer, client id/secret, and the genroc address are the minimum. Whether it
-  reads the same `auth.yaml` shape as the server or its own is not decided.
+- ~~**Config surface.**~~ **Answered: its own YAML** (`-config` / `$GENROC_UI_CONFIG`,
+  `ui/config.go`); the server takes flags and no file. Issuer, client id/secret, and the genroc
+  address are the minimum.

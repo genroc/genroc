@@ -56,12 +56,12 @@ somebody thought to write down. What they structurally cannot do:
 | DB clock | `db.Now()`, 13 call sites in engine + api | already virtual, forward-only, **process-global** (§6b) |
 | pump / renewer tickers | [engine.go](../internal/engine/engine.go) | real `time.NewTicker` |
 | log-flush ticker | [db_logs.go:113](../internal/db/db_logs.go#L113) | real `time.NewTicker`, 5ms — a latency drain, not a janitor (§4a) |
-| fetch timeout | [action.go:30](../internal/engine/action.go#L30) | **deliberately real** — see §4c |
+| fetch timeout | [action.go:37](../internal/engine/action.go#L37) | **deliberately real** — see §4c |
 | retry jitter | [backoff.go](../internal/engine/backoff.go), one global `math/rand/v2` site | seed it |
 | instance ids | ~~`crypto/rand` + wall clock~~ — a per-process counter since ids were reworked ([internal/idgen](../internal/idgen)) | **no seam left**: deterministic given the worker number, which the database hands out in order |
 | HTTP | package-level `client` in [transport.go](../internal/transport/transport.go) | no seam |
 | goroutines | 7 in `internal/`, 5 in `cmd/genroc` — four of them matter (§4a) | the difference between the tiers, but see §5 |
-| package-level mutable state | `template.cache`, `db.clockOffset`, two `sync.Once` pairs in `api` | bounded and enforced by `internal/archtest`; the reset problem is §8c |
+| package-level mutable state | `template.cache`, `db.clockOffset`, one `sync.Once` pair each in `api` and `defschema` | bounded and enforced by `internal/archtest`; the reset problem is §8c |
 | storage faults | real SQLite / Postgres | §4d |
 
 Everything above the goroutine row is a day's work each at most.
@@ -126,7 +126,7 @@ timer landing mid-persist. Real, but a smaller prize than the original draft cla
 
 ### 4c. The fetch timeout stops being a context
 
-[action.go:30](../internal/engine/action.go#L30) records why the action timeout is applied
+[action.go:37](../internal/engine/action.go#L37) records why the action timeout is applied
 as a *duration* via `WithTimeout` rather than a deadline instant: it was read off
 `db.Now()` while `context` compares against real `time.Now()`, and subtraction cancels the
 offset where an instant would keep it. Under a simulated transport the reasoning inverts —
@@ -161,13 +161,13 @@ not goroutine races at all. They are races over database state.
 ### 5b. The premise: workers share only the database
 
 Outside `template.cache` and `db.clockOffset` there is no mutable package state in
-`internal/`. Every `Engine` owns its `sem`, `wake`, `inflight`, `held`, `schemaCache`;
+`internal/`. Every `Engine` owns its `sem`, `wake`, `inflight`, `held`;
 every `*db.DB` its `defCache` and log buffer. `template.cache` memoises a pure function, so
 it can change *timing* but never an outcome.
 
 Two caveats, both earned the hard way. This audit was wrong twice before
 `internal/archtest` existed — it missed `schema.pendingNodes`, then missed
-`api.processSchemaBytes`/`specBytes`. Trust the test, not a reading. And the premise holds
+`api.processSchemaBytes`/`specBytes` (the first now `defschema.processSchemaBytes`). Trust the test, not a reading. And the premise holds
 for *state*, not for identity: §6a's worker id had to be made injectable before two engines
 in one process meant anything.
 
@@ -232,7 +232,8 @@ choice — that is the DB's contract, not genroc's.
 one process were indistinguishable to every lease predicate — collapsing the very
 distinction the fence rests on, since `lease_epoch` fences a stale *grant* while
 `worker_id` answers self-reclaim-vs-takeover. `engine.WithWorkerID` (2026-08-08) makes it
-injectable; the default is unchanged.
+injectable; the default became `hostname-pid-random` (2026-08-25), so `WithWorkerID` is what
+makes it deterministic.
 
 **b. The clock is a process global, so no worker can freeze alone.** `clockOffset` is a
 package var in `db`. The lease gate exists to survive a worker whose host slept while the
@@ -287,8 +288,8 @@ virtual instant, a signal delivered while the process is still mid-task (the rac
 **c. Crash, and what it cannot reach.** Discard the worker and rebuild from the same
 database. Two traps:
 
-- Object-graph state must be dropped *together*: `schemaCache` on the `Engine`, `defCache`
-  and the log buffer on `*db.DB`. Dropping only the `Engine` leaves `defCache` warm and the
+- Object-graph state must be dropped *together*: the `Engine`, and `defCache` and the log
+  buffer on `*db.DB`. Dropping only the `Engine` leaves `defCache` warm and the
   simulation is quietly unfaithful.
 - **Package-level state cannot be dropped at all**, because no object graph reaches it. A
   restarted worker inherits a warm `template.cache`. So in-process crash needs an explicit

@@ -129,8 +129,7 @@ is still computing is served its running ESTIMATE, nullable on purpose — the s
 than a type behind a name, so the walk leaves it alone (`servesEstimate`); stripping it stops
 the fixpoint converging, which six solver tests say out loud.
 
-**Edges, not tasks.** `predEdge` must become one edge per switch case (stop
-deduplicating) — two cases routing to one target carry different refinements. Safe for
+**Edges, not tasks.** `predEdge` is one edge per switch case (no deduplicating) — two cases routing to one target carry different refinements. Safe for
 the existing analysis: must/may are idempotent under duplicate edges.
 
 **Merge:** per reference, union of refined types across incoming edges — a refinement
@@ -166,12 +165,12 @@ edges are per-case).
 
 ## Implementation sketch
 
-(1) `predEdge` gains case index, stop deduplicating; **(2) DONE** — `guardFacts`
+**(1) DONE** — `predEdge` carries the case index (`buildPreds`); **(2) DONE** — `guardFacts`
 (`internal/schema/infer.go`) is the catalogue as a pure walk, returning what a condition
 proves on each branch and leaving what it MEANS to the caller, which is what lets one walk
 serve both features; **(3) DONE** — `translateGuard` (`internal/validation/guards.go`);
-(4) a refinement fixpoint beside `computeContextSets` (union across edges, meet within, kill
-`outputs.i` at i); **(5) DONE, and not where this said** — `Schema.InferWithGuards` seeds the
+**(4) DONE** — `computeRefinements`, a fixpoint beside `computeContextSets` (union across
+edges, meet within, kill `outputs.i` at i); **(5) DONE, and not where this said** — `Schema.InferWithGuards` seeds the
 refinements into the guard map the expression narrowing already consults, rather than
 rewriting `contextSchema`'s output. Two things fall out: the narrowing semantics are the ones
 already tested, and because a guard is keyed by the rendered path a read uses, an element

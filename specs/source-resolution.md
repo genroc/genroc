@@ -7,10 +7,9 @@ resolver (`internal/sources/sources.go`, `tests/cli/imports_test.ts`).
 
 **The structural phase, the spread form and `$process` BUILT 2026-09-17**
 (`internal/sources/structural.go`, `tests/cli/spread_test.ts`), along with the config reshape this
-doc describes: `resolvers` is an ordered first-match list and `ext` a suffix list. Still
-unbuilt: **`$infer`**, and any structural resolver that is not the built-in — a registered one
-is refused by name rather than run. Recursive spread typing is **declined, not missing**
-(§Ordering).
+doc describes: `resolvers` is an ordered first-match list and `ext` a suffix list. Registered
+structural resolvers BUILT 2026-09-19 (§Registered structural resolvers). Still unbuilt:
+**`$infer`**. Recursive spread typing is **declined, not missing** (§Ordering).
 
 [script-tasks.md](script-tasks.md) argued for a single-phase import directive; that section
 is superseded by this doc, which owns the resolution model outright. The TypeScript
@@ -142,7 +141,7 @@ is a plugin system with no rule: nothing says whether stage 4's output can inval
 ## The project config
 
 `.genroc`, discovered upward from each source file. Deliberately **not**
-`os.UserConfigDir()`, where `genctl config` writes `server`: which bundler builds this repo
+`~/.config/genroc`, where `genctl config` writes `server`: which bundler builds this repo
 is the repo's property and belongs in the repo; the server URL is the operator's and does
 not. Different owners, different lifetimes, different files.
 
@@ -289,10 +288,11 @@ to tighten one payload is the cost, and it is the rare half.
 
 ### The split defdoc keeps
 
-`defdoc` runs before resolution — `sourceDoc.doc` is the `map[string]any` it produced and
+`defdoc` runs before resolution — `sourceDoc.Value` is the `map[string]any` it produced and
 `findSites` walks that, not the node tree — so a `<<` defdoc resolves is gone before phase 1
-looks. The alias form has to stay there: it is pure syntax, the LSP parses with defdoc and runs no
-resolvers, and moving it behind phase 1 turns every anchor in a repo red until an apply runs.
+looks. The alias form has to stay there: it is pure syntax, the LSP runs only the structural phase
+and falls back to the text as written when that fails, and moving it behind phase 1 turns every
+anchor red whenever it does.
 
 So the seam is the value kind, which is what `mergeTarget` already is:
 
@@ -522,11 +522,11 @@ also the argument for not scheduling the engine-side version.
     <<: "$process: ./billing.yaml"
 
 Phase 1, spread form (§The spread form). Returns the call-site pre-fill for a child of that
-definition: `name`, `result_schema`, `raises`. It exists because those are otherwise copied by
-hand from a file in the same repo, and a copy is what drifts.
+definition: `name`, `input_schema`, `result_schema`, `raises`. It exists because those are
+otherwise copied by hand from a file in the same repo, and a copy is what drifts.
 
-**It is genctl's first built-in resolver, and has to be.** Two of the three are not fields to
-read: a definition carries `Output *Shape` and no output schema, and `raises` is
+**It is genctl's first built-in resolver, and has to be.** Two of them are not fields to
+read: a definition's output type is a Shape unless `output_schema` declares one, and `raises` is
 `ProcessDefinition.Raises()`, a scan over every raise clause. The answer is genroc's own inferred
 view — [`genctl schema type`](schema-command.md) §7's — so an external binary could produce it
 only by re-entering genctl. The mechanism stays open to registered resolvers; this instance

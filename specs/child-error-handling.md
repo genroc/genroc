@@ -317,8 +317,8 @@ Five things break silently:
 - **A superseded attempt keeps its subtree.** Rows and object claims accumulate per attempt —
   the price of the history §12 keeps.
 
-Budgets multiply: a child's own `retry: 3` under a parent's `retry: 3` is nine attempts at
-the underlying call. A re-spawned child that panics ends the loop at once (§5.4).
+Budgets multiply: a child's own `retry: 3` under a parent's `retry: 3` is sixteen attempts at
+the underlying call — four runs of a child that makes four calls each. A re-spawned child that panics ends the loop at once (§5.4).
 
 A round audits **one line per slot**, not one per round, at warn — naming the slot, the code
 it raised and `attempt n/N`, the same granularity the action path reports. A round is not a
@@ -374,7 +374,7 @@ cut every other value slot gets.
 — the last being where the operational value is, since engine codes existed only inside prose
 before. Two families: call codes (`http.500`, `pre.timeout`, `result.invalid`…) via
 `handleCallError`, and a closed `engine.*` set (`definition`, `expression`, `config`, `input`,
-`spawn`, `collect`, `panic` — the last for a Go panic escaping an advance) via
+`output`, `spawn`, `collect`, `panic` — the last for a Go panic escaping an advance) via
 `failInstance`. (`engine.only_once` later became the catchable `only_once.interrupted` —
 [only-once-interrupted.md](only-once-interrupted.md).) R1's namespace split holds: authored
 codes never contain a dot, engine codes always do.

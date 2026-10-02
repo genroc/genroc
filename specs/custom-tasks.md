@@ -1,6 +1,7 @@
 # Custom tasks: child processes as the extension mechanism (no plugins)
 
-Status: **NORTH-STAR / goals doc, 2026-07-21. Not implemented.** This records an
+Status: **NORTH-STAR / goals doc, 2026-07-21. Not implemented as a whole**; two checklist
+items have landed piecemeal (version pinning + compat; cancel to `external` workers). This records an
 intended direction so future changes can be checked against it — it is a goal, not
 a spec. Related: [the `unknown` type](unknown-type.md), [typed values](typed-values.md).
 
@@ -144,9 +145,11 @@ does *not* natively solve:
 - [ ] Declared process interface: output type + error surface as a stable contract
       (see [unknown-type.md](unknown-type.md) result-typing modes).
 - [ ] Idempotency token in the child↔sidecar contract.
-- [ ] Cancellation-propagation semantics (async/best-effort) to sidecars.
+- [ ] Cancellation-propagation semantics (async/best-effort) to sidecars. *Partly built
+      2026-09-07: an `external` worker learns of a cancel from renew's `cancelled` list.*
 - [ ] Progress/heartbeat reachable by a running child.
-- [ ] Version immutability + pinning + a compatibility check on update.
+- [x] Version immutability + pinning + a compatibility check on update. *Built: immutable
+      versions, a child's `version:`, `genctl compat` ([version-compatibility.md](version-compatibility.md)).*
 - [ ] Process namespacing + dependency bundling for distribution.
 - [ ] (Model B, later) resource quotas, secret isolation, egress policy, log
       visibility gating.

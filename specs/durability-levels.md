@@ -1,6 +1,6 @@
 # Durability levels: move the fsync from every commit to a few boundaries
 
-Today every persist is an fsync. That is the strongest guarantee available and it is not
+Before 2026-08-25 every persist was an fsync. That is the strongest guarantee available and it is not
 the one the product promises — the contract is already at-least-once, so most commits buy
 durability nobody asked for. This records what an fsync actually costs (measured, after
 discovering the benchmarks were measuring a no-op), why a handful of boundaries is
@@ -119,7 +119,8 @@ records that an external task has no default timeout — "parking indefinitely i
 for." So inbound delivery splits: if the park has a deadline, a lost delivery degrades to
 `external.timeout`, `on_error` routes it, and the user can retry — recoverable, no fsync
 needed. If it has none, the instance parks forever and nobody re-delivers. `runExternal`
-already computes `hasDeadline` at arm time, so the rule is exactly expressible.
+already computes `hasDeadline` at arm time, so the rule is exactly expressible. [unbuilt:
+every delivery syncs, deadline or not]
 
 **`only_once` cannot be dropped, and costs nothing to keep.** The evidence it runs on is
 the claim — `worker_id` plus task position, durable before the request leaves — which is
@@ -149,6 +150,8 @@ Levels are strictly increasing; each adds fsync points to the one above.
 
 ¹ creates sit in drain's untimed load phase; steady state costs 1 fsync per accepted item,
 batched across concurrent callers. ² free unless the definition uses `only_once`.
+
+`none` and `accepted` were not built; the shipped ladder starts at `only-once`.
 
 ### 5a. Measured (2026-08-25) — and a rung's value is a property of the WORKLOAD
 
@@ -269,7 +272,7 @@ means moving the `only_once` bracket into the engine, and is the next real win i
 is not fast enough.
 
 **Default: `only-once`.** It is the strongest guarantee that costs nothing over `accepted`,
-and 21× faster than what ships today.
+and 21× faster than `strict`.
 
 `terminal` exists as its own rung because it is a real and much cheaper guarantee than
 `strict` — one sync per process rather than one per task — and it is the level that stops
@@ -298,7 +301,7 @@ drains), Docker PG 16:
 
 Batch width is `arrival_rate × flush_window`, capped by **`--pg-max-open-conns`** (default
 50) — not by `--max-concurrent`, since only transactions simultaneously in flight can
-coalesce. The pool is the group-commit ceiling, which its flag help does not say.
+coalesce. The pool is the group-commit ceiling.
 
 These ratios are a **floor**. Docker's window is 0.23 ms against real storage's 4.07 ms, so
 an honest disk collects a queue ~18× deeper. In the limit where flush time dominates, batch
@@ -389,7 +392,7 @@ without spending durability, and it was **not** built — SQLite is positioned a
 single-node and development engine, Postgres as the throughput one, and §6a is the evidence
 for that split (1,663 against 177 at identical durability, ~9.4×).
 
-This leaves §5's ladder unbuilt and, for now, unscheduled rather than rejected: nothing in
+This left §5's ladder unbuilt (it shipped later that day — §0), unscheduled rather than rejected: nothing in
 §1–§4 is contradicted, and the reason to reopen it is unchanged — a deployment that needs
 more than full-durability Postgres can give, or a SQLite deployment that needs more than
 ~180 inst/s.
@@ -464,7 +467,7 @@ documented as such.
   **A transaction spanning two instances takes the max of their levels.** It is the
   conservative direction (more durable, never less) and needs no reasoning about which
   instance "owns" the commit. The paths that span instances are `SpawnChildrenAndWait`,
-  `FinishChild`, `FailInstanceAndAncestors`, and the subtree verbs
+  `RespawnSlotsAndWait`, `FinishChild`, `FailInstanceAndAncestors`, and the subtree verbs
   (`PauseProcess`/`ResumeProcess`/`RetryProcess`) — the last three are operator-driven and
   rare, so the max costs them nothing.
 
@@ -472,7 +475,8 @@ documented as such.
   schema, the editor schema, and where the level is read from in the delivery path
   ([internal/db/db_signals.go](../internal/db/db_signals.go) holds an instance id, not a
   definition — either look the definition up or denormalize the level onto the row).
-- **The Postgres projection is unverified on honest storage.** Every number in §6 came off
+- ~~**The Postgres projection is unverified on honest storage.**~~ — **answered 2026-08-25
+  (§6a).** Every number in §6 came off
   a 0.23 ms disk. Native Homebrew Postgres on macOS *can* do
   `wal_sync_method = fsync_writethrough`, which would give the matched comparison against
   SQLite's F_FULLFSYNC run. Note PG 18 moved `wal_sync` out of `pg_stat_wal` into

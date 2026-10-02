@@ -4,7 +4,7 @@ Status: **agreed and implemented 2026-08-26.** Code: `eachInstance`/`instanceIDs
 in `cmd/genctl`, `assert` in `http.go`, `LifecycleResult` in `db_lifecycle.go`,
 `Reply.Outcome`/`statusOfOutcome`/`actionDef.AltSuccess` in `internal/api`.
 
-`genctl pause`, `resume` and `retry` accept several instance ids, the way `upgrade`
+`genctl pause`, `resume`, `cancel` and `retry` accept several instance ids, the way `upgrade`
 already does — and the endpoints behind them became assertions rather than 409-on-no-op
 (§The API change), which is what the id list turned out to need. The verbs' own semantics
 are unchanged: their design is [pause-resume.md](pause-resume.md).
@@ -16,8 +16,8 @@ casually best-effort because an upgrade is **idempotent**: its header comment sa
 its tally reports "already on N" without counting it against the exit code, so *a partial
 sweep is repaired by running it again*.
 
-pause/resume/retry have the opposite property. All three **deliberately refuse a no-op** —
-`db_lifecycle.go:255` says it outright: *"Report it rather than silently succeeding."*
+pause/resume/retry have the opposite property. All three **deliberately refused a no-op** —
+the pre-change comment in `db_lifecycle.go` said it outright: *"Report it rather than silently succeeding."*
 So the naive group inherits a trap: `pause a b c` where `b` fails leaves `a` and `c`
 paused, and re-running the same line now fails on `a` and `c` and succeeds on `b`. The
 repair story that makes a best-effort group forgivable does not exist.
@@ -39,7 +39,8 @@ the thing that generates everything below:
 Each id lands in one of three outcomes. Only the third fails the command:
 
 - **done** — the call succeeded and the state changed (`applied`, or `accepted` where a
-  task in flight defers it; the `already` line says which).
+  task in flight defers it; the done line marks `accepted` with "(draining a task already
+  in flight)").
 - **already** — the verb's promise already held for this id. Reported, never fatal.
 - **refused** — the promise does not hold and the operator has a decision to make.
 
@@ -70,7 +71,7 @@ because the ids that landed the first time now report `already`.
 
 4. **`already` is not an error, so the API must stop returning one.** See §The API change.
    The classification the CLI would otherwise reconstruct is a fact only the server holds,
-   and it holds it under the lock that decided the outcome; `changed` on a 200 is that fact.
+   and it holds it under the lock that decided the outcome; `unchanged` (204) is that fact.
    An earlier draft had the CLI classify `resume`'s 409 by re-reading the row — rejected,
    because it makes the client rebuild a judgement the server already made and re-read state
    that has since moved on.
@@ -125,7 +126,7 @@ because the ids that landed the first time now report `already`.
 
 ```
 stdout  paused: <id>                                    # done — unchanged from today
-stdout  already: <id>  <the server's message>           # e.g. "... (status: paused)"
+stdout  already: <id>                                   # a 204 carries no message
 stderr  genctl: <id>: <reason>                          # refused
 stderr  5 named: 3 paused, 1 already, 1 refused         # summary, N>1 only
 ```
@@ -176,9 +177,9 @@ type Outcome string   // on Reply, beside Code
 | *(refused)* | **409** | via the existing `Code` path — `resume` on a settled tree, every `retry` refusal |
 
 A client that only reads the status line gets the answer; a TCP or UDS client reads
-`Outcome` and gets the same one. Today there is no path for this at all: `writeReply`
-writes the implicit 200 on every success (`server.go:226-234`), so `Reply` gains the field
-and the success branch gains a `WriteHeader`.
+`Outcome` and gets the same one. Before this there was no path for it at all: `writeReply`
+wrote the implicit 200 on every success, so `Reply` gained the field and the success branch
+a `WriteHeader`.
 
 ### 202 is not decoration — it fixes an error in this spec
 
@@ -224,7 +225,7 @@ status line.
 
 ### Which 409s survive
 
-| verb | today | proposed |
+| verb | before | built |
 |---|---|---|
 | `pause`, nothing running in the tree | 409 | **204** — the promise holds |
 | `pause`, some rows left draining | 200 | **202** — asked, not yet stopped |
@@ -238,15 +239,15 @@ The `resume` split is on `Status.Terminal()` (`model/instance.go:46`), evaluated
 as the outcome itself. That is the part a client cannot reproduce at any price: a CLI
 re-reading after a 409 is reading a tree that may have moved.
 
-**"Report it rather than silently succeeding"** (`db_lifecycle.go:255`) is the comment this
-appears to contradict, and does not. Its concern is silence — the original sin was a plain
+**"Report it rather than silently succeeding"** (the pre-change `db_lifecycle.go` comment) is
+what this appears to contradict, and does not. Its concern is silence — the original sin was a plain
 success that hid the no-op. A distinct outcome and status code report it louder than the
-409 did and, unlike prose, a program can switch on it. The comment has to be rewritten when
-this lands, or it will read as an invariant this broke.
+409 did and, unlike prose, a program can switch on it. The comment was rewritten when this
+landed ("Reported as an outcome rather than an error"), so it does not read as an invariant this broke.
 
 ### Cost
 
-`PauseProcess` and `ResumeProcess` return `(outcome, err)` rather than `error`; the API is
+`PauseProcess` and `ResumeProcess` return `(LifecycleResult, error)` rather than `error`; the API is
 their only caller (`handlers_instances.go:262-293`). `Reply` gains `Outcome` and
 `writeReply` a success-side `WriteHeader`. The registry's `Resp` is **one shape per action**
 (`actions.go:29`), so documenting three success codes is the one genuinely new capability
@@ -305,8 +306,8 @@ models the call as an assertion, not because `systemctl` post-processes a failur
   shape would be `{id, outcome, reason}` per the `--json`-is-the-one-machine-format rule.
 - **`pause` treats a settled tree and an already-paused one as the same outcome** — both
   are `already`, because the promise is "not advancing" and both keep it. They are still
-  distinguishable when it matters: the response's `status` says which, and the `already`
-  line prints it. What is deliberately *not* offered is a way to make settled fatal.
+  distinguishable when it matters: `GET /instances/{id}` says which (a 204 carries no
+  `status`). What is deliberately *not* offered is a way to make settled fatal.
 - **No selector sweep.** `pause --status running --process foo` stays unbuilt: `instances`
   grew `--process`/`--version` instead, so the sweep is spelled as a substitution the shell
   already understands rather than as a second selector on every verb.
@@ -321,8 +322,8 @@ What the tests must pin, none of which today's suite would catch:
   whole taxonomy exists for.
 - **A refusal named between two workable ids** fails neither of them and still carries the
   exit code (the shape `upgrade_test.ts` already uses).
-- **Every row of §The API change's table**, at both layers: that the endpoint answers 200
-  `changed:false` versus 409 where the table says so, and that the CLI turns those into
+- **Every row of §The API change's table**, at both layers: that the endpoint answers 204
+  `unchanged` versus 409 where the table says so, and that the CLI turns those into
   `already` (exit 0) versus `refused` (exit 1). `resume` on a live tree against `resume` on
   a settled one is the pair that carries the whole split.
 - **`unchanged` is returned exactly when nothing was written** — it must leave no audit

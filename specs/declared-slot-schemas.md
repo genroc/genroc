@@ -234,8 +234,8 @@ because creation filled it.
 
 Nothing has conformed our sub side. It is the inferred type of an expression, and inference
 does not emit `default` — so that rule looks vacuous here, and "looks vacuous" is not the
-proof this invariant asks for. **Settling it is the first task**, and there are two honest
-endings: prove the defaults rule cannot fire on an inferred schema and reuse
+proof this invariant asks for. **Settling it is the first task** (settled 2026-09-18 by the
+split, §0), and there are two honest endings: prove the defaults rule cannot fire on an inferred schema and reuse
 `{closed, absentAsNull, afterConform}`, or split `afterConform` into the removal and the
 defaults rule and take only the first. Either way the test is the existing shape — every gap,
 both directions, and the conformed value passing a strict re-check.
@@ -286,8 +286,8 @@ itself, not a call. These are TERMINAL: they go straight to `failInstance` and a
 through `on_error`, so they cannot be caught"*
 ([errcode.go:106](../internal/errcode/errcode.go#L106)) — and **`engine.input` is already this
 assertion**, for a child's input failing its `input_schema` after registration checked it. So
-the input slots need no new code. The output slots want `engine.output` beside it; the fetch
-request side is §11's one naming question.
+the input slots need no new code. The output slots use `engine.output` beside it; the fetch
+request side folds into `engine.input` (§0).
 
 **Not a Go panic.** A worker advances many instances, so a panic takes down work that has
 nothing to do with the defect — `engine.panic` exists precisely to contain one that escapes.
@@ -318,7 +318,7 @@ whole design rests on. So the schema package's original line stands as written: 
 flowing into a typed input is rejected on purpose*.
 
 The combination to settle is therefore `closed` plus §4's null rules over the plain relation,
-which is the pairing §4 says to pin first.
+which is the pairing §4 says to pin first — pinned in `schematest/conforms_exactly_test.go` (§0).
 
 **Child input.** Two checks, and they are different checks. `inferred` against `declared` runs
 **closed** and needs no database, which is the entire point — it is the first input check the
@@ -372,8 +372,8 @@ e2e test pins the two rules AGREEING rather than pretending to exercise it.
 
 ## 7. What the editor does with it
 
-Every slot in §2 is a mapping whose keys are the author's own, so the editor offers **nothing**
-inside one today. Completion has two sources and neither can answer there: `legalKeys` walks
+Every slot in §2 is a mapping whose keys are the author's own, so before 2026-09-18 the editor
+offered **nothing** inside one. Completion has two sources and neither can answer there: `legalKeys` walks
 the *language's* generated schema, which describes a `body` as a permissive object because that
 is what it is, and `membersOf` reads the author's own inferred types but only on the right-hand
 side of a `$:`. A declared schema is an author's type in a KEY position, which is precisely the
@@ -388,7 +388,7 @@ writes the codes down at the call site, `$process` fills them in, and the editor
 this document. `input_schema` is that same move on the input channel and `body_schema` is it for
 an endpoint.
 
-| the cursor is | answers with | today |
+| the cursor is | answers with | before |
 |---|---|---|
 | on a key inside a declared shape | the declared properties not yet written, required first | nothing, the mapping is open |
 | on a value whose declared property is an `enum` | those values | nothing |
@@ -475,8 +475,8 @@ and then cannot deliver.
 
 ## 9. The seams, and what is silent when broken
 
-- **`Shape` picks the relation.** `CheckWith` calls `norm.IsSubset(*s.Schema)`
-  ([infer.go:147](../internal/shape/infer.go#L147)); the slot selects the mode instead. The
+- **`Shape` picks the relation.** `CheckWith` picks it through `s.fits`, keyed on
+  `Shape.Conformed` ([infer.go:157](../internal/shape/infer.go#L157)); the slot sets the flag. The
   existing fixed targets (`headers`, `query`, `accepted_status`) keep the open relation and no
   conform — they are `object<string>` and friends, where undeclared is the normal case.
   Flipping one of those is a behaviour change to a shipped slot and is not part of this.
@@ -503,7 +503,7 @@ and then cannot deliver.
   sub-field. A malformed declaration is the other case and reports at the `_schema` slot.
   Getting this backwards underlines the imported document when the call site is what is wrong.
 - **`genctl schema type` prints the published type**, which is the declaration where there is
-  one and the inferred type otherwise — the same rule `$process` and `Compare` follow, because
+  one (on a sent slot, the inferred type conformed to it, §1) and the inferred type otherwise — the same rule `$process` and `Compare` follow, because
   three answers to "what is this slot" is how they drift. The inferred type stays reachable and
   is what a diagnostic about the shape is phrased against.
 

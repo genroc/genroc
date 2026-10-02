@@ -79,16 +79,16 @@ One map from status to schema describing **the whole endpoint**, success and fai
 The status class does the splitting: a declared 2xx types `self.result`, a declared 4xx/5xx
 types `error.data` and still routes through `on_error`.
 
-Today `accepted_status` defaults to any 2xx and `sendHTTP` decodes the body unconditionally,
-so a `202` carrying no body is accepted and then fails to parse. Measured, not inferred —
-`204`, an empty `200` and a `text/plain` `200` all return `result.parse`, and
-[transport.go:130](../internal/transport/transport.go#L130) sets no `ErrorMessage` on that
-path, so the trail says `result.parse` and nothing else. `DELETE` → 204, an async kickoff →
-202, a webhook ACK: none are expressible. On the other side an error payload is unreachable at
-any type — `error` is `{task, message, code}`
+Before §2, `accepted_status` defaulted to any 2xx and `sendHTTP` decoded the body unconditionally,
+so a `202` carrying no body was accepted and then failed to parse. Measured, not inferred —
+`204`, an empty `200` and a `text/plain` `200` all returned `result.parse`, and
+[transport.go:130](../internal/transport/transport.go#L130) set no `ErrorMessage` on that
+path, so the trail said `result.parse` and nothing else. `DELETE` → 204, an async kickoff →
+202, a webhook ACK: none were expressible. On the other side an error payload was unreachable at
+any type — `error` was `{task, message, code}`
 ([error.go:71](../internal/engine/error.go#L71),
-[infer.go:424](../internal/validation/infer.go#L424)) and a `problem+json` body survives only
-as the 512 bytes [transport.go:109](../internal/transport/transport.go#L109) trims into
+[infer.go:424](../internal/validation/infer.go#L424)) and a `problem+json` body survived only
+as the 512 bytes [transport.go:109](../internal/transport/transport.go#L109) trimmed into
 `message`.
 
 ```yaml
@@ -185,15 +185,16 @@ being navigable ([unknown-type.md](unknown-type.md)) until a consumer restates i
 undeclared body would be the one place in the language where data reaches an expression with
 no declaration behind it, and on the path where the payload is least trustworthy.
 
-**This is the only source of `null`,** which is why enforcement matters: `error.data` at a
+**This is the only source of `null`,** which is why enforcement matters: `last_error.data` at a
 handler is nullable exactly when some code reaching it has no declared schema — `pre.*`,
-`http.timeout`, `http.disconnected`, a child raise, an undeclared status, or a body-validation code, since those
+`http.timeout`, `http.disconnected`, a child raise with no `raises` declaration, an undeclared status, or a body-validation code, since those
 carry no conforming body either. `code: [http.400]` against `{"400": A}` is therefore exactly
 `A`, and the null returns precisely when an author asks for it by widening the patterns. Absent from
 the context is not absent from the record — `action_failed` still carries the body in its
-`data` ([action.go:94](../internal/engine/action.go#L94)) — but behind two gates this spec
-does not move: the entry is `LogDebug`, and `snippetRaw` blanks it unless payload logging is
-on. "It is in the logs" is true of an operator who turned both on, not of a default install.
+`data` ([action.go:94](../internal/engine/action.go#L94)) — but behind a gate this spec
+does not move: `snippetRaw` blanks it unless payload logging is on (the entry itself, once
+`LogDebug`, is `LogWarn` since 2026-09-07). "It is in the logs" is true of an operator who
+turned that on, not of a default install.
 
 **A `null` entry ignores a body that arrives anyway.** Enforcement binds where a type is
 claimed, and `null` claims none — the body is never read, so nothing can fail to conform.
@@ -255,9 +256,9 @@ documents for precisely this shape.
 **The union is `anyOf`, not `oneOf`.** Status bodies overlap in practice — two object
 schemas whose properties are all optional both admit `{}` — and `oneOf` means *exactly one*
 arm matches, so an overlapping union rejects a body that conforms to two of its arms. This
-codebase has already paid for that once: the enum-aware canonicalization in
-[literal-types.md](literal-types.md) exists because `?? false` inferred an overlapping `oneOf`
-that rejected `false`. Runtime conform is per status and never touches the union, so the
+codebase has already paid for that once: the `??` canonicalization in
+[path-sensitive-output.md](path-sensitive-output.md) §3 exists because `boolean ?? boolean|null`
+built an overlapping `oneOf` that rejected every value it described. Runtime conform is per status and never touches the union, so the
 damage would land where it is hardest to see — in the generated `<taskID>_output` schema a
 consumer reads, and in `IsSubset` during a compat check.
 
@@ -272,14 +273,14 @@ Two things fall out. The static side collapses: `mustErr`/`mayErr` and the rules
 handler stop being fixpoints over the graph and become local questions about one task's
 incoming edges. And the rule applies to the whole error model, not just fetch — a child
 failure routed by `on_error` is scoped the same way, because both write the same slot. All
-three shipped examples already read `error` in the immediate `goto` target, so the
+three shipped examples already read `error` (now `last_error`) in the immediate `goto` target, so the
 generality being removed had no user.
 
 **Neither channel needs narrowing.** `{"200": T, "202": U}` is an `anyOf`; refining it by
-`self.status` needs literal types, discriminated unions and guard narrowing, all deferred. The
+`self.status` needs literal types and discriminated unions, both deferred. The
 design does not depend on them. The common success shape is one body-carrying status plus N
 empty ones — `T | null`, which the type system already has. The error side discriminates for
-free: an `on_error` rule already selects by code, so `error.data` at a handler is the union
+free: an `on_error` rule already selects by code, so `last_error.data` at a handler is the union
 over the rules reaching it — the treatment `contextSchemaAbsent` gives `outputs` — and exactly
 one type where one rule reaches one handler.
 
@@ -306,7 +307,7 @@ one type where one rule reaches one handler.
   `errSchema` at [infer.go:424](../internal/validation/infer.go#L424). Absent for every error
   carrying no response at all (`pre.*`, `http.timeout`, `http.disconnected`,
   `only_once.interrupted`, a child
-  raise), which is most of the set — nullable is not a formality.
+  raise with no `raises` declaration), which is most of the set — nullable is not a formality.
 - **`error.data` persists like a task output, which is a change: `error` was not a value-slot
   when this was written.** *Built, and by a simpler answer than the one below.* `error` is now
   an ORDINARY cut slot — `encodeState` puts it through the same `cut` as every other value
@@ -359,7 +360,7 @@ bodyless status reads as a removed declaration and goes unreported, though as a 
 narrows what the remote may answer and breaks a producer; and restating the same union over a
 range (`{"200": T}` → `{"2xx": T}`) reads as one key removed and another added, reporting a
 break for an edit that changed no type at all. Both are pinned by
-`TestCompat_FetchResultIsComparedAsTheMergedUnion`.
+`tests/cli/testdata/compat/shapes/a-bodyless-status-dropped.yaml` and `a-status-set-changed.yaml`.
 
 The direction is the one every result schema runs, `old ⊆ new`: the schema is a demand on the
 party that PRODUCES the value, so a wider union turns nobody away while a narrower one breaks
@@ -428,12 +429,10 @@ unrolling level against the solver's widening cap. **Trap:** do not re-wrap `sel
   that noise on a path already logging `action_failed`?
 - Does `accepted_status` still earn a slot once `responses` keys carry the same vocabulary? It
   survives for the dynamic case alone — one example's requirement holding a slot open for all.
-- Number/boolean `query` values: stringify (convenient, matches url templates) vs strings-only
-  (trivial target)? Repeated parameters via array values — defer until asked.
 - Should `headers` gain `query`'s null-omits for consistency? A behaviour change to an existing
   slot; needs its own argument.
 - Version skew on new action fields generally — `min_engine`, or rejecting unknown action
   fields; both breaking, both bigger than these features.
-- `Retry-After` is still not usable end to end: it is in seconds, `ms` wants milliseconds, and
+- `Retry-After` is still not usable end to end: it is in seconds, `for` wants milliseconds, and
   the expression language has no numeric conversion builtin — separate proposal.
 - `Set-Cookie` lost to comma-joining; reopen if a session-carrying flow needs it.

@@ -8,7 +8,7 @@ code generator, for a client, a consumer, or a worker implementing an `external`
 
 ## 0. Status
 
-**PROPOSAL 2026-09-04.** Three steps, in order:
+**PROPOSAL 2026-09-04. BUILT 2026-09-04**, all three steps, in order:
 
 1. **The `error` / `last_error` split** — ✅ **BUILT 2026-09-04**
    ([task-scopes.md](task-scopes.md) §The error axis). Not part of this command, and first
@@ -16,7 +16,7 @@ code generator, for a client, a consumer, or a worker implementing an `external`
    would have had to document the ambiguity instead of answering. It also decided §3's table.
 2. **`context`**, `-e` included — ✅ **BUILT 2026-09-04**, as specced here
    (`internal/validation/slots.go`, `cmd/genctl/schema.go`, `tests/cli/schema_test.ts`).
-3. **`type`**, §7 — ✅ **BUILT**, once `TaskSchemas` grew the `Result` the inferred view did
+3. **`type`**, §7 — ✅ **BUILT 2026-09-04**, once `TaskSchemas` grew the `Result` the inferred view did
    not carry (`genctl schema type`, `tests/cli/schema_type_test.ts`).
 
 It became possible on 2026-09-04, when the types moved into genctl
@@ -31,7 +31,7 @@ have been a roundtrip per question, which is not a thing anyone runs while writi
   expression, so it cannot underlie completion or diagnostics. The consumer is a person or a
   generator, and the reading "this is nearly an LSP" would buy the wrong things: ranges,
   incremental parses, a long-lived process.
-- **Not a resolver.** See §5.
+- **Not a code resolver.** See §5.
 
 ## 2. The address
 
@@ -40,8 +40,8 @@ have been a roundtrip per question, which is not a thing anyone runs while writi
 **The process is a mandatory positional.** Making it optional when the file set holds one
 definition was rejected: the single positional then means two things, and which one is decided
 by whether it happens to match a process name — a rule that goes wrong exactly for a process
-named `output`. Process names are unconstrained (`validate:"required"` and nothing else; only
-`config` names have a charset), so there is no lexical rule that separates the two spellings.
+named `output`. Process names are unconstrained (`validate:"required"` and nothing else, unlike
+task ids and `config` names), so there is no lexical rule that separates the two spellings.
 One less rule beats one less word.
 
 ### The view is one schema, and an address is a path into it
@@ -85,7 +85,7 @@ That is what makes a manifest pointer a TYPE ADDRESS wherever the slot it names 
 (source-resolution.md), rather than a second spelling to translate.
 
 **Where a slot has no type, there is no address**, and that is the honest half: `url`, `headers`,
-`query`, a switch `case`, an `on_error` clause's `message` hold templates, not contract
+a switch `case`, an `on_error` clause's `message` hold templates, not contract
 boundaries, so `schema type` refuses them by naming what the action does have. Three slots run
 the other way — `result` (a fetch's is the accepted `responses`, unioned), `last_error` (which
 failures route here) and `raises` (collected from every `raise` clause) — and are DERIVED, so
@@ -99,7 +99,8 @@ by expression. One logic, all the way down.
 **A task id that is not an identifier is quoted** — `tasks["step.one"].output` — because an id is
 `required` and nothing else, so a dot in one is otherwise read as a step. It is the same grammar
 as the `outputs["step.one"].fee` it addresses, and the rendering is injective, so every address a
-listing prints resolves back to itself.
+listing prints resolves back to itself. **Superseded 2026-09-19** for task ids, which are now C
+identifiers; a dotted property key still quotes.
 
 **A switch case is keyed too, and beside the phase rather than instead of it.** Reaching case
 k means every earlier case was false, so each case reads a different context
@@ -122,7 +123,7 @@ because indexing an object is otherwise an error. Neither direction conflates an
 **A miss teaches the space.** The document IS the address space, so what sits at the point of
 failure is the list of what could be typed instead: `no "url" in tasks.price, which holds:
 action, on_error, output, switch`. A key holding a dot names its quoted spelling, and an address
-the OTHER view answers names that view — `tasks.price.result` is a type, not a context.
+the OTHER view answers names that view — `tasks.price.action.result` is a type, not a context.
 
 **What this dropped, deliberately.** `tasks.price.url` used to resolve up to the action phase,
 and the answer reported that with an arrow. The rule bought one real thing — `url`, `timeout` and
@@ -271,12 +272,15 @@ output   on the path ending at task "left":  input, outputs{left, right=null}
 part (`… +error(limit_exceeded)`), which needs a baseline to diff against and a code name the
 schema does not carry — the members are the same information without either.
 
-## 5. No resolver runs
+## 5. No code resolver runs
 
 A query must never shell out to `tsc`. It does not have to: inference collapses a literal to
 its base type, so an unresolved `$import: ./fee.ts` leaf types as `string` — exactly what the
 placeholder `apply` splices types as, by the argument [source-resolution.md](source-resolution.md)
 §"Why the placeholder is sound" already makes. The directive is left where it is.
+
+The structural phase does run — `$process` and registered structural resolvers (2026-09-17/19) —
+because it moves the types reported (source-resolution.md §Built-in, and overridable).
 
 ## 6. Open
 
@@ -293,7 +297,8 @@ placeholder `apply` splices types as, by the argument [source-resolution.md](sou
 ## 7. `type`
 
 The address space is the **contract boundaries**, the places someone generates code from:
-`input`, `output`, `raises.<code>`, `tasks.<id>.action.{input,result}` and
+`input`, `output`, `raises.<code>`,
+`tasks.<id>.action.{input|body,query,children.<k>.input,result}` and
 `tasks.<id>.{output,last_error}`. Answers are
 standalone documents, as in §4.
 
@@ -310,7 +315,9 @@ what makes it one space rather than two that happen to look alike.
 | `output` | what the output expression reads | what the process produces |
 | `raises["payment.declined"]` | — | that fault's payload |
 | `tasks.<id>.action` | the action-phase context | its input and result |
-| `tasks.<id>.action.input` | — | what the action is sent |
+| `tasks.<id>.action.input` (`.body` on a fetch) | — | what the action is sent |
+| `tasks.<id>.action.query` | — | the fetch query |
+| `tasks.<id>.action.children.<k>.input` | — | what that `child_map` entry is sent |
 | `tasks.<id>.action.result` | — | what the action hands back |
 | `tasks.<id>.output` | what the output map reads | what the output map produces |
 | `tasks.<id>.last_error` | — | the payload of the failure that routed here |
@@ -324,7 +331,7 @@ produces. Where only one view has an answer the other names it (§2, a miss teac
 ### Navigation
 
 Navigation is §2's, unchanged: this view is a document like the other one, so
-`tasks["step.one"].result.tiers[0]` and `raises["http.429"].detail` are paths like any other —
+`tasks.price.action.result.tiers[0]` and `raises["http.429"].detail` are paths like any other —
 and `tasks.send` is the whole contract of one task, which is what a worker implementor wants.
 
 ### `result` is what `self.result` sees [decided 2026-09-04]

@@ -91,7 +91,7 @@ The cookie and the bearer are deliberately different things.
   expiry (a working day). `HttpOnly`, `SameSite=Lax`, `Secure`. The upstream provider's ID token
   is used ONCE at login, to establish who this is, and then discarded -- it never reaches a
   cookie and never leaves genroc-ui.
-- **The bearer** is minted per request (or cached for a minute) from that session, carrying
+- **The bearer** is minted per request from that session (no cache — §7), carrying
   `perms` and a short expiry.
 
 Nothing is stored server-side, so there is no session table and no restart to survive. It also
@@ -143,10 +143,10 @@ roles:                             # groups -> permissions. Was the server's; no
 users:                             # subject -> permissions, for providers carrying no groups
   ada@example.com: [admin]
 
-genroc:
-  server: http://genroc:8448
-  shared_secret: ${GENROC_JWT_SECRET}
-  token_ttl: 60s
+server: http://genroc:8448
+token:
+  secret_file: /data/jwt-secret    # or `secret:`; the key the server verifies with
+  ttl: 60s
 ```
 
 `passwords` is the line that needs watching. It is Dex's `staticPasswords` trade -- one file, no

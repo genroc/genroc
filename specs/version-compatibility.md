@@ -1,6 +1,6 @@
 # Instance upgrade
 
-**Status: built.** The compatibility check this gates on is
+**Status: built 2026-08-26, except §3b's pairing check.** The compatibility check this gates on is
 [compat-command.md](compat-command.md)'s subject — what is compared, in which direction, and
 how it is reported. This doc is the other half: **moving** an instance from one version to
 another, once that check says it may.
@@ -44,16 +44,18 @@ Both are why a parked task's `result_schema` is an *upgrade* concern and not onl
 one (compat-command.md §2c).
 
 Everything else is entry plus a timer/counter (a retry re-runs from the start; a
-lowered `attempts` below a stored `retry_count` fails instead of retrying — the new
-policy applied to an old counter, as asked). An **action-type change on the parked task
-is refused** (a `child_map` → `child_list` leaves children carrying the wrong spawn
+lowered `retries` below a stored `retry_count` fails instead of retrying — the new
+policy applied to an old counter, as asked). An **action-type change under a held instance
+is refused** — parked, waiting on children, or on a delay's timer, which has no phase, only a
+`wake_at` (a `child_map` → `child_list` leaves children carrying the wrong spawn
 keys; no schema relation describes that). **A leased instance is refused**; the write is
 conditional on `process_version`, `task`, and no live lease — the `task` predicate is
 load-bearing (a worker can claim-advance-finish between read and write, leaving
 `worker_id` NULL again; pinning task+version makes that a lost race a re-run picks up).
-An **expired** lease is admitted deliberately (a crashed worker's instance is the one an
-operator most wants to move; clearing `worker_id` instead would destroy the
-`ReclaimedExpired`/`only_once` evidence). By status: `paused` ideal; `failed` opt-in
+An **expired** lease is refused too — the predicate is `worker_id IS NULL`, and a row paused
+after its lease expired keeps its `worker_id`, so it moves only once a resume lets a worker
+reclaim it. Clearing `worker_id` to admit it would destroy the
+`ReclaimedExpired`/`only_once` evidence. By status: `paused` ideal; `failed` too
 (prelude to retry); `failing`/`pausing` refused (draining); `completed`/`raised` refused
 — no work moves, and the only effect would be re-lensing stored data (§5.7).
 
@@ -117,7 +119,7 @@ upgrade does not — deliberately, because a default filled into a half-run inst
 with every stored value that was derived from its absence (compat-command.md §2d). §8's
 opt-in conform would fix it at the price of reversibility.
 
-Bulk upgrade plans the whole closure first, then writes one row per transaction
+Bulk upgrade plans the whole closure first, then writes one tree per transaction
 (`applyBatch`'s shape; §3c makes partial runs data-safe, idempotency makes them recoverable).
 
 ## 5. What this cannot catch
@@ -134,11 +136,10 @@ Bulk upgrade plans the whole closure first, then writes one row per transaction
    whatever it referenced. The engine's own slots survive because the layer is deliberately
    partial at the top and `MigrateState` puts that half back.
 6. **A renamed task** reads as removed + added → refused (§8 has the deferred `--at`).
-7. **Redaction changes with the version — accepted.** A field secret-in-old, plain-in-new
-   becomes visible for data stored earlier. In `input_schema` the change at least surfaces
-   as a changed slot; in `config_schema` it is reported nowhere at all, since compat does
-   not judge config (compat-command.md §6b). Redaction is a display concern; the DB always
-   held the value.
+7. **Redaction changes with the version — accepted.** `secret: true` is config-only and
+   scrubs stdout only; config is never stored, so dropping it exposes no stored data and
+   reports as a `(not judged)` `config_schema` row (compat-command.md §6b). Redaction is a
+   display concern.
 8. **An in-flight result is judged by SCHEMA, which over-refuses on children — accepted for
    now.** An instance parked on a task that holds an outstanding result is gated on
    `old.result_schema ⊆ new`, strictly (contract optics, not storage optics: a worker's
@@ -152,8 +153,8 @@ Bulk upgrade plans the whole closure first, then writes one row per transaction
    while allowing it wedges the parent at collect with a result nothing accepts.
 9. **`only_once` may flip — accepted.** The new definition is the stated policy. The
    direction that bites: removing `only_once` from an interrupted task re-runs the side
-   effect; §2 admits expired leases precisely for crashed workers, the same state this
-   flag decides — read the slot report before moving such instances.
+   effect; a crashed worker's instance is the state this flag decides, and it moves once
+   reclaimed (§2) — read the slot report before moving such instances.
 
 ## 6. Surface
 
@@ -202,8 +203,9 @@ API handler owns the COMPOSITION — plan which versions the tree moves to (db),
 state to the definition it is moving to (validation), write them together (db) — rather than
 either package reaching into the other. It is also why the in-flight result check compares
 SCHEMAS: conforming a completed child's actual output would need the object store, which
-`validation` deliberately cannot reach (§5.8). **`CompareSet` is not a
-loop over `Compare`**: §3b needs old-parent/new-child and new-parent/old-child in one frame.
+`validation` deliberately cannot reach (§5.8). **`CompareSet` is a per-name loop today and
+must stop being one when §3b lands**: it needs old-parent/new-child and new-parent/old-child in
+one frame.
 The comparison's own internals — the two `$defs` pools, changed slots as a field comparison,
 why diagnostics decompose above `isSubset` — are compat-command.md §7 and that package's
 CLAUDE.md.

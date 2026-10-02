@@ -11,7 +11,7 @@ may accept what the check calls different.
 
 ## 0. Status
 
-**BUILT.** `genctl compat` and `GET /definitions/compat` ship the two-verdict design this
+**BUILT.** `genctl compat` and `POST /definitions/compat` ship the two-verdict design this
 doc argues for: `internal/validation/compat.go` carries `MemberUpgrade`/`MemberContract` and
 a `Verdict` per half, and the CLI has `--ignore contract` and `--json`. §2f's pruning is
 rejected here and correspondingly absent from the code. Its other half — **moving** an
@@ -321,7 +321,7 @@ produces the answer indistinguishable from "checked, and fine" that the status e
 prevent.
 
 **A selection moves the exit code and nothing else.** An excused break still appears, marked,
-and a trailing line names what was excluded and why the exit is 0.
+and the exclusion is stated where it applies (§6).
 
 **`--json` moves nothing at all.** It is a rendering, so it gates identically — the flag a
 pipeline reaches for to capture the findings must not be the flag that stops failing on them.
@@ -382,13 +382,15 @@ involves one version, and naming a second implies a comparison that never ran.
 ### 6a. Addressing
 
 **Level two is the schema that was compared**, and saying so answers the slot-versus-value
-question. There are only four:
+question. There are only five:
 
     input                        the input schema — both checks read it (§3b)
     output                       the process output schema
     <task>                       the context at that task (upgrade)
     <task>:<action_type>.result  a result schema — fetch.result, external.result, child.result;
                                  a child_map declares one per key, at <task>:child_map.<key>.result
+    <task>:<action_type>.raises  a raises table (both, as a result; §2c); its path starts with the code,
+                                 and a child_map's is per key, at <task>:child_map.<key>.raises
 
 Level three is a path **into that schema**, relative to nothing else: a context's paths start
 at its own roots and read `outputs.charge.fee` in full; a result schema's read `fee`.
@@ -396,10 +398,10 @@ at its own roots and read `outputs.charge.fee` in full; a result schema's read `
 **Change rows are addressed by slot, break rows by compared schema, and they overlap exactly
 where a slot IS one.** A slot no check looks at can only ever be a change:
 
-    input, output, <task>:<action_type>.result   a slot and a compared schema
-    config_schema, $defs          a slot only, and one nothing judges (§6b)
+    input, output, <task>:<action_type>.result, .raises   a slot and a compared schema
+    config_schema, $defs, output_schema   a slot only, and one nothing judges (§6b)
     tasks                         a slot only — the task list's ORDER, nothing else
-    <task>:<slot>                 a slot only — output, switch, on_error, only_once
+    <task>:<slot>                 a slot only — output, output_schema, switch, on_error, only_once
     <task>:<action_type>.<slot>   a slot only — fetch.url, child_list.over, child.name
     <task>:child_map.<key>        a call's existence, the way <task> is a task's
     <task>:child_map.<key>.<slot> the same vocabulary one level down, `.result` included
@@ -446,7 +448,7 @@ where no comparison could see it.
 
 The process name is stripped, the block header having named it. A task whose action type
 changed is addressed by the **old** side; version-compatibility.md §2 refuses an action-type
-change on a parked task, so nothing depends on resolving that.
+change under a held instance, so nothing depends on resolving that.
 
 ### 6b. What is a row
 
@@ -553,10 +555,10 @@ change lands in no diff — the typecheck in `test-int` is what notices.
   belongs here because `lookupProperty` already applies the same rule to reads, and because a
   mode reaches every depth while an operand transform reaches only the top.
 - `internal/validation/compat.go` — the two checks. **Three explainer configurations, and the
-  `swap` flag is the trap**: upgrade is `{absentAsNull: true}` plus the after-conform mode;
+  `swap` flag is the trap**: upgrade is `storedExplainer` (`{asStored: true}`);
   the input contract is `{}` — strict, no swap, since it already runs old ⊆ new; the output
   contract is `{swap: true}`, running new ⊆ old while the reader asks what *they* changed.
-- `cmd/genctl/compat.go` — two columns, three levels, the not-gating line. `splitReason`
+- `cmd/genctl/compat.go` — one verdict line per process, three levels, no trailing line. `splitReason`
   and `slotFor` are deleted rather than adapted.
 - `internal/api/handlers_compat.go` — the shape it marshals, and the flag as a request field.
 

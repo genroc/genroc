@@ -48,7 +48,7 @@ Today a definition failure can be located three incompatible ways:
 
 The second row is the defect, and it is not an editor problem. It is why
 `POST /api/definitions/validate` hands a client prose it cannot attribute to a field while
-the row above it returns `fields[]`; it is why `genctl validate` cannot print a line number;
+the row above it returns `fields[]`; it is why `genctl apply --check-only` cannot print a line number;
 it is why a UI cannot highlight anything. **The editor is the fourth consumer, not the
 reason.**
 
@@ -95,8 +95,8 @@ first diagnostic as an `error`, so the two callers that only gate on it (`handle
 
 ### A diagnostic code
 
-Each diagnostic carries a dotted code (`def.expression.unknown_field`), so an editor can
-suppress a class and `genctl validate --json` is machine-readable. A **new namespace, not
+Each diagnostic carries a dotted code (`def.expression`, `def.unknown_read`), so an editor can
+suppress a class and `genctl apply --check-only --json` is machine-readable. A **new namespace, not
 `errcode`**: those codes are runtime faults an `on_error` can catch, these are things that
 make a definition unregistrable and can never be caught. Sharing the type would put
 uncatchable codes in a `case:` author's autocomplete.
@@ -108,8 +108,8 @@ uncatchable codes in a `case:` author's autocomplete.
 a second output — and it BUILT that way: the walk moved into `internal/defdoc` and the genctl
 file went with it.
 
-    defdoc.Parse(data) → (value any, index Index, err error)
-    index.Range(addr) → (line, col, endLine, endCol, bool)
+    defdoc.Parse(data) → (*Doc, error)
+    doc.Locate(addr) → (Span, bool)
 
 It moves to `internal/defdoc` rather than being written again in the server, which is the
 whole point: genctl gets line numbers for free the moment it stops importing `yamlToAny`
@@ -246,9 +246,9 @@ is us: read each variant's `type: {const: fetch}` and descend into that branch, 
 the keyword meant. So the split is **diagnostics from the server's own two calls, completion
 from the schema**, with the drift test guaranteeing they cannot disagree.
 
-It costs one move: `buildProcessDefinitionSchema` leaves `internal/api` (which `archtest`
+It costs one move: the schema builder leaves `internal/api` (which `archtest`
 forbids to the language server, correctly — it drags in OpenAPI generation) for a package both
-can reach. That is where it belonged: the schema is a definition-language artefact and `api`
+can reach, `internal/defschema` (`defschema.Process`). That is where it belonged: the schema is a definition-language artefact and `api`
 only serves the bytes.
 
 ### Fix the published schema anyway
@@ -285,10 +285,9 @@ pointing them at — the looser of the two analyses, on exactly the mistakes a b
 Anyone editing without the extension can still add the line. `tests/cli/init_scaffold_test.ts`
 holds it, and holds the thing nothing held before: that what `init` writes actually typechecks.
 
-**What must not regress:** anchors and aliases, merge keys (`<<:`, already handled by
-`mergeSource`), multi-document files, and exact numeric literals. These are YAML-level and
-`yamlToAny` is where they live, so moving it to `defdoc` keeps them by construction — with
-their tests.
+**What must not regress:** anchors and aliases, merge keys (`<<:`, handled by `mergeTarget`),
+multi-document files, and exact numeric literals. These are YAML-level and lived in
+`yamlToAny`, so moving it to `defdoc` kept them by construction — with their tests.
 
 ## 6. What the expression parser still cannot do
 
@@ -306,7 +305,8 @@ not type is dropped rather than reported. That is the honest cost of no offsets,
 cheap: the leaf's own line is authoritative either way.
 
 Offsets in the AST are still a real change to `parser.go`, deferred until something needs a
-range *inside* an expression — precise squiggles, or semantic highlighting.
+range *inside* an expression — precise squiggles. Semantic highlighting did not: it shipped
+2026-09-10 on the lexer's `syntax.Tokens`.
 
 ## 7. Phases
 

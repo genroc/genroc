@@ -56,7 +56,7 @@ non-`only_once` interrupted task still just parks and re-runs on resume.
 Everything a call-error rule may: `goto`/`raise`/`panic`/`end`; wildcards and catch-alls
 may match it (the author's risk, as with every code — note an already-registered
 catch-all on an `only_once` task changes behaviour under this feature, a runtime change
-for existing rows); uncaught is the same terminal failure as before. `retries` is
+for existing rows); uncaught is the same terminal failure as before. `retry` is
 refused — see the unknowable set. Mechanically `handleCallError` minus the retry branch;
 `error.task` names the interrupted task; no `work_started` for it (the handler emits
 its own).

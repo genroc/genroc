@@ -32,7 +32,7 @@ with a did-you-mean hint is the recorded-but-untaken escape hatch if this proves
 error-prone.)
 
 **Expression-only positions never take a marker.** Where the required type is a fixed
-non-string (switch `case` → boolean, `over` → array, delay `ms` → number), literal text
+non-string (switch `case` → boolean, `over` → array), literal text
 is never meaningful, so the field is one bare expression — no `$:`, no `${}`. String
 positions (`url`, `method`) stay template positions because literal text *is* the common
 case there. The dividing line: templates make sense ⇒ template position; they don't ⇒
@@ -73,25 +73,26 @@ residual indentation does not defeat detection).
 ## Where it applies
 
 - Free projection, no schema (task/process `output`, fetch `body`, external `input`):
-  grammar applies, `Shape.Check` skipped.
+  grammar applies, `Shape.Check` skipped — unless a declared slot schema is written
+  ([declared-slot-schemas.md](declared-slot-schemas.md)).
 - Target schema exists (child `input` ⊆ input_schema; `headers` against
   `object<string>`): checked.
 - String positions (`url`, `method`): templates, checked non-null against `string`.
-- Expression-only (`case`, `over`, `ms`): bare expressions; `ms` also takes a bare
-  number.
+- Expression-only (`case`, `over`): bare expressions. Delay `for`/`until` take a literal,
+  a bare number or a `$:` leaf ([delay-syntax.md](delay-syntax.md)).
 - **Never expressions, by design:** `id`, `type`, child `name`/`version`,
-  `result_schema`, `accepted_status`, fault codes/messages, `on_error` codes —
+  `result_schema`/`responses`, raise/panic `code`, `on_error` codes —
   downstream analysis needs their concrete values.
 
 Deferred, with this grammar as prerequisite: per-action payload schemas (collapsing
 `validateActionRequiredFields` into one `Shape.Check`), the fetch payload pull-out, the
-`unknown` result type. The first is taken up by
-[declared-slot-schemas.md](declared-slot-schemas.md); the `unknown` result type is
-[unknown-type.md](unknown-type.md).
+`unknown` result type. The first was taken up by
+[declared-slot-schemas.md](declared-slot-schemas.md) (built 2026-09-18); the `unknown` result
+type is built ([unknown-type.md](unknown-type.md)).
 
 ## Editor schema
 
-The generated JSON Schema (`GET /process-schema.json`, yaml-language-server) is kept
+The generated JSON Schema (`GET /public/process-schema.json`, yaml-language-server) is kept
 live through one transform: `relax(S)` = every node becomes `node | string` (the
 expression escape hatch), applied recursively. Decisions that bit:
 

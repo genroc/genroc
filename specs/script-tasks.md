@@ -9,8 +9,9 @@ unauthenticated code-execution endpoint. The queue that made the `external` rout
 [external-task-queue.md](external-task-queue.md); what ships is documented in
 [eval-node/README.md](../eval-node/README.md).
 
-Still unbuilt: the `create-genroc-app` scaffolder. The import directive, the type generator and
-the bundler ARE built — see [source-resolution.md](source-resolution.md).
+The scaffolder this doc calls `create-genroc-app` is **BUILT 2026-09-01 as `genctl init`**
+(`cmd/genctl/init.go`), its templates embedded in genctl rather than versioned apart. The import
+directive, the type generator and the bundler ARE built — see [source-resolution.md](source-resolution.md).
 
 **§"What genroc adds" is superseded by
 [source-resolution.md](source-resolution.md)**, which owns the resolution model: this doc
@@ -30,7 +31,7 @@ channel, so "a worker pulls it off the queue" was a sentence describing machiner
 exist. That is [external-task-queue.md](external-task-queue.md), and it is the larger half of
 the work. The engine itself gained only `external.lost`.
 
-So the feature is a **setup experience**, not a subsystem. `create-genroc-app` scaffolds
+So the feature is a **setup experience**, not a subsystem. `genctl init` (drafted as `create-genroc-app`) scaffolds
 a project and optionally installs the TypeScript runtime: the type generator, the
 bundler, the tsconfig, the worker. All of it versions independently of genroc and can be
 replaced wholesale by a Python or WASM equivalent without the engine noticing.
@@ -109,7 +110,11 @@ Recorded so it does not drift back into the engine:
   discriminator moved out of a response body into the code, which is what the error channel
   bought.
 
-## Deferred: `process_objects` ownership
+## ~~Deferred~~: `process_objects` ownership
+
+**BUILT 2026-08-24 in [object-store.md](object-store.md)**: `process_objects` gave way to one
+content-addressed store, and a definition-embedded value is claimed under the `definition`
+owner. The case as argued before:
 
 Small bundles inline fine, so nothing here blocks a first version. It becomes real when
 bundles carry libraries.
@@ -134,12 +139,14 @@ the hash is holding the bytes that produce it.
 - **Secrets reaching the worker.** Deferred. Cheap non-foreclosure: have the worker carry
   its lease credential on any object fetch from the start, even unchecked, so authorization
   is a later tightening rather than a protocol break.
-- **Runtime**, template's choice: goja is the simplest embedding but has no hard memory
+- ~~**Runtime**~~ **Answered: Node `worker_threads`, one Worker per execution**
+  (`eval-node/realm.ts`). Template's choice: goja is the simplest embedding but has no hard memory
   ceiling, so a runaway allocation takes the worker with it; QuickJS-on-wazero and a Deno
   subprocess both contain it. Deciding late costs nothing — the resolution contract is
   indifferent.
-- Whether a script task is a distinct action type or plain `external` with a reserved
-  input shape. The latter adds nothing to the engine, which is the argument for it; the
+- ~~Whether a script task is a distinct action type or plain `external` with a reserved
+  input shape.~~ **Answered: plain `external`**, input `{code, input, timeout_ms}`
+  (eval-node/README.md). The latter adds nothing to the engine, which is the argument for it; the
   former is what would let the editor schema and `genctl` say anything useful about it.
 - Scripts are **leaf computations**. Logic that migrates from the definition into a script
   stops being self-describing state, and a script that orchestrates is the feature failing.

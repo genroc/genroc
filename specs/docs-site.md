@@ -1,11 +1,14 @@
 # Documentation site: a reference generated from the code that defines it
 
-Status: **partly built (2026-08-03).** The Astro scaffold lives in `docs/` (content
-collections with Zod-validated frontmatter, hand-written CSS, two Shiki themes,
-direction-aware view transitions, three seed pages; `make docs` / `make docs-build`).
-Unbuilt, and still intent below: Pagefind, the generators, the genroc TextMate grammar,
-the React islands, versioned deployment. The existing reference page is a hand-written
-stand-in.
+Status: **partly built; scaffold 2026-08-03, live and auto-deployed since.** The Astro site lives
+in `docs/` (content collections with Zod-validated frontmatter, hand-written CSS, two Shiki
+themes, direction-aware view transitions; `make docs` / `make docs-build`). **Built:** the
+generated reference (`cmd/genrocspec` via `make docs-reference`: CLI, REST API, definition,
+errors, config), the genroc TextMate grammar shared with the editor
+(`docs/src/shiki-genroc.ts` loads `editors/vscode/syntaxes/`), and the deploy to `gh-pages` on
+every push to main (`docs.yml`, rsync preserving `/bench/`). **Unbuilt**, and still intent
+below: Pagefind, the React islands, the per-tag versioned deploy (`DOCS_BASE` is wired, no
+workflow builds tags).
 
 ## The gap is genre, not volume
 
@@ -29,7 +32,7 @@ control, component model). Findings that settled it:
 1. **Hugo loses on one unfixable point**: it vendors Chroma with no extension points,
    so a genroc-flavoured lexer is impossible without post-processing HTML. Astro uses
    Shiki, which loads a TextMate grammar from a file — the same file
-   `editors/vscode/` will need. One grammar, two consumers.
+   `editors/vscode/` uses. One grammar, two consumers.
 2. **A theme is worth negative value when the design is the point** — paying a
    dependency to delete its output.
 3. One candidate carried a bus factor of 1 — weighed, recorded, decided nothing (exit
@@ -107,8 +110,8 @@ must not need a three-year-old toolchain. Two traps:
 - **Subdirectories, not subdomains**: GitHub Pages allows one custom domain per repo,
   so `v1.genroc.org` needs an archive repo per major or a host move. Reopen if the
   host changes anyway.
-- **`peaceiris/actions-gh-pages` with `keep_files: true`, never `actions/deploy-pages`**
-  — the artifact deployment replaces the whole site, silently deleting the benchmark
+- **A `gh-pages` checkout + `rsync --delete --exclude=/bench/`, never `actions/deploy-pages`**
+  (`docs.yml`) — the artifact deployment replaces the whole site, silently deleting the benchmark
   time series bench.yml pushes under `bench/`, which exists nowhere else.
 - Assets referenced relatively — root-absolute links break the moment a build lands
   at `/v1/`.
@@ -124,5 +127,6 @@ that would run in the browser is a wrapper, not a port.
 
 Where guide-level "why" stops and spec-level "why" begins (the first guides will set
 it). Versioning mechanics (per-tag build is a sketch; the switcher needs a manifest).
-Whether one TextMate grammar really serves both Shiki and VSCode (rendering vs bracket
-matching/folding) — worth knowing before the grammar is written twice.
+~~Whether one TextMate grammar really serves both Shiki and VSCode (rendering vs bracket
+matching/folding)~~ Answered: it does — `docs/src/shiki-genroc.ts` loads the extension's
+grammars as-is.

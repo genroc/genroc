@@ -1,7 +1,8 @@
 # Process error model: considered extensions
 
-Status: **X2 built 2026-08-22 (§X2-c, shipped as designed); X1 and X3 remain open
-discussion, neither accepted nor scheduled.** Extends
+Status: **X2 built 2026-08-22 (§X2-c, shipped as designed); X1-b built 2026-08-27
+(child-error-handling.md §5.5); X1 and X3 remain open discussion, neither accepted nor
+scheduled.** Extends
 [child-error-handling.md](child-error-handling.md) — its vocabulary (raise, panic,
 defect, batch, slot, raise set) and invariants (I1–I6) apply throughout. Each entry
 records the shape, the case both ways, and the **trigger** that should reopen it, so
@@ -138,7 +139,9 @@ unnecessary — the discriminant test *is* the narrowing.
 
 **Deferred (2026-07-24)** with a warning unlike the X-items': deferring additive
 features is free, but narrowing rules are near-permanent once definitions rely on them
-— draw the supported patterns from real usage, do not guess.
+— draw the supported patterns from real usage, do not guess. (2) and (3) shipped
+2026-09-15 ([guard-narrowing.md](guard-narrowing.md)); (1) waits on
+[literal-types.md](literal-types.md).
 
 ### X2-c — parent-readable, caller-declared (the accepted design, built)
 
@@ -146,7 +149,9 @@ Two arguments closed this, both from 2026-08-22. Shipped the same day, in three 
 landing on its own: the `result.invalid` split below, then `data` on `Fault`, then `raises`.
 Two decisions were taken during the build and are recorded where they belong — the size cap
 was **dropped** (see its section) and a `raises` value of `null` is **refused**, since omitting
-the code already says "carries nothing" while `{}` says "present, narrow it".
+the code already says "carries nothing" while `{}` says "present, narrow it". The second was
+later reversed: `null` now declares a code that carries nothing
+([external-task-queue.md](external-task-queue.md)).
 
 **1. The trigger fired.** X2-a asked for a grep before building. Six interpolations in
 `tests/playground/script-node.genroc.yaml`, the one real definition — `${error.data.name}`,
@@ -243,7 +248,7 @@ Both are whole errors: a clause authors `code`, `message` and `data`, so the out
 not a payload hung off the inbound slot.
 
 **The outbound one is three plain columns, not a JSON object.** `error_code` is filtered on —
-`GET /instances?error_code=...`, and the index behind it — and a code buried in a blob can be
+`GET /instances?error_code=...` — and a code buried in a blob can be
 neither indexed nor matched in SQL. Only the payload gets a value column with an object-store
 cut, because only the payload is arbitrarily large; the other two are short scalars that want
 to be columns anyway. `error_data` is ABSENT rather than null where the clause carried none,
@@ -278,7 +283,8 @@ types for one name and the reason this is written down.
 The inbound error is not a field at either endpoint — it stays inside `context` under
 `last_error`, where the definition reads it.
 
-Its motivating case is the one X2-a always had. `script.yaml` panics `script_broken` with
+Its motivating case is the one X2-a always had. `script.yaml` (now
+`tests/playground/script-node.genroc.yaml`, which carries the stack) panics `script_broken` with
 `message: "the script is broken (${error.data.kind}) - ${error.data.message}"` and drops
 the stack, because a stack trace in a one-line message is unreadable. `data: "$: error.data"`
 puts it on the row, which is the only place it was ever going to be read — nobody can catch
@@ -307,8 +313,9 @@ action:
     # script_unknown undeclared → error.data absent
 ```
 
-Three declaration states, all inherited from `responses`: **absent** → `error.data`
-absent (undeclared data is never accessible); **`{}`** → the unknown type, present but
+Four declaration states, all inherited from `responses`: **absent** → `error.data`
+absent (undeclared data is never accessible); **`null`** → declared, carrying no payload;
+**`{}`** → the unknown type, present but
 requiring narrowing; **a schema** → typed and navigable. Widening a rule's `code:`
 patterns widens the type — a rule catching several declared codes sees `anyOf`, one that
 can also catch an undeclared code gets `| null`.
@@ -477,12 +484,12 @@ wrong default for something most parents do not want.
 | | adds | for | against |
 |---|---|---|---|
 | **X1** | `when: all` quantifier | real branch, zero type cost | adjacent to rejected D2; threshold slope |
-| **X1-b** | partial re-spawn | removes the waste that makes X1 matter | per-slot attempts inside the deadlock discipline |
+| **X1-b** | partial re-spawn | **built** — child-error-handling.md §5.5 | per-slot attempts inside the deadlock discipline (did not materialise) |
 | **X2-a** | operator-only detail | I6 survives; sharpens §0 | misses its own example; widening pressure |
 | **X2-c** | caller-declared `raises` | **built** — the panic half is X2-a exactly | costs a caller a declaration per code it reads |
 | **X2-b** | typed detail, exact-gated | ~~solves the case~~ | **closed** — data belongs in the success path |
 | **X3** | per-entry `exhaustive: true` | right shape for a subscription | helps only the careful; CLI diff may dominate |
 | **X3-alt** | required catch-all | catches the careless | breaking, non-uniform, unpleasant syntax |
 
-Carry forward: X1-b over X1 if either; and X2-b's closing principle — *data flows
+Carry forward: X1-b shipped and X1 stays open; and X2-b's closing principle — *data flows
 through the success path* — applies to whatever looks like the next X2-b.

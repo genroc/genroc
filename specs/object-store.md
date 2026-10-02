@@ -21,7 +21,7 @@ A 221 KB script, ten instances, nothing else running:
 Both costs are linear in something unbounded: instances, and claims. Ten thousand instances of
 that script is 2.2 GB of duplicated code on the hot table.
 
-## What is wrong with the current model
+## What was wrong with the old model
 
 `process_objects(instance_id, hash)` holds content, `pinned` (0/1) and `log_until` (a
 millisecond horizon, NULL = no log needs it). An object lives while `pinned = 1` **or** the
@@ -59,7 +59,8 @@ which is what a context pin and a definition ref are.
 A ref is **live** when `expires_at IS NULL OR expires_at >= now`. An object is collectable when
 it has no live ref. That is the whole GC rule, and it replaces both the `pinned` boolean and
 the `log_until` column — the two lifetimes become two rows rather than two mechanisms, and the
-third owner needs no new clause.
+third owner needs no new clause. (`expires_at` later removed: any ref keeps an object live, and
+the window is `objects.released_at` — §The grace window is a mark.)
 
 **Content is stored once, globally.** That is the point: the hash IS the identity, as content
 addressing always meant. Ten instances referencing one script are ten ref rows and one object.
@@ -95,7 +96,7 @@ So redaction survives in exactly one place: **the server's own stdout**, where a
 by an operator who did not ask for it. Everything else — the stored trail, every API response —
 returns what actually happened.
 
-`audit()` currently redacts *before* it splits, so one pass protects both sinks:
+`audit()` redacted *before* it split, so one pass protected both sinks:
 
 ```go
 if secrets := e.contextSecrets(inst); len(secrets) > 0 {
@@ -117,7 +118,7 @@ The marker is valid in `config_schema` and **refused at registration anywhere el
 ignored, refused, so a definition that expects protection is told it will not get it. Config is
 where secrets enter a process; the rest was generality nobody was buying.
 
-This started as a complication and became a deletion. There are two redaction mechanisms today:
+This started as a complication and became a deletion. There were two redaction mechanisms:
 
 - **(a) `redactSecrets`** — string replacement of known secret *values* over the rendered log
   text. It is airtight for the reason its own comment gives: expressions have no functions, so a
@@ -176,7 +177,8 @@ So collection is deferred, and the contract is stated rather than raced:
 > **A reference you have been handed is fetchable for `--object-grace` (default 1h), whatever
 > happens to the data that produced it.**
 
-Mechanically, releasing a claim does not delete content — it leaves a **grace claim**:
+[superseded 2026-08-24 — §The grace window is a mark] Mechanically, releasing a claim does not
+delete content — it leaves a **grace claim**:
 `(hash, 'grace', '', expires_at = now + --object-grace)`. That is a ref like any other, so the
 GC rule is unchanged and no new predicate appears anywhere:
 
@@ -297,7 +299,8 @@ disabled". Three mechanisms compensating for a join to the wrong entity.
 `owner_id` is now the log row's id (both columns are TEXT, so no schema change), and all of it
 collapses to the rule everything else already followed: **an owner releases, and the release stamps
 grace.** The sweep notices a claim whose owner row is gone — `NOT EXISTS (SELECT 1 FROM
-process_logs …)` — releases it and stamps grace. Driven by the owner being absent rather than by
+process_logs …)` — releases it and stamps grace (stamping superseded — §The grace window is a
+mark). Driven by the owner being absent rather than by
 ids the prune collected, so a crash between deleting rows and releasing claims is repaired by the
 next sweep instead of leaking. `SetObjectRetention`, `logForeverMillis` and the horizon arithmetic
 are deleted rather than replaced.
@@ -308,14 +311,16 @@ Two things the change forced, both worth keeping:
   (`AppendLogValue`). Log rows are normally buffered and flushed in batches; a buffered row would
   leave a claim whose owner does not exist yet, and the orphan sweep retires exactly those. Rows
   with no objects — nearly all of them — keep the batched path.
-- **The sweep may stamp grace here and nowhere else.** The old rule was "only owners stamp grace,
+- **The sweep may stamp grace here and nowhere else.** [superseded — §The grace window is a
+  mark] The old rule was "only owners stamp grace,
   never the sweep", protecting against a grace claim earning itself another window forever. The
   real requirement is termination: a *grace* claim must never be re-graced, while a log claim
   retired once has no owner left to retire it again.
 
-Migration: none. Claims written under the old ownership carry a horizon and an instance id, and
-`OrphanedLogRefs` is scoped to `expires_at IS NULL` so they drain on their horizon exactly as
-before rather than all looking orphaned at once. The clause is vacuous afterwards.
+Migration: none at first — claims written under the old ownership carried a horizon and an
+instance id, and `OrphanedLogRefs` was scoped to `expires_at IS NULL` so they drained on their
+horizon. Migration 030 then deleted those claims and dropped `expires_at`, so the query needs no
+scope.
 
 ### The grace window is a mark, not a claim [decided 2026-08-24]
 
@@ -371,7 +376,8 @@ a deployment handing references to slow consumers raises it.
 The guarantee has to be *stated* rather than implied — a client that holds a reference longer
 than the window and expects it to work is the failure this section exists to make legible.
 
-**One narrower race is deliberately not covered.** An object whose only claim was a *log* ref
+**One narrower race is deliberately not covered.** [closed: log refs lost their horizon to the
+log-row owner fix, and the released_at mark windows them like any other] An object whose only claim was a *log* ref
 that reached its retention horizon is collected by the sweep with no grace window — the ref
 expired rather than being released. Covering it would mean the sweep stamping grace claims,
 which is the looping case above. The window is "this object's retention lapsed between your read
@@ -419,14 +425,16 @@ Two consequences worth stating so neither is a surprise:
   makes its objects collectable through the same rule as everything else — nothing about
   permanence is baked into the schema, only into the fact that nothing drops those refs today.
 
+Nothing claims under `definition` — §Phasing 3 shipped definition objects without it.
+
 ## Signatures and naming, settled
 
-- **`ResolveObject` loses its owner parameter.** It takes an instance id today and, once reads
+- **`ResolveObject` loses its owner parameter.** It took an instance id and, once reads
   are addressed by content, would not use it. A signature that accepts an owner it ignores is a
   lie the next reader has to disprove.
-- **`owner_id` is a namespace shared by kind.** An `instance` ref and a `log` ref both carry the
-  *instance* id — they are the same subject making two different claims — and a `definition` ref
-  carries `name@version`. The pair `(owner_kind, owner_id)` is the owner; neither half alone is.
+- **`owner_id` is a namespace shared by kind.** An `instance` ref carries the instance id, a
+  `log` ref the log row's id (the join fixed 2026-08-24, above), and a `definition` ref carries
+  `name@version`. The pair `(owner_kind, owner_id)` is the owner; neither half alone is.
 - **`GetLogObject` disappears** rather than being renamed: its whole body was the serving rule,
   and the serving rule is gone. Log payload reads become the same `GET /objects/{hash}` as
   everything else.
@@ -447,7 +455,7 @@ store — they assert reachability through crash, error, pause and retry chaos �
 `object_deref_test.ts` is the one that does not merely port: its subject — "a dereferenced,
 unlogged context object is deleted **immediately** (not left for the sweep)" — is the behaviour
 §Collection deliberately reverses. It becomes the opposite assertion, that a released object is
-*retained* under a grace claim and reachable by a reference handed out before the release, and
+*retained* under a grace claim (now the released_at mark) and reachable by a reference handed out before the release, and
 its companion check that the store "does not accumulate" has to be re-scoped to the window
 rather than to the live set. Rewriting a test to assert the opposite of what it was written for
 needs the reason recorded next to it, which is what this paragraph is for.
@@ -457,12 +465,12 @@ The ported form is *stronger*: today a row proves only that someone pinned it, w
 becomes checkable and is not today.
 
 One tolerance carries over unchanged and should not be tightened: a `log` claim whose log row
-was lost to a SIGKILL is horizon-alive and reclaimed at expiry, not a leak. The chaos test
+was lost to a SIGKILL is a pending release the next sweep's orphan pass drops, not a leak. The chaos test
 deliberately checks the claim rather than a surviving log row, and that is why.
 
 ## The wire: an objects section, not markers in the data
 
-`model.Envelope` exists, in its own words, so "user data is always nested under Data and is
+`model.Envelope` existed, in its own words, so "user data is always nested under Data and is
 never confused with the envelope itself — there is no in-band sentinel to collide with
 arbitrary user JSON". The **wire does exactly what the disk format refuses**: an externalized
 slot is returned as `{"ref": "9f2a…", "size": 221110}` sitting inside the context, which is
@@ -597,6 +605,9 @@ belongs. The stored form is the same shape as the response:
   "objects": [ { "path": ["input", "code"], "ref": "9f2a", "size": 221110 } ] }
 ```
 
+(The per-column sibling later became one owner-level `objects` column, paths rooted at the
+context — §Every owner declares its references.)
+
 Storing it inline instead does not merely look inconsistent — it does not survive. A Go
 `*ObjectRef` marshals to `{"ref":…,"size":…}` and comes back a plain map, so the type that says
 "this is a reference" is gone, and the only way to recover it is to guess from the shape — which
@@ -605,9 +616,10 @@ misreads a task input that legitimately contains `ref` and `size` keys. Out of b
 
 It also removes work rather than adding it: the queue endpoint has the section already in the
 shape the response wants, rooted the same way, so it forwards rather than re-deriving. And the
-extract/place pair belongs in one shared place — it is currently written twice (`extractObjects`
+extract/place pair belongs in one shared place — it was written twice (`extractObjects`
 in the API, `spliceObjects`/`place` in genctl) and the storage layer needs the same pair, which
-is two copies too many.
+is two copies too many. API and storage now share `model.Extract`/`model.Place`; genctl keeps
+its own `place`.
 
 `ObjectRef` gains `Path` — the field migration 018 reserved for exactly this and never built.
 
