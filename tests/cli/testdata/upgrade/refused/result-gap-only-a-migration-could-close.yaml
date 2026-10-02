@@ -46,7 +46,7 @@ apply:
             output: {r: '$: self.result'}
             switch: end
 start: {process: gapproc, input: {n: 1}, ticks: 1}
-resting: {task: hold, status: running, wait_state: external, version: 1}
-after: {task: hold, status: running, wait_state: external, version: 1}
+resting: {task: hold, status: running, phase: external, version: 1}
+after: {task: hold, status: running, phase: external, version: 1}
 run: [gapproc, --from, "1", --to, "2"]
 refused: {says: 'newly required field'}

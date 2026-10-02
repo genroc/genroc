@@ -60,12 +60,12 @@ apply:
 start: {process: top, input: {n: 1}}
 at:
   # Nothing spawned: the whole tree is built after the move, so every level is v2.
-  - {ticks: 0, resting: {task: call, wait_state: ""},         finish: {status: completed, output: {got: 10}}}
+  - {ticks: 0, resting: {task: call, phase: ""},         finish: {status: completed, output: {got: 10}}}
   # mid exists, gc not yet — the grandchild is spawned by a parent that has already moved.
-  - {ticks: 1, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: 10}}}
+  - {ticks: 1, resting: {task: call, phase: children},    finish: {status: completed, output: {got: 10}}}
   # All three live: the walk has to reach the bottom generation to move it.
-  - {ticks: 2, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: 10}}}
+  - {ticks: 2, resting: {task: call, phase: children},    finish: {status: completed, output: {got: 10}}}
   # gc has COMPLETED under v1: terminal, so it stays, and its number is what comes back up.
-  - {ticks: 3, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: 2}}}
+  - {ticks: 3, resting: {task: call, phase: children},    finish: {status: completed, output: {got: 2}}}
 after: {version: 2}
 run: [top, --from, "1", --to, "2"]

@@ -80,15 +80,15 @@ apply:
 start: {process: boss, input: {n: 1}}
 at:
   - ticks: 0
-    resting: {task: call, wait_state: "", version: 1}
-    after: {task: call, wait_state: "", version: 2}
+    resting: {task: call, phase: "", version: 1}
+    after: {task: call, phase: "", version: 2}
     refused: false
   - ticks: 1
-    resting: {task: call, wait_state: waiting, version: 1}
-    after: {task: call, wait_state: waiting, version: 1}
+    resting: {task: call, phase: children, version: 1}
+    after: {task: call, phase: children, version: 1}
     refused: {says: 'waiting on a result promised by v1'}
   - ticks: 2
-    resting: {task: call, wait_state: collecting, version: 1}
-    after: {task: call, wait_state: collecting, version: 1}
+    resting: {task: call, phase: collecting, version: 1}
+    after: {task: call, phase: collecting, version: 1}
     refused: {says: 'waiting on a result promised by v1'}
 run: [boss, --from, "1", --to, "2"]

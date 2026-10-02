@@ -1,6 +1,6 @@
-# `model.WaitState` names the states an instance can be sitting IN: `external` (parked on a
-# submitted result), `waiting` and `collecting` (children in flight). A `delay` is none of
-# them — it is WaitStateNone with a `wake_at` — but it holds a live instance just the same,
+# `model.Phase` names the states an instance can be sitting IN: `external` (parked on a
+# submitted result), `children` and `collecting` (children in flight). A `delay` is none of
+# them — it is PhaseNone with a `wake_at` — but it holds a live instance just the same,
 # and that timer was computed under the old definition.
 #
 # Different failures, one rule: an action type may not change under an instance sitting in

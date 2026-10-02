@@ -69,7 +69,7 @@ start: {process: nullproc, input: {n: 2}, advance_ms: 1000}
 # the upgrade happens, and the finished output does not depend on WHEN it happened — the
 # strongest thing a sweep can assert, and the reason both versions compute identically.
 at:
-  - {ticks: 0, resting: {task: first, wait_state: ""}, after: {outputs: []}}
+  - {ticks: 0, resting: {task: first, phase: ""}, after: {outputs: []}}
   - {ticks: 1, resting: {task: first}, after: {outputs: []}}
   - {ticks: 2, resting: {task: second}, after: {outputs: [first]}}
   - {ticks: 3, resting: {task: third}, after: {outputs: [first, second]}}

@@ -63,8 +63,8 @@ apply:
         output: {got: '$: outputs.call.v'}
 start: {process: boss, input: {n: 3}}
 at:
-  - {ticks: 0, resting: {task: call, wait_state: ""},         finish: {status: completed, output: {got: {a: 30, b: 103}}}}
-  - {ticks: 1, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: {a: 30, b: 103}}}}
-  - {ticks: 2, resting: {task: call, wait_state: collecting}, finish: {status: completed, output: {got: {a: 6, b: 103}}}}
+  - {ticks: 0, resting: {task: call, phase: ""},         finish: {status: completed, output: {got: {a: 30, b: 103}}}}
+  - {ticks: 1, resting: {task: call, phase: children},    finish: {status: completed, output: {got: {a: 30, b: 103}}}}
+  - {ticks: 2, resting: {task: call, phase: collecting}, finish: {status: completed, output: {got: {a: 6, b: 103}}}}
 after: {version: 2}
 run: [boss, --from, "1", --to, "2"]

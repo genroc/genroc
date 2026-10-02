@@ -70,8 +70,8 @@ apply:
 start: {process: boss, input: {n: 1}}
 at:
   # Both children live: the whole batch moves.
-  - {ticks: 1, resting: {task: call, wait_state: waiting}}
+  - {ticks: 1, resting: {task: call, phase: children}}
   # `fast` has completed and `slow` has not: the batch splits, and the move still succeeds.
-  - {ticks: 2, resting: {task: call, wait_state: waiting}}
-after: {task: call, status: running, wait_state: waiting, version: 2}
+  - {ticks: 2, resting: {task: call, phase: children}}
+after: {task: call, status: running, phase: children, version: 2}
 run: [boss, --from, "1", --to, "2"]

@@ -43,12 +43,12 @@ start: {process: waitproc, input: {n: 1}}
 at:
   # Sitting ON the task, nothing asked. No promise has been made, so the narrowing is free.
   - ticks: 0
-    resting: {task: hold, wait_state: "", version: 1}
-    after: {task: hold, wait_state: "", version: 2}
+    resting: {task: hold, phase: "", version: 1}
+    after: {task: hold, phase: "", version: 2}
     refused: false
   # Armed: a worker holds the old contract, so the move is refused.
   - ticks: 1
-    resting: {task: hold, wait_state: external, version: 1}
-    after: {task: hold, wait_state: external, version: 1}
+    resting: {task: hold, phase: external, version: 1}
+    after: {task: hold, phase: external, version: 1}
     refused: {says: 'waiting on a result promised by v1'}
 run: [waitproc, --from, "1", --to, "2"]

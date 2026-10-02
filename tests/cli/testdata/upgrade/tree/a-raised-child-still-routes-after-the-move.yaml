@@ -66,12 +66,12 @@ apply:
         output: {got: '$: outputs.explain.saw'}
 start: {process: boss, input: {n: 1}}
 at:
-  - {ticks: 0, resting: {task: call, wait_state: ""}}
-  - {ticks: 1, resting: {task: call, wait_state: waiting}}
+  - {ticks: 0, resting: {task: call, phase: ""}}
+  - {ticks: 1, resting: {task: call, phase: children}}
   # Raised and uncollected: the payload is on the child's row, produced under v1.
-  - {ticks: 2, resting: {task: call, wait_state: collecting}}
+  - {ticks: 2, resting: {task: call, phase: collecting}}
   # Already routed: the payload has reached the handler and is in the parent's own error slot.
-  - {ticks: 3, resting: {task: explain, wait_state: ""}}
+  - {ticks: 3, resting: {task: explain, phase: ""}}
 after: {version: 2}
 finish: {status: completed, output: {got: card}}
 run: [boss, --from, "1", --to, "2"]

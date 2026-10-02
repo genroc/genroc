@@ -111,6 +111,8 @@ interface RestingState {
   state_keys?: string[];
 }
 
+const STATE_FIELDS = new Set(["task", "status", "values", "version", "phase", "outputs", "state_keys"]);
+
 function loadGroup(group: string): UpgradeCase[] {
   const dir = join(DIR, group);
   return readdirSync(dir)
@@ -180,6 +182,10 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
 
   /** Compares the instance's live state against what the case declares. */
   async function assertState(label: string, want: RestingState) {
+    const unread = Object.keys(want).filter((k) => !STATE_FIELDS.has(k));
+    if (unread.length > 0) {
+      throw new Error(`${c.id} (${label}): unknown state field(s) ${unread.join(", ")} -- nothing reads them, so they assert nothing`);
+    }
     const { data } = await server!.client.GET("/instances/{id}/detail", {
       params: { path: { id: instanceID } },
     });

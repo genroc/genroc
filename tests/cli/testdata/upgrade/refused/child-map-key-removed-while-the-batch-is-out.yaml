@@ -58,7 +58,7 @@ apply:
             output: {v: '$: self.result'}
             switch: end
 start: {process: boss, input: {n: 1}, ticks: 2}
-resting: {task: call, status: running, wait_state: waiting, version: 1}
-after: {task: call, status: running, wait_state: waiting, version: 1}
+resting: {task: call, status: running, phase: children, version: 1}
+after: {task: call, status: running, phase: children, version: 1}
 run: [boss, --from, "1", --to, "2"]
 refused: {says: 'occupies slot "b"'}

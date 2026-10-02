@@ -89,11 +89,11 @@ apply:
 start: {process: rec, input: {depth: 2, k: 1}}
 at:
   # Nothing spawned: the whole recursion is built after the move, every level on v2.
-  - {ticks: 0, resting: {task: step, wait_state: ""},         finish: {status: completed, output: 10}}
-  - {ticks: 1, resting: {task: down, wait_state: waiting},    finish: {status: completed, output: 10}}
+  - {ticks: 0, resting: {task: step, phase: ""},         finish: {status: completed, output: 10}}
+  - {ticks: 1, resting: {task: down, phase: children},    finish: {status: completed, output: 10}}
   # Fully descended: three live instances of one definition, and every one must land on v2.
-  - {ticks: 2, resting: {task: down, wait_state: waiting},    finish: {status: completed, output: 10}}
+  - {ticks: 2, resting: {task: down, phase: children},    finish: {status: completed, output: 10}}
   # The BASE has already run under v1 — terminal, so it stays, and its number comes back up.
-  - {ticks: 3, resting: {task: down, wait_state: waiting},    finish: {status: completed, output: 2}}
+  - {ticks: 3, resting: {task: down, phase: children},    finish: {status: completed, output: 2}}
 after: {version: 2}
 run: [rec, --from, "1", --to, "2"]

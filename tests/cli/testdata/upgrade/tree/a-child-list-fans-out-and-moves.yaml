@@ -76,8 +76,8 @@ apply:
         output: {got: '$: outputs.spread.v'}
 start: {process: fan, input: {items: [{k: 1}, {k: 2}, {k: 3}]}}
 at:
-  - {ticks: 0, resting: {task: spread, wait_state: ""},         finish: {status: completed, output: {got: [10, 20, 30]}}}
-  - {ticks: 1, resting: {task: spread, wait_state: waiting},    finish: {status: completed, output: {got: [10, 20, 30]}}}
-  - {ticks: 2, resting: {task: spread, wait_state: collecting}, finish: {status: completed, output: {got: [2, 4, 6]}}}
+  - {ticks: 0, resting: {task: spread, phase: ""},         finish: {status: completed, output: {got: [10, 20, 30]}}}
+  - {ticks: 1, resting: {task: spread, phase: children},    finish: {status: completed, output: {got: [10, 20, 30]}}}
+  - {ticks: 2, resting: {task: spread, phase: collecting}, finish: {status: completed, output: {got: [2, 4, 6]}}}
 after: {version: 2}
 run: [fan, --from, "1", --to, "2"]
