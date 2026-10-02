@@ -96,6 +96,7 @@ VALUES
 -- input_data is never written (immutable). The status CASE lands a pause that arrived
 -- while this instance was leased, decided in SQL against the row's current value; only
 -- a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
+-- A claim belongs to one occurrence (task_epoch): a write that moves the epoch drops it.
 -- lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
 -- callers bind both as read under their row lock. worker_id is there because a rewind can
 -- re-issue an epoch to a second worker; it does not replace the epoch, which is what fences
@@ -124,6 +125,8 @@ SET task             = sqlc.arg(task),
     error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),
     updated_at       = sqlc.arg(updated_at),
+    external_worker_id        = CASE WHEN task_epoch = sqlc.arg(task_epoch) THEN external_worker_id END,
+    external_lease_expires_at = CASE WHEN task_epoch = sqlc.arg(task_epoch) THEN external_lease_expires_at END,
     worker_id        = NULL,
     lease_expires_at = NULL
 WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
@@ -133,7 +136,7 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
 -- Mid-process write: input_data (immutable) and output_data (completion-only) are not
 -- touched. A checkpoint means "still running", so a pending pause lands unconditionally
 -- here -- including on the write that parks the instance out of the claim predicate,
--- its last chance to settle. lease_epoch: see UpdateInstance.
+-- its last chance to settle. lease_epoch and the claim columns: see UpdateInstance.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     next_replayable   = sqlc.arg(next_replayable),
@@ -150,6 +153,8 @@ SET task             = sqlc.arg(task),
                             WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
     phase       = sqlc.arg(phase),
     updated_at       = sqlc.arg(updated_at),
+    external_worker_id        = CASE WHEN task_epoch = sqlc.arg(task_epoch) THEN external_worker_id END,
+    external_lease_expires_at = CASE WHEN task_epoch = sqlc.arg(task_epoch) THEN external_lease_expires_at END,
     worker_id        = NULL,
     lease_expires_at = NULL
 WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)

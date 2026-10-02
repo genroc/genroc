@@ -1,4 +1,4 @@
-import { parkedInProcess } from "../helpers/external.ts";
+import { parkedInProcess, parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
 
@@ -358,4 +358,55 @@ test("claim filters by process — one worker fleet does not take another's work
   expect(other.length).toBe(1);
   await client.POST("/external-tasks/resolve", { body: { token: other[0].token, result: { priced: 1 } } });
   expect(await waitForInstance(theirsId)).toBe("completed");
+});
+
+// Two external tasks in a row: the second is a new occurrence, so the first's claim must not carry over.
+function twoInARow() {
+  const ext = (id: string, next: string) => ({
+    id,
+    action: { type: "external" as const, input: { step: id }, result_schema: {} },
+    output: "$: self.result",
+    switch: [{ goto: next }],
+  });
+  return [ext("first", "$second"), ext("second", "end")];
+}
+
+async function parkedOn(id: string, task: string) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const t = await parkedTask(id);
+    if (t?.task === task) return t;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`instance ${id} never parked on ${task}`);
+}
+
+test("a claimed answer leaves no claim on the next external task", async () => {
+  const name = `claim_next_${crypto.randomUUID()}`;
+  await define(name, twoInARow());
+  const id = await startInstance(name);
+
+  const [job] = await claimWhenReady("worker-1", name, { task: "first" });
+  await client.POST("/external-tasks/resolve", { body: { token: job.token, result: { ok: 1 } } });
+
+  const next = await parkedOn(id, "second");
+  expect(next.claimed_by, "the second task inherited the first task's claim").toBeUndefined();
+  const { error } = await client.POST("/external-tasks/resolve", {
+    body: { token: next.token, result: { ok: 2 } },
+  });
+  expect(error, `an unclaimed handle was refused on the next task: ${JSON.stringify(error)}`).toBeUndefined();
+  expect(await waitForInstance(id)).toBe("completed");
+});
+
+test("the next external task is claimable at once after a claimed answer", async () => {
+  const name = `claim_next_now_${crypto.randomUUID()}`;
+  await define(name, twoInARow());
+  const id = await startInstance(name);
+
+  const [job] = await claimWhenReady("worker-1", name, { task: "first" });
+  await client.POST("/external-tasks/resolve", { body: { token: job.token, result: { ok: 1 } } });
+  await parkedOn(id, "second");
+
+  const got = await claim("worker-2", name, { task: "second" });
+  expect(got.length, "the second task waited for the first task's lease to lapse").toBe(1);
 });

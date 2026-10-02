@@ -67,6 +67,10 @@ so its cutoff is plain `now`.
     external_lease_expires_at BIGINT
     external_claim_epoch      BIGINT NOT NULL DEFAULT 0   -- the fence: claim, release and lost-marking bump it; renewal and expiry never do
 
+A claim belongs to one occurrence (`task_epoch`): the engine's writes keep the first two columns
+only while the epoch is unchanged, or a claimed answer leaves its claim blocking, refusing and
+mis-reporting the next task as re-claimed.
+
 **Not a separate table.** The queue *is* the parked rows; a second table is a second thing that
 can disagree ([db/CLAUDE.md](../internal/db/CLAUDE.md) §"The task epoch").
 

@@ -1658,6 +1658,8 @@ SET task             = ?1,
     error_message    = ?16,
     error_code       = ?17,
     updated_at       = ?18,
+    external_worker_id        = CASE WHEN task_epoch = ?3 THEN external_worker_id END,
+    external_lease_expires_at = CASE WHEN task_epoch = ?3 THEN external_lease_expires_at END,
     worker_id        = NULL,
     lease_expires_at = NULL
 WHERE id = ?19 AND lease_epoch = ?20
@@ -1691,6 +1693,7 @@ type UpdateInstanceParams struct {
 // input_data is never written (immutable). The status CASE lands a pause that arrived
 // while this instance was leased, decided in SQL against the row's current value; only
 // a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
+// A claim belongs to one occurrence (task_epoch): a write that moves the epoch drops it.
 // lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
 // callers bind both as read under their row lock. worker_id is there because a rewind can
 // re-issue an epoch to a second worker; it does not replace the epoch, which is what fences
@@ -1742,6 +1745,8 @@ SET task             = ?1,
                             WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
     phase       = ?12,
     updated_at       = ?13,
+    external_worker_id        = CASE WHEN task_epoch = ?3 THEN external_worker_id END,
+    external_lease_expires_at = CASE WHEN task_epoch = ?3 THEN external_lease_expires_at END,
     worker_id        = NULL,
     lease_expires_at = NULL
 WHERE id = ?14 AND lease_epoch = ?15
@@ -1770,7 +1775,7 @@ type UpdateInstanceProgressParams struct {
 // Mid-process write: input_data (immutable) and output_data (completion-only) are not
 // touched. A checkpoint means "still running", so a pending pause lands unconditionally
 // here -- including on the write that parks the instance out of the claim predicate,
-// its last chance to settle. lease_epoch: see UpdateInstance.
+// its last chance to settle. lease_epoch and the claim columns: see UpdateInstance.
 func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,
