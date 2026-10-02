@@ -25,6 +25,9 @@ func TestUnescapingIsTheInverseOfRecognising(t *testing.T) {
 				i++
 			}
 			escaped := leaf[:i] + "$" + leaf[i:]
+			if got, ok := EscapeDirective(leaf); !ok || got != escaped {
+				t.Fatalf("EscapeDirective(%q) = %q, %v; want the author's own doubling %q", leaf, got, ok, escaped)
+			}
 			if _, _, ok := Directive(escaped); ok {
 				t.Fatalf("%q is still claimed as a directive, so the escape does not escape", escaped)
 			}
@@ -56,6 +59,11 @@ func TestUnescapeLeavesEverythingElseAlone(t *testing.T) {
 			got, ok := UnescapeDirective(leaf)
 			if ok || got != leaf {
 				t.Fatalf("rewrote %q to %q (escaped=%v); it is data, not an escape", leaf, got, ok)
+			}
+			if _, _, isDirective := Directive(leaf); !isDirective {
+				if got, ok := EscapeDirective(leaf); ok || got != leaf {
+					t.Fatalf("EscapeDirective rewrote %q to %q; only a directive is escaped", leaf, got)
+				}
 			}
 		})
 	}

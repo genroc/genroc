@@ -34,3 +34,13 @@ func UnescapeDirective(s string) (string, bool) {
 	}
 	return un, true
 }
+
+// EscapeDirective is UnescapeDirective's inverse: a leaf that reads as a directive gets its `$`
+// doubled, so text copied out of an unescaped document stays text.
+func EscapeDirective(s string) (string, bool) {
+	if _, _, ok := Directive(s); !ok {
+		return s, false
+	}
+	i := strings.IndexByte(s, '$')
+	return s[:i] + "$" + s[i:], true
+}

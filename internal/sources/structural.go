@@ -140,23 +140,23 @@ func refuseNestedStructural(file string, cfg projectConfig, rc resolverConfig, s
 // specs/source-resolution.md §Escaping on the way IN.
 func unescapeDocs(docs []sourceDoc) {
 	for i := range docs {
-		docs[i].Value = unescapeDirectives(docs[i].Value)
+		docs[i].Value = rewriteLeaves(docs[i].Value, defdoc.UnescapeDirective)
 	}
 }
 
-func unescapeDirectives(v any) any {
+func rewriteLeaves(v any, rewrite func(string) (string, bool)) any {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, child := range t {
-			t[k] = unescapeDirectives(child)
+			t[k] = rewriteLeaves(child, rewrite)
 		}
 	case []any:
 		for i, child := range t {
-			t[i] = unescapeDirectives(child)
+			t[i] = rewriteLeaves(child, rewrite)
 		}
 	case string:
-		if un, ok := defdoc.UnescapeDirective(t); ok {
-			return un
+		if out, ok := rewrite(t); ok {
+			return out
 		}
 	}
 	return v
@@ -303,7 +303,8 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 		}
 		out["raises"] = raises
 	}
-	return out, nil
+	// The child was unescaped to be analysed; what lands in the parent is text again.
+	return rewriteLeaves(out, defdoc.EscapeDirective).(map[string]any), nil
 }
 
 // selfContainedSchema renders one schema to stand alone in a slot, with only the `$defs` its refs

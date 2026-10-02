@@ -154,3 +154,32 @@ test("an override is per suffix: a local entry claiming another one falls throug
   expect(r.stderr).toBe("");
   expect(JSON.parse(r.stdout).properties).toHaveProperty("label");
 });
+
+test("an escaped directive in the child stays escaped in what the spread copies", () => {
+  const dir = mkdtempSync(join(tmpdir(), "genroc_spread_esc_"));
+  writeFileSync(join(dir, "child.genroc.yaml"), [
+    "name: esc-child",
+    "input_schema:",
+    "  type: object",
+    '  properties: { a: { type: string, description: "$$import: ./x.ts" } }',
+    "  required: [a]",
+    "tasks: [{ id: only, switch: end }]",
+    "",
+  ].join("\n"), "utf8");
+  const p = join(dir, "parent.genroc.yaml");
+  writeFileSync(p, [
+    "name: esc-parent",
+    "tasks:",
+    "  - id: call",
+    "    action:",
+    "      type: child",
+    '      <<: "$process: ./child.genroc.yaml"',
+    "      input: { a: hi }",
+    "    switch: end",
+    "",
+  ].join("\n"), "utf8");
+
+  const r = runCli(bin, ["types", "-f", p], OFFLINE);
+  expect(r.stderr, "the child's literal `$import:` text became a live directive in the parent").toBe("");
+  expect(r.stdout).toContain("no imports found");
+});

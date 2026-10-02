@@ -190,6 +190,8 @@ never a second regexp.
 document after the structural one, so a leaf unescaped earlier would be claimed. That is why the
 pass does not finalise and its callers do: the exported `ResolveStructuralPass`, the end of
 `resolveDocs`, and `resolveProcessDirective`. `tests/cli/imports_test.ts` holds both halves.
+`resolveProcessDirective` unescapes the child only to analyse it, so it re-escapes
+(`defdoc.EscapeDirective`) what it copies into the parent, or the parent's walks claim the text.
 
 ## Escaping on splice — the thing the feature is *for*
 
