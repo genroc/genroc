@@ -22,8 +22,10 @@ func pgDeadlock(err error) bool {
 	return errors.As(err, &pqErr) && pqErr.Code == "40P01"
 }
 
+const deadlockHint = "deadlock: a write took its rows outside the shared id order (lockTree)"
+
 // PauseProcess against FailInstanceAndAncestors: opposite ends of the tree, kept apart by the
-// shared id lock order (lockTree). A Postgres deadlock is still tolerated; inconsistent state is not.
+// shared id lock order (lockTree).
 func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -32,7 +34,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	db := sharedPgDB
 
 	const iterations = 30
-	var deadlockCount, successCount, nothingToPause int
+	var successCount, nothingToPause int
 
 	for i := 0; i < iterations; i++ {
 		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
@@ -60,7 +62,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 			case err == nil:
 				successCount++
 			case pgDeadlock(err):
-				deadlockCount++
+				t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
 			// The failure won the race and left nothing running, so the pause had
 			// no rows to touch — a legitimate serial outcome, not an inconsistency.
 			case strings.Contains(err.Error(), "no running instances to pause"):
@@ -85,11 +87,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	total := iterations * 2
 	t.Logf("ran %d iterations (%d total operations)", iterations, total)
 	t.Logf("  success:   %d/%d (%.0f%%)", successCount, total, 100*float64(successCount)/float64(total))
-	t.Logf("  deadlock:  %d/%d (%.0f%%)", deadlockCount, total, 100*float64(deadlockCount)/float64(total))
 	t.Logf("  no-op pause: %d/%d", nothingToPause, total)
-	if deadlockCount == 0 {
-		t.Log("  note: no deadlocks observed — scheduling may not have produced the exact interleave")
-	}
 }
 
 // Many workers polling a small pool with a 100ms lease, so rows expire and are reclaimed
@@ -231,7 +229,7 @@ func TestStress_ConcurrentFinishChild(t *testing.T) {
 }
 
 // PauseProcess against concurrent FinishChild, both locking in id order (lockTree). Invariant:
-// every error is nil or a Postgres deadlock, and no instance is left 'running'.
+// every error is nil, and no instance is left 'running'.
 func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -265,7 +263,7 @@ func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := db.PauseProcess(ctx, "parent", ""); err != nil && !pgDeadlock(err) {
+			if _, err := db.PauseProcess(ctx, "parent", ""); err != nil {
 				t.Errorf("iteration %d: PauseProcess: %v", i, err)
 			}
 		}()
@@ -274,7 +272,7 @@ func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 			child := child
 			go func() {
 				defer wg.Done()
-				if err := db.FinishChild(child); err != nil && !pgDeadlock(err) {
+				if err := db.FinishChild(child); err != nil {
 					t.Errorf("iteration %d: FinishChild %s: %v", i, child.ID, err)
 				}
 			}()
@@ -321,7 +319,7 @@ func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			if _, err := db.RetryProcess(ctx, "root", false, ""); err != nil && !pgDeadlock(err) {
+			if _, err := db.RetryProcess(ctx, "root", false, ""); err != nil {
 				t.Errorf("iteration %d: RetryProcess: %v", i, err)
 			}
 		}()
@@ -330,7 +328,7 @@ func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 			_, err := db.PauseProcess(ctx, "root", "")
 			// "nothing to pause" is the expected outcome of the pause → retry
 			// ordering: the tree was still failed when the pause ran.
-			if err != nil && !pgDeadlock(err) && !strings.Contains(err.Error(), "no running instances to pause") {
+			if err != nil && !strings.Contains(err.Error(), "no running instances to pause") {
 				t.Errorf("iteration %d: PauseProcess: %v", i, err)
 			}
 		}()
@@ -343,8 +341,7 @@ func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 		// The pause never leases anything, so revived rows it catches go straight
 		// to 'paused' (never 'pausing').
 		valid := (root == model.StatusRunning && bad == model.StatusRunning) || // pause was a no-op
-			(root == model.StatusPaused && bad == model.StatusPaused) || // pause caught the revived rows
-			(root == model.StatusFailed && bad == model.StatusFailed) // retry lost to a deadlock
+			(root == model.StatusPaused && bad == model.StatusPaused) // pause caught the revived rows
 		if !valid {
 			t.Errorf("iteration %d: inconsistent tree: root=%s c-bad=%s", i, root, bad)
 		}
@@ -392,6 +389,7 @@ func TestStress_ConcurrentRetry(t *testing.T) {
 				case err == nil:
 					successes.Add(1)
 				case pgDeadlock(err):
+					t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
 				case strings.Contains(err.Error(), "not retryable"):
 				default:
 					t.Errorf("iteration %d: unexpected retry error: %v", i, err)
@@ -429,7 +427,7 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	db := sharedPgDB
 
 	const iterations = 30
-	var deadlockCount, successCount int
+	var successCount int
 
 	for i := 0; i < iterations; i++ {
 		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
@@ -456,7 +454,7 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 			case err == nil:
 				successCount++
 			case pgDeadlock(err):
-				deadlockCount++
+				t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
 			default:
 				t.Errorf("iteration %d: unexpected error: %v", i, err)
 			}
@@ -473,7 +471,7 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("ran %d iterations: %d ok, %d deadlock", iterations, successCount, deadlockCount)
+	t.Logf("ran %d iterations: %d ok", iterations, successCount)
 }
 
 // Either serial order ends cancelled; an interleave leaving it merely paused would downgrade an
@@ -500,7 +498,7 @@ func TestStress_CancelProcess_vs_PauseProcess(t *testing.T) {
 		close(errs)
 
 		for err := range errs {
-			if err != nil && !pgDeadlock(err) {
+			if err != nil {
 				t.Errorf("iteration %d: unexpected error: %v", i, err)
 			}
 		}
