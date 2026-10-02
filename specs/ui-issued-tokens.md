@@ -1,13 +1,10 @@
 # genroc-ui issues the token; the server only checks permissions
 
-Status: **BUILT 2026-09-02.** Revises [ui-component.md](ui-component.md) §5.1
-(which forbade genroc-ui from issuing) and [api-auth.md](api-auth.md) §2.3 (which put the role
-map in the server). The two-credential rule of
-[auth-two-credentials.md](auth-two-credentials.md) §0 is unchanged.
+Status: **Built.**
 
 ## 0. The move
 
-genroc-ui stops relaying somebody else's token and starts minting its own:
+genroc-ui mints its own token rather than relaying a provider's:
 
     browser -> genroc-ui -> OIDC provider, or a password in genroc-ui's config
                          <- identity + GROUPS
@@ -16,27 +13,19 @@ genroc-ui stops relaying somebody else's token and starts minting its own:
                cookie in, bearer out
                                        -> genroc verifies the signature and reads `perms`
 
-**The server stops knowing what a group is.** It verifies one issuer and reads a list of
-permissions it already understands. Everything about mapping a person to what they may do --
-roles, users, group claims, provider quirks -- moves into genroc-ui.
+**The server never learns what a group is.** It verifies one issuer and reads permissions it
+already understands; roles, users, group claims and provider quirks all live in genroc-ui. A
+provider is trusted for exactly two things, who someone is and their groups (`oidc.Claims`).
 
-## 1. Why this is not §2.3 being contradicted
+## 1. Why the token carries permissions, not groups
 
-api-auth.md §2.3 says a JWT must carry **roles, not permissions**, because "an IdP has no idea
-what `deploy` means in genroc, and teaching it would put our authorization model back outside
-genroc". That is right about a **third-party** IdP and does not survive contact with an issuer
-that is ours: genroc-ui ships with the server, versions with it, and shares its vocabulary by
-construction. There is no config in a foreign system to drift.
-
-What §0 of api-auth.md actually protects is unchanged. Its worry was that *which endpoints exist*
-would be described somewhere genroc cannot see, going stale as `actions.go` grows. The
-**endpoint -> permission** mapping stays exactly where it was, on `actionDef.Allow`. Only the
-**group -> permission** mapping moves, and that one was always the deployment's own words.
+A third-party IdP's token should carry groups: the IdP has no idea what `deploy` means, and
+teaching it would put genroc's authorization model in a foreign config. genroc-ui is not third
+party — it ships and versions with the server and shares its vocabulary by construction. What
+api-auth.md §0 protects, the **endpoint → permission** mapping, stays on `actionDef.Allow`; only
+**group → permission**, always the deployment's own words, moves here.
 
 ## 2. The token is a contract, not an internal detail
-
-Because the format is ours, it can be written down -- and then anyone can build a different UI
-for genroc without our permission or our code:
 
 ```json
 {
@@ -49,142 +38,111 @@ for genroc without our permission or our code:
 }
 ```
 
-- `perms` is the resolved set, from the same five in api-auth.md §3. An unrecognised string
-  grants nothing -- `Allows` compares against known permissions, so forward compatibility falls
-  out rather than needing a rule.
-- `sub` is what attribution records: `jwt:ada@example.com`, exactly as today.
-- `exp` is short (a minute or so). Nothing long-lived ever leaves genroc-ui.
-- Signed **HS256** with a secret shared with the server.
+- `perms` is the resolved set, from the five in api-auth.md §3. An unrecognised string grants
+  nothing and breaks nothing (`Allows` never matches it), so a newer issuer degrades rather than
+  fails.
+- `sub` is what attribution records: `jwt:ada@example.com`.
+- `exp` is short (`token.ttl`, default 60s) and required by the server.
+- `iss` and `aud` default to these values on both sides; set one and you must set it on both.
 
-This is the whole integration surface for a third-party UI. It is a smaller and more honest
-contract than "implement OIDC and we will map your groups", which is what the server offers now.
+Anything that mints a conforming token is a first-class client, including a UI somebody else
+writes. **People reach the API only through such an issuer**, deliberately: a person who wants a
+script uses a `genroc_sk_*` like any machine.
 
 ## 3. Why HMAC, and what it costs
 
-RSA with a JWKS endpoint is the conventional shape and is rejected for one reason: **the key
-would have to persist.** A key regenerated on restart invalidates every session AND poisons the
-server's cached JWKS for up to five minutes -- which is not a hypothetical, it is the failure
-this repo hit twice in one day through Dex's `storage: memory`. A shared secret has nothing to
-generate, nothing to store, and nothing to rotate on restart.
+Not RSA with a JWKS endpoint: **the key would have to persist.** One regenerated on restart
+invalidates every session and poisons the server's cached key set — the failure this repo hit
+twice through Dex's `storage: memory`. A shared secret has nothing to generate, store, or rotate
+on restart.
 
-**The cost is real and should be stated rather than discovered.** A symmetric secret means the
-server can mint as well as verify, so reading genroc's config yields the ability to forge any
-identity, where an RSA public key would not. That is a smaller step down than it looks: anyone
-who can read that config can generally reach the database, and a row in `api_tokens` is already
-full access (api-auth.md §5.3 makes exactly this argument for `genroc token create`). It would
+**The cost:** the server can mint as well as verify, so reading its config yields the ability to
+forge any identity. That is a short step from database access, which is already full access
+(api-auth.md §5.3). It would
 matter more if the server's config were widely readable, and that is the signal to revisit.
 
-Consequences worth naming:
-
-- The server's jwt mode becomes **HS256 only**. `jwks_url` and `jwks_file` go, and with them the
-  RS256/JWKS path -- so `internal/jwks` leaves the root module entirely and lives in `ui/`, which
-  still needs it to verify the UPSTREAM provider's token.
-- §2.4's pins survive and matter more, not less: `iss`, `aud`, `exp` and a pinned algorithm set
-  are what stop a token minted for something else being replayed here. With one algorithm and one
-  issuer, the set is trivially pinned.
+So the server's jwt mode is HS256 only, and the `jwks` package lives in `ui/`, which still
+verifies upstream providers' ID tokens. Both sides refuse a secret under 32 characters.
 
 ## 4. Sessions: two tokens, and neither is stored server-side
 
-The cookie and the bearer are deliberately different things.
+- **The session cookie** (`genroc_session`) holds a genroc-ui-signed JWT `{sub, groups}` with
+  `aud: genroc-ui-session` — so it cannot be replayed as an access token under the same key — and
+  expires after `session_ttl` (default 12h). `HttpOnly`, `SameSite=Lax`. The provider's ID token is
+  used once at login and discarded.
+- **The access token** is minted from that session on every proxied request, carrying `perms`
+  (not cached — §7).
 
-- **The session cookie** holds a genroc-ui-signed JWT carrying `{sub, groups}` and a longer
-  expiry (a working day). `HttpOnly`, `SameSite=Lax`, `Secure`. The upstream provider's ID token
-  is used ONCE at login, to establish who this is, and then discarded -- it never reaches a
-  cookie and never leaves genroc-ui.
-- **The bearer** is minted per request from that session (no cache — §7), carrying
-  `perms` and a short expiry.
+OIDC and a config password both produce `{sub, groups}`, and every step after is identical. With
+no session table there is nothing to survive a restart.
 
-Nothing is stored server-side, so there is no session table and no restart to survive. It also
-means the two identity sources converge immediately: OIDC and a config password both produce
-`{sub, groups}`, and every step after that is identical.
-
-**Staleness, and why there is no refresh clock.** `groups` are captured at login, so a change at
-the provider is invisible until the next one. A periodic re-derivation was built and reverted
-(2026-09-03): only the provider knows a person's groups, and re-asking it means sending the
-browser back through it — a redirect every few minutes, and `session_ttl` quietly stops bounding
-an OIDC session once each refresh mints a fresh one. `offline_access` would avoid the redirect,
-but Dex rotates refresh tokens, so concurrent requests race for the one valid copy. Until groups
-can be re-fetched *without* a redirect, the clock buys a bounded window at the price of a worse
-session, and `POST /auth/logout` — sign out, sign in — is the lever instead.
+**Groups are captured at login**, so a change at the provider is invisible until the next login,
+while a role-map edit takes effect on the next request. There is no refresh clock: only the
+provider knows a person's groups, so re-deriving them means a redirect every few minutes, and
+`session_ttl` would stop bounding a session once each refresh minted a fresh one;
+`offline_access` avoids the redirect, but Dex rotates refresh tokens, so concurrent requests race
+for the one valid copy. Until groups can be re-fetched *without* a redirect, `POST /auth/logout` —
+sign out, sign in — is the lever.
 
 What is worth building in its place is **revocation by subject**: a list genroc-ui refuses
 sessions against, which re-triggers the login flow for that person alone. It spends one action by
 the operator, where a clock spends a round trip on every session in every window.
 
-Revoking **everyone** needs nothing built: the session cookie is signed with the shared secret,
-so rotating it and restarting both components invalidates every cookie and every outstanding
-access token at once. Two properties make it the right break-glass and the wrong routine tool —
-it is all-or-nothing, and both components must take the new secret together, since genroc-ui
-alone would mint tokens the server rejects. Machine tokens are untouched: `genroc_sk_*` is hashed
-in `api_tokens` and has nothing to do with this key, so signing every person out does not stop
-the workers.
+**Revoking everyone** needs nothing built: rotate the shared secret and restart both components
+together, and every cookie and outstanding access token dies at once — both, because genroc-ui
+alone would mint tokens the server rejects. All-or-nothing, so break-glass rather than routine.
+`genroc_sk_*` machine tokens are hashed in `api_tokens` and untouched.
 
 ## 5. Where the role map goes
 
-Out of the server's `auth.yaml` and into genroc-ui's, unchanged in shape:
+genroc-ui's config file (`-config` / `$GENROC_UI_CONFIG`) — a file, not flags, because providers,
+roles and users are lists and maps:
 
 ```yaml
+server: http://genroc:8448
 login:
   providers:
     - id: google
-      name: Google
-      issuer: https://accounts.google.com
+      type: google                 # fills issuer and scopes; groups fetched from Workspace
       client_id: ...
       client_secret: ...
   passwords:                       # optional; the demo affordance, not a user directory
     - email: ada@example.com
-      hash: "$2a$14$..."           # bcrypt, never plaintext
+      hash: "$2a$14$..."           # bcrypt; plaintext is refused
       groups: [genroc-admins]
-
-roles:                             # groups -> permissions. Was the server's; now ours.
+roles:                             # groups -> permissions; "*" is anyone signed in
   genroc-admins:  [admin]
-  "my-org:platform": [deploy, operate, read]
   "*":            [read]
 users:                             # subject -> permissions, for providers carrying no groups
   ada@example.com: [admin]
-
-server: http://genroc:8448
 token:
   secret_file: /data/jwt-secret    # or `secret:`; the key the server verifies with
-  ttl: 60s
 ```
 
-`passwords` is the line that needs watching. It is Dex's `staticPasswords` trade -- one file, no
-directory, no registration, no reset -- and it must not grow past that. api-auth.md §9's "no user
-directory" applies to the SERVER and stays true; genroc-ui checking a bcrypt hash from a config
-file is not a directory, and the moment it wants to be one, the answer is a broker.
+A person's permissions are the union of their groups' roles, their `users` entry, and `"*"`. Any
+other provider is a generic `oidc` entry with an `issuer`; discovery runs at startup, so an
+unreachable provider fails there rather than at someone's first login. Without a config,
+`-server` alone runs a UI with no login.
 
-## 6. What the server loses
+The login page is its own bundle (`login.html`), not a route inside the app it gates, because it
+renders before any session exists; it asks `GET /auth/options` which ways in exist and posts to
+`POST /auth/password`.
 
-`AuthConfig.Roles`, `AuthConfig.Users`, `grantsFor`, `JWTModeConfig.SubjectClaim`,
-`RolesClaim`, `JWKSURL`, `JWKSFile`, and the whole `jwks` package. `JWTAuth` keeps verification
-and reads `perms` directly into `[]Grant`.
-
-**Humans lose direct API access**, and that is intended: the server is an API, people reach it
-through a UI, and machines use `genroc_sk_*`. A person who wants a script uses a token like any
-other machine. The escape hatch is §2's contract -- anything that can mint a conforming JWT is a
-first-class client, including a UI somebody else writes.
+`passwords` is the line that needs watching. It is Dex's `staticPasswords` trade — one file, no
+directory, no registration, no reset — and it must not grow past that. genroc-ui checking a bcrypt
+hash from its config is not a user directory; the moment it wants to be one, the answer is a
+broker.
 
 ## 7. Open
 
 - **Does genroc-ui need a `perms` claim namespace?** `perms` is unqualified and could collide if
   a token ever came from elsewhere. `aud: genroc` plus a pinned issuer already scopes it; a
   namespaced claim would be belt and braces.
-- ~~**Per-request minting cost.**~~ **Measured, and the answer is no cache.** Verifying the
-  session cookie, resolving the role map and signing the token together cost **~6 us**
-  (`ui/token_bench_test.go`), against a proxy hop and a genroc round trip measured in
-  milliseconds. Caching would buy 0.1% of a request in exchange for an invalidation story.
-
-  Minting AT USE is also what makes a role-map edit take effect on the next request rather than
-  when a session expires, so the cheap option is the correct one twice over.
-
-  **A second cookie holding the access token was considered and rejected**, and the reason is
-  not the microseconds. The OAuth access/refresh split exists because the access token goes to a
-  THIRD PARTY; here it is created and consumed inside one request and never reaches the browser
-  at all. The split already exists -- the session cookie is the refresh half -- and putting the
-  access half in a cookie would move it into the browser, adding something to steal and a window
-  where the two disagree, while saving nothing: an HttpOnly cookie still has to be copied into
-  the header by this process.
+- **Per-request minting is not cached.** Verifying the session cookie, resolving the role map and
+  signing cost single-digit microseconds (~6–8 µs on an M1, `ui/token_bench_test.go`) against a
+  proxy hop and a genroc round trip in milliseconds, and minting at use is what makes a role-map
+  edit take effect on the next request. Not a second cookie holding the access token: the session
+  cookie already is the refresh half, and the access half never needs to reach the browser.
 
   **The signal to revisit is RSA.** Signing goes from ~2 us to ~1 ms (§3 records why HMAC was
   chosen), and at 400x the cost per-request minting stops being free.

@@ -1,153 +1,77 @@
 # Script tasks: a scaffolded runtime, not an engine feature
 
-Status: **PROPOSAL, 2026-08-07. BUILT 2026-08-19; moved onto `external` 2026-08-24.**
-The shape this doc argued for — a script task as an `external` task whose input carries a code
-string, pulled by a worker fleet — is what ships. It went the long way round: the first
-evaluator was a plain `fetch` at an HTTP sidecar (2026-08-19), which spent no engine capability
-either but held an advance slot per call and required genroc to be able to reach an
-unauthenticated code-execution endpoint. The queue that made the `external` route viable is
-[external-task-queue.md](external-task-queue.md); what ships is documented in
-[eval-node/README.md](../eval-node/README.md).
-
-The scaffolder this doc calls `create-genroc-app` is **BUILT 2026-09-01 as `genctl init`**
-(`cmd/genctl/init.go`), its templates embedded in genctl rather than versioned apart. The import
-directive, the type generator and the bundler ARE built — see [source-resolution.md](source-resolution.md).
-
-**§"What genroc adds" is superseded by
-[source-resolution.md](source-resolution.md)**, which owns the resolution model: this doc
-argued a single pass, and generating types from inferred schemas needs two. Everything else
-here stands.
+Status: **Built.** Shipped behaviour is [eval-node/README.md](../eval-node/README.md); the queue
+is [external-task-queue.md](external-task-queue.md) and resolution
+[source-resolution.md](source-resolution.md).
 
 ## Thesis
 
-Running user TypeScript needs **no new engine capability**. A script task is an
-`external` task whose input carries a code string; a worker pulls it off the queue,
-evaluates it, and resolves it with JSON. Lease, retry, `on_error` and timeout are the
-ones already there.
+Running user TypeScript needs **no new engine capability**. A script task is a plain `external`
+task whose input carries a code string (`{code, input, timeout_ms}`); a worker (`eval-node`)
+claims it off the queue, evaluates it, and resolves it with JSON. Lease, retry, `on_error` and
+timeout are the ones already there. The engine gained only `external.lost`; the larger half was
+the queue under it — claim, visibility timeout, error channel.
 
-**[built]** True as written, with one correction the build supplied: the *engine* needed
-nothing, but the **queue** did — `external` had no claim, no visibility timeout and no error
-channel, so "a worker pulls it off the queue" was a sentence describing machinery that did not
-exist. That is [external-task-queue.md](external-task-queue.md), and it is the larger half of
-the work. The engine itself gained only `external.lost`.
+- **Not a distinct action type**: plain `external` adds nothing to the engine, at the cost of the
+  editor schema and `genctl` saying nothing script-specific.
+- **Not a `fetch` to an HTTP evaluator**: that holds one of `--max-concurrent` advance slots per
+  call and needs genroc to reach an unauthenticated code-execution endpoint. A worker needs only
+  outbound access and sets its own concurrency.
 
-So the feature is a **setup experience**, not a subsystem. `genctl init` (drafted as `create-genroc-app`) scaffolds
-a project and optionally installs the TypeScript runtime: the type generator, the
-bundler, the tsconfig, the worker. All of it versions independently of genroc and can be
-replaced wholesale by a Python or WASM equivalent without the engine noticing.
-
-`genctl` gains one generic thing to make it ergonomic, below. Everything else stays out.
+So the feature is a **setup experience**: `genctl init --eval-node` scaffolds the type generator,
+bundler, tsconfig and worker. All of it versions independently of genroc and could be replaced by
+a Python or WASM equivalent without the engine noticing.
 
 ## What genroc adds: the import directive
 
-**Superseded by [source-resolution.md](source-resolution.md).** What this section got right
-stands there: a directive in a source file resolves a path into a string through a binary
-the project names, type checking lives in that binary's exit code rather than in a step
-anyone adds, and resolution is `genctl`-side so **the server having no resolver is the
-security answer**.
-
-What it got wrong is the pass count. Resolution cannot run wholly *before* validation,
-because the `Input` declarations a script typechecks against are the *product* of
-validation's inference. So resolution splits at the line where a resolver's output stops
-being visible to the type checker — structural resolvers before validation, code resolvers
-after it, with the second constrained to produce strings so it cannot invalidate the first.
+Owned by [source-resolution.md](source-resolution.md). What carries over: a directive resolves a
+path through a binary the project names, type checking is that binary's exit code, and resolution
+is `genctl`-side, so **the server having no resolver is the security answer**.
 
 ## What the template owns
 
-Recorded so it does not drift back into the engine:
+Recorded so it does not drift into the engine:
 
-- **Types from schemas.** The generator emits `Input`/`Output` declarations and the author
-  fills a typed body; the importer runs `tsc` before it bundles. Nothing is lost by checking
-  on the author's machine — schemas already validate both ends at runtime, so static types
-  are editor support, not the safety mechanism. That is what keeps the *server* free of any
-  evaluator dependency, which was always the claim worth making: the schemas it validates
-  against are its own. (An earlier draft said this kept validation *offline*. It does not —
-  the types are inferred by validation, so the generator asks for them. See
-  [source-resolution.md](source-resolution.md) §Open questions for the one change that
-  would.)
-- **The tsconfig DESCRIBES the realm; the Worker enforces it.** An earlier draft had the
-  tsconfig *be* the sandbox — a fence of `lib` and `types` that refused `process` and
-  `require` at author time. It was the wrong instrument twice over: it could not stop
-  anything at runtime, and it made "import a library" and "reach the host" the same refusal,
-  so a script could not do real work. The realm below is now the containment, and the
-  tsconfig's job is to be *true about it* — `lib: [esnext, webworker]` because a worker
-  has no `document`, and `types` left to the author because the realm genuinely has node's.
-- **The base config is the nearest `tsconfig.json` above the script, not the project root's.**
-  It is the one the author's editor already reads, and checking against a different one buys
-  a red editor over a clean apply. Two scripts under two different base configs are two `tsc`
-  runs: `extends` takes one base, and merging them would check each script under the other
-  author's options. `lib` and `include: []` are still written *after* the `extends` — the
-  first because it is a description the author cannot make true by contradicting it, the
-  second because a base `include` would otherwise drag a whole tree in to be checked as
-  scripts.
-- **The worker is one realm per execution, and that is what makes the budget real.** A
-  synchronous `while(true){}` never yields, so an in-process timer can only *report* a
-  timeout that already failed to happen; killing a thread is the only bound. A fresh global
-  object per execution falls out of the same choice, and so does the answer to `process.exit`
-  — it ends a realm, not the runner. The cost is a realm (~1.7ms) and a recompile per call:
-  **the compile cache an earlier draft proposed cannot exist**, because a cache living in a
-  discarded realm can never be hit. A subprocess (~16.6ms) is the same shape with memory and
-  native crashes contained too, which is the upgrade path if a script ever needs to be
-  distrusted rather than merely bounded.
-- **~~A pinned clock and seeded RNG~~ — built 2026-08-19, removed 2026-08-21.** The
-  argument was that retries re-execute, so a script reading the wall clock differs on
-  attempt two. What it missed is that the pin is only real if a caller can pass a stable
-  `now`, and nothing can: the expression environment exposes no clock, so every definition
-  fell through to the runner's own `Date.now()` and the "pin" was the wall clock renamed.
-  It cost a `ctx` parameter, a seeded PRNG, and write-refusing Proxies to defend the two —
-  surface with nothing behind it. Reopening this means giving the engine a per-attempt
-  timestamp *first*; the value would then travel through `input` like any other, and the
-  runtime would need nothing.
-- **Error codes with honest retryability.** A type error and a thrown exception are
-  permanent; only an evaluator fault is worth retrying. The worker picks distinct codes and
-  the scaffolded `on_error` rules act on them — folding all three into one failure makes the
-  retry budget worse than useless. Engine-side this is just ordinary error routing.
-  **[built]** The retryable class turned out to need no code at all: a runner that faults
-  **releases its claim**, which is how a queue spells "try this somewhere else". It puts the
-  task in front of a different worker instead of spending the definition's `on_error` budget,
-  so the shipped definition has no retry policy and no "evaluator unavailable" arm. The five
-  permanent kinds became the authored codes an `on_error` rule matches directly — the
-  discriminator moved out of a response body into the code, which is what the error channel
-  bought.
+- **Types from schemas, checked on the author's machine.** The generator emits `Input`/`Output`
+  declarations from the inferred schemas and the importer runs `tsc` before it bundles. Schemas
+  validate both ends at runtime, so static types are editor support, not the safety mechanism —
+  which keeps the server free of any evaluator dependency.
+- **The tsconfig describes the realm; the Worker enforces it.** `lib: [esnext, webworker]`, since
+  a worker has no `document`, and `types` left to the author, since the realm has node's. Not a
+  tsconfig fence refusing `process` and `require`: it stops nothing at runtime, and it makes
+  "import a library" and "reach the host" the same refusal.
+- **The base config is the nearest `tsconfig.json` above the script** — the one the author's
+  editor reads, so editor and apply agree. Scripts under different bases are separate `tsc` runs,
+  because `extends` takes one base. `lib` and `include: []` are written after the `extends`: a
+  base must not widen the realm's description, and a base `include` would drag a tree in to be
+  checked as scripts.
+- **One `worker_threads` realm per execution** (`eval-node/realm.ts`). A synchronous
+  `while(true){}` never yields, so only killing a thread bounds it; a fresh global per execution,
+  and `process.exit` ending a realm rather than the runner, follow from the same choice. It costs a
+  realm (~1.7ms) and a recompile per call — a compile cache in a discarded realm can never hit.
+  Not goja: it has no hard memory ceiling. A subprocess (~16.6ms) also contains memory and native
+  crashes, and is the upgrade path if scripts must be distrusted rather than merely bounded.
+- **No pinned clock or seeded RNG.** The expression environment exposes no clock, so a pin would
+  be the wall clock renamed. Reopening this means giving the engine a per-attempt timestamp
+  *first*; the value would then travel through `input` like any other.
+- **Error codes with honest retryability.** The five script failures (`compile_error`, `threw`,
+  `timeout`, `nonserializable`, `exited`) are permanent and arrive as authored codes an `on_error`
+  rule matches directly. An evaluator fault has no code: the runner releases its claim, which puts
+  the task in front of another worker without spending the definition's retry budget.
 
-## ~~Deferred~~: `process_objects` ownership
+## Bundles and the object store
 
-**BUILT 2026-08-24 in [object-store.md](object-store.md)**: `process_objects` gave way to one
-content-addressed store, and a definition-embedded value is claimed under the `definition`
-owner. The case as argued before:
-
-Small bundles inline fine, so nothing here blocks a first version. It becomes real when
-bundles carry libraries.
-
-Content addressing already exists (`ObjectRef.Ref` is a sha256 prefix), so a worker could
-cache by ref with no invalidation problem. Two things stand in the way, and they are one
-change: definition-embedded values are never externalized (only what a running instance
-produces becomes an object), and ownership is `(instance_id, hash)` with instance-scoped
-GC — so code would outlive its object and a fetch after a cache eviction would 404 against
-a runnable definition. Routing definition-embedded values through the store puts the object
-under the definition version, which *is* the retention rule code needs; the correct lifetime
-falls out rather than needing a special case.
-
-~~Constrained by migration 018: unredacted context-only objects are never served, only
-log-referenced rows.~~ **Superseded by [object-store.md](object-store.md):** there is one store
-and one endpoint, addressed by content hash, and redaction never touched stored values -- it
-protects the server console. A worker fetching by ref *is* the read primitive now, and holding
-the hash is holding the bytes that produce it.
+A bundle is a definition-embedded string, stored inline in the definition. Once it reaches an
+instance's `external_input` it is cut into the content-addressed `objects` store under that
+instance's claim, so instances running the same code share one object and a worker can cache by
+ref. Nothing claims objects under a definition: `model.ObjectOwnerDefinition` is declared and
+unused.
 
 ## Open questions
 
 - **Secrets reaching the worker.** Deferred. Cheap non-foreclosure: have the worker carry
   its lease credential on any object fetch from the start, even unchecked, so authorization
   is a later tightening rather than a protocol break.
-- ~~**Runtime**~~ **Answered: Node `worker_threads`, one Worker per execution**
-  (`eval-node/realm.ts`). Template's choice: goja is the simplest embedding but has no hard memory
-  ceiling, so a runaway allocation takes the worker with it; QuickJS-on-wazero and a Deno
-  subprocess both contain it. Deciding late costs nothing — the resolution contract is
-  indifferent.
-- ~~Whether a script task is a distinct action type or plain `external` with a reserved
-  input shape.~~ **Answered: plain `external`**, input `{code, input, timeout_ms}`
-  (eval-node/README.md). The latter adds nothing to the engine, which is the argument for it; the
-  former is what would let the editor schema and `genctl` say anything useful about it.
 - Scripts are **leaf computations**. Logic that migrates from the definition into a script
   stops being self-describing state, and a script that orchestrates is the feature failing.
   Nothing enforces this — DSL expressiveness is what holds the line, which makes it a

@@ -1,75 +1,45 @@
 # The external-task queue: claim, lease, and an error channel
 
-Status: **BUILT** (error channel 2026-08-23; claim/lease/renew/release, `external.lost` and
-the evaluator switchover 2026-08-24). Only the claim long-poll remains unbuilt. The
-`external.timeout` split phase 3 proposed was dropped as unsound — see §`external.lost`. Turning `external` from a wait point
-into a queue a worker fleet pulls from, with the claim/lease machinery the engine already
-runs against `process_instances` — and the error channel `external` has never had. The
-motivating consumer is [`eval-node/`](../eval-node/README.md), which shipped as a `fetch`
-until it moved onto this queue 2026-08-24 ([script-tasks.md](script-tasks.md)).
+Status: **Built, except the claim long-poll (§Open) and a pump nudge after a resolve (§What was missing).**
 
-**The `GET /external-tasks` listing was removed 2026-08-28.** It was the original queue — poll
-the list, pick a task, answer it — and §0's whole argument is that polling a list is not a queue:
-two readers see the same row, and nothing leases. `claim`/`renew`/`release` replaced it, and what
-survived afterwards was a *view*, kept for discovery and for handing out tokens. Both turned out
-to be derivable: a token is `<instance>.<task_epoch>` (`model.ExternalToken`), formed from the
-instance itself, and discovery is `GET /instances` — whose rows carry `phase`. What only the
-listing published was `result_schema`, `raises` and the `objects` list, and those belong to the
-CLAIM, which is what hands a worker the work it must answer. So the endpoint outlived its
-argument, and `idx_external_queue` now earns its keep serving FILTERED claims instead.
+`external` is a queue a worker fleet pulls from: the engine's claim/lease semantics on columns of
+its own, plus an error channel. The motivating consumer is [`eval-node/`](../eval-node/README.md)
+([script-tasks.md](script-tasks.md)). Delivery of an answer into a parked instance is
+[external-outcome-as-signal.md](external-outcome-as-signal.md).
+
+**There is no listing endpoint.** Polling a list is not a queue: two readers see one row and
+nothing leases. Nothing else needs one either — a token is derived from the row
+(`<instance>.<task_epoch>`, `model.ExternalToken`), discovery is `GET /instances?phase=external`,
+and the work contract (`result_schema`, `raises`, `objects`) travels with the claim, which is what
+hands out the work.
 
 ## Why move off `fetch`
 
-Not because requests are lost under overload — a failed fetch is a routed error code and
-the instance stays durable. Overload produces a worse *code*: the sidecar's own `timeout_ms`
-never fires, the engine's deadline does, and `http.timeout` is unknowable, so it is never
-retried on `only_once`. That is a signalling bug, fixable inside the push design.
-
-The two real reasons: a fetch holds one of `--max-concurrent` for its whole duration (an
-`external` holds none), so a slow sidecar starves unrelated tasks on that worker; and pull
-inverts the connection direction, which is the only shape that works for a worker off
-loopback — `/eval` is arbitrary code execution with the runner's authority.
+Not because requests are lost under overload — a failed fetch is a routed error, and the instance
+stays durable (overload only produced a worse *code*, `http.timeout`, unknowable). The reasons: a
+fetch holds one of `--max-concurrent` for its whole duration while an `external` holds none, and
+pull inverts the connection direction, so a worker can live behind NAT and genroc never dials a
+code-execution endpoint.
 
 ## What was missing
 
-1. **No claim.** `ListExternalTasks` is a read. N pollers all execute; the losers learn it
-   from `ResolveExternalTask`'s epoch check, after the side effects.
-2. **No error channel.** `resolve` takes a result and nothing else, so `on_error`, `retry`
-   and backoff are unreachable and the evaluator's 422/500 split has no representation.
-   `raises` is refused on a non-child action
-   ([validate.go:513](../internal/model/validate.go#L513)), so the shapes cannot even be
-   declared.
-3. **No visibility timeout.** `wake_at` is the only clock, so a worker that died holding a
-   task looks identical to one nobody picked up.
-4. **The two leases would alias** — see below.
-5. **Pause discards a finished answer.** `ResolveExternalTask` rejects non-`running`, so a
-   task claimed and then paused can never be resolved — and on an `only_once` task that is a
-   correctness break, not an inconvenience (see §Pause).
 6. **No nudge.** Nothing wakes the pump after a resolve, so a resume waits up to `--poll`
    (500ms) — irrelevant for an approval, material for a 50ms script.
 
 ## The claim must not reuse the engine's lease columns
 
 `worker_id` / `lease_expires_at` / `lease_epoch` mean *an engine worker is advancing this
-instance*. A claim means the opposite: the instance is parked. Four ways aliasing breaks:
+instance*. A claim means the opposite: the instance is parked. Aliasing them would:
 
-- `ResolveExternalTask` refuses a submit under a live lease
-  ([db_external.go:83](../internal/db/db_external.go#L83)) — a worker would be locked out of
-  its own resolve.
-- `ClaimInstances` skips rows with a live lease
-  ([db_claim.go:110](../internal/db/db_claim.go#L110)), so a claim delays the
-  `external.timeout` the engine owes at `wake_at`.
-- `RenewWorkerLeases` renews only `Engine.held`; a claim there is a lease nothing renews.
-- `worker_id` is the `ReclaimedExpired` evidence behind `only_once.interrupted`. An external
-  stamp forges it.
-
-Separate columns also make §"Two clocks" fall out with no change, which is the payoff.
+- lock a worker out of its own resolve — `ResolveExternalTask` refuses under a live lease;
+- delay the `external.timeout` the engine owes at `wake_at` — `ClaimInstances` skips live leases;
+- leave the claim unrenewed — `RenewWorkerLeases` renews only `Engine.held`;
+- forge the `ReclaimedExpired` evidence `only_once.interrupted` reads.
 
 ## The mechanism is the engine's, applied to a different subject
 
-Separate columns, identical semantics. Every rule below is the one
-[lease-fencing.md](lease-fencing.md) already argues for `process_instances`, and the reasons
-carry over unchanged:
+Separate columns, identical semantics — every rule is one [lease-fencing.md](lease-fencing.md)
+argues for `process_instances`:
 
 | engine | external | rule |
 |---|---|---|
@@ -79,25 +49,15 @@ carry over unchanged:
 | `lease_epoch` | `external_claim_epoch` | the fence bound into every write by the holder |
 | `ReclaimedExpired` | `external.lost` | the previous holder's id is the evidence, so nothing may clear it |
 
-**Re-claim, not expiry, is what invalidates a handle.** Nothing runs at expiry; the *next*
-claim bumps the epoch and fences the previous holder out. So a worker that overran its lease
-and was never taken over still resolves successfully — strictly better than discarding work
-that was done, and exactly how the engine treats its own late writes.
+**Re-claim, not expiry, invalidates a handle**, so a worker that overran its lease and was never
+taken over still answers successfully. Resolve and release bind the claim epoch and refuse on
+mismatch (a conflict naming re-claim), under the row lock that checks the phase and `task_epoch`;
+renew is scoped by `external_worker_id`, as the engine's is by `worker_id`. The two claim paths
+share principles, not code: a helper would be parameterised on nearly everything, so the tests
+hold them together.
 
-**Resolve, fail, renew and release all bind the claim epoch** and refuse on mismatch, under
-the same instance row lock that already checks the phase and `task_epoch`
-([db_external.go:60](../internal/db/db_external.go#L60)). That is `requireFenced` /
-`ErrLeaseLost` in the API's vocabulary: a conflict, naming re-claim as the cause.
-
-**Same principles, no shared code.** The two claim functions are ~90 near-identical lines
-twice, but the predicates and the columns written differ enough that a helper would be
-parameterised on nearly everything. The table above is what "the same" means here, and the
-tests below are what hold it — not a call graph.
-
-One thing does **not** carry over: `Takeover` / `SkipTakeover`. The engine's cutoff exists
-because a worker that has just discovered it was frozen must not steal rows from co-resident
-workers about to repair their own leases. An external claimer holds no leases it must reason
-about, so its cutoff is plain `now`.
+`Takeover` / `SkipTakeover` do not carry over: an external claimer holds no leases it must repair,
+so its cutoff is plain `now`.
 
 ## Design
 
@@ -105,334 +65,190 @@ about, so its cutoff is plain `now`.
 
     external_worker_id        TEXT
     external_lease_expires_at BIGINT
-    external_claim_epoch      BIGINT NOT NULL DEFAULT 0   -- the fence; bumped only by a claim
+    external_claim_epoch      BIGINT NOT NULL DEFAULT 0   -- the fence: claim, release and lost-marking bump it; renewal and expiry never do
 
-plus `(external_worker_id, external_lease_expires_at)` on the claimable predicate.
-
-**Not a separate table.** The queue *is* the parked rows, and every field of an entry is
-already derived from the row — the token from `task_epoch`, the input from `external_input`.
-A second table is a second thing that can disagree ([db/CLAUDE.md](../internal/db/CLAUDE.md)
-§"The task epoch").
+**Not a separate table.** The queue *is* the parked rows; a second table is a second thing that
+can disagree ([db/CLAUDE.md](../internal/db/CLAUDE.md) §"The task epoch").
 
 ### The handle
 
-`external_claim_epoch` is a grant, bumped only by a claim, exactly as `lease_epoch` is. It
-is needed on top of the token because two workers can claim the same *arming* in sequence —
-the first claim expires, the second is granted, and the first worker's
-`<instance>.<task_epoch>` is still valid.
-
-So the handle is `<instance>.<task_epoch>.<claim_epoch>`, with the two-part form still
-accepted when no claim is live. That keeps unclaimed answering (`signal`, or `resolve` with a
-two-part token) untouched and makes claiming a property of the consumer, not the task.
+`<instance>.<task_epoch>.<claim_epoch>`. The claim epoch is needed on top of the token because two
+workers can claim one *arming* in sequence, and the first worker's `<instance>.<task_epoch>` stays
+valid. The two-part form is refused only while a claim is live, so unclaimed answering (`signal`,
+or `resolve` with a two-part token) is untouched and claiming is a property of the consumer, not
+the task.
 
 ### `ClaimExternalTasks`
 
-A mirror of `ClaimInstances`, including the dual-dialect split (Postgres: CTE +
-`FOR UPDATE SKIP LOCKED` + `RETURNING`; SQLite: select-then-update in one transaction).
+A mirror of `ClaimInstances`, dialect split included (Postgres `FOR UPDATE SKIP LOCKED`; SQLite
+select-then-grant in one transaction):
 
     phase = 'external' AND status = 'running'
       AND (external_worker_id IS NULL OR external_lease_expires_at <= ?)
       AND (wake_at IS NULL OR wake_at > ?)
 
-ordered `updated_at ASC` — FIFO by park time, the opposite of the removed list endpoint's
-newest-first, which is a UI affordance. Three things it must not do:
+FIFO by park time (`updated_at ASC`). It must **not** touch `task_epoch` (every handed-out token
+would die), the engine's lease columns, or clear `external_worker_id` on expiry (the evidence
+`external.lost` reads). The response carries input and `objects`, `result_schema`, `raises`, the
+task deadline and `renew_before_ms`, so a worker can decline work it cannot finish and knows which
+codes it may report. `status = 'running'` excludes paused and cancelled trees: no new work for a
+suspended tree, though an answer to work already out is always accepted (§Pause).
 
-1. **Not touch `task_epoch`** — a claim is not a new occurrence, and bumping it invalidates
-   tokens already handed out.
-2. **Not touch the engine's lease columns** (above).
-3. **Not clear `external_worker_id` on expiry** — that is the evidence `external.lost` reads.
-
-The response carries the removed list's fields plus the task deadline and the declared `raises`, so
-a worker can decline work it cannot finish and knows which codes it may report.
-
-**Addressing is the existing filters** — `(process, version, task)`, the same three
-the removed listing took — not a `queue:` name on the action. A definition already names
-its work in three ways a worker can subscribe to, and a fourth would be a second address for
-the same rows. If subscription-style naming is ever wanted it is one more filter column, not
-a different model.
-
-`status = 'running'` excludes paused instances deliberately: no *new* work is handed out for
-a suspended tree, even though an answer to work already handed out is always accepted
-(§Pause).
+**Addressing is the `(process, version, task)` filters**, not a `queue:` name: a definition already
+names its work three ways, and an unfiltered worker claims every parked task on the server,
+other fleets' included.
 
 ### Renew and release
 
-`RenewExternalClaims(workerID, tokens, dur)` mirrors `RenewWorkerLeasesChunk`: chunked,
-scoped to an explicit id list intersected with `external_worker_id`, must not bump the claim
-epoch (it would fence the worker out of its own resolve) and must not clear the worker id.
-`ReleaseExternalClaim` is the nack, which is what makes graceful shutdown possible.
+`RenewExternalClaims` is chunked, scoped to the requested ids ∩ `external_worker_id`, and must
+neither bump the claim epoch (it would fence the worker out of its own answer) nor clear the
+worker id. `ReleaseExternalClaim` is the nack — how a queue spells *retryable*, so a runner fault
+needs no error code.
 
-**[built] A release bumps the epoch; an expiry does not.** The asymmetry is the point and was
-not in the original draft: a lapse is the absence of a live lease, so a worker that overran and
-was never taken over still answers, whereas a release is a deliberate hand-back and must void
-the releasing worker's own handle at once. Both are pinned, in both directions.
+**A release bumps the epoch; an expiry does not.** A lapse is the absence of a live lease, so an
+overrun worker never taken over still answers; a release is a deliberate hand-back and must void
+the releaser's own handle at once.
 
-**[built] A signal defers to a live claim rather than being refused by it.** Signal carries no
-handle, so it has nothing to fence with — and `DeliverSignal` already had exactly this rule for
-the engine's live lease ("don't race it; buffer instead, and the signal is consumed if the task
-re-arms"). A claim is the same situation with a different holder, so it got the same treatment
-rather than a rule of its own.
+**A signal defers to a live claim rather than being refused by it.** It carries no handle to fence
+with, so it buffers without un-parking — the rule `DeliverSignal` already applies to a live engine
+lease (`TestDeliverSignal_DefersToALiveClaim`). The claim's end hands that answer to the engine
+(`UnparkAnsweredExternal`): a release un-parks in its own transaction, and since expiry writes
+nothing, the next claim un-parks a lapsed row holding an answer instead of granting it. Re-offered,
+the task's next answer would lose to the buffered one under FIFO.
 
-### Renew is the heartbeat [built]
+### Renew is the heartbeat
 
-Renew does two jobs: extend the visibility timeout, and tell the holder whether the work is
-still wanted. It is the *only* channel for the second — a worker dials genroc, never the
-reverse, which is what lets it live behind NAT — so anything the server needs to tell a running
-worker has to ride the renewal it already makes.
+Renew extends the visibility timeout and tells the holder whether the work is still wanted. It is
+the *only* channel for the second — a worker dials genroc, never the reverse — so renewal is
+mandatory, and claim and renew state `renew_before_ms` (a third of the lease). It answers **per
+token**:
 
-The response was a count (`{renewed, requested}`), which is one bit short of usable: a worker
-holding four claims learns it lost one and cannot tell which, so it cannot abandon that job
-alone. It now answers per token — `renewed` / `lost` — with `lost` meaning stop and release,
-distinct from a lapse the worker never notices.
+- `renewed`;
+- `lost` — the claim is someone else's: stop, and **do not** release (that would bump the new
+  holder's epoch out from under it);
+- `cancelled` — still yours and nobody wants it: stop and **must** release, or the row waits out a
+  lease nobody serves. A cancelled claim is not renewed, and cancel leaves `external_worker_id`
+  set — cleared, the next renewal would answer `lost`, exactly the wrong instruction.
 
-Two consequences accepted in building it: renewal stops being optional, because a worker
-that does not renew cannot be reached and a silent worker looks identical to a healthy one; and
-claim and renew state `renew_before_ms` rather than leaving the interval to folklore.
-
-Cancellation rides this as a third list, and it shipped with cancel itself. That is the whole
-mechanism for stopping work in flight — an `on_cancel` hook in the definition was considered and
-dropped, because the engine statuses are needed either way and the hook's real cost is
-definition-language surface: schema, validation, a compat rule, the editor schema, docs. What it
-would have bought — cancelling an external *resource* rather than the worker, as in the
-submit-then-poll shape — `on_error` routing already reaches, if the cancellation code is
+The classifying read shares the renewal's transaction: a row turning cancelled in between would
+come back `renewed`. An `on_cancel` hook in the definition was rejected: the statuses are needed
+either way, and `on_error` already reaches an external resource if the cancellation code is
 catchable.
-
-Three things settled in the build. **`lost` and `cancelled` are different instructions, not two
-words for failure**: lost means the claim is already someone else's, so the worker stops and must
-NOT release (releasing bumps the new holder's epoch out from under it); cancelled means the work
-is still yours and nobody wants it, so it stops and MUST release, or the row waits out a lease
-nobody is serving. **The classifying read shares the renewal's transaction**, because a row
-turning cancelled between the two would come back renewed — and a late answer to a cancel is the
-one answer that must not be late. And **cancel deliberately leaves `external_worker_id` set**:
-cleared, the next renewal would answer `lost`, which tells the worker exactly the wrong thing.
-
-The reason a cancelled claim is not also renewed is the same shape of argument: extending a
-lease on work nobody wants holds the claim open until the worker notices some other way.
 
 ### The error channel
 
-**One outcome, two addressing modes — not a third endpoint.** [built, revised] The first cut
-added `POST /external-tasks/fail` beside `resolve`, and that was wrong in a way the build made
-visible: `/external-tasks/signal` was left able to report success and not failure, and
-`process_signals` had a single `result` column that could not have held the other half anyway
-(migration 021 had named it for the success channel on the grounds that "the value delivered to
-an external task IS its result"). Meanwhile every layer *below* the API had already unified —
-`SetExternalOutcome`, `withExternalOutcome`, a phase 2 reading both slots — because a result and
-a failure are one event: the wait is over.
+**One outcome, two addressing modes.** A submission carries `{result}` or `{error: {code, message,
+data?}}`; an `error` key makes it a failure, so a null result stays a success, and a result
+beside an error is a 400. `resolve` (by token) and `signal` (by instance + task) each take either.
+A result and a failure are one event — the wait is over — so `process_signals.outcome` holds
+either, which also lets a failure buffer before its task arms.
 
-So a submission carries an **outcome**: `{result}` or `{error: {code, message, data?}}`,
-discriminated by key presence on `error` so a null result stays an ordinary success (both keys
-present is a 400). `resolve` (by token) and `signal` (by instance + task) each take either;
-`/external-tasks/fail` is deleted. Migration 027 renames `process_signals.result` → `outcome`
-holding that same envelope, which is what lets a failure buffer when the task is not yet armed.
-The name `resolve` stays: you resolve the *task*, the way you resolve a ticket, not the way a
-promise resolves-versus-rejects.
+**Routing happens in phase 2, not the API handler.** `handleCallErrorWith` resolves the retry
+policy and writes `retry_count` / `wake_at`, which needs the lease. The failure is routed exactly
+like an unaccepted `fetch` response, so `error.data` means the same on both.
 
-**Routing happens in phase 2, not the API handler.** `handleCallErrorWith`
-([error.go:68](../internal/engine/error.go#L68)) resolves the retry policy and mutates the
-instance, which needs the lease. So `fail` does what `resolve` does — store the failure on
-the row and un-park — and `runExternal` routes it on the next claim:
+**The code namespace is the authored one**: lower_snake_case, no dot (`model.ValidFaultCode`),
+the namespace a child's `raise` uses. Without the check a worker could send `http.500` and be
+caught by a rule written for the wire, or `external.timeout` and reach the unknowable set. A
+reserved `external.*` family was rejected (that namespace means engine-produced), as was one
+`external.failed` carrying the real code in `data` (it hides the discriminator from the matcher).
 
-- `external_data` gains `error` + `has_error`; `model.CtxExternalError`;
-  `SetExternalResult` generalises to `SetExternalOutcome` (still unfenced, same reason).
-  *Both were later removed with the outcome-as-signal change —
-  [external-outcome-as-signal.md](external-outcome-as-signal.md); `DeliverSignal` is the write now.*
-- Phase 2 checks `_external_error` first and calls `handleCallErrorWith(..., {"data":
-  payload})` — the path an unaccepted `fetch` response already takes, so `error.data` means
-  the same on both. *`_external_error` went with them: phase 2 now routes the popped signal's
-  failure.*
+`raises` is legal on an external action, and differs from a child's:
 
-**The code namespace is the authored one**: lower_snake_case, no dot, the namespace a
-child's `raise` uses and `matchOnErrorWith` already serves. Rejected: a reserved `external.*`
-family (it would sit in a namespace `errcode` documents as engine-produced) and a single
-`external.failed` carrying the real code in `error.data` (it hides the discriminator from
-the thing that exists to match on it). The shape is **enforced on submission**
-(`model.ValidFaultCode`), which is not decoration: without it a worker could send `http.500`
-and be caught by a rule written for the wire, or `external.timeout` and reach the unknowable
-set an `only_once` task can never retry.
+- **The payload is conformed on submission**, a 400 the HTTP caller can act on, with the task left
+  parked — a child's raiser cannot be told, so its mismatch degrades to `result.invalid`.
+- **`raises` is a CLOSED set.** An undeclared code is refused with the accepted list; a task
+  declaring no `raises` has no error channel. A child's codes are checked at registration (R5); a
+  worker's are unknowable until it submits, so submission is the only place a typo can be caught.
+- **`raises: {code: null}` declares a code that carries nothing** (`data` refused, `error.data`
+  absent) beside `{}` (opaque) and a schema (typed). Null, not `true`: `raises[code]` is a schema
+  position, genroc has no boolean schemas, and JSON Schema's bare `true` means "anything".
 
-`raises` becomes legal on an external action. **[built]** Two things came out differently
-from the paragraph this replaces:
-
-- **The payload is conformed on submission, not in the engine.** A child's raiser is another
-  process that cannot be told, so its mismatch can only degrade to `result.invalid` at
-  collect. An external submitter is an HTTP caller holding the connection, so the mismatch is
-  a `400` it can act on — and because the task stays parked, answering again with a corrected
-  payload is the ordinary path rather than a stranded instance. `resolve` already set this
-  precedent for the success channel.
-- **`raises` is a CLOSED set on an external task**, unlike on a child. A code outside it is
-  refused with a 400 listing what is accepted, and a task declaring no `raises` has no error
-  channel. The asymmetry is the point: a child's raisable codes come from its own definition,
-  so R5 already catches an `on_error` typo at registration — nothing about a worker is
-  knowable until it submits, which makes submission the only place a wrong code can ever be
-  caught. Left open, `limit_exceded` would quietly reach whatever catch-all exists. The cost
-  is that adding a failure mode to a worker is a definition change; that is what declaring a
-  contract buys.
-- **`raises: {code: null}` declares a code that carries nothing.** The three declarations are
-  `null` (no `data`; submitting one is refused; `error.data` absent), `{}` (opaque) and a
-  schema (typed) — so "an error with no payload" has a spelling that is still a declaration,
-  which a closed set requires. This reverses the old rule that null is never a declaration,
-  and the reversal is sound because that rule's premise is gone: it held that "omitting the
-  code already says that", which stops being true once omission means *not submittable*.
-
-  **Null rather than a boolean**, having tried `true` first. `raises[code]` is a schema
-  position, genroc has no boolean schemas, and JSON Schema's bare `true` means "any value
-  validates" — so `true` would spell "nothing" with the standard symbol for "anything".
-  `internal/schema` already refuses the boolean form on the stated principle that *closed is
-  expressed by absence rather than an explicit false*; no payload is the absence of a schema.
-  It is also the cheaper half: null round-trips through `map[string]*schema.Schema` natively,
-  where `true` needed a custom `UnmarshalJSON` **and** a `MarshalJSON` — the latter only
-  because nil would otherwise marshal to `null` and fail to load on the read after the write
-  that stored it. Both are deleted.
-
-**No worker-supplied `not_reached`.** An authored code is neither `pre.*` nor unknowable, so
-the default classification is "potentially reached" — not retryable on `only_once` without
-the author asserting otherwise. That flag is a claim about what an error *means*, and the
-author owns it. **[built]** This turned out to be enforced at *registration*, not merely at
-runtime: `only_once` + a `retry` naming a worker code is refused at `PUT /definitions` unless
-the rule carries `not_reached: true` and names exact codes. Stronger than this paragraph
-assumed, and it needed no new code — the existing guard does not care that the code is
-authored rather than an engine code.
+**No worker-supplied `not_reached`.** An authored code is "potentially reached"; asserting
+otherwise is the author's claim. `only_once` + a `retry` naming a worker code is refused at
+`PUT /definitions` unless the rule carries `not_reached: true` and names exact codes.
 
 ### Pause suspends execution, not delivery
 
-**Resolve and fail accept `running`, `paused` and `pausing`** — the same status set
-`signalInstance` already accepts ([handlers_external.go:118](../internal/api/handlers_external.go#L118)),
-for the same stated reason: *a pause suspends execution, not delivery; rejecting here would
-make a pause lose events.* The live-lease rejection stays exactly as it is (a timeout advance
-in flight wins).
+**Resolve and signal accept `running`, `paused` and `pausing`**
+(`model.Status.AcceptsExternalOutcome`). Refusing would break `only_once`: a worker claims, does
+the side effect, a pause lands, the resolve is refused, the deadline keeps running (paused
+preserves `wake_at`), and the unknowable `external.timeout` fails the instance terminally for work
+that succeeded. The live-lease rejection stays: a timeout advance in flight wins.
 
-Refusing is not merely wasteful, it breaks `only_once`. A worker claims the task, performs
-the side effect, a pause lands, and the resolve is refused: the instance stays parked, its
-deadline keeps running (`paused` preserves `wake_at`, and a timer that elapses while paused
-is due the moment it resumes), and `external.timeout` is unknowable — so `only_once` forbids
-the retry and the instance fails terminally for work that actually succeeded.
-
-The write needs no new mechanism. `ResolveExternalTask` buffers the outcome and `UnparkExternal`
-clears `phase` / `wake_at`; `ClaimInstances` excludes `paused`, so the row simply waits, and
-`ResumeProcess`'s plain status flip makes it claimable into phase 2. Clearing `wake_at` also
-disarms the deadline, which is the point — an answered wait cannot later time out.
-
-Buffering *without un-parking* would be wrong here: `DeliverSignal` buffers because
-it addresses a task by id that may not be armed yet, whereas a resolve is addressed by token
-to an arming that is live. Buffering alone would leave the instance parked on a wait already
-answered, with the deadline still running — the break above, one step removed.
+The write is the ordinary one: buffer the outcome and `UnparkExternal` (clearing `wake_at`, which
+disarms the deadline); `ClaimInstances` excludes `paused`, and resume's status flip makes the row
+claimable into phase 2. Buffering *without* un-parking would leave an answered wait parked with
+its deadline still running.
 
 ### Two clocks, one authority
 
 `wake_at` stays authoritative over the claim's visibility timeout: the engine claims at the
-deadline regardless of a live claim, raises `external.timeout`, and the worker's later
-resolve fails the phase check. This needs **no change** — `ClaimInstances` reads only
-the engine's own lease columns — so a test has to pin it, because it is what a
-"simplification" back onto shared columns would break. Cap a granted lease at the remaining
-budget, or at least return the deadline.
+deadline regardless of a live claim, raises `external.timeout`, and the worker's later resolve
+fails the phase check. It needs no code — `ClaimInstances` reads only the engine's own lease
+columns — so `TestExternalClaim_DoesNotDelayTheEngineTimeout` pins it against a "simplification"
+onto shared columns. Cap a granted lease at the remaining budget, or at least return the deadline.
 
-### `external.lost` [built 2026-08-24]
+### `external.lost`
 
-An expired claim returns the task to the queue: at-least-once, which is what a queue is for.
-On an `only_once` task that is wrong — the work may have happened — so the task is **not handed
-out again**, and the arming is marked instead. The engine turns the marker into
-`external.lost`: catchable, and in `errcode.Unknowable()`, the analogue of
-`only_once.interrupted` for a worker that is not the engine's.
+An expired claim returns the task to the queue — at-least-once. On an `only_once` task the work
+may have happened, so the task is **not handed out again**; the engine raises `external.lost`
+instead (catchable, in `errcode.Unknowable()`).
 
-Three mechanics that are not obvious from the outside:
+- **Decided at claim time, in the API handler**, which already resolves the current task: the
+  claim is granted, then undone (`MarkExternalClaimLost`), keeping a definition lookup out of the
+  claim's SQL.
+- **The marker must wake the engine.** A parked row is not runnable, so `MarkExternalClaimLost`
+  sets `wake_at = now` beside `external_lost`; without it a task with no timeout sits forever.
+- **Detection is best-effort-sooner, the guarantee is not.** If no worker claims again, the
+  deadline raises `external.timeout` — also unknowable — so `only_once` holds either way.
 
-- **The decision is made at claim time, in the API handler, not in the claim's SQL.**
-  `only_once` is a property of the definition and the handler already resolves `CurrentTask`
-  for every claimed row, so that is where it can be known. The claim is granted and then undone
-  (`MarkExternalClaimLost`), which costs a microsecond-long grant nobody sees and keeps the
-  claim query free of a definition lookup it cannot do.
-- **The marker exists because the engine has to be woken.** A parked row is not runnable, so
-  unlike the engine's own `ReclaimedExpired` — derived at the next claim, which the poll loop
-  guarantees — nothing would ever look again. `MarkExternalClaimLost` sets `wake_at = now`
-  alongside the marker; without it a task with no timeout would sit unclaimable forever with
-  nothing saying why.
-- **Detection is best-effort-sooner, the guarantee is not.** The marker is only written when
-  some worker next tries to claim. If the fleet is idle nothing is reported until the task's own
-  deadline, which raises `external.timeout` — also unknowable, so the `only_once` guarantee
-  holds either way. What the claim-time path buys is a *sooner and more specific* answer, not
-  the safety property.
-
-**The timeout split this section used to propose is NOT built, because it is unsound.** The
-argument was that a timeout on a task nobody ever claimed means nothing was reached, so it
-could be retried even under `only_once`. It cannot: an unclaimed task is still reachable and
-still answerable. `GET /instances/{id}/detail` publishes the evaluated `input` as
-`external_input`, a two-part token is formed from that same row, and `signal` delivers an
-outcome with no handle at all — so an unclaimed task may have been picked up and worked on
-without the claim API ever hearing of it. "Never claimed" therefore does not prove "never
-reached", and loosening it would break at-most-once for exactly those callers.
-
-**Deleting the listing (above) did not make this sound**, and the earlier wording invited that
-reading by pinning the argument on `GET /external-tasks` alone: it said the split "would become
-sound only if the list endpoint stopped exposing `input`", which is now literally true and still
-changes nothing. The premise was never the listing — it is that the unclaimed path exists at all,
-which is the approval path's whole purpose. Foreclosed, not deferred.
+**A never-claimed timeout is not "never reached", so it is not retryable under `only_once`.** An
+unclaimed task is still reachable: the instance detail publishes its `external_input`, a two-part
+token is formed from the row, and `signal` answers with no handle at all. The unclaimed path is
+the approval path's whole purpose, so loosening this would break at-most-once for exactly its
+callers.
 
 ### API surface
 
-New entries in the action registry ([actions.go](../internal/api/actions.go)):
-`claim_external_tasks`, `renew_external_claims`, `release_external_task`.
-`resolve_external_task` accepts a three-part token. `ExternalTaskResp` gains `claimed_by` /
-`claim_expires`. New events beside [logs.go:40](../internal/model/logs.go#L40):
-`extern_failed`, `extern_lost`. A `wait_ms` long-poll on `claim`
-answers the latency note, but second — it changes connection lifetime, not the data model.
-
-## Phasing
-
-1. **Error channel.** ✅ **Built 2026-08-23.** An `error` outcome on
-   `/external-tasks/resolve` and `/external-tasks/signal` (`genctl signal --code`); `external_data` gains `error`/`has_error` (`SetExternalResult` generalised
-   to `SetExternalOutcome`); `model.CtxExternalError` routed by `runExternal` phase 2a
-   through `handleCallErrorWith` (the row-write half later removed —
-   [external-outcome-as-signal.md](external-outcome-as-signal.md)); `raises` legal on an external action, typed into
-   `error.data` by `declaredRaises`; `raises` closed on external, with `null` as the no-payload
-   declaration. Carried the §Pause fix with it, since
-   `resolve` and `fail` cannot differ on which statuses accept an answer
-   (`model.Status.AcceptsExternalOutcome`). Tests: `tests/integration/external_fail_test.ts`.
-2. **Claim, lease, renew, release.** ✅ **Built 2026-08-24.** Migration 028 and the mirror of
-   `ClaimInstances`.
-3. **`only_once` fidelity.** ✅ **Built 2026-08-24.** `external.lost` (unknowable, catchable),
-   refusing to re-hand an `only_once` task whose holder lapsed, and the marker + `wake_at` that
-   makes the engine report it. The `external.timeout` split was dropped as unsound.
-4. **Evaluator switchover.** ✅ **Built 2026-08-24.** `eval-node/worker.ts` claims, renews,
-   evaluates and answers; `server.ts` is gone and the realm moved to `realm.ts`. The five
-   failure kinds became the authored codes directly. Two things fell out that the plan did not
-   anticipate: a **runner fault needs no error code** — releasing the claim is how a queue
-   spells retryable, which deleted the definition's whole retry-and-unavailable arm — and
-   **concurrency moved to the worker**, which is the original overload complaint (§0) actually
-   fixed rather than merely rerouted. Still unbuilt: the claim **long-poll**, which is the only
-   thing standing between a 250ms idle poll and immediate pickup. `queue:` naming stays
-   dropped — the `(process, version, task)` filters are the addressing, and the test suite
-   promptly demonstrated why they matter: an unfiltered worker claims every parked task on the
-   server, including other fleets'.
+`claim_external_tasks`, `renew_external_claims`, `release_external_task`,
+`resolve_external_task` (two- or three-part token) and `signal_instance`
+([actions.go](../internal/api/actions.go)), each requiring the `worker` permission. Events
+`extern_failed` and `extern_lost`.
 
 ## Tests that must bite
 
-**Go, `dbtest`, both engines:** two concurrent claimers get disjoint sets; a claim leaves
-`worker_id`, `lease_expires_at`, `lease_epoch` and `task_epoch` unchanged; an expired claim
-is re-claimable, bumps the claim epoch, and the first worker's resolve is then refused; an
-expired claim that nobody re-claimed **still resolves** (expiry writes nothing); a renewal
-does not bump the epoch and an unlisted claim expires with the worker id intact.
+**Go, `dbtest`, both engines** (`external_claim_test.go`): concurrent claimers get disjoint sets; a
+claim leaves `worker_id`, `lease_expires_at`, `lease_epoch` and `task_epoch` alone; an expired
+claim is re-claimable and fences the first worker; one nobody re-claimed **still resolves**;
+renewal keeps the epoch and an unlisted claim expires with its worker id intact; a live claim does
+not delay the engine's timeout; an answer that deferred to a claim goes to the engine, not a
+worker, once the claim is released or lapses, without stranding the rest of the batch.
 
-**Go, engine:** `external.timeout` still fires at `wake_at` with a live claim outstanding.
+**JS e2e:** a failure routes to `on_error` by the authored code; `error.data` mismatch is a 400
+with the task left parked; an `only_once` retry on a worker code is refused without
+`not_reached: true`; a lost claim raises `external.lost`.
 
-**JS e2e:** `fail` → `on_error` matches the authored code → each of `goto`/`raise`/`retry`;
-`error.data` conformed against `raises`, mismatch → 400 with the task left parked; a failed code on an
-`only_once` task is refused a retry without `not_reached: true`; a lost claim raises
-`external.lost` and is catchable.
-
-**JS e2e, pause** — the case that motivated the rule, so it has to fail loudly if the status
-set narrows again: claim an `only_once` external task, pause the instance, resolve it, resume
-— the instance continues on the submitted result and never reports `external.timeout`. Same
-for `fail`. And a paused instance is not offered by `claim` in the first place.
+**JS e2e, pause** — must fail loudly if the status set narrows: claim an `only_once` task, pause,
+resolve, resume — it continues on the submitted result and never reports `external.timeout`; a
+paused instance is not offered by `claim` at all.
 
 ## Decided, and one thing that is not
 
-**Authorization is out of scope**, but `worker_id` is required on claim and renew from
-the start (release is fenced by the three-part token) — the mechanism needs a holder regardless, so checking it later is a tightening
-rather than a protocol break. The token stays what it is today: an occurrence
-discriminator the queue hands to any caller, not a capability.
+`worker_id` is required on claim and renew (release is fenced by the three-part token). It is
+self-declared, not bound to the credential; the endpoints are authorized by the `worker`
+permission ([api-auth.md](api-auth.md)). The token is an occurrence discriminator the queue hands
+to any caller, not a capability.
 
 Not introduced here, but adjacent and worth a look while in this code: a deadline that
 elapses during a long pause fires `external.timeout` the instant the tree resumes. That is
 [pause-resume.md](pause-resume.md)'s stated behaviour for timers generally, and it is the
 same `only_once` hazard as §Pause with nothing to accept in its place.
+
+## Open
+
+A `wait_ms` long-poll on `claim`
+answers the latency note, but second — it changes connection lifetime, not the data model.
+
+Still unbuilt: the claim **long-poll**, which is the only
+thing standing between a 250ms idle poll and immediate pickup.

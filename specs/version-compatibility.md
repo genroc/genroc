@@ -1,78 +1,61 @@
 # Instance upgrade
 
-**Status: built 2026-08-26, except §3b's pairing check.** The compatibility check this gates on is
-[compat-command.md](compat-command.md)'s subject — what is compared, in which direction, and
-how it is reported. This doc is the other half: **moving** an instance from one version to
-another, once that check says it may.
+**Status: built, except §3b's pairing check and §8.**
 
-The two halves answer different questions, and this one starts where the other stops: the
-check reads two documents and never an instance, so it must assume every reachable state.
-The gate has the row in hand.
+The upgrade gate: moving an instance from one version to another. The check it answers to —
+what is compared, in which direction, how it is reported — is
+[compat-command.md](compat-command.md). The check reads two documents and must assume every
+reachable state; the gate has the row in hand.
 
-How the two sides of a comparison are resolved — repeatable `--from`/`--to`, channel versus
-pins, the dependency closure, what a missing counterpart means — is shipped behaviour and
-lives in [internal/api/CLAUDE.md](../internal/api/CLAUDE.md), not here.
+## 1. The gate conforms the row
 
-## 1. The gate refines the comparison with the row
+`MigrateState` conforms the instance's stored state to the target's layer at its task
+(`TaskContexts(to)[task]`, `ConformToSchemaExactly`), after materializing externalized values —
+the conform cannot normalize inside an object it has not loaded. It judges what the row holds,
+so branch-only outputs a joined context makes merely optional pass here when the row has them.
 
-Same comparison, with the old side's **presence** taken from the instance: stored output
-keys required, `input`/`last_error` required iff non-empty, types still the old definition's
-inferred ones. It loads no values — presence is a map key, and big values live out of line.
-
-The assumption, stated plainly: a stored value conforms to the type the old version inferred.
-Registration establishes it; the engine conforms deviations at runtime. **The gate may accept
-what the report calls different, never the reverse.**
-
-One of the comparison's imprecisions is refined here, and monotonically — refinement only
-turns "different" into "tolerable": branch correlation, where a joined context makes
-branch-only outputs merely optional. The other, demand, is **not refined at all**:
-compat-command.md §2f records why pruning the required set to what is read is unsound, and
-the argument applies here with more force. The gate performs the migration, and a migration
-that reconciles only part of the row leaves it not conforming to the version it now runs —
-which is the premise §1 above assumes.
+**The gate may accept what compat calls different, never the reverse.** Given the premise
+registration establishes — a stored value conforms to the type the old version inferred — an
+upgradable verdict (`IsSubsetAsStored`) is a gap the conform closes (compat-command.md §2d).
+The held-instance checks (§2) are compat's own functions, so the two cannot disagree. Demand is
+**not** refined: a migration that reconciles only what is read leaves the row not conforming to
+the version it now runs, which falsifies the next hop's premise (compat-command.md §2f).
 
 ## 2. The boundary is entry to a task
 
-One observable state per task: the persisted entry context (`self` never survives an
-advance; inline task chains are an optimization, not the model — every task end is a
-boundary). Exactly two interrupted states carry an extra persisted value:
+The persisted entry context is the one observable state per task: `self` never survives an
+advance, and every task end is a boundary, inline chains included. A **held** instance carries
+more:
 
-- `external` with a submitted result → require `oldResultSchema(T) ⊆ newResultSchema(T)`;
-- `children`/`collecting` → the children's own rows (§3).
+- **parked** (`external`, or `children`/`collecting`) — the new result schema and `raises` must
+  accept what the old promised, strictly `old ⊆ new` (`InFlightResultBreaks`, compat's upgrade
+  findings; §5.8);
+- **any held instance** — parked, or on a delay's timer, which has no phase, only `wake_at` —
+  refuses an action-type change (`TypeChangeBreak`): what the old action left (a result,
+  children carrying its spawn keys, a timer computed under the old definition) has no
+  counterpart in the new one.
 
-Both are why a parked task's `result_schema` is an *upgrade* concern and not only a contract
-one (compat-command.md §2c).
+Otherwise it is entry plus a counter: a retry re-runs from the start, and a `retries` lowered
+below the stored `retry_count` fails rather than retries.
 
-Everything else is entry plus a timer/counter (a retry re-runs from the start; a
-lowered `retries` below a stored `retry_count` fails instead of retrying — the new
-policy applied to an old counter, as asked). An **action-type change under a held instance
-is refused** — parked, waiting on children, or on a delay's timer, which has no phase, only a
-`wake_at` (a `child_map` → `child_list` leaves children carrying the wrong spawn
-keys; no schema relation describes that). **A leased instance is refused**; the write is
-conditional on `process_version`, `task`, and no live lease — the `task` predicate is
-load-bearing (a worker can claim-advance-finish between read and write, leaving
-`worker_id` NULL again; pinning task+version makes that a lost race a re-run picks up).
-An **expired** lease is refused too — the predicate is `worker_id IS NULL`, and a row paused
-after its lease expired keeps its `worker_id`, so it moves only once a resume lets a worker
-reclaim it. Clearing `worker_id` to admit it would destroy the
-`ReclaimedExpired`/`only_once` evidence. By status: `paused` ideal; `failed` too
-(prelude to retry); `failing`/`pausing` refused (draining); `completed`/`raised` refused
-— no work moves, and the only effect would be re-lensing stored data (§5.7).
+**Only `paused` and `failed` move** (`movableStatus`, and the write's predicate). `running` can
+advance between plan and write (the CLI pauses it first); `failing`/`pausing` are draining;
+terminal statuses hold no work, so the move would only re-describe frozen data.
+
+The write is conditional on `process_version`, `task`, `status IN ('paused','failed')` and
+`worker_id IS NULL`. **`task` is load-bearing**: a row resumed, advanced and re-paused between
+plan and write matches on everything else. A row paused after its lease expired keeps its
+`worker_id`, so it moves only after a resume lets a worker reclaim it. Never clear `worker_id`
+to admit it: it is the `ReclaimedExpired`/`only_once` evidence.
 
 ## 3. A running child and a waiting parent
 
-### 3a. Prerequisite: remove `_spawn_result_schema` — **done, shipped**
+### 3a. No `_spawn_result_schema`: collect reads the parent's current task
 
-The parent's `result_schema` used to be marshalled onto every child row at spawn.
-Removed because: per-task data duplicated per child (1000 copies on a fan-out); children
-and externals disagreed about a question with one answer (the external path always
-resolved from the pinned definition); and a stale schema mid-path is the silent killer —
-the conform *normalizes*, so a field added to both sides in one release arrived stripped
-for in-flight children and the parent read null, uncatchably. Collect now conforms
-against the parent's task as it currently stands. Backward-compatible, no migration.
-
-That last sentence is what makes a parent's `result_schema` part of the upgrade question: a
-parent already waiting will conform its child's output against the schema it runs *now*.
+Collect conforms a child's output (and a raised payload) against the parent's task as it stands
+now, never a spawn-time copy — which is why a parked parent's `result_schema` is an upgrade
+concern (compat-command.md §2c). Do not reintroduce a copy: the conform normalizes, so a stale
+schema strips fields both sides agreed on ([internal/engine/CLAUDE.md](../internal/engine/CLAUDE.md)).
 
 ### 3b. The pairing check (not built)
 
@@ -87,128 +70,75 @@ for `child_list`; skipped without a `result_schema`.
 
 ### 3c. A running child may not move without its parent
 
-§3b answers "will the data fit"; this answers "does the system still describe itself".
-A parent's definition names its child versions (explicit `action.version`, else
-self-reference, else the baked dep row); upgrading a running child alone leaves the
-parent executing a version its definition does not name — the instance-level twin of
-registry drift, same remedy (re-apply the parent). The rule: a non-terminal instance
-with a parent moves only in an operation that also moves the parent to a version naming
-the child's target. It closes both ways, so the unit of upgrade is the **non-terminal
-tree closure**. Terminal descendants stay put (their outputs are frozen; §3b covers
-them). No ordering imposed: any mid-migration window is one of §3b's checked mixed
-cases.
+A parent's definition names its child versions (explicit `version`, else self-reference, else
+the baked dependency row), so a running child moved alone leaves its parent executing a version
+its definition does not name. The unit of upgrade is therefore the **non-terminal tree
+closure** (`NonTerminalSubtree`): a non-root is refused, and each child's target comes from
+`ResolveChildVersion` against its parent's TARGET — the function spawn uses, because two copies
+drift silently. A self-reference inherits the parent's target. Terminal descendants stay put;
+their outputs are frozen. The tree is written in one transaction, so no mixed state is visible.
 
-Built as described. The closure is `NonTerminalSubtree`, the non-root refusal is in the
-handler, and which version each child moves to comes from `ResolveChildVersion` against the
-parent's TARGET — one rule shared with the engine's spawn path, because two copies of it
-drift silently and a parent running a child version its definition never mentions is exactly
-the drift this section exists to prevent. A self-reference has no dependency row to read and
-inherits the parent's target, which is only observable when the target is not the latest.
+## 4. The write: version and migrated state together
 
-## 4. Upgrade writes one column
+One conditional `UPDATE` (`UpgradeInstanceVersion`) writes `process_version` with the migrated
+state, re-cut through `persistState`: the version is the lens the row is read through, so the
+two are never written apart. Idempotent — a member already on the target is skipped, so
+repeating a run repairs a partial one. `EventInstanceUpgraded` is the only record of the version
+an instance came from. Not lossless: a pruned output (§5.5) does not come back on a downgrade.
 
-`process_version` — but that column is also the lens for redaction and display of data
-the instance already holds, so the one-column write re-interprets the row (§5.7 accepts
-this; refusing terminal instances is where it stopped being free). Mirrors the
-resume/retry split: reversible (downgrade = swapped arguments), idempotent (already-on-
-target skipped, so partial bulk runs are repaired by repetition), auditable (an
-`EventInstanceUpgraded` entry is the whole story).
-
-The case it costs: required-with-default input properties. Start-time fills defaults and the
-upgrade does not — deliberately, because a default filled into a half-run instance disagrees
-with every stored value that was derived from its absence (compat-command.md §2d). §8's
-opt-in conform would fix it at the price of reversibility.
-
-Bulk upgrade plans the whole closure first, then writes one tree per transaction
-(`applyBatch`'s shape; §3c makes partial runs data-safe, idempotency makes them recoverable).
+A property newly required with a default refuses a row that lacks it: creation fills defaults
+and the migration deliberately does not, since a default filled into a half-run instance
+disagrees with every stored value derived from its absence (compat-command.md §2d).
 
 ## 5. What this cannot catch
 
-1. **Meaning** — dollars → cents; the likeliest mistake, invisible to any static check.
-2. **Routing** — new switch conditions; includes a child gaining a raise code its parent
-   has no rule for (coverage was never guaranteed — D3).
+1. **Meaning** — dollars → cents; invisible to any static check.
+2. **Routing** — new `switch` conditions, or a child gaining a raise code its parent has no
+   rule for (coverage is not guaranteed — child-error-handling.md D3).
 3. **Tasks already run** never re-execute.
 4. **Side effects already performed.**
-5. **~~Stale keys~~ — fixed.** The output of a task the target no longer declares is now
-   PRUNED: the migration conform strips what the layer does not name, and the layer is
-   complete inside `outputs`. Nothing on the new version could read it (an expression naming
-   it is refused at registration), so carrying it forward only grew the row and pinned
-   whatever it referenced. The engine's own slots survive because the layer is deliberately
-   partial at the top and `MigrateState` puts that half back.
-6. **A renamed task** reads as removed + added → refused (§8 has the deferred `--at`).
-7. **Redaction changes with the version — accepted.** `secret: true` is config-only and
-   scrubs stdout only; config is never stored, so dropping it exposes no stored data and
-   reports as a `(not judged)` `config_schema` row (compat-command.md §6b). Redaction is a
-   display concern.
-8. **An in-flight result is judged by SCHEMA, which over-refuses on children — accepted for
-   now.** An instance parked on a task that holds an outstanding result is gated on
-   `old.result_schema ⊆ new`, strictly (contract optics, not storage optics: a worker's
-   submission arrives from outside and no migration repairs it). That comparison is *forced*
-   only for `external`, where the result is with a worker and there is no data to look at.
-   A child batch is different — a running child moves with its parent, and registration
-   already guarantees the version it moves TO fits; a completed child has its output on its
-   row, where conforming the actual value would answer precisely. Judging both by the coarse
-   relation can refuse a move that was in fact safe. Kept because the failure it prevents is
-   worse than the one it causes: refusing leaves a tree paused and an operator informed,
-   while allowing it wedges the parent at collect with a result nothing accepts.
-9. **`only_once` may flip — accepted.** The new definition is the stated policy. The
-   direction that bites: removing `only_once` from an interrupted task re-runs the side
-   effect; a crashed worker's instance is the state this flag decides, and it moves once
-   reclaimed (§2) — read the slot report before moving such instances.
+5. **Stale outputs are pruned, not carried.** The conform strips a dropped task's output (the
+   layer is complete inside `outputs`, and nothing on the new version can read it); engine keys
+   outside the layer pass through `MigrateState`.
+6. **A renamed task** reads as removed + added, and is refused (§8).
+7. **Redaction** is config-only and console-only, and config is never stored, so `secret: true`
+   changing with the version exposes nothing; compat reports it as a `(not judged)`
+   `config_schema` row.
+8. **An in-flight result is judged by schema, which over-refuses on children — accepted.** The
+   strict comparison is forced only for `external`, where the result is with a worker. A running
+   child moves with its parent to a registration-checked version, and a completed child's actual
+   output could be conformed precisely. Kept because refusing leaves a tree paused and an
+   operator informed, while a wrong allow wedges the parent at collect with a result nothing
+   accepts.
+9. **`only_once` may flip — accepted.** The new definition is the stated policy. An interrupted
+   row cannot carry the flip across: it moves only after a reclaim (§2), which resolves the
+   interruption under the version it ran.
 
 ## 6. Surface
 
-`POST /instances/{id}/upgrade` moves ONE tree: the non-terminal closure under a root, all or
-nothing — a tree with one immovable member does not move, because refusing partially is the
-point. It refuses a non-root instance outright: moving a child alone would leave its parent
-collecting a version its own definition does not name.
+`POST /instances/{id}/upgrade` moves ONE tree, all or nothing, and refuses a non-root (§3c). A
+refusal is an answer, not an error: the reply names the blocking instance and reason, including
+a tree that cannot be planned (a live child in a `child_map` slot the target no longer declares).
 
-    genctl upgrade <process> --from <version|channel> --to <version|channel>
-                             [--status running,paused,failed] [--json]
-    genctl upgrade <instance-id> [<instance-id> ...] --to <version|channel> [--json]
+**There is no `dry_run`**: on a running instance its answer describes a state the instance has
+already left, and "would these versions be compatible at all" is `compat`, from documents.
 
-The CLI is the bulk form: it sweeps every instance of a process on `--from` with a cursor,
-pausing a running one, moving it, and putting it back. `--status` narrows what it takes;
-the default is every state that can move. Both sides are always named — there is no implicit
-"latest". Never implicit in an apply or a channel move.
-
-**Instance ids stand in for the process, and then only the target is named.** `--from` is the
-SELECTOR — which rows the sweep takes — so ids, which select already, do not need it: each
-version is read off its own row, goes out as that write's assertion, and its process resolves
-a `--to` channel. `--status` is refused outright for the same reason, and a child is refused
-before it is paused rather than after. Several ids are several calls, still one transaction per
-tree: a refusal reports and the rest continue, and a tree already on the target counts as
-"already there" rather than as a failure, so re-naming the same ids repairs a partial run and
-exits 0. `genctl compat <instance-id> --to <version|channel>` (or `-f <file>`) asks that pair
-as a question instead of making the move, scoped to the row's process — **one** id there, since
-a side of a comparison carries one version per process. An id is told from a process name by
-shape: an opaque digit-led token, or `@last`.
-
-**There is no `dry_run`.** It was in this doc and did not survive contact: on a RUNNING
-instance the answer it gives is about a state the instance has already left, and what an
-operator actually wants beforehand — "would these two versions be compatible at all" — is
-what `compat` answers, from documents, without touching a row.
-
-The write is conditional on everything that would make the migration stale (version, task,
-status, lease), so a row that moved between the plan and the write loses the race rather than
-being clobbered. A refusal names the instance and the reason; a tree that cannot even be
-PLANNED (a child in a slot the target no longer declares) reports the same way rather than
-failing the request.
+`genctl upgrade` sweeps client-side, one call per tree, pausing a running instance and resuming
+it after. Instance ids replace `--from`, which is the sweep's selector: each row's own version
+goes out as that write's `from_version` assertion, and `--status` is refused. A tree already on
+the target counts as already there, so re-running the same ids repairs a partial run.
+`genctl compat <instance-id> --to …` asks the same pair as a question, scoped to the row's
+process — one id, since a side carries one version per process.
 
 ## 7. Where it lives
 
-`internal/validation` owns the dataflow and the child-ref checks, with no db/engine/api
-dependencies, so the whole thing is testable from two documents. That constraint is why the
-API handler owns the COMPOSITION — plan which versions the tree moves to (db), migrate each
-state to the definition it is moving to (validation), write them together (db) — rather than
-either package reaching into the other. It is also why the in-flight result check compares
-SCHEMAS: conforming a completed child's actual output would need the object store, which
-`validation` deliberately cannot reach (§5.8). **`CompareSet` is a per-name loop today and
+`internal/validation` owns the migration and the checks, with no db/engine/api dependency, so
+the whole gate is testable from two documents. The API handler therefore owns the composition:
+plan the tree's versions (db), migrate each state (validation), write them together (db).
+**`CompareSet` is a per-name loop today and
 must stop being one when §3b lands**: it needs old-parent/new-child and new-parent/old-child in
-one frame.
-The comparison's own internals — the two `$defs` pools, changed slots as a field comparison,
-why diagnostics decompose above `isSubset` — are compat-command.md §7 and that package's
-CLAUDE.md.
+one frame. The comparison's internals are in
+[internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md).
 
 ## 8. Deferred
 

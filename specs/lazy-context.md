@@ -1,10 +1,8 @@
 # Lazy context access
 
-**Wishes 1 and 3 BUILT 2026-08-24; wish 2 (path-level laziness in expressions) remains
-proposal.** Follows [object-store.md](object-store.md), which put a
-`Path` on every reference and made the store content-addressed. That work made a slot's
-references *addressable*; this one makes them *invisible* — asked for `outputs.x.y`, the context
-loads what that path needs and nothing else.
+**Built, except wish 2 (path-level laziness in expressions).** The read side of
+[object-store.md](object-store.md): a caller asks the context for a path, and only what that path
+needs is loaded.
 
 ## The target
 
@@ -15,58 +13,28 @@ loads what that path needs and nothing else.
 3. **Untouched means unloaded.** A value an advance never reads must reach the next write as the
    reference it already was — no load, no re-hash, no new object.
 
-## What already holds
-
-- References carry `Path`, so "which object covers this path" is answerable from what is stored.
-- `cutForSize` treats an `*ObjectRef` in the value as an already-externalized leaf and re-emits
-  it with no new object ([objectcut.go](../internal/db/objectcut.go)). **Pass-through storage
-  already works** — wish 3 is blocked by the read path, not the write path.
-- `collectRoots` ([refs.go](../internal/expression/refs.go)) is a static reference analysis over
-  the parsed expression, with the invariant that makes it safe: *over-report is waste,
-  under-report serves nil.*
-- `model.Extract` / `model.Place` is the one traversal, shared by storage and the API.
+Wish 3 needs nothing from the write path: `cutForSize` already re-emits an `*ObjectRef` leaf as
+the reference it is, with no new object.
 
 ## What blocks each wish
 
-1. Five on-disk shapes for one idea (`Envelope`, the `outputs` wrapper, `last_error.data`,
-   `external_input`'s sibling `objects` key, `engine_state`), and `loaded` collected by hand at
-   five sites in `decodeState`. [fixed -- see §1]
 2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
-3. `resolveNested` **writes back through `inst.ContextData`**. First read destroys the markers,
-   so the next write re-marshals and re-hashes the slot to arrive at the hash it already had.
-   [fixed -- see §4]
 
 ## Design
 
-### 1. One slot type [built 2026-08-24, after the accessor rather than before it]
+### 1. One slot type [built]
 
-The accessor was supposed to need this. It did not — hiding five shapes is what an accessor *is*,
-and `Context` hid them behind `At` without any of them changing on disk. So it landed later, as
-tidiness rather than a prerequisite, once a wipe was acceptable (one user, no deployment) and the
-JSON-restructuring migration it would otherwise have needed evaporated.
-
-What the accessor changed is which differences were still earning anything. `error_internal` had a
-shape of its own for one reason: reading `last_error.code` must not load the body. That is
-`model.Context`'s job now — it walks to a path and loads only what the walk passes through — so
-the column stopped needing to express it, and folded onto `Envelope` like the rest.
-
-Every value column is now `Envelope{data, refs}` with paths rooted at the slot, and `loaded` is
-collected in ONE place instead of five. Two things kept their shape and earn it: `outputs_data`
-keeps its `{order, items}` wrapper (per-task cut budgets, completion order), and `engine_state`
-is not a value slot at all — it never carries a reference.
-
-[superseded the same day: `model.Envelope` was deleted and references moved to one `objects`
-column per owner, rooted at the context — object-store.md §Every owner declares its references;
-`order` left `outputs_data` 2026-08-26.]
+Every value column holds its value, and references live in one `objects` list per owner
+(object-store.md §Every owner declares its references). `error_internal` needs no shape of its
+own: reading `last_error.code` without loading the body is `Context`'s job.
 
 ### 2. The context owns the decoded data, a loader and a memo [built]
 
     type Context struct { data map[string]any; load func(hash string) (any, error); memo map[string]any }
     func (c *Context) At(path ...any) (any, error)
 
-The design expected to compare the requested path against each `Ref.Path`. **No comparison is
-needed.** Decoding already places each marker at the path it was cut from, so the three cases
-fall out of an ordinary walk that resolves a marker only when it has another step to take:
+Decoding places each marker at the path it was cut from, so an ordinary walk needs no comparison
+against `Ref.Path`; it resolves a marker only when it has another step to take:
 
 | the walk | action |
 |---|---|
@@ -74,8 +42,7 @@ fall out of an ordinary walk that resolves a marker only when it has another ste
 | ends **above** one | return the subtree, marker intact |
 | never meets one | load nothing |
 
-Row two is what makes wish 3 work: a caller that copies that subtree copies its markers. The
-whole accessor is about thirty lines.
+Row two is what makes wish 3 work: a caller that copies that subtree copies its markers.
 
 ### 3. Paths, not names, in `Roots`
 
@@ -84,46 +51,31 @@ whole accessor is about thirty lines.
 parameter) and falling back to the enclosing prefix. `AllOutputs` becomes the path `["outputs"]`.
 The conservatism rule is unchanged, one level finer.
 
-### 3a. Copy versus read-through -- what actually delivers wish 3 [built]
+### 3a. Copy versus read-through [built]
 
-The refinement the design was missing. Wish 3 needs a marker to survive *into* the evaluated
-result, which means `buildEnv` must stop pre-resolving. Doing that naively is a regression:
-today `outputs.x.code.length` works because the slot was materialized first, and it would start
-finding a marker.
+`buildEnv` must not pre-resolve a value the expression only copies, yet `outputs.x.code.length`
+must still find a value. So `collectRoots` records one bit per root, `Roots.Through`: is it
+**read into or operated on**, or merely **copied**? Navigation (field, index, computed key), an
+operator and a call argument read through; an array item, an object value and a conditional branch
+copy. `${ }` reads through (it stringifies); `$:` copies (it hands the value on). Copied roots keep
+their references and are never loaded; read-through roots are materialized. Conservative:
+over-reporting costs only a load, under-reporting hands an operation a marker (§5).
 
-So `collectRoots` gained one bit per root: is this reference **read into or operated on**, or
-merely **copied**? The walk already knows -- it descends from a known parent. Navigation
-(a field, an index, a computed key), an operator, and a call argument read through; an array
-item, an object value and a conditional branch are copy positions. A `${ }` interpolation reads
-through (it stringifies); a `$:` expression does not (it hands the value on).
+The same bit makes `error.data` lazy: `Through.ErrorData` / `Through.LastErrorData` let a handler
+read `error.code` without loading the body.
 
-`Roots.Through` is that bit. Copied roots keep their references and are never loaded; roots read
-through are materialized exactly as before, so nothing regresses. It is a strictly coarser
-analysis than wish 2 and needs none of its machinery.
+### 4. Resolution is a view, never a write-back [built]
 
-A side effect worth recording: `error.data` laziness had never worked. The `ErrorData` root
-existed and was correct, and `resolveNested` defeated it by materializing every child of the map
-it walked, so `error.code` always paid for the body. `Through.ErrorData` restores the intent
-(and `Through.LastErrorData` for `last_error`, its own namespace since 2026-09-04).
+The engine materializes exactly the analysed set into the expression env; `Context.Data()` keeps
+its markers for the whole advance. So a slot read once is not re-marshalled by the next write, a
+value nothing read flows on as its reference, and the hash on the write path is the one that came
+off disk rather than one recomputed from a round-tripped value.
 
-### 4. Resolution is a view, never a write-back
+### 5. A marker reaching an operation is an error [built]
 
-The engine materializes exactly the analysed path set into the expression env; the context's
-own map (`Context.Data()`) keeps its markers for the whole advance. Three consequences:
-
-- a slot read once is not re-marshalled and re-hashed by the next write;
-- a value nothing read flows into the next write as its reference (wish 3);
-- the hash on the write path is the one that came off disk, not one recomputed from a
-  round-tripped value — removing a class of churn rather than trusting marshal determinism.
-
-### 5. A marker reaching an operation is an error
-
-Under-reporting the path set today yields `nil`. Under path-level analysis it would let a marker
-reach a comparison, a function or a template render, which would compute a *wrong answer*
-instead. Add an `*ObjectRef` case to the evaluator's type switches that fails loudly.
-
-This is what makes the analysis safe to refine: copying a marker is legal, operating on one is a
-bug, and the bug is visible on the first test that hits it.
+Copying a marker is legal; computing on one would give a plausible wrong answer. The evaluator
+refuses it (`checkResolved`), naming the object — a hit means `Roots` called a read a copy, an
+engine bug. This is what makes the analysis safe to refine.
 
 ## What wish 3 needs from the language
 
@@ -134,91 +86,48 @@ A genuine **partial update of one large object** (`{...outputs.x, y: n}`) does n
 spread and no merge function. That is a language question, not a storage one, and it is the one
 part of the target this design does not reach on its own.
 
-### A reference must not cross a boundary [built, after it broke]
+### A reference must not cross a boundary
 
-Asking "what else should be tested" found a regression rather than a gap. Once an expression can
-copy a reference, a parent passing a slot into a child hands it a **marker**, and:
+Once an expression can copy a reference, a parent passing a slot to a child would hand it a
+marker. The child's input is **conformed**, which cannot inspect a value it would have to load;
+and the value lands on **another instance's row**, which would reference content it never claimed
+— silent data loss once the sweep runs. Two fixes, deliberately both:
 
-- the child's input is **conformed**, and a conform inspects and normalizes -- it cannot do
-  either inside a value it would have to load to see. `expected type string, got *model.ObjectRef`,
-  loudly, on a definition that worked the day before;
-- the value lands on **another instance's row**, and `applyContextObjectDiff` claimed only
-  objects that write had produced -- so the child referenced content it never held, and the sweep
-  is entitled to delete content when no claim remains. Silent, and it needs a GC pass to appear.
+- `evalChildInput` and `child_list`'s `over` materialize at the boundary (`Engine.concrete`) — the
+  rule;
+- **claims follow references, not writes**: every hash a value references is claimed, idempotently
+  — so the next forgotten boundary is loud, not data loss.
 
-Two fixes, deliberately both. `evalChildInput` and `child_list`'s `over` materialize at the
-boundary (`Engine.concrete`), which is where the rule belongs; and **claims now follow
-references, not writes** -- every hash a slot references is claimed, idempotently, whether or not
-this write produced it. The first is the rule, the second is what stops the next boundary anyone
-forgets from being a silent data-loss bug instead of a loud validation error.
-
-Nothing is lost by materializing there: the child re-cuts the value, content addressing lands it
-on the same object, and the result is one object with two claims -- verified, not assumed.
+Materializing costs no storage: the child re-cuts the value onto the same object, now with two
+claims.
 
 ## Non-goals
 
 - The per-slot threshold stays, so a row is still unbounded in the *number* of slots.
-- Client-side splicing (genctl, the TS helper, the evaluator worker) is unaffected: those
-  consumers hold hashes, not a context.
+- Client-side splicing (genctl, the evaluator worker) holds hashes, not a context.
 
 ## Phasing
 
-1. ✅ **Built.** `model.Context` with `At` / `Materialize`, the write-back removed, the
-   copy-versus-read-through bit on `Roots`, and the marker-in-operation error. Wishes 1 and 3.
 2. **Path-level `Roots`** -- wish 2. Deferred with its fork undecided (static path analysis
    versus lazy values in eval); §3 records the recommendation.
-3. ✅ **The storage-shape unification** — landed 2026-08-24 with **no migration at all**.
 
-   The columns change MEANING, not structure, so an old row decodes to an empty envelope
-   *silently* — an instance would wake with no input and no error and simply carry on. There is
-   no conversion and no shim: the database is wiped by hand, which is what "one user, no
-   deployment" buys. A migration that deleted everyone's state was written first and dropped —
-   it encodes a one-off local action as permanent repo history, and a `DELETE FROM
-   process_instances` living in `migrations/` is a landmine for the first deployment that is not
-   this one.
+## Tests
 
-   If genroc ever has state worth keeping, this is the change that needs a real conversion
-   written for it.
+Content addressing makes a copied reference and a re-loaded, re-hashed one **identical on the
+wire**, so an end-to-end test passes whether or not anything was loaded. The instrument is the
+in-memory load count (`inst.ResolvedObjects`), so these are Go tests:
 
-## Tests, and the one that could not be written where it looked like it belonged
-
-`inst.ResolvedObjects` is the instrument, not the API. **Content addressing makes a copied
-reference and a re-loaded, re-hashed one identical on the wire** -- same hash, same objects
-section -- so an end-to-end assertion passes whether or not the value was loaded. The first
-attempt at `big_values_test.ts` asserted ref equality, passed, and went on passing with the
-laziness deliberately broken. The load count only exists in memory, so the test is in Go:
-`TestBuildEnv_CopyingASlotNeverLoadsIt` (engine), verified to fail when `through` is forced true.
-
-- `At` loads nothing on a disjoint path, keeps the marker when the walk stops above one, loads
-  once when it steps through, and never writes back (`internal/model/context_test.go`).
-- `Through` separates copy from read-through per output id, and `error.code` does not pull the
-  body (`roots_through_test.go`).
-- Copying a marker evaluates; indexing, comparing, interpolating or passing one to a function
-  fails and names the object (`external_marker_test.go`).
+- `TestBuildEnv_CopyingASlotNeverLoadsIt` — fails when `through` is forced true.
+- `internal/model/context_test.go` — `At` on a disjoint path, above a marker, through one; never
+  writes back.
+- `roots_through_test.go`, `external_marker_test.go` — copy versus read-through; operating on a
+  marker fails and names it.
 - `TestBuildEnv_ReadingASiblingLeavesTheBigLeafAlone` pins the DEFERRED half: it asserts one
   load today and is written to fail when path-level laziness lands.
-
-### The matrix, and what building it found
-
-`TestLazyMatrix` (`lazymatrix_test.go`) is one context carrying references at five known places
-and a table of expressions over it, each asserting **both axes**: the value produced, and the
-exact set of objects fetched to produce it. Either alone is worthless -- the value passes whether
-or not a reference was loaded for nothing, and the load set passes if the expression quietly
-returns nil.
-
-Every row was checked by breaking the thing it claims to cover. That found two rows whose names
-lied and one piece of dead code:
-
-- `{x: "$: outputs.a"}` is a **shape** map, so each leaf is its own template and the
-  expression-level `ObjectNode` branch never runs. A row for `"$: {x: outputs.a}"` was needed to
-  cover it; both are kept, and named for which layer they exercise.
-- `"${outputs.a.code}"` reaches `Through` via the member chain whatever the interpolation bit
-  says, so it cannot pin the `${ }` rule. Only a **bare** reference (`"${outputs.whole}"`) does.
-- Breaking `Context.At` changed nothing, because `buildEnv` was reading `ContextData` directly
-  and calling `Materialize`: the accessor was parallel to the real path, not on it. Routing
-  `buildEnv`'s reads through `At` is what made wish 1 true of the engine rather than only of the
-  type -- and the same mutation now fails 20 rows.
-
-Beyond the matrix: `child_marker_test.ts` covers all three child types across the boundary above
-(each fails when the materialization is removed), and `claims_test.go` pins claims-follow-
-references on both engines.
+- `TestLazyMatrix` asserts **both axes** per expression — the value and the exact set of objects
+  fetched; either alone passes a broken implementation. Its rows are named for the layer they
+  exercise: `{x: "$: outputs.a"}` is a shape map (each leaf its own template), `"$: {x: outputs.a}"`
+  the expression `ObjectNode`; only a **bare** `"${outputs.whole}"` pins the `${ }` rule, since a
+  member chain reaches `Through` regardless.
+- `child_marker_test.ts` covers all three child types across the boundary; `claims_test.go` pins
+  claims-follow-references on both engines.

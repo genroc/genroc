@@ -1,65 +1,19 @@
 # Declared slot schemas: the slot's published type, conformed at the boundary
 
-Seven slots hold a **shape** — a templated value whose type is inferred and then, at some of
-them, checked against a target the slot fixes. This is the option to write that target down:
-`input_schema` beside a child's `input`, `body_schema` and `query_schema` beside a fetch's,
-`output_schema` beside a task's and the process's own.
+An optional schema may sit beside a shape: `input_schema` beside a child or external `input`,
+`body_schema` and `query_schema` beside a fetch's, and `output_schema` beside a task's output and the
+process's own. Where one is written it is that slot's **public type**. The editor completes against
+it, `$process` spreads it and the version comparison reads it. The value is conformed to it on the
+way out, so the declaration is true of what left.
 
-Where one is written it becomes that slot's **public type**: what the editor completes against,
-what `$process` spreads, what the version comparison reads — and the value is conformed to it
-on the way out, so the declaration is a true description of what left rather than a claim about
-it.
-
-The point is not expressiveness. It is that a schema can be **imported** — from an OpenAPI
-document ([openapi-resolver.md](openapi-resolver.md)), from a child definition
-([source-resolution.md](source-resolution.md) §`$process`), from a file a worker fleet
-publishes — and a slot that takes one is a slot an author can check a call against without
-running it, without a database, and without the other side being registered.
+The point is **import**, not expressiveness. A schema imported from an OpenAPI document
+([openapi-resolver.md](openapi-resolver.md)), a child definition
+([source-resolution.md](source-resolution.md) §`$process`) or a worker fleet makes a call checkable
+offline, with no database and without the other side being registered.
 
 ## 0. Status
 
-**BUILT 2026-09-18.** Every slot in §2, the closed relation, the conform, the editor half and
-the `$process` spread. What is NOT built is listed in §11, and one decision moved in the
-building: the fetch request side folds into `engine.input` rather than earning a code of its
-own (§4), on the argument §11 itself made.
-
-Two things the build found, both recorded where they bite. The `$process` fixture in
-`tests/lsp/spread_test.ts` carried a **latent type error** — a parent forwarding an optional
-`n` into a child that requires it — which nothing could report until this check ran offline;
-that is the feature working on its first real document. And the `closed` rule's open-map arm
-(§3) is not decoration: without it the conform's strip stays reachable and §4's assertion is
-quietly false, which no table of declared properties would have caught.
-
-The first draft made a declaration a **floor**: checked against the inferred type and
-replacing it nowhere, with no runtime conform. That is reversed here. A declaration is a
-boundary, it is the slot's published type, and §4 is the conform that earns the word. What
-survives unchanged is §3, which is what keeps the reversal honest.
-
-The conform is an **assertion** — every value it sees was computed from already-conformed
-values by expressions the checker typed, so a failure is a defect in genroc's type system and
-never a condition in the data. That is §4's second half, and it is load-bearing rather than a
-remark: it decides the relation (§5), it decides what a declaration may say (§8), and it is
-why the failure is uncatchable. Two things in the revision that added the conform were wrong
-because they were written before it, and both are corrected in place.
-
-It needs nothing unbuilt. The check is `Shape.Schema`
-([shape.go:24](../internal/shape/shape.go#L24)), which has done this for child input and for
-`headers` since the beginning. The conform is `ConformToSchemaExactly`
-([validate.go:168](../internal/schema/validate.go#L168)), built and pinned in both directions.
-[typed-values.md](typed-values.md) §Where it applies listed *per-action payload schemas* as
-deferred behind the `$:` grammar; that grammar is built, and this is the deferral coming due.
-
-**Unified 2026-09-18.** A slot's type is computed ONCE, in validation, and the CLI, the resolver
-manifest and the language server read it (§1). The editor had grown a rule of its own for
-hover and the two disagreed on a key for a day — `number|null` in the CLI, `number` in the
-editor. `schema.Conformed` is what closed it, and `TestKeyHoverIsTheCLIsOwnAnswer` plus
-`tests/lsp/agreement_test.ts` are what hold it closed.
-
-§4's relation question was settled the way its second ending suggested: `nullRemoval` split
-out of `afterConform`, so the new relation takes the removal rule without the defaults rule
-that `ConformToSchemaExactly` does not perform. `schematest/conforms_exactly_test.go` is the
-pairing, and `TestConformsExactlyToHasNoDefaultsRule` is why it is a fourth relation rather
-than a flag on the third.
+Built, except what §11 lists.
 
 ## 1. Thesis: where a declaration exists, it is the type
 
@@ -67,108 +21,70 @@ than a flag on the third.
 > the slot, so what the declaration says is what left. Where no declaration exists, nothing
 > changes and the inferred type remains the only answer.
 
-**With one asymmetry, and one function that makes it a rule rather than a rule of thumb.** A
-slot the definition HANDS BACK (a task output, the process output) publishes its declaration:
-that is the contract consumers read, and §3 is what makes it honest. A slot the definition
-SENDS (a body, a query, an input, a `child_map` entry's input) is typed by **what actually
-leaves it** — the inferred shape conformed to the declaration, `schema.Conformed`, the third
-member of the family beside the relation and the fill. Not the declaration alone, which is the
-far side's contract and made a generic child's `input: {}` read `unknown` at the address a
-script's argument type is generated from. Not the raw inferred type either, which still carries
-the nulls the conform removes, and let the CLI say `number|null` where the editor said `number`.
-Both shipped, one day apart, and the second is the one that mattered: it was two answers to one
-question, from two places. Now there is one place — `TaskSchemas` — and `genctl schema type`,
-the resolver manifest and hover all read it.
+A slot type is computed **once**, in `validation` (`TaskSchemas`), and `genctl schema type`, the
+resolver manifest and hover all read it. A second rule in any consumer is how two answers to one
+question came about. The rule is asymmetric:
 
-Two consequences, and they are the reason for the shape:
+- **A slot the definition HANDS BACK** (a task output, the process output) publishes its declaration
+  (`published`). That is the contract consumers read, and §3 keeps it honest.
+- **A slot the definition SENDS** (a body, a query, an input, a `child_map` entry's input) is typed
+  by what actually leaves it: the inferred shape conformed to the declaration (`sent`, using
+  `schema.Conformed`). It is not the declaration alone, which is the far side's contract; that made a
+  generic child's `input: {}` read as unknown where a script's argument type is generated from. Nor
+  is it the raw inferred type, which still carries the nulls the conform removes.
 
-- **A declaration is worth trusting.** A published type that merely *described* a value
-  would be a second thing to keep true, and every consumer would have to decide whether to
-  believe it. Conforming makes it true by construction, which is the same move
-  `input_schema` already makes at the other end of a process.
-- **The author stops doing bookkeeping the system can do.** §4 is the worked case: an
-  optional non-nullable property fed a null needs a key removed, and there is no builtin that
-  removes one. Without the conform the author writes around it or the declaration is unusable.
-
-The conform is an **assertion**, not a check: every value it sees was computed from values
-already conformed, by expressions the checker typed, so it cannot fail unless genroc's type
-system is wrong. §4 makes that precise, and it is what decides two questions this document
-previously got the other way round.
-
-The cost is real and is named rather than buried: a declaration changes what a slot publishes,
-so adding one is a version event (§9).
+Conforming makes a declaration true by construction, so no consumer has to decide whether to believe
+it. It also does bookkeeping an author cannot do by hand (§4). The conform is an **assertion**, not
+a check (§4). Adding a declaration changes what a slot publishes, so it is a version event (§9).
 
 ## 2. The slots
 
-| slot | shape | target today | declared |
-|---|---|---|---|
-| `tasks.<id>.action.input_schema` | child / `child_list` / external `input` | the child's `input_schema` at registration, or nothing | §5 |
-| `tasks.<id>.action.children[k].input_schema` | that entry's `input` | same | same |
-| `tasks.<id>.action.body_schema` | fetch `body` | nothing — free projection | §5 |
-| `tasks.<id>.action.query_schema` | fetch `query` | `object` of scalar-or-array-of-scalar, nullable | §5 and §6 |
-| `tasks.<id>.output_schema` | task `output` | nothing | §5 |
-| `output_schema` | process `output` | nothing | §5 |
+| slot | shape | target without a declaration |
+|---|---|---|
+| `tasks.<id>.action.input_schema` | child / `child_list` / external `input` | the child's `input_schema` at registration, or nothing |
+| `tasks.<id>.action.children[k].input_schema` | that entry's `input` | same |
+| `tasks.<id>.action.body_schema` | fetch `body` | nothing |
+| `tasks.<id>.action.query_schema` | fetch `query` | `object` of scalar-or-array-of-scalar, nullable |
+| `tasks.<id>.output_schema` | task `output` | nothing |
+| `output_schema` | process `output` | nothing |
 
-Every one is optional, and every one sits beside its shape under the name `<slot>_schema` —
-the spelling `result_schema` and the definition's own `input_schema` already use.
-
-**`child_list` is the one row that is not what its name suggests.** It has no `input` shape at
-all: each element of `over` is one child's input, so the declaration types **one element**,
-matching `result_schema` there. Both halves follow from that and both were wrong in the first
-build — the check ran against an absent `input` (an empty object, which any schema of optional
-properties accepts, so it asserted nothing), and the conform runs per element rather than once.
-`over` with no declared item type is refused by name, since there is nothing to check.
+**`child_list` has no `input` shape.** Each element of `over` is one child's input, so the
+declaration types **one element**, like `result_schema` does there. The check runs against `over`'s
+item type (`checkDeclaredListElement`), and the conform runs per element. Checked against the absent
+`input`, it would compare an empty object and assert nothing. An `over` with no declared item type
+is refused by name.
 
 `headers_schema` is deliberately **not** in the table. Headers already have a fixed target
 (`object<string>`) and a declaration would add only required-ness. The one producer that would
 fill it is an importer's request side, which does not exist; build it when that does.
 
-**Placement is per action type**, refused by name where it does not belong, the way
-`validateActionRequiredFields` refuses `responses` on a child
-([validate.go:598](../internal/model/validate.go#L598)). `body_schema` and `query_schema` are
-fetch-only; `input_schema` belongs to the action types that send an input and is refused on a
-fetch, where `body_schema` is the name.
+**Placement is per action type** and refused by name elsewhere (`validateInputSchemaPlacement`).
+`body_schema` and `query_schema` are fetch-only. `input_schema` is refused on a fetch, where the
+name is `body_schema`, and on a `child_map` action, where it is declared per entry.
 
 ## 3. The check is CLOSED, and the conform is why that is a choice
 
-`IsSubset` lets the sub side carry a property the super side never declares, whenever super
-has no `additionalProperties` ([subset.go:354](../internal/schema/subset.go#L354)). That is
-correct where it is used, because a conform strips the extras at the boundary.
+`IsSubset` lets the sub side carry a property super never declares. That is right where a conform
+strips extras at the boundary. These slots have a conform too, so the open relation would **silently
+delete** a key the author wrote, such as a misspelled `pgae=2`. Therefore **a key the declared schema
+does not declare is refused.** The conform's strip stays for keys nobody wrote.
 
-These slots now have a conform too (§4), and it strips undeclared keys like every other. So
-the open relation would not merely say nothing about `pgae=2` — it would **drop it silently**,
-which is strictly worse than the first draft's complaint. A parameter the author wrote,
-removed on the way out, with nothing said anywhere.
+The relation is the `closed` flag on `subsetMode`, not a walk beside the relation: a parallel walker
+rediscovers unions, `$ref` cycles and open maps badly
+([internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md)). Its break kind is `BreakUndeclared`.
 
-Therefore: **a key the declared schema does not declare is refused.** Not because nothing
-could handle it, but because the thing that would handle it is a silent deletion of something
-a person typed. The conform's stripping stays where it belongs — for keys nobody wrote.
+**It must read sub's `additionalProperties`, not only its `properties`.** An inferred type can be an
+open map (`object<string>`, a `child_map`'s output), whose values carry keys no schema names. An
+open-map sub against a closed super is refused at every depth. Without that arm the strip stays
+reachable and §4's assertion is silently false, while every table of declared properties still
+passes.
 
-It is a fourth flag on `subsetMode` ([subset.go:14](../internal/schema/subset.go#L14)) —
-`closed` — not a walk beside the relation, for the reason `ConformMode` and `ExplainSubset`
-are also modes and not walks: a parallel walker rediscovers unions, `$ref` cycles and open
-maps badly and then has to stay in step forever
-([internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md)). It reaches `checkObject` as one
-rule — every property sub declares must be declared by super — and rides through unions, refs
-and array items with the walk that already exists. New break kind `BreakUndeclared` beside the
-five in [subsetbreak.go:20](../internal/schema/subsetbreak.go#L20), because a caller wording it
-is saying something the other five do not say.
-
-**It must read sub's `additionalProperties`, not only sub's `properties`.** An inferred type
-can be an OPEN MAP — `object<string>`, a `child_map`'s output — and a value of one carries keys
-no schema names, so a closed declaration over it would leave the conform's strip reachable
-after all. That is the hole that would make §4's assertion false while every table-driven test
-of declared properties still passed, so the rule is: an open-map sub against a closed super is
-refused, at every depth.
-
-**`additionalProperties` in a declared schema is refused, at any depth.** It is the keyword
-that would say "and extras are fine here", and admitting it would make the closed rule
-conditional on a keyword. Refusing is the reversible direction: it costs an author a
-projection today and can be relaxed to exactly the existing open behaviour on the day the
-argument arrives. The refusal walks the declared document with `mapChildren` and lives beside
-`validateActionSchemas` ([validate.go:710](../internal/model/validate.go#L710)), not in
-`CheckDoc` — the keyword is perfectly valid in a `result_schema` and this is a per-slot
-restriction, not a schema rule.
+**`additionalProperties` in a declared schema is refused, at any depth**
+(`Schema.CheckNoAdditionalProperties`, called from model validation's `checkDeclaredSlotSchema`).
+Admitting it would make the closed rule conditional on a keyword. It is a per-slot rule, not in
+`CheckDoc`, because the keyword is valid in a `result_schema`. Refusing is the reversible direction:
+it costs an author a projection today and can be relaxed to exactly the existing open behaviour on
+the day the argument arrives.
 
 **The trigger to revisit is a count, not a debate.** An imported request-body schema will
 carry `additionalProperties` sometimes; the resolver's translate row already handles the
@@ -178,169 +94,90 @@ free — the same measurement §6 of that spec asks for before building its `all
 
 ## 4. The conform, and the null the author should not have to think about
 
-The declared schema is applied to the value with `ConformToSchemaExactly` before the value
-leaves the slot. That mode exists, is built, and is a **mode on the one schema-and-value walk**
-rather than a traversal beside it.
+The engine applies the declared schema with `ConformToSchemaExactly` (`conformDeclared`) before the
+value leaves the slot.
 
-The case that motivates it. An author declares an optional, non-nullable property:
-
-```yaml
-output_schema:
-  type: object
-  properties: { discount: { type: number } }
-```
-
-and the output expression yields `null` there, because a `??` chain ran out or a member read
-missed. `{"discount": null}` does not satisfy that schema. Absence does. There is **no filter
-builtin** and no way to write "omit this key when null" — the same gap that forced arrays into
-`query` ([fetch-http-surface.md](fetch-http-surface.md) §1) — so without a repair the author
-either cannot use the declaration or writes around it at every site.
-
-The repair is one line that already exists
-([validate.go:168](../internal/schema/validate.go#L168)):
-
-> a stored null that the schema will not hold cannot stay — but where the property is
-> OPTIONAL, absence is valid, so removing the key reconciles the value instead of failing it.
-
-Its limits are the design, not a shortfall. It does not fire on a **required** property
-(neither state is valid, and nothing can fix it), not on an **array element** (dropping
-shortens the array), and never where the target is **also nullable** (both states are valid,
-so removing would invent a canonical form the schema does not name). Which means the
-declaration is how an author says which they want: `type: number` drops the null, `type:
-[number, "null"]` sends it. That is the whole ergonomic — `{"discount": null}` and `{}` are
-different requests to a real API, and this is the slot where you say which one you meant.
-
-**`query` already behaves this way** and always has: a null value omits its parameter. So this
-generalises a rule the system already has rather than introducing one, which is the strongest
-argument for applying it at every slot in §2 rather than at the process output alone.
+The motivating case is an optional, non-nullable property (`discount: {type: number}`) fed `null` by
+a `??` chain that ran out. `{"discount": null}` does not satisfy the schema, but absence does, and
+there is no filter builtin to drop the key by hand. The conform's removal rule reconciles it by
+removing the key. The rule does not fire on a **required** property (neither state is valid), on an
+**array element** (dropping it shortens the array), or where the target is **also nullable** (both
+states are valid). So the declaration is how an author says which they mean: `type: number` drops
+the null, and `type: [number, "null"]` sends it. `query` already omitted a null parameter, so this
+generalises an existing rule.
 
 ### The relation must accept exactly what the conform closes
-
-This is the invariant the schema package is most emphatic about, and it is where the
-implementation starts:
 
 > A relation that tolerates more than the fill can close promises a migration that then fails
 > to conform; a fill that closes more is dead code.
 > ([internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md))
 
-`ConformToSchemaExactly` has two halves and **they are pinned against two different
-relations**: the insert half (write a null into an absent required nullable) against
-`IsSubsetAbsentAsNull` in `schematest/absent_test.go`, and the remove half — the one this
-section is about — against `IsSubsetAsStored` in `schematest/conform_exact_test.go`. The
-difference between those two relations is the `afterConform` flag
-([subset.go:337](../internal/schema/subset.go#L337)), which gates the removal **and** carries
-a second rule: a property the sub side declares with a `default` is guaranteed present,
-because creation filled it.
-
-Nothing has conformed our sub side. It is the inferred type of an expression, and inference
-does not emit `default` — so that rule looks vacuous here, and "looks vacuous" is not the
-proof this invariant asks for. **Settling it is the first task** (settled 2026-09-18 by the
-split, §0), and there are two honest endings: prove the defaults rule cannot fire on an inferred schema and reuse
-`{closed, absentAsNull, afterConform}`, or split `afterConform` into the removal and the
-defaults rule and take only the first. Either way the test is the existing shape — every gap,
-both directions, and the conformed value passing a strict re-check.
+`ConformsExactlyTo` is `{absentAsNull, nullRemoval, closed}`. It covers the insert half (a null
+written into an absent required nullable) and the removal half, and **no defaults rule**, because
+`ConformToSchemaExactly` never fills a default. That is why `nullRemoval` is split from
+`afterConform`, and why this is a fourth relation rather than a flag on `IsSubsetAsStored`
+(`TestConformsExactlyToHasNoDefaultsRule`). The pairing is pinned in
+`schematest/conforms_exactly_test.go`.
 
 ### Where it runs, and what it costs
 
 | slot | conform point |
 |---|---|
-| process `output` | at completion, before the value is stored ([advance.go:632](../internal/engine/advance.go#L632)) |
-| task `output` | when the output map is evaluated, before it becomes `outputs.<id>` ([advance.go:472](../internal/engine/advance.go#L472)) |
+| process `output` | at completion, before the value is stored |
+| task `output` | when the output map is evaluated, before it becomes `outputs.<id>` |
 | fetch `body`, `query` | before the request is built, so a dropped null is never serialised |
-| child / external `input` | before the payload is handed over — and **before** the child's own `ValidateInput`, which stays the child's boundary and is unaffected |
+| child / external / `child_list` element / `child_map` entry `input` | before the payload is handed over, and **before** the child's own `ValidateInput`, which stays the child's boundary |
 
-Idempotence matters here because a task output is conformed and then read by a process output
-that is conformed again. `conform_exact_test.go` already asserts it; this spec adds a caller
-that depends on it.
+A task output is conformed and then read by a process output that is conformed again, so the
+conform must be idempotent. `conform_exact_test.go` asserts it.
 
 ### This conform is an ASSERTION, and that is the whole reason it is safe
 
-A boundary conform in genroc is one of two things, and which one depends on **where the value
-came from**:
+A value arriving from **outside** (a fetch response, a child's output, a worker's submission) is
+unknown until it arrives, so conforming it is a **check** with a legitimate failure, and
+`result.invalid` is catchable. Every slot in §2 holds a value **computed here** from values already
+conformed, by expressions the checker typed, and §5's relation proves the value fits the
+declaration. So **the conform cannot fail, and a failure is a bug in genroc**: unsound inference, a
+relation accepting a gap its fill cannot close, or a conform defect. It is never a condition in the
+author's data. Three things follow:
 
-- a value arriving from **outside** — a fetch response, a child's output, a worker's
-  submission, an instance's input — is unknown until it arrives, so conforming it is a genuine
-  **check** with a legitimate failure. That is why `result.invalid` is catchable.
-- a value **computed here** from values already conformed, by expressions the checker typed,
-  is one the type system has already proven. Conforming it is an **assertion**.
+1. **Unknowns stay refused** (§5). An unknown really can be anything at runtime, which would make a
+   failure legitimate.
+2. **A declaration may not narrow** (§8), by the same argument from the other end.
+3. **The failure is uncatchable.** A catchable one would be routed by an author's `on_error`, and
+   the bug it exists to reveal would be hidden.
 
-Every slot in §2 is the second kind. The context is built from values each conformed at their
-own boundary, the expressions over them are typed at registration, and §5's relation proves the
-result fits the declaration. So **the conform cannot fail, and a failure is a bug in genroc** —
-unsound inference, a relation that accepted a gap its fill cannot close, or a defect in the
-conform itself. It is never a condition in the author's data.
+The codes are the terminal `engine.*` family, which `failInstance` handles and `on_error` never
+routes. Inputs use `engine.input`, which is already this assertion for a child's input failing its
+`input_schema`. Outputs use `engine.output`. A fetch's request side (`body`, `query`) folds into
+`engine.input` rather than earning a code of its own (`declaredFailureCode`). **It is not a Go
+panic**: a worker advances many instances, and a terminal code crashes only this one, loudly.
 
-Three things follow, and the first two are corrections to this document:
-
-1. **Unknowns must stay refused** (§5). Admitting `{}` on the value side is the one thing that
-   would make a failure legitimate, because an unknown really can be anything at runtime. The
-   draft that licensed `NarrowsTo` here was trading the assertion away for a convenience.
-2. **A declaration may not narrow** (§8). The same argument, from the other end.
-3. **It is uncatchable, and that is not a limitation.** A catchable failure would be routed by
-   an `on_error` rule an author wrote, the instance would carry on, and genroc would never
-   learn that its type system is unsound. Making it catchable *hides the bug it exists to
-   reveal*.
-
-The `engine.*` family is already exactly this category — *"the engine failed the instance
-itself, not a call. These are TERMINAL: they go straight to `failInstance` and are never routed
-through `on_error`, so they cannot be caught"*
-([errcode.go:106](../internal/errcode/errcode.go#L106)) — and **`engine.input` is already this
-assertion**, for a child's input failing its `input_schema` after registration checked it. So
-the input slots need no new code. The output slots use `engine.output` beside it; the fetch
-request side folds into `engine.input` (§0).
-
-**Not a Go panic.** A worker advances many instances, so a panic takes down work that has
-nothing to do with the defect — `engine.panic` exists precisely to contain one that escapes.
-A terminal uncatchable code is genroc's spelling of "crash this instance loudly": the run stops,
-nothing routes around it, and `error_code` names it for anyone grepping.
-
-**The unrepairable case is unreachable, and the pairing is why.** The one input the conform
-cannot fix is a required non-nullable property holding null — and the removal rule is gated on
-the property being optional ([subset.go:337](../internal/schema/subset.go#L337)), so the
-relation refuses that gap statically rather than accepting it. Relation and fill agree at the
-edge, which is the invariant above doing its job. The same holds for stripping: §3 refuses an
-undeclared key at registration, so the conform's strip has nothing left to remove.
+**The unrepairable case is unreachable.** A required non-nullable property holding null cannot be
+fixed, and the removal rule is gated on the property being optional, so the relation refuses that
+gap statically. Likewise §3 refuses an undeclared key at registration, so the strip has nothing left
+to remove.
 
 ## 5. What each check compares
 
-**The relation is `IsSubset`, closed, plus §4's null rules — and NOT `NarrowsTo`.** This was
-written the other way in the revision that added §4, on the reasoning that a conform licenses
-`NarrowsTo`: the schema package permits an unknown `{}` on the value side *only* where a
-runtime conform stands behind the claim ([accessors.go:242](../internal/schema/accessors.go#L242)),
-and §4 supplies one.
+**The relation is `IsSubset`, closed, plus §4's null rules, and NOT `NarrowsTo`.** `NarrowsTo` admits
+an unknown on the value side because a runtime conform stands behind it, and it is the one-line
+"fix" someone will reach for to allow `body: "$: outputs.x"` over an unknown `x`. It would make
+every conform failure ambiguous between a genroc bug and an author's untyped value, which is the
+distinction the design rests on. *An unknown flowing into a typed input is rejected on purpose.*
 
-That reasoning is wrong, and §4 is what refutes it. An unknown really can be anything at
-runtime, so admitting one is precisely the thing that would give the conform a **legitimate**
-failure — and the conform has to be an assertion. Licensing `NarrowsTo` would buy
-`body: "$: outputs.x"` over an unknown `x` and pay for it by making every conform failure
-ambiguous between a genroc bug and an author's untyped value, which is the distinction the
-whole design rests on. So the schema package's original line stands as written: *an unknown
-flowing into a typed input is rejected on purpose*.
+**Child input runs two different checks.**
 
-The combination to settle is therefore `closed` plus §4's null rules over the plain relation,
-which is the pairing §4 says to pin first — pinned in `schematest/conforms_exactly_test.go` (§0).
+- `inferred ⊆ declared` runs **closed** and needs no database. It is the first input check the
+  editor and an offline genctl can run at all, since `ValidateChildProcessRefs` needs a
+  `DefinitionGetter`.
+- `declared ⊆ child.InputSchema` runs at registration, **open** (`checkDeclaredAgainstChild`). The
+  child's schema is not ours to close.
 
-**Child input.** Two checks, and they are different checks. `inferred` against `declared` runs
-**closed** and needs no database, which is the entire point — it is the first input check the
-editor and an offline `genctl` can run at all, since `ValidateChildProcessRefs` needs a
-`DefinitionGetter` ([validate_children.go:22](../internal/validation/validate_children.go#L22))
-and therefore never runs in either. `declared ⊆ child.InputSchema` runs at registration and
-runs **open**: the child's own schema is not ours to close, and closing it would refuse a
-declaration that is perfectly good.
-
-**The second check REPLACES the old one where a declaration exists, and must.** The old check
-compares the INFERRED type against the child, and the inferred type still carries the nulls the
-conform removes — so a call that works at runtime is refused at registration. A nullable input
-declared non-nullable is exactly the case §4 exists for, and leaving both checks in place makes
-the feature unusable on the slot it was written for.
-
-**`$process` spreads `input_schema`** beside `name`, `result_schema` and `raises`
-([structural.go](../internal/sources/structural.go)). Unlike the others this is a **copy, not an
-inference**: a definition's `input_schema` is written by its author, so the spread reproduces it
-through `selfContainedSchema` and nothing is derived — and it is the one the spread does NOT
-canonicalize, since `Canonicalize` drops `description` and the prose is what the copy is worth
-having for. That makes the registration check above a check that the copy is still current —
-the `$process` analogue of a stale generated client.
+**Where a declaration exists, the registration check REPLACES the inferred-vs-child one.** The
+inferred type still carries the nulls the conform removes, so keeping both checks refuses a call
+that works at runtime. The `$process` copy of `input_schema` makes this registration check a test
+that the copy is still current (source-resolution.md §`$process`).
 
 **Fetch body.** A note for whoever writes the importer's request side: the dialect table strips
 `format` and `pattern`, and the argument that stripping is safe
@@ -349,219 +186,87 @@ more, which is the harmless direction for something arriving. On a request, a st
 `pattern` means the check passes a value the server rejects, and the conform will not catch it
 either, since the stripped keyword is not in the schema being conformed against.
 
-**Task and process output.** The conform is what makes `output_schema` a published type rather
-than an assertion, which is §8.
-
 ## 6. `query_schema` has a target above it
 
-A query value is a scalar, null, or an array of scalars (`queryValueSchema` in
-[definition.go](../internal/model/definition.go)), and a declaration does not get to widen
-that. So `query_schema` is checked against the built-in target when it is declared, before any
-shape is inferred against it — a bad declaration is then reported as a bad declaration rather
-than surfacing later as a confusing complaint about a shape that was doing what it was told.
-
-The null rule composes rather than conflicting. A null omits its parameter at serialisation;
-§4 removes the key earlier, at the conform. Both land on the same wire bytes, and the
-declaration is what lets an author say that an optional parameter is genuinely optional.
-
-**So the conform is unobservable here, and that is not a gap.** Every case it could change is
-already closed: a null is omitted either way, an undeclared key never reaches runtime because
-§3 refuses it at registration, and a query value is a scalar or an array of them so there is no
-nesting to repair. The slot keeps the conform for uniformity — one rule at every slot — and its
-e2e test pins the two rules AGREEING rather than pretending to exercise it.
+A query value is a scalar, null, or an array of scalars (`querySchema`), and a declaration may not
+widen that. `checkDeclaredQuery` checks the declaration against that target **first**, so a bad
+declaration is reported as one, rather than later as a shape doing what it was told. Here the
+conform is unobservable: a null is omitted either way, §3 refuses undeclared keys, and there is no
+nesting to repair. It stays for uniformity, and its e2e test pins the two null rules agreeing.
 
 ## 7. What the editor does with it
 
-Every slot in §2 is a mapping whose keys are the author's own, so before 2026-09-18 the editor
-offered **nothing** inside one. Completion has two sources and neither can answer there: `legalKeys` walks
-the *language's* generated schema, which describes a `body` as a permissive object because that
-is what it is, and `membersOf` reads the author's own inferred types but only on the right-hand
-side of a `$:`. A declared schema is an author's type in a KEY position, which is precisely the
-missing half. So the payoff is not the diagnostic — it is that typing inside a `body` starts
-offering the fields the endpoint accepts, with their types and their prose.
+A declared schema is an author's type in a KEY position, which editor completion had never had.
+Typing inside a declared `body` offers the fields the endpoint accepts, with their types and prose.
 
-**It follows a precedent the error channel already set.** `raises` exists for this reason. A
-child's raise set is knowable from the child's file and `findProcess` would find it, and
-completion deliberately does not look: *an answer that depends on another buffer's state is one
-a reader cannot check* ([internal/lsp/CLAUDE.md](../internal/lsp/CLAUDE.md)). So the caller
-writes the codes down at the call site, `$process` fills them in, and the editor answers from
-this document. `input_schema` is that same move on the input channel and `body_schema` is it for
-an endpoint.
+- **Key completion** (`declaredKeys`) is consulted in `keysAt` before `legalKeys`. It offers the
+  declared properties not yet written, required first. The generated language schema cannot absorb
+  this ("this mapping's keys come from a sibling's value, possibly via a file" is not JSON Schema),
+  so it is a second source beside `processSchema`.
+- **Hover on a key** (`shapeKeyHover`) fires on the key span only, and reads the type view and
+  nothing else, so it cannot disagree with the CLI (`TestKeyHoverIsTheCLIsOwnAnswer`). It must read
+  the PARENT and take the member, because `Schema.At` reads an optional property as nullable. It
+  must also follow the `$ref` a slot's type is stored behind.
+- **Inside a `$:`** the scope is answered as everywhere else.
+- **Completion reads the declaration directly**, because it answers what MAY be written there (the
+  far side's contract), not what is.
 
-| the cursor is | answers with | before |
-|---|---|---|
-| on a key inside a declared shape | the declared properties not yet written, required first | nothing, the mapping is open |
-| on a value whose declared property is an `enum` | those values | nothing |
-| hovering such a key | the DECLARED type and its `description` | the expression's type |
-| inside a `$:` in that slot | the scope, unchanged | unchanged |
-
-Key completion is **`legalKeys`'s item shape fed from `membersOf`'s source**, and saying it that
-way is the design. The required-first `sortText`, the colon the item writes, the rule that drops
-what is already written are all built and are all about the key position; the type summary,
-`MayBeAbsent` and the null-strip are all built and are all about a `schema.Schema`. Neither half
-is new. What is new is that they meet.
-
-**Hover on a key reads the type view and nothing else.** It fires on the KEY only — inside the
-expression the type of the expression is still the question — and what it shows is the slot's
-one type navigated to the key's parent, with the member read off it: `?` where the parent says
-the key may be absent, the prose the declaration carried, the type the conform produces. There
-is no rule about declarations in the editor. There was one, for a day, and it disagreed with the
-CLI on a key; §1 records the fix. What the editor must still do itself is read the PARENT rather
-than the member — `Schema.At` reads an optional property as nullable, right for an expression
-and wrong for describing a key — and follow the `$ref` a slot's type is stored behind.
-
-Completion is the one place the declaration is still read directly, because it answers a
-different question: what MAY be written here, which is the far side's contract, not what is.
-
-The enum row is the easy one for once. Three value slots have a closed set today and each needed
-a bespoke function — `routingValues`, `typeValues`, `errorCodeValues` — *because none of them is
-declared as one*. This one is declared as one, so it is read off the navigated schema and is
-generic.
-
-**One branch, and the trap in it.** `completeKey` gains a test before it calls `legalKeys`: is
-the cursor's document path inside a shape slot that carries a declaration? If so, the remainder
-below the slot root navigates the declared schema — `SlotAt`'s longest-prefix-then-`Navigate`
-pattern ([internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md)), not a new one. The
-generated schema cannot absorb this and must not be asked to: "this mapping's keys come from the
-value of a sibling key, possibly via a file" is not expressible as a JSON Schema. So it is a
-second source beside `processSchema`, not a repair of it — unlike the user-schema nesting, which
-was a lossy projection being restored.
-
-**The declaration is read from the resolved definition, never from `Doc`.** A `$process` spread
-supplies it with no node in the document's index, and reading a declaration off the text as
-written is exactly how three handlers were each found answering about a document nobody applies.
-`Doc` gives the cursor its path; `definition()` gives the schema.
-
-**Closedness is what makes the list authoritative.** A list drawn from an open schema is a
-suggestion — the author may write anything, and §4's conform would then delete it. §3 refuses
-it instead, so the offered list is the complete legal set and the diagnostic catches exactly
-what completion failed to prevent.
+**The declaration is read from the resolved definition (`definition()`), never from `Doc`.** A
+`$process` spread supplies one with no node in the document's index. `Doc` gives the cursor its
+path. Like `raises`, the answer comes from THIS document and never from another buffer
+([internal/lsp/CLAUDE.md](../internal/lsp/CLAUDE.md)). **Closedness makes the list authoritative**:
+§3 refuses anything else, so the diagnostic catches exactly what completion failed to prevent.
 
 ## 8. Publishing, hiding, and being more specific
 
-A declared `output_schema` is what `$process` spreads and what the comparison reads (§9). That
-is the "public API" property, and §4 is what makes it honest — the value is conformed to the
-declaration, so publishing it is a statement about what left rather than about what was meant.
+A declared `output_schema` is what `$process` spreads and what the comparison reads (§9), and §4
+makes publishing it a statement about what left.
 
-**Hiding is still refused, and now for a better reason.** A declaration that omitted keys the
-output produces would let a process expose `{status}` while computing `{status, debug}`. The
-conform would happily strip them. §3 refuses the undeclared key at registration instead, so the
-author cannot write a key their declaration does not name. The first draft argued hiding was
-*impossible*; with a conform it is mechanically easy, and the answer is that we decline to
-delete what someone wrote. Admitting `additionalProperties` (§3's count) is what would reopen
-it, and it should be reopened deliberately rather than as a side effect.
+**Hiding is refused.** A declaration omitting keys the output produces (expose `{status}` while
+computing `{status, debug}`) would have the conform strip them, so §3 refuses the undeclared key
+instead: we decline to delete what someone wrote. Admitting `additionalProperties` (§3's count) is
+what would reopen it, and it should be reopened deliberately rather than as a side effect.
 
-**Being more specific is the real limit, and it is mostly temporary.** The relation runs
-`inferred` against `declared`, so a declaration may widen and may resolve an unknown, and may
-**not** narrow: an author who knows a field is `enum: [sent, failed]` where inference says
-`string` is refused. Two things to say about that.
-
-What a declaration can already add is the part a public API most needs and inference cannot
-produce at all: `description` on every property, stable names, and the optionality the author
-means rather than the one that fell out of a `??` chain.
-
-The second argument is §4's and is independent of taste: a narrowing declaration is a claim
-the value side cannot prove, so the conform behind it would have a **legitimate** failure and
-would stop being an assertion. Every narrowing declaration is a runtime failure genroc could
-not have told the author about at registration.
-
-And the appetite to narrow is **mostly literal types**.
-[literal-types.md](literal-types.md) is the doc that would supply `enum: [sent]` by inference,
-at which point the declaration no longer needs to narrow to say it. So the ordering is: do not
-weaken this relation to buy what another change supplies properly. The alternative — accept any
-declaration not provably disjoint and let the conform be the only check — trades registration
-failure for the failure §4 already calls the expensive one, a process that runs to completion
-and then cannot deliver.
+**A declaration may widen and may resolve an unknown, but may not narrow.** An author who knows a
+field is `enum: [sent, failed]` where inference says `string` is refused. A narrowing declaration is
+a claim the value side cannot prove, so the conform would gain a legitimate failure. What a
+declaration can already add is what a public API most needs and inference cannot produce:
+`description`, stable names, and the optionality the author means. The appetite to narrow is mostly
+literal types, which [literal-types.md](literal-types.md) would supply by inference. Do not weaken
+the relation to buy it, for example by accepting any declaration not provably disjoint: that trades
+a registration failure for a process that runs to completion and then cannot deliver.
 
 ## 9. The seams, and what is silent when broken
 
-- **`Shape` picks the relation.** `CheckWith` picks it through `s.fits`, keyed on
-  `Shape.Conformed` ([infer.go:157](../internal/shape/infer.go#L157)); the slot sets the flag. The
-  existing fixed targets (`headers`, `query`, `accepted_status`) keep the open relation and no
-  conform — they are `object<string>` and friends, where undeclared is the normal case.
-  Flipping one of those is a behaviour change to a shipped slot and is not part of this.
-- **The version comparison is NOT untouched, and this is the reversal to read twice.** The
-  published type of a slot becomes the declared schema where one exists, so `Compare` reads it.
-  Adding a declaration therefore *changes* what a process publishes: since `inferred` fits
-  `declared` and not the reverse, the published type **widens**, and compat-command.md's
-  direction rule says what we produce may only narrow. So adding a declaration is a reportable
-  contract event, once, correctly — a parent whose `result_schema` was narrower than the new
-  declaration really does stop fitting. After that the process is free to refactor inside it,
-  which is the whole trade the feature buys.
-- **The upgrade gate's floor rule still binds.** Nothing here may turn a tolerable verdict into
-  a refusal ([internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md)). A declared
-  slot makes the *stored* data more precisely described, which is the direction that helps —
-  but `IsSubsetAsStored` is the relation reading it, and §4 already has that relation under the
-  microscope. The two must be settled together.
-- **The editor schema is per variant.** `actionSchemaTemplate`
-  ([definition.go:198](../internal/model/definition.go#L198)) makes each action variant
-  `additionalProperties: false`, so a new key absent from a variant is refused by the editor
-  while the server accepts it — the reverse of the usual skew and just as confusing. One entry
-  per variant, and `output_schema` on the task and definition schemas.
-- **Diagnostics point at the shape, not the schema.** A closed break is the *shape* naming a
-  key, so it is reported at the shape's existing slot address with `inField` naming the
-  sub-field. A malformed declaration is the other case and reports at the `_schema` slot.
-  Getting this backwards underlines the imported document when the call site is what is wrong.
-- **`genctl schema type` prints the published type**, which is the declaration where there is
-  one (on a sent slot, the inferred type conformed to it, §1) and the inferred type otherwise — the same rule `$process` and `Compare` follow, because
-  three answers to "what is this slot" is how they drift. The inferred type stays reachable and
-  is what a diagnostic about the shape is phrased against.
+- **`Shape.Conformed` picks the relation** (`Shape.fits`), and the slot sets it. The fixed targets
+  (`headers`, an undeclared `query`, `accepted_status`) keep the open relation and no conform.
+  Flipping one is a behaviour change to a shipped slot.
+- **The version comparison reads the published type.** `inferred` fits `declared`, so adding a
+  declaration **widens** what a process produces, which compat-command.md's direction rule reports
+  as a contract event, once. After that the process may refactor freely inside it.
+- **The upgrade gate's floor rule still binds** ([internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md)):
+  nothing here may turn a tolerable verdict into a refusal.
+- **The editor schema is per variant.** `actionSchemaTemplate` makes each action variant
+  `additionalProperties: false`, so a new `_schema` key needs an entry in every variant it belongs
+  to, or the editor refuses what the server accepts.
+- **Diagnostics point at the shape, not the schema.** A closed break is reported at the shape's slot
+  address, with the sub-field as its location. Only a malformed declaration reports at the
+  `_schema` slot. Getting this backwards underlines the imported document when the call site is
+  what is wrong.
 
 ## 10. Tests
 
-Go for the relation and the conform, because they are pure algorithms over schemas with no
-endpoint behind them. The `closed` mode as a table in `schematest/`, one row per shape the walk
-descends — a union arm, an array item, behind a `$ref`, inside a recursive definition, an open
-map — asserting both the verdict and that every false yields a complete break, as
-`assertSubset` requires of every other relation.
-
-Then the pairing, which is the test that decides §4: every gap the conform closes accepted by
-the relation and every gap it refuses rejected, in both directions, with the conformed value
-passing a **strict** re-check afterwards. That is the shape `absent_test.go` and
-`conform_exact_test.go` already use, and the new combination must earn its own copy rather than
-borrow their confidence.
-
-End to end in `tests/cli/`, mirroring `spread_test.ts`. Five run **offline** (`GENROC_SERVER`
-at a dead port), and that is the claim worth pinning, because reporting with no server is the
-feature:
-
-1. a `body_schema` catching a misspelled key, and the same definition passing once fixed
-2. a child `input_schema` written by hand, catching a misspelled key in the `input` beside it
-3. `output_schema` on a process, refused for a missing required key
-4. `additionalProperties` in a declared schema, refused by name
-5. a `query_schema` declaring a non-scalar, refused as a declaration rather than as a shape
-
-Two need a server, and are the other half of the child slot: a hand-written `input_schema` that
-does not fit the registered child is refused at registration, and a `$process` spread fills the
-same slot so that it does.
-
-**The assertion needs a test that it is one.** A property test over the pairing: generate a
-value of the inferred type, and assert the conform against a declaration the relation accepted
-neither fails nor strips a key. Failing or stripping is the type-system bug §4 says cannot
-happen, and without this the claim is a comment. It is the same test that catches the open-map
-hole in §3, from the other side.
-
-**The null repair needs a running instance, so it is an e2e test and not a CLI one**: a process
-whose output expression yields null in an optional non-nullable slot, asserting the stored
-output has **no such key** rather than a null one. Its mirror is the case that must still fail
-— the same null in a *required* slot — and the one that must not fire, a target that is itself
-nullable, where the null is kept. Without all three the repair passes by doing nothing.
-
-Each must be checked to **bite** — deleting the feature must fail it — which for the first five
-means asserting the error arrives *without* a server, not merely that it arrives.
-
-In `tests/lsp/`, where the rule is that **every bug a real user found was at a position nobody
-picked**. So the fixture gains a task carrying a declared schema — carefully, since it is
-load-bearing and adding a task to it once made 17 tests ambiguous — and the sweep covers it,
-asserting the completion KIND as it does everywhere else. Two positions are worth naming by
-hand: a key inside a declared `body`, which must answer `Property` where it answers nothing
-today, and the same key when the declaration arrived by `$process` spread rather than being
-written, which is §7's `Doc`-versus-`definition()` trap.
-
-The differential sweeps need a second look rather than a new case. They rest on a mapping being
-an open map of the author's own names, and a declared schema is exactly what stops one being
-that — so "pressing Enter adds no key and removes none" must still hold in a slot that now has
-keys to offer.
+- `schematest/conforms_exactly_test.go` pins the relation against the conform in both directions.
+  It also asserts the assertion's own property: a conform behind an accepted pair never strips a
+  non-null key (`TestConformsExactlyToNeverStripsANonNullKey`). `conformed_test.go` pins
+  `Conformed` to the type the fill produces.
+- `tests/integration/declared_schemas_test.ts` covers the runtime half. The null repair needs all
+  three cases (an optional slot loses the key, a required slot still fails, a nullable target keeps
+  the null), or it passes by doing nothing. Every slot kind is conformed.
+- `tests/lsp/declared_schemas_test.ts` covers the offline half: closed refusals, `additionalProperties`,
+  `child_list` elements, completion including a declaration that arrived by `$process` spread
+  (§7's `Doc`-versus-`definition()` trap), and key hover per slot. `tests/lsp/agreement_test.ts`
+  and `TestKeyHoverIsTheCLIsOwnAnswer` hold the editor and the CLI to one answer.
 
 ## 11. Open
 

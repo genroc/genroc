@@ -1,324 +1,146 @@
 # API authentication and authorization
 
-Status: **BUILT, and then narrowed.** The path layout (§1), the permission model (§3), `token`
-mode (§5) and the exposure warning (§6) landed 2026-08-28; attribution (§7) and `jwt` mode (§2.1,
-§2.4) on 2026-09-02.
+Status: **Built**, except the resource half of authorization and scoped grants (§3, §9), k8s
+`TokenReview` (§5.3) and attribution history (§7).
 
-**`header` mode and the `/session/token` exchange were built on 2026-09-01 and REMOVED on
-2026-09-02**, superseded by [auth-two-credentials.md](auth-two-credentials.md). genroc now
-accepts exactly two credentials, both on `Authorization: Bearer`: an opaque `genroc_sk_*` it
-issued, and a JWT it only verifies. It reads no identity headers and mints nothing on a proxy's
-behalf. Sections describing header mode below are kept because their reasoning is instructive,
-and are marked where they no longer describe behaviour.
-
-**The role map went with it.** `jwt` shipped in [ui-issued-tokens.md](ui-issued-tokens.md)'s
-shape, not §4's: genroc-ui resolves groups to permissions and mints an HS256 token carrying
-them, so the server verifies one issuer and reads a `perms` claim.
-
-The default remains `none` — no `Authorization` handling, every row attributed `no-auth:anonymous`, every endpoint open
-and `PUT /definitions` arbitrary code execution — with a startup warning when that is also bound
-beyond loopback (§6).
-
-> **Superseded in part by [auth-two-credentials.md](auth-two-credentials.md) (built,
-> 2026-09-02).** That doc cut the mode set to two — `token` and `jwt` — dropping `header` mode
-> (§2, §6) and the `/session/token` exchange (§5.1). Read it and
-> [ui-issued-tokens.md](ui-issued-tokens.md) before building on §2.1, §2.3, §4, §5.1 or §6.
+Four specs cover auth, each fact in one of them: this one owns authorization, the path contract,
+machine tokens, JWT verification and attribution; [auth-two-credentials.md](auth-two-credentials.md)
+the rule that genroc accepts exactly two credentials; [ui-component.md](ui-component.md) genroc-ui
+and the browser login; [ui-issued-tokens.md](ui-issued-tokens.md) the token genroc-ui mints and
+the role map.
 
 ## 0. The split that decides everything
 
 **Genroc owns authorization. The deployment owns identity.**
 
-*Identity* — who this caller is — belongs to the user. They have Okta, Google Workspace, an
-ingress controller, a service mesh. Genroc will not out-build any of it and must never become a
-user directory.
+*Identity* — who the caller is — belongs to the deployment's IdP, ingress or mesh, and genroc must
+never become a user directory. *Authorization* — which endpoints a caller may reach — cannot be
+delegated, because it is a statement about genroc's own API surface: pushed into ingress path
+rules, every deployment keeps a hand-copied list of our routes that silently opens or closes a
+route the next time `actions.go` grows one. The action registry is the one place endpoints are
+declared ([internal/api/CLAUDE.md](../internal/api/CLAUDE.md)), so their permissions are declared
+there too (§3).
 
-*Authorization* — which endpoints a caller may reach — cannot be delegated, because it is a
-statement about **genroc's own API surface**. Push it into ingress path rules and every user
-maintains a hand-copied list of our routes in a file we cannot see: add a route in `actions.go`
-and their config does not know, silently opening or closing it depending on their default. The
-action registry exists precisely so the endpoint list lives in one place
-([internal/api/CLAUDE.md](../internal/api/CLAUDE.md)); an authorization model that lives
-somewhere else dissolves that.
+## 1. Trust zones are visible in the path
 
-So the auth layer's job is to answer **"who is this, and what are they"**. Genroc's job is to
-answer **"may that do this"**. A proxy that wants to block paths itself still can — but it must
-not have to, and nothing in genroc's design should assume it did.
+A deployment writes its ingress from prefixes, so the prefixes are a tested contract:
 
-## 1. Trust zones must be visible in the path
-
-Delegation only works if a rule written once keeps meaning the same thing. That requires a
-**documented path contract**: a promise about which prefixes carry which trust zone, tested like
-any other contract.
-
-Two zones, and the layout did not express them — both mismatches are now fixed:
-
-- ~~`GET /external-tasks`~~ — the queue listing was operator observability sitting under the
-  prefix a worker rule would open. **Resolved by deleting it (2026-08-28)**: it was the polling
-  shape `claim` replaced, and everything it published is either derivable from the instance or
-  belongs to the claim. external-task-queue.md records the argument.
-- ~~`POST /instances/{id}/signal`~~ — the reverse mismatch: low-trust inbound (an external
-  system delivering an outcome to a parked task, no claim token) living beside `retry`,
-  `upgrade`, `pause` and `resume`. **Moved to `POST /api/external-tasks/signal` (2026-08-28)**,
-  taking `instance_id` in the body beside the `task` it already carried — so the two delivery
-  endpoints sit together and differ only in whether they address by token or by name.
-
-Both are now resolved, and neither by the rename this section originally proposed.
-
-**The layout, as built.**
-
-| zone | paths | who routes it |
+| zone | paths | permission |
 |---|---|---|
-| **open** | `GET /healthz`, `/public/*` | direct — a probe must never meet a login redirect |
-| **inbound** (low trust) | `POST /api/external-tasks/*` — claim, renew, release, resolve, signal | direct |
-| **shared** | `GET /api/objects/{ref}` | direct — workers fetch externalized inputs, operators read the same refs |
-| **control plane** | the rest of `/api/*` — definitions, instances, channels, tick | direct |
-| **human** | the UI — served by genroc-ui, not this server ([ui-component.md](ui-component.md)) | through genroc-ui |
+| **open** | `GET /healthz`, `/public/*` (API docs, `openapi.json`, `process-schema.json`) | none |
+| **inbound** (low trust) | `POST /api/external-tasks/*` — claim, renew, release, resolve, signal | `worker` |
+| **shared** | `GET /api/objects/{ref}` | `worker` or `read` |
+| **control plane** | the rest of `/api/*` | §3 |
 
-**A `/api/queue/*` prefix was proposed here and dropped.** Its whole justification was that the
-operator listing sat under the prefix a worker rule would open; deleting that listing did the
-structural work, leaving `/api/external-tasks/*` holding worker verbs and nothing else. Renaming
-after that is taste, and it would have cost churn across the evaluator, genctl, the docs and the
-tests for no change in what a rule can express.
-
-**Built 2026-08-28**, ahead of the rest of this spec, because it stops being free the moment a
-config outside this repo names a path. `apiPrefix` is applied at mount time and the registry
-keeps the logical path (`actionDef.mountPath`), so the prefix lives in one constant rather than
-28 literals. The OpenAPI spec declares it in `servers`, which is where a base path belongs — a
-generated client prepends it, and the documented paths stay the ones the registry routes.
-`actionDef.Root` is the exception, and `/healthz` is its only user: a probe must not move when
-the API namespace does, so it is mounted at the root and its path item overrides `servers`.
-
-**Everything under `/api/` requires a credential, with no exceptions** — which is the rule a
-deployment writes its ingress from, and `TestEveryApiPathIsGated` is what keeps it true. It was
-briefly false: the API docs sat at `/api/docs` and `/api/openapi.json` and answered without one,
-reading as gated while not being it. They now live under **`/public/`**, so "unauthenticated" is
-legible from the prefix rather than from a list of exceptions.
-
-The PER-PROCESS docs stayed under `/api/` and are gated at `read`: they are generated from a
-stored definition, so they disclose process names, input schemas and task structure — the
-caller's data rather than ours. They cannot be registry actions (they answer with HTML and raw
-JSON, not a `Reply`), so `Server.guard` spells the same check at the call site.
-
-**`/healthz` is the one route outside both prefixes**, on the idiom: a probe path is configured
-from muscle memory by whoever runs the platform, not by whoever reads this, and `actionDef.Root`
-already exists for it. `/process-schema.json` moved INTO `/public/` — an earlier draft kept it at
-the root for "parity" with `genroc.org/process-schema.json`, which does not survive examination:
-that URL is a released artifact at a stable public address, this is the convenience for an
-unreleased build, and getting-started.mdx says which to use. They need not share a path, and one
-exception is better than two.
-
-**`/api/` is what lets one hostname serve both audiences** (§5.1). The human path is the
-catch-all and machines take the explicit prefix, so a browser arriving at the bare domain lands
-on the UI and gets a login flow, rather than the 401 JSON it would get if the API were at the
-root. Three prefix rules at the ingress, no regex, no method matching, one DNS name — which was
-the point of the exercise, and the reason it was done ahead of the rest of this spec: paths stop
-being free the moment a config outside this repo names one.
+- **Everything under `/api/` requires a credential**, with no exceptions
+  (`TestEveryApiPathIsGated`). What answers without one lives under `/public/`, so the zone is
+  legible from the prefix rather than from a list of exceptions.
+- **An endpoint goes where its lowest-trust caller needs it.** `signal` is an external system
+  delivering an outcome to a parked task, so it sits beside the claim verbs under
+  `/api/external-tasks/` and needs `worker`; `TestWorkerZoneIsExactlyTheInboundEndpoints` keeps
+  zone and permission saying the same thing.
+- `apiPrefix` is applied at mount time (`actionDef.mountPath`) and declared once in the OpenAPI
+  `servers`. `actionDef.Root` mounts `/healthz` at the root so a probe does not move with the API
+  namespace; its path item overrides `servers`.
+- The per-process docs (`/api/definitions/{name}/docs`, `…/openapi.json`) disclose the caller's
+  definitions, so they stay under `/api/` at `read`. They answer HTML and raw JSON rather than a
+  `Reply`, so they call `Server.guard` instead of being registry actions.
+- `/public/process-schema.json` (this build's) and `genroc.org/process-schema.json` (a released
+  artifact) differ on purpose.
 
 ## 2. Modes: identity in, `Principal` out
 
-One interface, several sources. Every mode produces the same value and nothing downstream knows
-which produced it:
-
 ```go
 type Principal struct {
-    Subject string   // who, for the audit trail
-    Grants  []Grant  // RESOLVED — the only thing an authorization decision reads
-    Source  string   // which mode admitted it — for the audit trail, never for a decision
+    Subject string  // who, for the audit trail
+    Grants  []Grant // RESOLVED — the only thing an authorization decision reads
+    Source  string  // which mode admitted it; for the trail, never for a decision
 }
 ```
 
-`Grants` is RESOLVED before it arrives — a genroc token carries permissions on its row, a JWT in
-its `perms` claim — so the check in front of every handler has exactly one input and cannot
-learn which mode ran. (`Perms []Perm` in the draft; it shipped as `[]Grant` for §3's reason.
-A `Roles []string` field sat here until the role map left the server, resolving nothing.)
+Every mode produces this value with `Grants` already resolved — from a token's row, or a JWT's
+`perms` claim — so the gate has one input and cannot learn which mode ran.
 
-- **`jwt`** [built] — a signed JWT arrives in `Authorization: Bearer` and genroc verifies its
-  HS256 signature against a shared secret. The only way a person authenticates. §2.1,
-  [ui-issued-tokens.md](ui-issued-tokens.md).
-- **`token`** [built] — genroc's own tokens, hashed in the database, for **machines**: CI,
-  deployment pipelines, apps that start instances, and workers. §5.
-- **`none`** [built] — the default, and the pre-auth behaviour. Every request is an anonymous
-  principal holding `admin`. Right for a laptop and for `make test`; §6 covers the hazard.
-- ~~**`header`**~~ — **removed 2026-09-02.** A trusted proxy authenticated the caller and
-  forwarded the result as plain headers. §2.2 was its case and §6 its price; both are kept below
-  as record. [auth-two-credentials.md](auth-two-credentials.md) §1 is why it went.
+- **`token`** (`-auth token`) — genroc's own `genroc_sk_*`, for machines. §5.
+- **`jwt`** (on when `-jwt-secret-file` or `$GENROC_JWT_SECRET` is set) — an HS256 JWT minted by
+  genroc-ui, for people. §2.1, §2.4.
+- With neither, no authenticator is installed and every request is `no-auth:anonymous` holding
+  `admin` — the default, right for a laptop and `make test`. §6.
 
-**These are not alternatives — a real deployment runs two at once**, because they serve
-audiences that cannot share a mechanism. A browser can do a redirect flow and cannot hold a
-secret; a CI job can hold a secret and cannot do a redirect flow.
-
-**`jwt` and `token` both read the bearer header**, so they compose through a chain rather than
-by the request picking one: each mode declines a credential that is not its own — a
-`genroc_sk_*` is not three dot-separated segments, and a JWT does not carry the prefix — and the
-first to recognise it answers. One rule in that chain is load-bearing: **a mode that cannot
-DECIDE stops it**, rather than falling through to the next. An unreachable database must not be
-silently downgraded to "not authenticated" by the mode after it, which would turn an outage into
-401s indistinguishable from a misconfigured client.
-
-**How they compose, as built.** There is one place identity can come from — the bearer
-credential — and `Chain` tries each mode in turn. Each declines what is not its own: a
-`genroc_sk_*` is not three dot-separated segments, and a JWT does not carry the prefix.
+The two are independent flags, and a deployment serving people and machines runs both: a browser
+can do a redirect flow and cannot hold a secret, a CI job the reverse. Both read
+`Authorization: Bearer`, so they compose in a `Chain`: each declines what is not its own (a
+`genroc_sk_*` is not three dot-separated segments; a JWT lacks the prefix) and the first to
+recognise the credential answers. **An authenticator that cannot decide stops the chain** and the
+request gets 503, rather than falling through: an unreachable database read as "not
+authenticated" turns an outage into 401s nobody can tell from a bad client.
 
 ### 2.1 Why the signature, and not the network position
 
-**BUILT 2026-09-02.** The argument below is why, and it held: this is the mode that removes §6's
-hazard rather than documenting it.
+A signed token carries its own guarantee: genroc rejects what it cannot verify, so a bypassed
+proxy or a `kubectl port-forward` buys an attacker nothing — unlike any identity asserted by
+network position (auth-two-credentials.md §1). `exp` bounds replay, claims are structured, and
+verification is offline. The cost is one dependency (`github.com/golang-jwt/jwt/v5`) and a shared
+secret ([ui-issued-tokens.md](ui-issued-tokens.md) §3).
 
-`header` mode is only sound while genroc is unreachable except through the proxy, so its
-security rests on a **network fact** — a CIDR allowlist, a NetworkPolicy, a Service that is not
-exposed. One `kubectl port-forward` past the ingress and any caller asserts any identity (§6).
-That fact is invisible from inside genroc, cannot be tested here, and is exactly the kind of
-thing that decays as a cluster is reorganised.
+### 2.2 No trusted-header mode
 
-A signed token moves the guarantee into the request. Genroc rejects anything it cannot verify,
-so **a bypassed proxy buys an attacker nothing** — the port-forward reaches a server that still
-demands a signature it cannot produce. It costs one dependency (`github.com/golang-jwt/jwt/v5` —
-genroc's dep list is small and deliberate, so this is a real if modest addition) and a key to
-distribute, and it buys the removal of the single worst failure mode in this design.
-
-Three further gains, none decisive alone: `exp` bounds replay, which a plain header has no way
-to express; claims are structured, so there is no per-proxy convention about how a group list is
-comma-separated; and verification is offline, so there is no per-request callout the way
-forward-auth has.
-
-**The dependency came in at one, as budgeted**, and stayed there when the issuer became
-genroc-ui: a symmetric key has no key set to fetch, parse or rotate.
-
-### 2.2 Where `header` mode was the only option — and why that turned out to be false
-
-> **Historical.** This section made the case for `header` mode. It was answered on 2026-09-02 by
-> an observation it missed: "produces no verifiable token" is a property of the PROVIDER, not of
-> the deployment, and a broker converts one into the other. Dex's GitHub connector issues a real
-> OIDC token *and* carries `org:team` groups — more than header mode ever did.
-> [auth-two-credentials.md](auth-two-credentials.md) §1.
-
-`jwt` needs someone to have minted a verifiable token. Three common setups do not, which is why
-`header` mode is load-bearing rather than a wart to be removed later:
-
-- **GitHub as the identity provider.** oauth2-proxy's github provider speaks OAuth2, not OIDC —
-  there is no ID token to forward. A GitHub-authenticated team has no `jwt` path at all.
-- **Google Workspace groups.** The ID token verifies, but Google does not put groups in it;
-  oauth2-proxy queries the Directory API and forwards them as a *header*. So Google is a hybrid:
-  a verifiable token for identity, a trusted header for roles. The role map must tolerate
-  reading its input from a different place than the subject.
-- **Service meshes and mTLS.** Identity is a client certificate or a SPIFFE ID; there is no JWT.
-  The mesh asserts it as a header, and a future `mtls` mode would read it from the connection
-  instead.
-
-The lesson for the implementation: `Principal` must be assemblable from **more than one source
-per request** — subject from a verified token, roles from a trusted header — rather than each
-mode owning a request outright.
-
-**Built 2026-09-01 (`header`) and 2026-09-02 (the hybrid), and one case turned out to be
-commoner than "roles from elsewhere".** Two of
-the three setups above supply no usable group list at all: oauth2-proxy's GitHub provider is
-OAuth2 with no ID token, and Google omits groups unless someone wires the Directory API. A role
-map alone has nothing to key on there, so `header` mode also takes a **`users:` map from subject
-to permissions** (§4), unioned with whatever the roles produce. It is the degenerate role map —
-one member per group — and it is what makes the mode work on the day someone stands up
-oauth2-proxy against GitHub with no group plumbing at all.
-
-The Google shape — a verifiable token for the subject, a trusted header for the roles — was
-built on 2026-09-02 as an **overlay** on `jwt`, and **removed the same day**. It was the last
-header-reading path, and it was solving a problem a broker does not have: Dex's Google connector
-fetches group membership itself, so the groups arrive in the token and the role map reads them
-from one place. The `users:` map above survives and is what covers a provider carrying no groups
-at all — which is what Dex's own `staticPasswords` does, so the example exercises it.
+See [auth-two-credentials.md](auth-two-credentials.md) §1.
 
 ### 2.3 What the token does NOT decide
 
-> **Narrowed 2026-09-02.** What follows holds for a THIRD-PARTY issuer, which is why it stays;
-> [ui-issued-tokens.md](ui-issued-tokens.md) §1 is the narrowing, and §4 is where the map went.
+The endpoint → permission mapping never leaves `actionDef.Allow`. The token carries only the
+result of group → permission resolution, which genroc-ui performs because it is an issuer we
+ship, not a third-party IdP (ui-issued-tokens.md §1). `perms` is a fixed claim name, scoped by
+the pinned `iss` and `aud`.
 
-A JWT carries **roles**, not permissions. An IdP has no idea what `deploy` means in genroc, and
-teaching it would put our authorization model back outside genroc — the thing §0 exists to
-prevent. So §4's role map is unchanged by this mode: the token says *who and what group*, the
-map says *what that may do*.
+### 2.4 Validations that are not optional
 
-The exception is an issuer minting a genroc-specific token, which carries permissions directly.
-**That is what shipped**, once the issuer became one we ship and version ourselves: `perms` is a
-fixed claim name rather than a config knob, scoped by the pinned `iss`/`aud` rather than by
-hoping an unrelated IdP does not emit it.
+Each is a known way JWT deployments break, and all are `jwt.Parser` options rather than checks
+beside the parse, so no path verifies without them (`internal/api/jwtauth.go`):
 
-### 2.4 Three validations that are not optional
+- **`aud` checked** (default `genroc`) — otherwise a token the issuer minted for another
+  application verifies here.
+- **`iss` pinned** (default `genroc-ui`).
+- **The algorithm pinned to HS256**, never read from the token or key, which closes `alg: none`
+  and RS256→HS256 confusion by construction. Only a token signed with the right secret and the
+  wrong algorithm (HS512) tests the pin: `alg: none` fails on key typing anyway, so it passes with
+  `WithValidMethods` deleted.
+- **`exp` required**, with a 30s default leeway (`-jwt-leeway`; zero fails on real clusters) — a
+  verified token with no expiry is a permanent credential genroc has no way to revoke.
 
-Each is a known way JWT deployments are broken, and none is the default in most libraries:
-
-- **`aud` must be checked.** Without it, a token the IdP minted for a *different* application
-  verifies here too — the same signature, a different intended audience. This is the most common
-  real-world JWT bug and it turns any other app in the same tenant into a genroc credential.
-- **`iss` must be pinned**, so a second, attacker-chosen issuer with a valid JWKS is not
-  accepted.
-- **The algorithm set must be pinned** to what the issuer actually uses. `alg: none` and
-  RS256→HS256 confusion are both live vulnerability classes, and both are configuration, not
-  cryptography. Built as HS256 and nothing else: with one symmetric key there is no set to
-  configure, so the class closes by construction rather than by pinning.
-
-`exp`/`nbf` need a small configurable skew; a fixed zero fails on real clusters. Built as a
-30s default, and `exp` is additionally REQUIRED — a verified token with no expiry is a permanent
-credential with no revocation path, since genroc holds no denylist for tokens it did not mint.
-
-**All four are parser options, not checks written beside the parse**, so there is no code path
-that verifies without them. `iss` and `aud` DEFAULT to what genroc-ui uses rather than being
-refused when unset — the pair ships together, so the default is a deployment rather than a
-guess; the signing secret has none and is refused at load.
-
-A lesson from testing the pins. Removing each in turn showed **the algorithm pin was the one not
-actually under test**: `alg: none` fails anyway on golang-jwt's key typing, so it passes with
-`WithValidMethods` deleted. Only a token signed with the RIGHT secret and the WRONG algorithm
-(HS512 against an HS256-only verifier) isolates the pin. A test that passes for a reason other
-than the one it names is worse than no test: it reports coverage of a guard nothing is holding.
+The secret has no default, is refused under 32 characters, and is trimmed when read from a file.
+A verified token with no `sub` is refused (401); one granting no recognised permission yields a
+principal with no grants (403, since the issuer did authenticate the person).
 
 ## 3. Permissions live on the action registry
 
-**BUILT 2026-08-28.** An `Allow` field on `actionDef`, beside `Method`, `Path` and `Errors`:
-
-```go
-{
-    Name:   "put_definition",
-    Method: http.MethodPut,
-    Path:   "/definitions",
-    Allow:  []Perm{PermDeploy},
-    ...
-}
-```
-
-**The zero value is the most restrictive permission**, so an endpoint added without thinking is
-closed rather than open. That is the whole reason the field goes here rather than in a table
-somewhere: the one place an endpoint is declared is the one place its permission is declared,
-and the two cannot drift.
-
-Five permissions, deliberately coarse:
+`Allow []Perm` on `actionDef`, beside `Method` and `Path`. Any listed permission admits, and
+`admin` always does. **An empty `Allow` is admin-only**, so an endpoint added without thought is
+closed; `TestEveryActionDeclaresAPermission` makes each admin-only action (`/tick`) a named
+decision. `Open: true` skips the gate, and `/healthz` is its only user (`TestOnlyTheProbeIsOpen`).
 
 | permission | covers |
 |---|---|
-| `worker` | the inbound zone — claim, renew, release, resolve, **signal** — and `GET /objects/{ref}` |
+| `worker` | the inbound zone — claim, renew, release, resolve, signal — and `GET /objects/{ref}` |
 | `read` | every `GET`, plus `/definitions/validate` and `/definitions/compat` — analyses that write nothing |
 | `operate` | start, pause, resume, cancel, retry — acting on *runs* |
-| `deploy` | `PUT /definitions`, channels, upgrade — changing *what runs* |
-| `admin` | tokens, `/tick`, and anything that declares nothing |
+| `deploy` | definitions, channels, upgrade — changing *what runs* |
+| `admin` | tokens, `/tick`, and every other permission |
 
-They are a flat set, not a hierarchy: a role maps to a list, and `[read, operate]` says what a
-hierarchy would say without inventing an ordering we would then have to defend. `upgrade` is
-`deploy` rather than `operate` because it changes which version an instance executes.
+A flat set, not a hierarchy: a list says what a hierarchy would without an ordering to defend.
+`upgrade` is `deploy` because it changes which version an instance executes.
 
-**`signal` is `worker`, not `operate` as this table first had it.** §1 moved it into the inbound
-zone — it is an external system delivering an outcome to a parked task, not an operator acting
-on a run — and the permission has to follow the zone or the path contract says one thing while
-the gate does another. `TestWorkerZoneIsExactlyTheInboundEndpoints` is what holds the two
-together.
-
-`GET /objects/{ref}` is the only action allowing two permissions, which is the shared zone
-expressed as a grant: a worker fetches an externalized input, an operator reads the same ref.
-`/tick` is the fail-closed default doing real work — it declares no `Allow` at all and is
-admin-only for that reason, not by a decision anyone had to remember to make.
+**The gate is a function, not middleware**: `authorize` is called by the HTTP route wrapper and by
+`Handlers.Handle` (TCP, UDS), since middleware on the HTTP mux would leave two transports open. TCP
+carries its credential in the envelope's `Token` field; a unix socket skips the modes and is
+authorized by its file mode, like the docker socket. `Envelope.principal` is unexported so the
+wire cannot set it.
 
 **Two shapes v1 must not foreclose, because both are expensive to retrofit and free now.**
 
-1. **`Perms` is `[]Grant`, not `[]Perm`** — a permission plus an optional, empty-in-v1
-   constraint. A bare permission cannot express *"resolve tasks in `approval`"*, which is §9's
-   first request after the coarse set works. **Shipped as specified**, constraint declared and
-   never populated.
+1. **`Grants` is `[]Grant`, not `[]Perm`** — a permission plus a `Constraint` declared and never
+   populated, because a bare permission cannot express *"resolve tasks in `approval`"* (§9).
 2. **Authorization is two-phase.** A check in front of the handler answers *does this principal
    hold `worker` at all* — but `resolve` carries only a token, and the process it belongs to is
    not known until the row is fetched. So the resource half runs INSIDE the handler, once the
@@ -326,384 +148,137 @@ admin-only for that reason, not by a decision anyone had to remember to make.
    threading the grant into every handler that resolves an id. **Only the coarse half is built**;
    the resource half has nothing to enforce until a constraint can be set.
 
-### 3.1 What the build changed
-
-**`Allow` is a list, not the single `Perm` drafted above**, because several endpoints are
-legitimately reachable by two roles and the alternative was the hierarchy this section rejects.
-The zero value survives the change and gets sharper: an empty `Allow` is **admin-only**, not
-"open", so a forgotten field still fails closed. `TestEveryActionDeclaresAPermission` pins that
-each one was a decision rather than an omission.
-
-`Open: true` is the one escape, and `/healthz` is its only user — a probe must answer before an
-identity exists. `TestOnlyTheProbeIsOpen` is what stops it becoming two.
-
-**The gate is a function, not middleware**, and the transports forced that: HTTP, TCP and UDS all
-dispatch into the registry, so a check installed on the HTTP mux alone would leave two doors
-open. `authorize` in `auth.go` is the single call every path makes.
-
-**A unix socket skips the modes entirely**, authorized by its file mode instead — the standard
-answer for local IPC, and what the docker socket does. It is the only transport that does: TCP
-presents its credential on the envelope's `Token` field, since a stream protocol has no headers.
-`principal` on the envelope is unexported precisely so the wire cannot set it directly.
-
 ## 4. The role map, and where it lives
 
-**Not in the server.** It moved to genroc-ui on 2026-09-02 along with the group→permission
-resolution it exists for, so the server verifies one issuer and reads the resolved `perms` claim.
-[ui-issued-tokens.md](ui-issued-tokens.md). The `-auth-config` YAML this section specified was
-built 2026-09-01 and removed 2026-09-02; what it argued — policy must not be editable through the API it governs — is
-satisfied more completely by the map living in a different binary.
-
-What the server takes instead is four scalars describing which tokens to accept:
-`-jwt-secret-file` (or `$GENROC_JWT_SECRET`), `-jwt-issuer`, `-jwt-audience`, `-jwt-leeway`. A file for
-that is a parser, a schema and a mount for no benefit. `internal/api/authconfig.go`.
-
-`-jwt-secret-file` and `-auth token` are **independent flags**, not one setting with several
-values, which is the shape §2 argues for: a deployment serving both people and machines passes
-both, and each request is admitted by whichever recognises it.
+Not in the server: genroc-ui resolves groups to permissions ([ui-issued-tokens.md](ui-issued-tokens.md)
+§5), and policy then cannot be edited through the API it governs. The server takes four flags
+describing which tokens to accept — `-jwt-secret-file` (or `$GENROC_JWT_SECRET`, exclusive),
+`-jwt-issuer`, `-jwt-audience`, `-jwt-leeway` — each with a `$GENROC_JWT_*` variable; a file for
+four scalars would be a parser and a mount for nothing.
 
 Per-process scoping (`team-a` may deploy `orders-*`) is the obvious next ask and is
 deliberately **not** in v1 — §9.
 
-## 5. Machines get tokens, and the proxy has nothing to say about them
+## 5. Machines get tokens
 
-A proxy authenticates **humans**. It does nothing for `genctl` in CI, for a pipeline calling
-`PUT /definitions`, for an app starting instances, or for a worker pod — and those are most of
-how an orchestrator is actually used. This was the reasoning error in an earlier draft, recorded
-in §9.
+People log in through genroc-ui; `genctl` in CI, pipelines, apps and workers — most of how an
+orchestrator is used — need a credential of their own. Not the IdP's `client_credentials` grant:
+Google Workspace, GitHub and Dex do not implement it. So genroc mints `genroc_sk_` plus 32
+random bytes, unpadded base64url (43 characters):
 
-The IdP's `client_credentials` grant is the tidy answer *when it exists*, and often it does not:
-Google Workspace uses a different flow, GitHub has no such grant, and Dex — the obvious choice
-for a self-contained example — is an identity broker rather than a full OAuth server and does
-not implement it. A design that only works on Okta-shaped deployments does not work.
+- **Opaque, not self-encoded.** The row carries the permissions. A genroc-signed JWT would save
+  a lookup genroc already pays for and need a denylist — the table again — to revoke.
+- **Stored as SHA-256**, compared in constant time. A slow KDF would add latency to every request
+  and buy nothing against 256 random bits.
+- **The prefix is load-bearing**: a leaked token is greppable in logs and detectable by secret
+  scanners, and it is hashed as part of the token.
+- **Shown once, at creation.** The row keeps hash, permissions, label, created / last used,
+  `revoked_at`, `expires_at` (unused — auth-two-credentials.md §6), `actor` and `revoked_by`.
+- `genctl token create --perms deploy --label ci`, `list`, `revoke <id>`, and `generate`, which
+  mints offline with no server and no credential (§5.3, path 0). `POST`/`GET /api/tokens` and
+  `DELETE /api/tokens/{id}` are admin-only.
+- **An unknown permission is refused at mint** by the API, `genroc token` and `-seed-tokens`, all
+  through `api.ValidPerms`: a typo would grant less than asked, discovered as a 403 somewhere unrelated.
 
-So genroc mints its own. **BUILT 2026-08-28**, as `genroc_sk_` plus 32 random bytes in
-unpadded base64url — 43 characters, not the 22 drafted here, because there is no reason to spend
-less than a full 256 bits on a credential nobody types:
+### 5.1 One host: browsers through genroc-ui, machines direct
 
-```
-genroc_sk_<43 base64url chars>
-```
+The API under `/api/` with the UI as the catch-all lets one hostname serve both audiences: an
+ingress sends `/api/*`, `/healthz` and `/public/*` straight to genroc and everything else to
+genroc-ui, so a person typing the bare domain lands on a login rather than a 401 JSON body, and no
+script ever meets a login redirect. genroc-ui also proxies those prefixes itself
+([ui-component.md](ui-component.md) §3), so it can stand alone in front.
 
-- **Opaque, not self-encoded.** A random string; the database row carries the permissions. The
-  alternative — genroc signing a JWT with the permissions inside — removes a lookup genroc is
-  already paying for (every request touches the DB anyway) and buys a problem: revocation then
-  needs a denylist, which is the table again, plus a token whose permissions cannot be changed
-  without reissuing it. Opaque wins on both counts.
-- **Stored as SHA-256, never in the clear.** Unlike a password, a 256-bit random token has no
-  guessable structure, so a slow KDF costs latency on every request and buys nothing. Compare in
-  constant time.
-- **The prefix is load-bearing**: it makes a leaked token greppable in logs and detectable by
-  secret scanners.
-- **Shown once, at creation.** The row keeps hash, permissions, label, created/last-used, and
-  `revoked_at`. Revocation is one row, and it is why an opaque token was the right call.
-- `genctl token create --perms deploy --label ci`, `token list`, `token revoke <id>`, and
-  `token generate` — which mints **offline**, needing no server and no credential, and is what
-  §5.3's fourth path consumes.
-- **An unknown permission is refused at mint**, in both `genctl` and `genroc token`. A token
-  created with a typo would grant less than asked and the operator would discover it from a 403
-  somewhere unrelated.
-
-Bootstrap is §5.3 — it is more than one line, and it is where designs of this shape leak.
-
-### 5.1 One host, split by path — the proxy sits in front of the UI, not the API
-
-**SUPERSEDED.** `-ui` served the SPA at `/` until the UI moved to genroc-ui (2026-09-02,
-[ui-component.md](ui-component.md)). The `/session/token` exchange
-described below was built 2026-09-01 and **removed 2026-09-02**: the routing split it worked
-around is gone, so genroc-ui attaches a token it mints to every browser request and the SPA holds no
-credential at all. [auth-two-credentials.md](auth-two-credentials.md) §2, §3;
-[ui-issued-tokens.md](ui-issued-tokens.md).
-
-An SSO proxy answers a request carrying no session cookie with a redirect to the login page, so a
-script presenting `Authorization: Bearer genroc_sk_…` receives HTML instead of a reply. The two
-modes therefore need two **routes** — but not two hostnames, which was an earlier draft's
-unnecessary conclusion:
-
-    genroc.example.com/healthz  ->                genroc   probe, unauthenticated
-    genroc.example.com/api/*    ->                genroc   machines: Bearer, proxy not in the chain
-    genroc.example.com/*        -> oauth2-proxy -> genroc   humans: UI, login flow
-
-Path routing is what an ingress does natively, so this is three prefix rules on one host with the
-auth annotation on one of them. DNS stays single and nothing gets a second name.
-
-**The human path is the catch-all on purpose.** With the API at the root instead, a person typing
-the bare domain matches the direct route and receives a 401 JSON body rather than a login page —
-which is why §1 moves the API under `/api/` rather than leaving it at the root and putting the UI
-under `/ui/`.
-
-**The UI still works, because of a decision already made for another reason.** §9 requires the UI
-to call the API with a bearer token rather than a cookie, on CSRF grounds. So the page load
-traverses the proxy and establishes a session; the SPA then mints a short-lived genroc token from
-an endpoint *behind* the proxy and uses it for every API call, which reach genroc directly. The
-unification and the CSRF rule are the same decision, and the result is stronger than a two-host
-split: **no cookie is ever accepted on the control plane, so it carries no ambient credential.**
-
-**`GET /session/token` is that endpoint, and three things about it are load-bearing:**
-
-- **It lives outside `/api/`.** A deployment routes `/api/*` around the proxy so machine callers
-  never meet a login redirect — so a route that needs the proxy's injected identity cannot be
-  under it. The browser zone `/*` already goes through the proxy and this falls under that rule
-  with no new ingress config.
-- **It must never permit a cross-origin read.** It is authenticated by whatever ambient
-  credential the browser holds, so a malicious page can *cause* the request; what stops the token
-  escaping is that the page cannot read the response. Adding `Access-Control-Allow-Origin` here
-  hands every site on the internet a token. This is why the UI is served from genroc's own
-  origin (`-ui`): same-origin means no CORS exists anywhere in the system to get wrong.
-- **It refuses `header` mode alone.** Minting is pointless if nothing can verify the result on
-  the next request — header mode identifies by a forwarded header and a bearer token means
-  nothing to it. It answers 501 rather than handing the browser a credential that 401s on every
-  call, which is what it did first.
-
-A subject the role map resolves to nothing gets a 403 naming the fix (`add a roles entry for
-…`), not an empty token: minting one would produce 403s everywhere with no clue why.
-
-#### ~~Session tokens expire; machine tokens do not~~ — removed 2026-09-02
-
-> Kept as the record of what the exchange cost. Every line below is a consequence of genroc
-> minting a credential for a browser, and all of it went when the browser stopped needing one.
-> `expires_at` remains on `api_tokens`, unused but harmless, and is the obvious place to hang a
-> `--expires` flag if a machine token ever wants one.
-
-The exchange cannot hand back a token it issued before — only the hash is stored, so the
-plaintext is gone the moment it is returned. Every call therefore MINTS, and a browser that asks
-on each page load leaves a live credential behind each time. `session_ttl` (default 12h) bounds
-them; `expires_at NULL` is what a machine credential keeps, because rotating a worker token is a
-deploy, not a clock.
-
-Two rules follow and both are enforced in SQL rather than by callers, for the reason revocation
-already is — a check that only some call sites make is the hole that survives review:
-
-- `GetAPITokenByHash` excludes an expired row, so an expired token is indistinguishable from an
-  absent one.
-- `CountLiveAdminTokens` excludes them too. An expired admin token cannot authenticate, so
-  letting it satisfy "a way in still exists" would lock a deployment out permanently the day its
-  last admin credential lapsed.
-
-The client half is not optional: a UI that exchanges on every load re-creates the pile-up with a
-shorter fuse. `ui/frontend/` asks only when it holds no token, and re-exchanges once on a 401.
-
-Session rows are labelled `session:<subject>`, which is what lets an operator reading
-`genctl token list` tell a person's session from a machine's credential.
-
-Rejected: leaving the proxy in the chain for everything and exempting the API with
-oauth2-proxy's `--skip-auth-route`. That puts a regex enumerating genroc's paths into the proxy
-config — §0's drift problem in miniature — and Go's `regexp` has no negative lookahead, so
-"everything except `/ui`" cannot be written and the routes must be listed by hand.
-
-Two consequences worth the arrangement on their own: machine callers stop depending on the proxy
-being healthy or correctly configured, and in-cluster workers were always on the API route
-whether or not anyone drew it that way.
-
-**On the API route genroc's own auth is the only gate**, which is the intent and also the hazard:
-a deployment that publishes it while still in `none` mode has published an unauthenticated
-control plane. §6's startup warning is what stands between an operator and that.
+**On the direct route genroc's own auth is the only gate**: a deployment publishing it in the
+default mode has published an unauthenticated control plane, which §6's warning exists for.
 
 ### 5.2 Token-only is a supported deployment, not a degraded one
 
-**BUILT, and it is what `examples/auth/` demonstrates.** With no IdP and no proxy at all,
-`token` mode covers **100% of the API**: `genctl`, CI, apps and
-workers all present `genroc_sk_*`, the permission model is unchanged, and attribution is if
-anything better — a token is an identity genroc issued, where a header-borne email is only as
-trustworthy as the proxy that set it.
-
-What is given up is SSO and a browser login flow: a person holds a personal token rather than
-logging in, and deprovisioning is revoking their tokens rather than disabling one account
-upstream. That is the normal shape for infrastructure tools at small scale (Vault, Nomad,
-Grafana), and it stops scaling at roughly the size where an organisation already runs an IdP —
-which is the point at which `jwt` mode is added *beside* it, not instead of it.
-
-This is the deployment that makes genroc evaluable in ten minutes, so it should stay first in
-the documentation. **"No proxy" means no IDENTITY proxy** — no IdP, no SSO flow, nothing that
-establishes who the caller is, because the token already answers that. TLS is still terminated in
-front, as for any service.
+With no IdP and no login configured in genroc-ui, `token` covers the whole API: `genctl`, CI, apps
+and workers present `genroc_sk_*`, and a person pastes one into the UI. It is what
+`examples/auth/` runs. What is given up is SSO — deprovisioning is revoking tokens — and `jwt` is
+added beside it, not instead, once an organisation runs an IdP.
 
 ### 5.3 Bootstrap: four paths, ranked by root of trust
 
-**BUILT 2026-08-28**, and it grew a path that outranks the three drafted here.
+**The problem is "no live admin token", not first run**: it recurs when `token` is enabled on a
+deployment that ran without auth, or when the last admin token is lost.
 
-**It is not a first-run problem.** The question is "no usable admin credential exists", which
-recurs: enabling `token` mode on a deployment that ran in `none`, or losing the only admin token.
-A design that only handles an empty database has no recovery story.
+0. **`-seed-tokens` / `-seed-tokens-file` / `$GENROC_SEED_TOKENS` — the operator generates,
+   genroc only stores.** `genctl token generate` mints offline, and genroc receives
+   `label=perms=secret` entries (perms `+`-joined, to survive a compose `environment:` value and
+   a shell) and stores their hashes. A secret never originates inside genroc, reaches its logs,
+   or rests in its container — the recommended path. Idempotent **by secret, not label**:
+   changing a value mints a second token, so rotation is additive and a fleet rolls without
+   refusals. An entry with an empty secret is skipped and its label logged, so an admin
+   credential deleted from the file after first start reads as deliberate. A secret a revoked
+   token holds is skipped with a warning naming its label: revocation survives a restart.
+1. **`genroc token create|list|revoke --db …` — on the server binary, against the database.** The
+   root of trust is filesystem access, which already owns every secret in it, so this is the
+   break-glass path and unconditional. `genctl` cannot host it: it speaks HTTP, and bypassing
+   HTTP is the point. The secret goes to stdout and everything else to stderr, so
+   `TOKEN=$(genroc token create --perms admin)` captures the credential alone.
+2. **`-bootstrap-token` / `$GENROC_BOOTSTRAP_TOKEN`.** Created only when no live admin token
+   exists, so it is idempotent across restarts and doubles as declarative recovery. A secret a
+   revoked token holds then fails startup saying so; it is never reinstated.
+3. **Auto-mint**, when 2 is unset and no live admin token exists: printed once to stderr with a
+   line saying to rotate it. The weakest, because log aggregation ships it off the box. Skipped
+   when jwt mode is on, since genroc-ui is then the operator's way in.
 
-**0. `-seed-tokens` / `GENROC_SEED_TOKENS` — the operator generates, genroc only stores.**
-Added during the build and now the recommended path, because it has the best root of trust of
-the four: `genctl token generate` mints offline, needing no server and no credential, and genroc
-receives `label=perms=secret` entries and stores only their hashes. **A secret therefore never
-originates inside genroc, never reaches its logs, and never rests in its container** — which is
-the property none of the three below has. The format is deliberately flat, joining perms with
-`+`, because it has to survive a compose `environment:` value and a shell; token bodies are
-base64url without padding, so they carry no `=` of their own.
+**"No live admin token", not "empty table"**: a deployment holding only worker tokens would
+otherwise be locked out with the recovery path refusing to fire. An expired admin token counts as
+absent for the same reason. Accepted cost: revoking every admin token and restarting mints a new
+one.
 
-Idempotent **by secret, not by label**: re-running is a no-op, and changing a value mints a
-second token rather than mutating the first, so rotation is additive and a fleet can roll
-without a window where half the workers are refused. An entry whose secret is empty is skipped
-rather than rejected, and the skipped label is logged — that is the intended lifecycle for an
-admin credential, needed at the first start and then deleted from the file, and naming it makes
-a credential that vanished by accident look different from one removed on purpose.
-
-`examples/auth/` is the worked example.
-
-**1. `genroc token create --db …` — a subcommand on the SERVER binary, against the database.**
-The root of trust is filesystem access, which is the correct one: anyone who can read the
-database already owns every secret in it, so this grants nothing they did not have. No credential
-crosses a network or reaches a log, and it is the **break-glass path**, which is why it must
-exist even once the others do. Unconditional by construction.
-
-The cost was named in advance and paid: `cmd/genroc` was `flag.Parse()` and nothing else, so
-this is what introduced subcommand dispatch to it (`cmd/genroc/token.go`). `genctl` cannot host
-it — it speaks HTTP, and bypassing HTTP is the entire point. The secret goes to **stdout** and
-everything else to stderr, so `TOKEN=$(genroc token create --perms admin)` yields the credential
-alone.
-
-**2. `--bootstrap-token` / `GENROC_BOOTSTRAP_TOKEN` — for automation.** A k8s Secret or a compose
-`.env`. Creates the row **only when no usable admin token exists**, ignored otherwise, so it is
-idempotent across restarts and doubles as declarative recovery: set the secret, restart, you are
-back in. The entropy is the operator's problem; document a generator.
-
-**3. Auto-mint and print — only when neither of the above is set.** To stderr, never to the
-audit log, with a line saying the credential is now in the logs and should be rotated. This
-exists for `docker run` and for evaluation; it is the weakest of the four because log
-aggregation ships it off the box.
-
-**Its condition reversed during the build, from "empty table" to "no live ADMIN token".** The
-draft chose empty so that a deliberate revoke-all would not be silently undone at the next
-restart. What defeats that is a deployment holding only worker tokens: the table is not empty,
-its operators are locked out, and the path that exists to give them a way back in declines to
-fire. Expiry counts the same way — an expired admin token cannot authenticate, so letting it
-satisfy "a way in still exists" would permanently lock out a deployment the day its last admin
-credential lapsed. The cost is the one the draft named and is accepted: revoking every admin
-token and restarting mints a fresh one. Recovery is meant to be possible; making it require a
-file the operator may no longer be able to reach is how a break-glass path becomes decoration.
-
-**Configured jwt mode suppresses it entirely.** genroc-ui already identifies an operator and
-resolves their permissions, so minting an unasked-for credential and printing it to a log is
-pure exposure. `genroc token create` remains the break-glass path either way.
-
-**The fleet makes the naive version racy, and a transaction is not the fix.** Genroc runs as
-multiple workers against one database, so N replicas start together and all count zero. The
-draft prescribed one transaction with `INSERT … WHERE NOT EXISTS` or a unique constraint —
-**insufficient, and measured to be**: under Postgres's default READ COMMITTED a `COUNT` takes no
-lock on rows that do not exist yet, so every transaction sees zero and every one inserts. Eight
-replicas minted eight admin tokens with the plain transaction in place, and one with
-`SERIALIZABLE`, which is what shipped (bounded retry, since a loser fails at COMMIT rather than
-returning cleanly). **SQLite's single writer hides the entire problem**, which is why
-`TestTokens_BootstrapRaceMintsExactlyOne` proves nothing without `POSTGRES_DSN` — the kind of
-test that passes everywhere and pins nothing.
+**The check runs under SERIALIZABLE** (`EnsureBootstrapToken`, with bounded retry since a loser
+fails at COMMIT). Under READ COMMITTED a `COUNT` locks no rows that do not exist yet, so N
+replicas starting together all insert — 8 replicas minted 8 admin tokens with a plain
+transaction, 1 under SERIALIZABLE. SQLite's single writer hides this, so
+`TestTokens_BootstrapRaceMintsExactlyOne` pins nothing without `POSTGRES_DSN`.
 
 **k8s `TokenReview` stays worth building later** — a worker presents its projected ServiceAccount
 token, genroc asks the cluster to validate it, and the ServiceAccount maps to `worker`. Nothing
 to create, distribute or rotate; the kubelet handles it. Strictly better than a stored token in
 k8s, and it needs no new concepts here because it produces the same `Principal`.
 
-## 6. The bypass hazard, stated once and loudly
+## 6. The exposure warning
 
-**This section is about `header` mode only, and header mode is gone (2026-09-02).** It is kept
-because it is the argument that removed the mode: the hazard below is unfixable from inside
-genroc, and a design whose safety lives in a config file genroc cannot read is the thing §0
-exists to refuse. Only the third bullet still describes behaviour — the `none`-mode exposure
-warning, which has nothing to do with headers.
+No-auth stays the default so `make test` and the quickstarts run unchanged, and is made
+defensible by a startup warning: with no authenticator and `-http` bound beyond loopback (the
+default `:8448` is all interfaces), genroc logs that anyone reaching the port can register a
+definition — arbitrary code execution. Suppressed when jwt mode is on. If the warning proves
+ignorable, the default should change.
 
-**There are TWO ways header trust fails, and `trusted_proxies` only covers one.**
+## 7. Attribution
 
-The second was found by building the proxy example (2026-08-28) and is the nastier of the pair:
-a proxy that **forwards a client's copy** of the identity header launders a forgery into a
-trusted assertion. genroc believes it because the peer is the proxy; that the value came from
-the client is invisible by the time it arrives. Measured against a running stack, before the
-example's config stripped it:
+Who did it is recorded as one value, `actor`, on:
 
-    curl -X PUT -H 'X-Auth-Request-Email: mallory@evil.test' \
-                -H 'X-Auth-Request-Groups: genroc-admins' … /api/definitions  → 200
+- `process_definitions` — who deployed a version;
+- `process_channels` (with `updated_at`) — who last moved a pointer, and when;
+- `process_logs` — an operator's pause, resume, cancel, retry, upgrade, and an instance's creation;
+- `api_tokens` — `actor` minted it and `revoked_by` killed it. Two events, so two columns: a
+  single column would silently change meaning on revocation. Minting is the one write that grants
+  access and has no audit-log fallback, since a token belongs to no instance.
 
-No credential, full admin. So every route the proxy passes through WITHOUT setting the identity
-header must delete it — genroc cannot help, because a forwarded header and a laundered one are
-byte-identical. That is the sharpest argument for §2.1's signature: a signed token makes the
-difference visible, and no proxy configuration can get it wrong on the operator's behalf.
+**The value is `source:subject`** — `token:ci`, `jwt:ada@example.com`, `no-auth:anonymous`,
+`engine:self`, and for mints outside any request `startup:seed-tokens`,
+`startup:bootstrap-token`, `startup:auto-mint`, `cli:token-create` (`cli:token-revoke` on a
+revocation). The source is in the value because the subject alone cannot say how the identity was
+established, and two columns invite the query that reads one and loses the other.
+`Principal.Actor()` is the one place it is spelled. `no-auth`, not `none`: beside `startup:` and
+`cli:`, `none:` reads as a missing value.
 
-The first way is the one this section was written for:
-
-**Header trust is a total bypass if genroc is reachable directly.** One `kubectl port-forward`
-past the ingress and any caller asserts any identity. This is the classic misconfiguration of
-this pattern, and the design has to make it hard rather than merely document it. All three
-guards are **BUILT 2026-09-01**:
-
-- `trusted_proxies` is **required** in `header` mode — no default, `LoadAuthConfig` refuses to
-  start without it.
-- A forwarded identity from outside that set yields **no principal**, rather than an error. The
-  request may still carry a bearer token another mode accepts, and failing here would break the
-  fleet that runs both (§2). It is not "ignored": nothing about the request has been believed.
-- In `none` mode bound beyond loopback, one loud warning at startup naming what is exposed. The
-  default is `-http :8448` — all interfaces — so `docker run -p 8448:8448` puts an
-  unauthenticated `PUT /definitions` on the network. That should be a decision, not an accident.
-  Suppressed when jwt mode is configured, since genroc-ui is then the operator's way in.
-
-## 7. Attribution is the half that pays for itself
-
-**BUILT 2026-09-02** (migrations 038, 039). `process_definitions.actor` answers *"who deployed
-v7?"*; `process_channels.actor` (with `updated_at`, which was also unexposed) answers *"who
-promoted v7 to prod, and when?"*; `process_logs.actor` answers it for a pause, resume, cancel,
-retry, upgrade and an instance's creation. Everything written before the migrations stays anonymous
-permanently, which was the argument for landing this early rather than when it was next asked for.
-
-**`api_tokens` got TWO columns (migration 043), not one.** A token has two attributable events —
-`actor` minted it, `revoked_by` killed it — and neither supersedes the other the way a channel's
-last mover supersedes its first, so a single column would silently change meaning on revocation.
-Minting is also the only write that GRANTS access, and the only one with no audit-log fallback:
-a token belongs to no instance, so `process_logs` cannot hold it, for the reason this section's
-last paragraph gives about channel history.
-
-**Every mint names its path**, so `actor` is empty only on a row that predates 043:
-`startup:seed-tokens`, `startup:bootstrap-token`, `startup:auto-mint` and `cli:token-create` for
-the four paths that run outside any request — §5.3 ranks them by root of trust, and the value is
-what makes that ranking readable off the row — and the caller's own actor for `POST /tokens`.
-
-**One column, holding `source:subject`** — `token:ci`, `jwt:ada@example.com`,
-`no-auth:anonymous`. The source is IN the value rather than beside it because the two facts are only
-useful together: `ada@example.com` alone cannot say whether genroc authenticated that identity or
-merely wrote down what a proxy asserted, and splitting them into two columns invites exactly the
-query that reads the subject and loses the distinction. `Principal.Actor()` is the only place it
-is spelled — which is why `none:` became `no-auth:` in one edit (migration 044 rewrote the rows):
-beside `startup:` and `cli:` on a token row, `none:` read as a missing value rather than as the
-statement it is.
-
-~~**The cheap part does work in `none` mode.**~~ Built 2026-09-02 as an `asserted:<subject>`
-source read from a configured header, and **removed the same day** with the rest of the
-header-reading paths: it was the last of them, and its premise — a deployment behind a proxy that
-has not configured auth — is a state the two-credential design says should not exist. Nothing is
-lost that matters: a deployment with an IdP configures `jwt` and gets `jwt:ada@example.com`,
-which is strictly better than an unverified `asserted:`.
-
-Three things the build settled that the draft did not raise:
-
-- **The engine names itself rather than nobody.** It advances on its own behalf, so it must not
-  be credited to whoever started the run — that would put an identity on work nobody requested.
-  But empty was the wrong way to say so, because empty already means "written before 038". Every
-  engine row carries `engine:self` (`engine.ActorEngine`, applied in one place: `audit`), and
-  `AuditCreated` takes a real actor for a ROOT instance and none for a spawned child, which
-  resolves to the same.
-
-  **`actor` is therefore non-empty on every row genroc writes**, and empty means exactly one
-  thing: the row predates attribution. It is NOT NULL with a `''` default in all five places it
-  exists (038, 039, 043) and never nullable in Go. No backfill invents one — an engine row
-  written before this change stays empty, because nothing tells it from a pre-038 row.
-- **A version and a pointer want opposite rules, and getting that backwards is a real bug that
-  was made and caught here.** A definition version is immutable, so its actor is whoever
-  deployed it and `InsertDefinition`'s conflict path leaves it alone (a safety net more than a
-  path: the batch skips unchanged content entirely and `PUT /definitions` always bumps the
-  version, so the conflict is reached only by a re-registration). A channel is a *mutable
-  pointer*, so `UpsertChannel`'s conflict path DOES overwrite it — the useful actor is the last
-  mover, not the creator.
-
-  The bug was on the seam. `ApplyDefinitions` upserts the channel pointer **outside** its
-  `Def != nil` block, so the "content already exists, only the pointer moves" entry reaches it
-  too — and that entry carried no actor, which silently blanked whoever set the pointer while
-  still stamping `updated_at`. The row then reads *"moved just now"* by nobody, or worse by the
-  previous mover. `actor` and `updated_at` describe the same write and have to be set together;
-  an e2e test now pins it, because nothing about the types says so.
-- **A log column is spelled twice** and the common path is the hand-written one
-  (`writeLogBatch`, for buffered rows) rather than sqlc's `InsertLog` (only for rows carrying
-  objects). Writing one and not the other fails in the direction that reads as the feature never
-  working. Recorded in internal/db/CLAUDE.md because the next column pays it again.
+- **The engine names itself.** Its own advances are `engine:self` (`model.ActorEngine`, applied in
+  one place, `audit`), never the operator who started the run. `AuditCreated` takes the caller's
+  actor for a root instance and none — so `engine:self` — for a spawned child.
+- **`actor` is non-empty on every row genroc writes**; empty means the row predates attribution.
+  It is `NOT NULL DEFAULT ''` everywhere and never nullable in Go, and nothing backfills it.
+- **A version and a pointer take opposite conflict rules.** A definition version is immutable, so
+  `InsertDefinition`'s conflict path keeps its first deployer; a channel is mutable, so
+  `UpsertChannel` takes the last mover. `ApplyDefinitions` upserts the channel outside its
+  `Def != nil` block, so the pointer-only entry must carry the actor too — `actor` and
+  `updated_at` describe one write (internal/api/CLAUDE.md).
+- **A log column is written in two places** — `writeLogBatch` for buffered rows, the common path,
+  and sqlc's `InsertLog` for rows carrying objects (internal/db/CLAUDE.md).
 
 **What this does NOT give you is history.** Every actor here is on a current-state row, so
 *"who promoted v7 to prod"* is answerable while v7 is on prod and gone the moment v8 replaces it.
@@ -714,40 +289,21 @@ something other than an instance — deliberately not built, because the column 
 question that was actually being asked and a table nobody has asked for yet would fix its shape
 before anyone knows what it should hold.
 
-## 8. Two new codes, not one
+## 8. Two codes, not one
 
-**BUILT 2026-08-28.** `CodeUnauthenticated` (401) and `CodeForbidden` (403), added to
-`errors.go`'s one table.
-
-Collapsing them is tempting and wrong: *"I do not know who you are"* and *"I know, and no"* are
-the two most common failures of this feature and they have opposite fixes — one is a broken
-proxy wiring, the other a missing role mapping. A single code makes the most frequent support
-question undiagnosable from the response.
-
-The 403 body names the permission the action needed, and an empty `Allow` words itself as "the
-admin permission" — "requires one of []" tells a reader nothing. Both are what make the
-distinction usable rather than merely present.
-
-(The subsection on session expiry that sat here has moved to §5.1, where the exchange it
-describes is.)
+`CodeUnauthenticated` (401) and `CodeForbidden` (403): *"I do not know who you are"* and *"I
+know, and no"* have opposite fixes — a missing credential versus a missing permission — and one
+code makes the commonest support question undiagnosable. The 403 body names the permission the
+action needed, and an empty `Allow` words itself as "the admin permission".
 
 ## 9. Not in scope
 
-- **Genroc as a user directory.** No users, no passwords, no sessions, no password reset. Every
-  mode consumes an identity someone else established.
-- **TLS.** Terminated in front of genroc — an ingress, a load balancer, a reverse proxy — as it
-  is for any other service. Nothing about it is genroc's to configure.
-- **Cookies.** The API accepts `Authorization` only (configured headers went with `header`
-  mode, 2026-09-02). A cookie is an
-  *ambient* credential: a malicious page makes the browser issue a cross-site request, the
-  cookie rides along, and the proxy dutifully forwards the identity header — so header trust
-  does not save a cookie-authenticated control plane from CSRF. A UI should exchange its session
-  for a short-lived bearer token; the cookie then authenticates only the minting endpoint.
-
-  **Still true, and now absolute: genroc reads no cookie anywhere.** The exchange that once did
-  (`/session/token`) is gone. genroc-ui turns its own `SameSite=Lax` session cookie into a token
-  it mints, and genroc sees only that, so the CSRF surface belongs entirely to genroc-ui —
-  `SameSite`, set in our code, is what closes it. [ui-component.md](ui-component.md) §2.
+- **Genroc as a user directory.** No users, no passwords, no sessions, no password reset in the
+  server. Every mode consumes an identity someone else established.
+- **TLS.** Terminated in front of genroc, as for any service.
+- **Cookies.** genroc reads `Authorization` only. A cookie is an *ambient* credential, which is
+  what CSRF exploits; the browser's cookie belongs to genroc-ui, which sets `SameSite=Lax` itself
+  ([ui-component.md](ui-component.md) §2).
 - **Scoped grants** — a permission narrowed by a filter rather than held over everything. The
   driver is concrete: a UI that renders forms for one process's approvals should hold something
   that resolves tasks *in that process*, not `worker` over the whole queue.
@@ -789,43 +345,9 @@ describes is.)
   attributable — with the external token remaining the addressing INSIDE the request rather than
   the authorization for it. Recording the distinction now because conflating the two is the
   tempting shortcut, and it is the one that puts a weak capability on the open internet.
-- ~~**`token` mode first.**~~ **Reversed 2026-08-27, and the original reasoning is kept because
-  it is instructive.** It read: *"genroc's own token store is strictly more code than reading a
-  header, and every user who needs it in production also has a proxy."* The second clause is a
-  non-sequitur — a proxy authenticates humans, and having one says nothing about how a CI job
-  authenticates. The question that broke it was "how does an admin generate a token for a
-  script?", which has no answer in a proxy-only design. `token` mode is now §5 and ships beside
-  `jwt`.
 
 ## 10. Open questions
 
-- ~~**Does `none` stay the default?**~~ **Settled 2026-08-28: yes, with a warning.** It
-  preserves the pre-auth behaviour and keeps `make test` and the quickstarts working unchanged;
-  the alternative — requiring an explicit `-auth=none` — is safer and louder and breaks every
-  one of them. What makes it defensible rather than merely convenient is that the danger is
-  conditional on exposure, so §6's startup warning fires exactly when `none` stops being a
-  laptop default. Revisit if the warning proves ignorable; a warning nobody reads is the same
-  as no default at all.
-- ~~**Where does the UI's short-lived token come from?**~~ **Answered twice.** Settled
-  2026-09-01 as a new endpoint (`GET /session/token`, minting a real token row). Re-answered
-  2026-09-02 by deleting the question: genroc-ui attaches a token it mints to every browser
-  request, so the SPA needs no token of its own and there is nothing to store or expire.
-  [auth-two-credentials.md](auth-two-credentials.md) §2, [ui-issued-tokens.md](ui-issued-tokens.md).
-- ~~**Should genroc run the OIDC login flow itself?**~~ **Answered 2026-09-02 by
-  [ui-component.md](ui-component.md) §2: no, but genroc-ui — which we ship — does.** The case as
-  it stood before (`-ui` and `header` mode are both gone): §5.1 unifies onto one host but still needs a
-  proxy in front of the browser zone (`/`, where `-ui` serves the SPA). The full unification is genroc implementing the authorization-code
-  flow — what Grafana, Argo CD and Gitea all converged on — after which no component in the
-  deployment exists to establish identity. It is a real feature, not a config change, and it is the
-  direction the "why is there a second component" instinct points; recorded so it is a decision
-  rather than a rediscovery. The cost is that genroc then owns redirect URIs, state/nonce, cookie
-  handling and refresh — the surface §9 says it is not in the business of.
-
-  Sharper now that `header` mode ships: a deployment needs the proxy for the **login flow and
-  nothing else**, since the session exchange already carries the identity the rest of the way.
-  `jwt` would not remove it either — it verifies a token someone else minted. So this remains
-  the only thing that would make the proxy optional for a browser, which is both the argument
-  for it and the measure of how much surface it buys.
 - **Does the caller's `Principal` need to survive into expressions?** A definition that behaves
   differently per caller is a large idea with no demand behind it, and naming it here is enough
   to stop it being added accidentally.

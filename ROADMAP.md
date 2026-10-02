@@ -56,10 +56,10 @@ One line per item. The argument lives in `specs/`; this is the index.
       (specs/pause-resume.md)
 - [x] renew as a heartbeat — per-token `renewed`/`lost`/`cancelled` and `renew_before_ms`, which
       is what carries a cancel to work already in flight (specs/external-task-queue.md)
-- [x] auth — permissions on every action, `token` / `header` / `jwt` modes composing in one
-      chain, the session exchange, and a default that warns when it is exposed (specs/api-auth.md)
-- [x] attribution — `actor` as `source:subject` on definitions, channels and operator-initiated
-      audit rows, recorded even with auth off (specs/api-auth.md §7)
+- [x] auth — permissions on every action, `token` and `jwt` modes composing in one chain, and a
+      default that warns when it is exposed (specs/api-auth.md)
+- [x] attribution — `actor` as `source:subject` on definitions, channels, tokens and audit rows,
+      recorded even with auth off (specs/api-auth.md §7)
 - [x] CLI mirroring the API, YAML, config file
 - [x] versioning channels, and version compatibility as a check (`genctl compat`)
 - [x] instance upgrade, gated on that check, one column, tree-closed

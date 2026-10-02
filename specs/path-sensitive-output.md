@@ -1,135 +1,79 @@
 # Path-sensitive process-output inference
 
-**Status: implemented** for the process output boundary; the partition moved INTO the context
-as a union on 2026-09-04 (§2). The mid-process case (§5) is deliberately deferred.
+Status: **Built, except the mid-process case (§5).**
 
-A process that reconverges from several branches writes its output by coalescing across
-them:
+A process that reconverges from several branches writes its output by coalescing across them —
+`send` ends on success, `unsendable` on its error branch, and exactly one of them runs:
 
 ```yaml
-tasks:
-  - id: send                      # succeeds → ends
-    on_error: [{ code: [http.422], goto: $unsendable }]
-    output: { ok: true,  reason: "" }
-    switch: end
-  - id: unsendable                # the error branch → ends
-    output: { ok: false, reason: "$: last_error.code" }
-    switch: end
-
 output:
   ok: "$: outputs.send.ok ?? outputs.unsendable.ok"
 ```
 
-Exactly one of the two tasks runs. The expression can never be null. Inference used to
-type it `boolean|null` anyway, which forced every consumer — a parent's `result_schema`, a
-caller reading the field — to declare a null that cannot occur.
+That expression can never be null, and must not type as `boolean|null`: every consumer (a
+parent's `result_schema`, a caller) would have to declare a null that cannot occur.
 
 ## 1. Why it was nullable
 
-The information needed was already computed and then discarded.
-
-`outputTerminals` ([internal/validation/context.go](../internal/validation/context.go))
-enumerates the terminal paths, one entry per way of ending, each carrying the set of task
-outputs guaranteed present there:
-
-```
-terminal @send:        must = {send}
-terminal @unsendable:  must = {unsendable}
-```
-
-`outputContextSets` then collapses that list into one required/optional pair by
-**intersecting** the must-sets. The intersection is empty, so both outputs are merely
-"optional", and after that step these two situations are indistinguishable:
-
-- *a is set here, b is set there* — one of them always present
-- *neither is ever set* — both genuinely absent
-
-Both come out as "a: optional, b: optional". The inferencer never had a chance: by the time
-`??` ran it saw two independently-nullable values, and a union of two nullables is nullable.
+`outputTerminals` ([internal/validation/context.go](../internal/validation/context.go)) lists one
+entry per way of ending, each with the task outputs guaranteed present there. `outputContextSets`
+**intersects** those must-sets into one required/optional pair, after which "a is set here, b
+there" and "neither is ever set" are indistinguishable. Precision must be taken before that
+collapse.
 
 ## 2. The fix: partition, don't teach the operator
 
-The output expression is type-checked **once per terminal** and the results joined. On each
-terminal a task output is either its real type or, if that terminal cannot produce it, exactly
-`{"type":"null"}`.
+The output expression is typed **once per terminal** and the results joined. On each terminal a
+task output is its real type or, if that terminal cannot produce it, exactly `{"type":"null"}`.
 
-**The partition is the context, not a walk.** `taskScopes.processOutputContext`
-([internal/validation/context.go](../internal/validation/context.go)) builds one schema with an
-arm per terminal — `anyOf`, each arm carrying its own ending in `description` — and
+**The partition is the context, not a walk.** `taskScopes.processOutputContext` builds one schema
+with an `anyOf` arm per terminal, each arm naming its ending in `description`, and
 `Schema.InferNode` ([internal/schema/infer.go](../internal/schema/infer.go)) types an expression
-under each arm and joins. It was a loop in `inferProcessOutput` until 2026-09-04, which typed
-the same expressions but kept the precision inside the checker: the context handed to anything
-else — `genctl schema context`, and whatever generates from it — had been flattened, so an
-outside reader could not reproduce a verdict genroc had reached. A context is a schema, and a
-schema that omits what the checker knew is the wrong artefact.
+under each arm and joins. Anything handed the context — `genctl schema context`, whatever
+generates from it — can therefore reproduce the checker's verdict; a flattened context would omit
+what the checker knew.
 
 | | `outputs.send.ok` | `outputs.unsendable.ok` | `a ?? b` |
 |---|---|---|---|
 | terminal @send | `boolean` | `null` | left non-null → `boolean` |
 | terminal @unsendable | `null` | `boolean` | left null → right → `boolean` |
 
-`Join(boolean, boolean)` = `boolean`.
+Nothing was added to `??`: its existing rules do the work once the environment distinguishes the
+paths. **Precision comes from the partition, not from a special case in the operator.** Two
+consequences hold for free:
 
-Nothing was added to `??`. The operator's existing rules — "a null left yields the right",
-"a non-null left is a no-op" — already do the work once the environment is precise enough
-to distinguish the paths. That is the whole design: **precision comes from the partition,
-not from a special case in the operator.**
-
-Two consequences follow for free, and both are the reason this shape was chosen over a
-"coverage check" bolted onto `??`:
-
-- **An uncovered terminal keeps it nullable.** A third way to end that sets neither output
-  contributes `null ?? null` = `null`, and the join is `boolean|null`. Correct.
-- **A genuinely nullable branch keeps it nullable.** If `send.ok` is declared `boolean|null`,
-  then on `@send` the expression is `(boolean|null) ?? null` → `boolean|null`. Correct, and
-  for the right reason: at runtime a real null in the left operand *does* fall through to an
-  absent right operand. Coverage means a value is **present**, never that it is **non-null**.
+- **An uncovered terminal keeps it nullable** (`null ?? null` on a third ending).
+- **A genuinely nullable branch keeps it nullable**: coverage means a value is **present**, never
+  that it is **non-null** — at runtime a real null on the left does fall through.
 
 ## 3. What it required elsewhere
 
-**Reading through a null yields null.** Modelling "absent on this terminal" as
-`{"type":"null"}` only works if `outputs.gone.v` types as null instead of failing.
-`lookupPropertyGuard` ([internal/schema/navigate.go](../internal/schema/navigate.go)) now
-returns null for a property of a null.
+**Reading through a null yields null** (`lookupPropertyGuard`,
+[internal/schema/navigate.go](../internal/schema/navigate.go)), matching the evaluator, where
+member access on a missing value is nil — which is why `a.x ?? b.x` works at runtime. The rule is
+narrow: a property of a string, an undeclared property of an object (a typo must not become a
+silent null) and a read through `{}` are still errors.
 
-This aligned inference with two things it already disagreed with: the same function already
-returned null when *every* union variant was null, and the **evaluator** has always returned
-nil for member access on a missing value — which is precisely why `a.x ?? b.x` works at
-runtime. Inference was the odd one out.
+**A reference nothing can produce is still an error.** An output no terminal reaches is left out
+of every arm, so `outputs.nosuch.v` fails rather than reading as null.
 
-The rule is narrow. A property of a string is still an error, an undeclared property of an
-object is still an error (a typo must not become a silent null), and the unknown type `{}`
-is still refused.
+**`??` canonicalizes its union.** `boolean ?? boolean|null` would otherwise build
+`oneOf[{boolean},{boolean|null}]`, and `oneOf` means *exactly one* — `true` matches both arms, so
+that schema rejects every value it describes. Canonicalizing folds it to
+`{"type":["boolean","null"]}`. A `$ref` arm blocks the merge (`isSimpleType` requires
+`Ref == ""`), so a recursive output type stays symbolic and finite.
 
-**A reference nothing can produce is still an error.** Absent-as-null applies only to tasks
-reachable on *some* terminal. A task output no path produces is left out of every
-per-terminal context, so `outputs.nosuch.v` fails as before rather than reading as null.
-
-**`??` canonicalizes its union.** Independent of path sensitivity, and a real bug on its own:
-`boolean ?? boolean|null` built `oneOf[{boolean},{boolean|null}]`, and `oneOf` means
-*exactly one*. The value `true` matches both arms, so that schema **rejected every value it
-described**. Canonicalizing folds it to `{"type":["boolean","null"]}`. A `$ref` arm blocks
-the merge (`isSimpleType` requires `Ref == ""`), so a recursive output type stays symbolic
-and finite.
-
-**`StripNull` keeps its contract.** It dropped only whole `{"type":"null"}` arms, so a null
-inside an arm's *type list* survived — while `HasNull`, which does look inside arms,
-reported true. The two disagreed, and no chain of `?? default` could recover non-nullability
-once the left had become a union. `stripNull` now recurses into inline arms; `hasNullResolved`
-recurses into nested unions (a one-level scan under-reported null, the unsound direction)
-with a cycle guard for recursive types.
+**`StripNull` and `HasNull` must agree.** `stripNull` recurses into inline arms, so a null inside
+an arm's type list is removed; `hasNullResolved` recurses into nested unions (a one-level scan
+under-reports null, the unsound direction) with a cycle guard for recursive types. If they
+disagree, no chain of `?? default` recovers non-nullability.
 
 ## 4. Error messages
 
-An expression is checked once per arm, so a failure needs to say *where*. The arm's own
-`description` is what names it — the fact rides on the schema rather than beside it, so the
-same message is available to anyone holding the context:
-
-- Fails on **every** terminal — an ordinary type error, reported plainly. Prefixing it with a
-  path would be misdirection; the path is not what is wrong.
-- Fails on **some** terminal while another type-checks — genuinely path-specific, reported as
-  `on the path ending at task "b": …`. Without the prefix the author looks in the wrong place,
-  because the expression reads fine against the branch they had in mind.
+The arm's `description` names the path, so the message is available to anyone holding the
+context. An expression failing on **every** terminal is reported plainly (the path is not what is
+wrong); one failing on **some** terminal while another types is reported as `on the path ending
+at task "b": …`.
 
 ## 5. Deferred: mid-process task contexts
 
@@ -159,15 +103,10 @@ slice of the same annoyance and was tractable, because it refines one reference 
 than correlating two. It does not close this section: after `case: outputs.a != null`, the
 fallthrough edge knows `outputs.a` is null, not that `outputs.b` is present.
 
+
 ## 6. Rejected alternative: a coverage check inside `??`
 
-Keep the single collapsed context, but give `inferNullCoalesce` access to the terminal sets;
-when inferring `a ?? b`, extract the `outputs.<id>` roots each side references and declare
-the result non-null if every terminal is covered by one of them.
-
-Rejected. It needs syntactic root extraction, so it works only when the operands are
-literally `outputs.X…` paths; it has to separately reason about whether the *property* is
-non-null and not just whether the task ran; and it generalises to nothing — the same
-reasoning would be wanted for `cond ? outputs.a.v : outputs.b.v`, for `outputs.a.v == null`,
-and for every future construct. Case-splitting the environment gets all of those at once,
-because it does not know anything about `??` at all.
+Keeping the collapsed context and teaching `inferNullCoalesce` to check that the `outputs.<id>`
+roots of its operands cover every terminal. It works only on literal `outputs.X…` operands, must
+separately reason about property nullability, and generalises to nothing (`?:`, `== null`, every
+future construct). Case-splitting the environment gets all of those at once.

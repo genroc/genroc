@@ -1,66 +1,49 @@
 # Documentation site: a reference generated from the code that defines it
 
-Status: **partly built; scaffold 2026-08-03, live and auto-deployed since.** The Astro site lives
-in `docs/` (content collections with Zod-validated frontmatter, hand-written CSS, two Shiki
-themes, direction-aware view transitions; `make docs` / `make docs-build`). **Built:** the
-generated reference (`cmd/genrocspec` via `make docs-reference`: CLI, REST API, definition,
-errors, config), the genroc TextMate grammar shared with the editor
-(`docs/src/shiki-genroc.ts` loads `editors/vscode/syntaxes/`), and the deploy to `gh-pages` on
-every push to main (`docs.yml`, rsync preserving `/bench/`). **Unbuilt**, and still intent
-below: Pagefind, the React islands, the per-tag versioned deploy (`DOCS_BASE` is wired, no
-workflow builds tags).
+Status: **Built, except Pagefind search, the React islands and the per-tag versioned deploy**
+(`DOCS_BASE` is wired; no workflow builds tags).
 
 ## The gap is genre, not volume
 
-~350 KB of prose, none of it user-facing **reference**: nowhere to look up what
-`accepted_status` accepts or what `genctl channel promote` does — the answers live in struct
-tags and half-proposal specs. Hence the `docs/`→`specs/` rename: a directory called
-docs whose contents are half proposal is a trap.
-
-**The split is by what the text asserts.** `specs/` records decisions (why chosen, what
-rejected, what unsettled; free to hold dropped ideas). `docs/` records shipped behavior
-in the present tense. Consequences: the site never links into `specs/`; nothing is
-"promoted" (a landed feature gets documentation written against shipped behavior, the
-spec stays put); and `docs/` carries its own explanation — guides own the user-level
-"why", reference stays free of it.
+`docs/` is reference and guides for shipped behaviour, for someone using genroc; `specs/` records
+decisions. The site never links into `specs/`, nothing is promoted from one to the other, and
+guides own the user-level "why" while reference stays free of it.
 
 ## Tooling decisions
 
-Surveyed the field on four axes (custom grammar, service-free search, full styling
-control, component model). Findings that settled it:
-
-1. **Hugo loses on one unfixable point**: it vendors Chroma with no extension points,
-   so a genroc-flavoured lexer is impossible without post-processing HTML. Astro uses
-   Shiki, which loads a TextMate grammar from a file — the same file
-   `editors/vscode/` uses. One grammar, two consumers.
-2. **A theme is worth negative value when the design is the point** — paying a
-   dependency to delete its output.
-3. One candidate carried a bus factor of 1 — weighed, recorded, decided nothing (exit
-   cost of a docs site is low).
+- **Astro, not Hugo.** Hugo vendors Chroma with no extension points, so a genroc lexer is
+  impossible without post-processing HTML. Astro's Shiki loads the TextMate grammar the VS Code
+  extension uses (`docs/src/shiki-genroc.ts` reads `editors/vscode/syntaxes/` as-is): one grammar,
+  two consumers.
+- **No theme**: when the design is the point, a theme is a dependency paid to delete its output.
+  Content collections with Zod-validated frontmatter, hand-written CSS, two Shiki themes.
 
 **Search: Pagefind, no service** — post-build over `dist/`, chunked static index, JS
 API with our own markup (not the bundled UI); `data-pagefind-body` on content or nav
 text pollutes every result. The only JS on reference pages.
 
-**Generated, not written**: `cmd/genrocspec` → field reference (the `description:`
-tags are already maintained prose nobody reads); `openapi.json` → API reference;
-`genctl --help` → CLI reference. Generators must emit **plain MDX**, no framework
-components, so the pipeline outlives this page's choices. Snippets get the
-`examples/` treatment — a test fails when they drift.
+**Generated, not written** (`make docs-reference`, `cmd/genrocspec`):
 
-**The editor schema is published as a static asset** (built 2026-08-21).
-`cmd/genrocspec -schema` writes `docs/public/process-schema.json` and the site serves it
-at `genroc.org/process-schema.json`, so a `# yaml-language-server: $schema=` comment
-resolves with no genroc running — the failure that motivated it. Generated at deploy
-time, never committed: a committed copy is a second thing to keep true.
+- the CLI reference by **running** `genctl --help`, since its flag sets register only once a
+  command executes;
+- the REST reference from the OpenAPI document plus `api.Reference()` — permissions and examples
+  OpenAPI cannot carry — both read from the action registry, so they cannot disagree;
+- the definition reference from `internal/defschema`, and so from the `description:` struct tags;
+- errors, config and the instance-status table.
 
-Which is why **docs.yml carries no `paths:` filter**, against the obvious saving. A filter
-would have to list every package the schema reflects — `internal/model` and its whole
-import closure — and the failure when it misses one is silent: no deploy, and a published
-schema that disagrees with the server until someone notices. Deploying on every push to
-main costs a runner minute and removes the list. It stays quiet because the Astro build is
-byte-stable, so an unrelated push produces an identical `dist/` and the push step exits
-before committing.
+Generators emit **plain MDX**, no framework components, so the pipeline outlives the site's
+choices, and generated pages are gitignored. Where a page states rules the code enforces, a test
+reads the page (`internal/delayspec/doc_examples_test.go`, `internal/errcode/unknowable_docs_test.go`).
+
+**The editor schema is a static asset.** `make docs-schema` writes `docs/public/process-schema.json`
+(with `openapi.json` and `config-schema.json`), served at `genroc.org/process-schema.json`, so a
+`# yaml-language-server: $schema=` comment resolves with no genroc running. Generated at deploy,
+never committed.
+
+**`docs.yml` has no `paths:` filter**: one would have to list `internal/model`'s whole import
+closure, and a miss silently publishes a schema that disagrees with the server. Every push to main
+deploys; the Astro build is byte-stable, so an unrelated push changes nothing and the push step
+exits without committing.
 
 **Styling**: plain Astro + CSS, ASCII/terminal aesthetic. React islands only where
 interaction demands (search, version select, mobile nav, tabs, copy) — Radix
@@ -71,35 +54,28 @@ legal value; a `since:` field may earn a place instead.
 
 ## Navigation direction is derived, not authored
 
-View transitions slide content, and the slide must agree with where the reader went.
-Each page gets an ordering key from the nav tree (`00.01.02`, zero-padded,
-dot-joined): lexicographic order matches reading order, and prefix testing
-distinguishes *below* from *after* — four directions from one comparison; reordering a
-page moves its slide with it. Equal keys cancel the navigation and scroll instead.
+View transitions slide content in the direction the reader went. Each page gets an ordering key
+from the nav tree (`00.01.02`, zero-padded, dot-joined): string order is reading order, and a
+parent's key prefixes its children's, so one comparison tells *below* from *after*. Equal keys
+cancel the navigation and scroll instead. Two digits per level.
 
-**Nesting is the file path**, not a frontmatter `parent`: `a/b/c.mdx` hangs off `a/b.mdx`,
-and the section is the first segment — so no page can claim a place its URL contradicts. `order` sorts siblings, the ordering key gains a level per level
-of nesting, and a directory with no page beside it fails the build rather than quietly
-dropping out of the nav.
+**Nesting is the file path**, not a frontmatter `parent`: `a/b/c.mdx` hangs off `a/b.mdx`, so no
+page can claim a place its URL contradicts. `order` sorts siblings, and a directory with no page
+beside it fails the build rather than dropping out of the nav (`src/lib/nav.ts`).
 
-Hard-won details:
+Traps:
 
-- Fixed chrome (topbar/sidebar/TOC/footer) is captured as named elements, but a named
-  element the reader **could not see** flies across the screen when morphed — so each
-  records on-screen-ness, and the arriving page neutralises appeared/disappeared cases.
-  Visibility, not existence, is what makes one rule cover a missing sidebar and a
-  below-the-fold footer.
-- **`<link rel="expect" href="#page-end" blocking="render">` is load-bearing**: slow
-  delivery otherwise either silently drops the transition (missed paint deadline) or
-  animates against a partially-parsed blank body. Inlining/prefetching only narrow the
-  race; the expect link names the requirement. The footer id is the contract — renaming
-  it breaks this silently. Diagnose with `document.readyState` +
-  `!!event.viewTransition` at `pagereveal`.
-- **Never touch the Navigation API for provenance** — `navigation.activation` throws in
-  Safari on contact, killing the handler. Previous path goes through `sessionStorage`
-  on `pagehide`; the outgoing document tags itself from a capture-phase click listener,
-  because its names are assigned while *its* snapshot is captured.
-- Limits: two digits per level; the nav map is inlined per page (free at this size).
+- Fixed chrome (topbar, sidebar, TOC, footer) is captured as named elements, but a named element
+  the reader **could not see** flies across the screen when morphed — so each records whether it
+  was on screen, and the arriving page neutralises the appeared and disappeared cases.
+- **`<link rel="expect" href="#page-end" blocking="render">` is load-bearing**: without it, slow
+  delivery either silently drops the transition or animates against a half-parsed blank body. The
+  footer id is the contract, and renaming it breaks this silently. Diagnose with
+  `document.readyState` and `!!event.viewTransition` at `pagereveal`.
+- **Never touch the Navigation API for provenance** — `navigation.activation` throws in Safari.
+  The previous path goes through `sessionStorage` on `pagehide`, and the outgoing document tags
+  itself from a capture-phase click listener, because its names are assigned while *its* snapshot
+  is captured.
 
 ## Versioning and deployment
 
@@ -127,6 +103,3 @@ that would run in the browser is a wrapper, not a port.
 
 Where guide-level "why" stops and spec-level "why" begins (the first guides will set
 it). Versioning mechanics (per-tag build is a sketch; the switcher needs a manifest).
-~~Whether one TextMate grammar really serves both Shiki and VSCode (rendering vs bracket
-matching/folding)~~ Answered: it does — `docs/src/shiki-genroc.ts` loads the extension's
-grammars as-is.

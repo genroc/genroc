@@ -1,39 +1,34 @@
 # `delay` and `timeout`: human durations and calendar deadlines
 
-**Status: implemented** (`for`/`until`/`tz` 2026-07-31, clock wildcards 2026-08-01,
-`timeout` adoption 2026-08-02; the old `ms`/`timeout_ms` slots replaced outright,
-pre-release). Grammars in `internal/delayspec`, dependency-free so calendar edge cases
-are table-testable; user-facing reference belongs to `docs/`. Silent-failure invariants
-in [internal/delayspec/CLAUDE.md](../internal/delayspec/CLAUDE.md) and
-[internal/model/CLAUDE.md](../internal/model/CLAUDE.md).
+Status: **Built.** Grammars in `internal/delayspec`, dependency-free so calendar edge cases are
+table-testable. The user reference is `docs/src/content/docs/reference/definition/delay-syntax.mdx`;
+silent-failure invariants are in [internal/delayspec/CLAUDE.md](../internal/delayspec/CLAUDE.md)
+and [internal/model/CLAUDE.md](../internal/model/CLAUDE.md).
+
+**This file is executable.** `internal/delayspec/doc_examples_test.go` parses every slot literal
+above the "What is rejected" heading as must-parse, every one under it as must-fail, and each clock
+in the "Clock fields" table; it keys on those exact headings (their first occurrence) and needs at
+least 25 accepted examples. Do not rename them, quote them above the split, or write a rejected
+spelling above it.
 
 ## Syntax
 
-Exactly one of `for` (duration from arm time; bare number = ms) / `until` (instant;
-bare number = unix ms), plus optional `tz` (IANA name, `UTC`, or fixed offset —
-literal-only, no abbreviations: `CET` means the wrong thing half the year and resolves
-per host). How a value is written decides its treatment, syntactically: literal string
-→ the grammar, parsed at registration; bare number → ms; `$:` expression → must infer
-to number; `${ }` interpolation → **rejected by name** (yields a string).
+Exactly one of `for` (duration from arm time) / `until` (an instant), plus optional `tz` (IANA
+name, `UTC`, or fixed offset). How a value is written decides its treatment, syntactically: a
+literal string → the grammar, parsed at registration; a bare number → milliseconds (`until`:
+unix ms); a `$:` expression → must infer to number; a `${ }` interpolation → **rejected by name**
+(it yields a string).
 
-- **`for`**: units `ms s m h d w mo y`, concatenated (`2h30m`, `1d 12h`). With `tz`,
-  calendar units are calendar arithmetic in that zone (`1d` = same wall clock tomorrow,
-  23h/25h across DST); without, UTC makes fixed units fall out of the general rule.
-  Month arithmetic clamps to month end (`time.AddDate` would roll Jan 31 + 1mo to
-  Mar 3). Calendar components apply before fixed ones regardless of typed order.
-- **`until`**: four forms, always the next match strictly after now — absolute RFC 3339
-  (own offset; RFC 9557 `[Europe/Prague]` accepted, validated, dropped), wall clock
-  read in `tz` (bare date = midnight), offset+clock (`+2d 08:00`), and a systemd
-  OnCalendar subset `[weekday] [Y-M-D] clock` (`*-*-01 08:00`, `mon 09:00`; weekday AND
-  date, not cron's OR).
-- **Clock fields**: `08` (that value), `*` (every), `base/step` (base, base+step, …
-  — the base IS the phase: `2/5` is :02, :07…). `HH:MM[:SS]`; omitted seconds stay
-  `:00` — `08:00` keeps naming one instant a day; only a written `*` or step widens.
+- **`for`**: units concatenated. With `tz`, calendar units are calendar arithmetic in that zone
+  (`1d` = same wall clock tomorrow, 23h/25h across DST); without, UTC. Month arithmetic clamps to
+  month end (`time.AddDate` would roll Jan 31 + 1mo to Mar 3). Calendar components apply before
+  fixed ones regardless of written order.
+- **`until`**: always the next match strictly after now. RFC 9557 `[zone]` annotations are
+  validated, then dropped. A calendar pattern requires weekday AND date, not cron's OR.
+- **Clock fields**: a value, `*`, or `base/step` (the base IS the phase). Omitted seconds stay
+  `:00`, so `08:00` names one instant a day; only a written `*` or step widens.
 
 ### Accepted spellings
-
-Every example here is parsed by `doc_examples_test.go` — this reference is executable, so
-a spelling that stops working fails there rather than in someone's definition.
 
 ```yaml
 # for — duration from arm time (units ms s m h d w mo y, concatenated)
@@ -67,9 +62,6 @@ tz: "Europe/Prague"    tz: "UTC"    tz: "+02:00"    tz: "-05:30"
 
 #### Clock fields
 
-Each field of a pattern's clock is one value, `*` (every value), or `base/step` — the
-base is the phase. This is what expresses a schedule finer than a day.
-
 | pattern | means |
 |---|---|
 | `*:*:00` | every whole minute |
@@ -82,9 +74,6 @@ base is the phase. This is what expresses a schedule finer than a day.
 | `12:*:00` | every minute of the 12th hour |
 | `mon *:0/30:00` | every half hour on Mondays |
 | `*-*-01 0/6:00:00` | every six hours on the 1st |
-
-A clock is `HH:MM` or `HH:MM:SS`; an omitted seconds field stays `:00`, so `08:00` keeps
-naming one instant a day. Only a written `*` or step widens a field.
 
 ## What is rejected
 
@@ -111,81 +100,65 @@ timeout resolving to now or earlier.
 
 ## As a `timeout`
 
-Same slots aimed at "give up" instead of "wake up", plus a scalar shorthand
-(`timeout: 30s` desugars to `for` at decode, so stored definitions are canonical). It is a
-slot of the **action**, beside `url` and `over`, because which slots are legal depends on the
-action's type — so a timeout with no call to bound cannot be written at all.
-Home-specific rules:
+The same slots aimed at "give up" instead of "wake up", plus a scalar shorthand (`timeout: 30s`
+desugars to `for` at decode, so stored definitions are canonical). It is a slot of the
+**action**, because which slots are legal depends on the action's type — a timeout with no call to
+bound cannot be written.
 
-- **`until` only on `external`** — the one type where a past deadline coherently means
-  "due now". On a fetch it would build a pre-expired context reporting `http.timeout` —
-  false, unknowable, unretryable on `only_once`, for a request that never left.
-- **Absent means no deadline, and is the only spelling of it** — a duration slot cannot
-  also carry a magic zero (fetch defaults to 30s, external waits forever).
-- **Past deadlines: clamp wherever a truthful code exists, refuse where none does.**
-  Delay clamps (late = due); external clamps and raises `external.timeout` (exactly
-  what its `on_error` is written against — past deadlines arrive legitimately via
-  re-arms and long pauses); fetch refuses. Not "delays clamp, timeouts refuse".
+- **`until` only on `external`** — the one type where a past deadline coherently means "due now".
+  On a fetch it would build a pre-expired context reporting `http.timeout`: false, unknowable,
+  unretryable on `only_once`, for a request that never left.
+- **Absent is the only spelling of "no deadline"** — no magic zero (fetch defaults to 30s,
+  external waits forever).
+- **Past deadlines clamp wherever a truthful code exists and refuse where none does.** A delay
+  clamps (late = due); external clamps and raises `external.timeout`, which is what its
+  `on_error` is written against (past deadlines arrive legitimately via re-arms and long pauses);
+  fetch refuses.
 - **Only fetch and external honour one** — elsewhere it is rejected, never ignored.
-- **Resolution timing differs**: fetch per attempt (a retry gets today's budget);
-  external once at arm (a re-arm keeps an `until` pinned, restarts a `for`).
+- **Resolution timing differs**: fetch per attempt (a retry gets a fresh budget); external once at
+  arm (a re-arm keeps an `until` pinned and restarts a `for`).
 
 ## Why it is this way
 
-- **Expressions carry numbers only.** The literal grammar is authoring syntax; machine
-  values are numbers. A literal is fully static (typos fail at registration, not three
-  days in); an expression carries no parse at all.
-- **`base/step`, not `*/step`** — `*/5` has nowhere to put a phase, making it a special
-  case of base/step; one spelling per concept, the error names it. A step that does not
-  divide its range wraps short (cron's behaviour too — even spacing and minute
-  alignment cannot both hold).
-- **No natural language** (locale-dependent, ambiguous, and a parser upgrade would
-  silently change stored rows). **No recurrence in the slot** — `until` names one
-  instant; repetition is a back edge in the process, which re-resolves per iteration so
-  an overrunning body skips to the next match instead of overlapping. **No `now`
-  root** — it would make every expression impure exactly where re-evaluation happens
-  (retries).
-- **Unsatisfiable dates fail at parse, never by resolving at registration** — resolving
-  once would make the same definition validate differently on different days.
+- **Expressions carry numbers only.** The literal grammar is authoring syntax; a literal is fully
+  static (typos fail at registration, not three days in), and an expression carries no parse.
+- **`base/step`, not `*/step`** — `*/5` has nowhere to put a phase; one spelling per concept. A
+  step that does not divide its range wraps short (even spacing and alignment cannot both hold).
+- **`tz` is literal-only, with no abbreviations** — `CET` means the wrong thing half the year and
+  resolves per host.
+- **No natural language** (locale-dependent, and a parser upgrade would silently change stored
+  rows). **No recurrence in the slot** — repetition is a back edge, which re-resolves per
+  iteration, so an overrunning body skips to the next match instead of overlapping. **No `now`
+  root** — it would make every expression impure exactly where re-evaluation happens (retries).
+- **Unsatisfiable dates fail at parse, never by resolving at registration** — resolving would make
+  the same definition validate differently on different days.
 
 ## DST and the search
 
-Spring forward: a deleted wall clock normalizes **forward**, computed by `resolveWall`
-itself — `time.Date` is not consistently forward (Prague's 02:30 → 03:30, but
-Santiago's midnight gap turns 00:49 into 23:49 *the previous day*; the randomised
-cross-check caught a whole lost day). Fall back: the repeated hour fires on both
-passes, needing two rules — `resolveWall` names the first occurrence, and
-`repeatedMatch` searches the repeat from its own start for matches behind now that
-recur ahead of it (else `*:30:00` at 02:30 summer time waits two hours instead of one).
-Sub-hour transitions (Lord Howe) unhandled. The date is **walked** a day at a time
-(bounded five years — keeps `*-*-31` and leap days correct for free, ≤~1500
-comparisons); the clock is **computed** as a carry cascade, never walked (`*:*:*` is
-86,400 matches/day; stepping would make a leap-day pattern ~50M steps).
+Spring forward: a deleted wall clock normalizes **forward**, computed by `resolveWall` itself —
+`time.Date` is not consistently forward (Santiago's midnight gap turns 00:49 into 23:49 *the
+previous day*). Fall back: the repeated hour fires on both passes — `resolveWall` names the first
+occurrence, and `repeatedMatch` finds matches inside the repeat (else `*:30:00` at 02:30 summer
+time waits two hours instead of one). Sub-hour transitions (Lord Howe) are unhandled. The date is
+**walked** a day at a time (bounded at five years, `maxPatternDays` — keeps `*-*-31` and leap days
+correct for free); the clock is **computed** as a carry cascade, never walked (`*:*:*` is 86,400
+matches a day).
 
 ## What must not regress
 
-- The clamp/refuse split lives in the *callers*: `resolveTimeout` returns a past
-  instant untouched — do not centralize the decision or make the callers agree.
-- **Arm once**: `runDelay` guards on `WakeAt == nil`, so a calendar target cannot drift
-  on re-claim.
-- **`delayArity` fails loudly on any count but one** — decoders run over stored rows
-  that never re-validate; a row with only the removed `ms` must not become a zero wait,
-  and preferring one of two slots silently waits the wrong time.
-- **`DelaySpec` must never gain an `UnmarshalJSON`** — `Action` embeds it, so the
-  decoder would be promoted and silently swallow the whole action; the shorthand lives
-  on the unembedded `Timeout` wrapper.
-- **Absent timeouts stay absent on the wire** (a dropped `omitzero` makes every fetch
-  unrunnable). Storage untouched: everything resolves into the same `wake_at` column.
-- Don't route the literal grammar through `shape.Shape`; the `$:` branch uses a plain
-  shape, not `Expr` (the slot's string still carries its marker).
-
-## Prior art
-
-Go `time.ParseDuration` (the sub-day grammar; Go stops at `h` because `d` is
-calendar-ambiguous — hence `tz`); systemd.time(7) (patterns, wildcards, steps, `+2d`
-stamps — a subset); RFC 9557 (the annotated instant, verbatim); ISO 8601 durations
-(the unit set only; rejected as a surface); hosted cron services (named slots over one
-magic string); RRULE (nothing — recurrence is out of scope).
+- The clamp/refuse split lives in the *callers*: `resolveSpec`/`resolveTimeout` return a past
+  instant untouched — do not centralize the decision.
+- **Arm once**: `runDelay` guards on `WakeAt == nil`, so a calendar target cannot drift on
+  re-claim.
+- **`delayArity` fails loudly on any count but one** — decoders run over stored rows that never
+  re-validate; a row with only the removed `ms` must not become a zero wait, and preferring one of
+  two slots silently waits the wrong time.
+- **`DelaySpec` must never gain an `UnmarshalJSON`** — `Action` embeds it, so the decoder would be
+  promoted and silently swallow the whole action; the shorthand lives on the unembedded `Timeout`.
+- **Absent timeouts stay absent on the wire** (a dropped `omitzero` makes every fetch unrunnable).
+  Everything resolves into the same `wake_at` column.
+- Don't route the literal grammar through `shape.Shape`; the `$:` branch uses a plain shape, not
+  `Expr` (the slot's string still carries its marker).
 
 ## Open questions
 

@@ -1,64 +1,42 @@
 # `genctl schema`: a piece of the process, as a schema
 
-A definition's types exist, and nowhere a user can reach them. Inference computes the type of
-every slot and the scope of every expression, and then spends both on error messages. `schema`
-makes that view queryable: `context` answers *what can I read where I am writing*, `type`
-answers *what shape is this slot* — the second so a piece of the process can be handed to a
-code generator, for a client, a consumer, or a worker implementing an `external` task.
+Inference computes the type of every slot and the scope of every expression. `genctl schema` makes
+that view queryable offline. `context` answers *what can I read where I am writing*. `type` answers
+*what shape is this slot*, so a piece of the process can be handed to a code generator (for a
+client, a consumer, or a worker implementing an `external` task).
 
 ## 0. Status
 
-**PROPOSAL 2026-09-04. BUILT 2026-09-04**, all three steps, in order:
-
-1. **The `error` / `last_error` split** — ✅ **BUILT 2026-09-04**
-   ([task-scopes.md](task-scopes.md) §The error axis). Not part of this command, and first
-   anyway: `error` named two different failures, so a command that reports the scope at a slot
-   would have had to document the ambiguity instead of answering. It also decided §3's table.
-2. **`context`**, `-e` included — ✅ **BUILT 2026-09-04**, as specced here
-   (`internal/validation/slots.go`, `cmd/genctl/schema.go`, `tests/cli/schema_test.ts`).
-3. **`type`**, §7 — ✅ **BUILT 2026-09-04**, once `TaskSchemas` grew the `Result` the inferred view did
-   not carry (`genctl schema type`, `tests/cli/schema_type_test.ts`).
-
-It became possible on 2026-09-04, when the types moved into genctl
-([source-resolution.md](source-resolution.md) §One roundtrip). Before that this command would
-have been a roundtrip per question, which is not a thing anyone runs while writing YAML.
+Built.
 
 ## 1. What it is not
 
-- **Not a verdict.** `validate` says whether a definition is legal; this says what its types
-  are. It answers over a document that would be refused, as far as inference gets.
-- **Not an editor protocol.** It has no positions and no lenient parse of a half-typed
-  expression, so it cannot underlie completion or diagnostics. The consumer is a person or a
-  generator, and the reading "this is nearly an LSP" would buy the wrong things: ranges,
-  incremental parses, a long-lived process.
+- **Not a verdict.** `genctl apply --check-only` says whether a definition is legal; this says what
+  its types are. It answers over a document that would be refused, as far as inference gets
+  (`newTaskScopes` reads what `Check` managed).
+- **Not an editor protocol.** It has no positions and no lenient parse of a half-typed expression.
+  The language server ([language-server.md](language-server.md)) adds those over the same APIs.
 - **Not a code resolver.** See §5.
 
 ## 2. The address
 
-    genctl schema context <process> [address] [-e <expression>] [-f <path|glob> ...]
+    genctl schema context|type <process> [address] [-e <expression>] [-f <path|glob> ...]
 
-**The process is a mandatory positional.** Making it optional when the file set holds one
-definition was rejected: the single positional then means two things, and which one is decided
-by whether it happens to match a process name — a rule that goes wrong exactly for a process
-named `output`. Process names are unconstrained (`validate:"required"` and nothing else, unlike
-task ids and `config` names), so there is no lexical rule that separates the two spellings.
-One less rule beats one less word.
+**The process is a mandatory positional.** If it were optional when the files hold one definition,
+the single positional would mean two things, decided by whether it happens to match a process name.
+Process names are unconstrained, so no lexical rule separates the two spellings.
 
 ### The view is one schema, and an address is a path into it
 
-Each view builds **one document**, and an address navigates it — `schema.At`, the same walk that
-reads a value's type. There is no address grammar beside it: no arity, no phase resolution, no
-slot-versus-navigation boundary, and so nothing that can differ between the two views.
+Each view builds **one document** (`ContextDocument`, `TypeDocument`), and an address navigates it
+(`Navigate`, via `schema.At`). There is no address grammar beside it, and so nothing that can differ
+between the two views. `schema.ParsePath` is the one reader, so do not write a second.
 
-**One exception, forced by guard narrowing: a slot address may be a PREFIX of another.** A
-switch has a whole-switch context and one per case; a rule has one context and another for the
-`retry` / `panic` / `raise` beside it, which run only because the rule matched
-(guard-narrowing.md). The document cannot carry both — writing the case under the switch's own
-context makes the case index a property of it, and `0` starts reading as a name in scope — so
-`SlotAt` answers an address from the flat slots first, by longest slot prefix, and walks only
-what is LEFT inside that slot's schema. The document still answers for an intermediate node
-(`tasks.price.on_error`) and still words every miss, which is what keeps the paragraph below
-true. The grammar is unchanged: the same string, resolved in two steps rather than one.
+**One exception: a slot address may be a PREFIX of another.** A switch has a whole-switch context
+and one per case. A rule has its context, plus one for the `retry` / `panic` / `raise` beside it,
+which run only because the rule matched (guard-narrowing.md). The nested document cannot hold both,
+since the case index would become a name in scope. So `SlotAt` first resolves the longest slot
+prefix from the flat slots, then walks only the remainder inside that slot's schema.
 
 ```jsonc
 // context                                   // type
@@ -70,226 +48,118 @@ true. The grammar is unchanged: the same string, resolved in two steps rather th
     "on_error": { "0": { /* … */ } } } } }       "output": {…}, "last_error": {…} } } }
 ```
 
-**`action` stays in the path.** The payload and the result are the ACTION's and sit under it,
-exactly where the definition writes them; `output`, `last_error`, `switch` and `on_error` are the
-task's and sit beside it. Two namespaces, kept apart by the segment the YAML already has — a
-task-level slot added later cannot collide with an action's. It is also what makes
-`tasks.<id>.action` answer in BOTH views: what an expression there may read, and what the
-action's shape is.
-
-**A slot takes the name the definition gives it**, so an address into the document and the
-address of its type are the same string: a fetch's payload is `tasks.<id>.action.body`, every
-other action's is `tasks.<id>.action.input`. Only `fetch` diverges, and it is the one action type
-no resolver targets — a payload is `input` on child, child_list, child_map and external alike.
-That is what makes a manifest pointer a TYPE ADDRESS wherever the slot it names has a type
-(source-resolution.md), rather than a second spelling to translate.
-
-**Where a slot has no type, there is no address**, and that is the honest half: `url`, `headers`,
-a switch `case`, an `on_error` clause's `message` hold templates, not contract
-boundaries, so `schema type` refuses them by naming what the action does have. Three slots run
-the other way — `result` (a fetch's is the accepted `responses`, unioned), `last_error` (which
-failures route here) and `raises` (collected from every `raise` clause) — and are DERIVED, so
-they have a type and no document path at all. The two spaces coincide where a slot is both, and
-neither is a subset of the other.
-
-So `tasks.price` is an object of that task's phases, `tasks.price.output` one of them,
-`tasks.price.output.self.result` a walk inside it, and `tasks.price -e 'output'` the same answer
-by expression. One logic, all the way down.
-
-**A task id that is not an identifier is quoted** — `tasks["step.one"].output` — because an id is
-`required` and nothing else, so a dot in one is otherwise read as a step. It is the same grammar
-as the `outputs["step.one"].fee` it addresses, and the rendering is injective, so every address a
-listing prints resolves back to itself. **Superseded 2026-09-19** for task ids, which are now C
-identifiers; a dotted property key still quotes.
-
-**A switch case is keyed too, and beside the phase rather than instead of it.** Reaching case
-k means every earlier case was false, so each case reads a different context
-(specs/guard-narrowing.md) — the same reason `on_error` is per rule. The bare `switch` address
-stays: unlike `on_error`, a switch HAS a whole-switch context, the one before any case narrows,
-and the scope-build diagnostic, `TypeSlots`' pairing and this listing all name it.
-
-**A rule is keyed, not indexed.** `items` types every element of an array alike, so an array
-could not carry a different context per rule; `on_error` is an object keyed `"0"`, `"1"`. Three
-spellings reach it — `on_error.0`, `on_error[0]`, `on_error["0"]` — and **the dotted one is
-canonical**, because it is the only one a shell leaves alone: zsh reads `[0]` as a glob and
-refuses the command with "no matches found" before genctl sees it. Dotting a digit is safe here
-and not in `JoinPath`: a bare segment is always a property name, so it round-trips, and an
-address is not an expression (`tasks.my task.output` is not one either).
-
-A number is a KEY, so it reads an object and never an array: `tiers.0` on an array is refused
-rather than being a second way to index, and `[0]` on an object reads the key of that number only
-because indexing an object is otherwise an error. Neither direction conflates anything.
-
-**A miss teaches the space.** The document IS the address space, so what sits at the point of
-failure is the list of what could be typed instead: `no "url" in tasks.price, which holds:
-action, on_error, output, switch`. A key holding a dot names its quoted spelling, and an address
-the OTHER view answers names that view — `tasks.price.action.result` is a type, not a context.
-
-**What this dropped, deliberately.** `tasks.price.url` used to resolve up to the action phase,
-and the answer reported that with an arrow. The rule bought one real thing — `url`, `timeout` and
-`body` are one context, and nothing in the YAML says so — and cost another: an address naming
-nothing at all (`tasks.send.output.headers`) was answered rather than refused, with the arrow as
-the only sign. Navigation refuses it and names the phases instead, teaching the same fact at the
-point of the mistake. The arrow is gone with the resolution it reported.
+- **`action` stays in the path.** The payload and the result belong to the action and sit under it;
+  `output`, `last_error`, `switch` and `on_error` belong to the task. A later task-level slot cannot
+  collide with an action's, and `tasks.<id>.action` answers in both views.
+- **A slot takes the name the definition gives it.** A fetch's payload is `tasks.<id>.action.body`,
+  and every other action's is `…action.input`. That is what makes a resolver manifest pointer a type
+  address (source-resolution.md).
+- **Where a slot has no type, there is no address.** `url`, `headers`, a switch `case` and a
+  clause's `message` hold templates, not contract boundaries, and `schema type` refuses them.
+  `result`, `last_error` and `raises` are DERIVED: they have a type and no document path. Neither
+  space is a subset of the other.
+- **A key that is not an identifier is quoted** (`["step.one"]`), the same grammar as the
+  expression that reads it, and the rendering is injective. Task ids are C identifiers.
+- **A switch case is keyed beside the phase** (`switch.0`), because each case reads a different
+  context. The bare `switch` address stays: a switch has a whole-switch context before any case
+  narrows.
+- **A rule is keyed, not indexed.** `on_error` is an object keyed `"0"`, `"1"`, because `items`
+  would type every element alike. `on_error.0`, `on_error[0]` and `on_error["0"]` all reach it, and
+  **the dotted spelling is canonical**: zsh globs `[0]` and refuses the command before genctl sees
+  it.
+- **A number is a KEY.** `tiers.0` on an array is refused rather than becoming a second way to
+  index. `[0]` on an object reads the key of that number, because indexing an object is otherwise
+  an error.
+- **A miss teaches the space.** The error lists what is there instead (`no "url" in tasks.price,
+  which holds: action, on_error, output, switch`), gives a dotted key's quoted spelling, and names
+  the sibling view when that view answers the address.
+- **An address naming nothing is refused**, never resolved up to the enclosing phase. Resolving
+  `tasks.price.url` to the action phase would also answer `tasks.send.output.headers`, which names
+  nothing at all.
 
 ### `-e`: the type of one expression there
 
     genctl schema context <process> <address> -e 'outputs.price.fee ?? 0'
     genctl schema type    <process> <address> -e 'items[0].sku'
 
-The query with its last step taken: the address selects a schema, `-e` says what an expression
-reads against it. A flag and not a third positional, because the address is optional and telling
-one from the other needs the rule this section already refused.
+The address selects a schema, and `-e` types an expression against it. It is a flag rather than a
+third positional, because the address is optional. **An object schema is a scope**, so `-e` works in
+both views, rooted wherever the address stopped: `tasks.price.output -e 'self.result.fee'` and
+`tasks.price.output.self -e 'result.fee'` are one answer.
 
-**An object schema is a scope** — its properties are the roots — so `-e` is not the context
-view's alone, and it is rooted wherever the address stopped: `tasks.price.output -e
-'self.result.fee'` and `tasks.price.output.self -e 'result.fee'` are one answer. That is the
-whole reason navigation and `-e` belong to both views rather than one each.
-
-**Bare, not the leaf it is written in.** `${…}` belongs to the template layer, where every
-interpolated string is `string`; the grammar is unambiguous without it — `total` is a path,
-`"total"` a literal. A pasted leaf therefore fails to parse, and the error hands the expression
-back unwrapped rather than pointing at the `$`.
-
-At a slot it runs the checker's two phases in the checker's order — **availability, then
-inference**. Availability is a statement about the SLOT, so it applies only where the address
-stopped at one; once it has walked inside, there is no slot being written and inference answers
-alone. A
-reference the phase does not carry (`self.result` before the action answers, a previous output no
-path returns to, a result the action never types) is refused with `validation.slotRoots`'s own
-sentence, which is the one constructor every registration-time check installs; inference alone
-would answer "field not found", naming the member and not the rule.
-
-**The third phase is deliberately absent.** The checker then conforms the value against the
-slot's required type — boolean for a case, a string for a `url` — and `-e` does not, because an
-address names a PHASE and a requirement is per slot: `url`, `timeout` and `children["a"].input`
-share one context and require three different things. `-e` answers what an expression produces;
-what it must produce belongs to the slot the address deliberately dropped.
-
-The inference is the checker's own too, so at `output` the expression is typed under every arm
-and the results joined (§6): `outputs.price.fee` is `number|null` and `?? 0` is not. A declared
-`secret: true` travels with the type it sits on — structurally, since the taint that once
-followed a secret through a transformation is gone with the redactor it fed
-(object-store.md §Redaction). The refusal is half the value: a wrong path gets the checker's
-diagnostic with no apply, no server and no resolver.
+- **The expression is bare**, without the `${…}` its leaf wraps it in. That wrapper belongs to the
+  template layer, where every interpolated string is `string`. A pasted leaf gets a hint
+  (`unwrapHint`).
+- **Availability runs before inference**, as in the checker, and only where the address stopped at
+  a slot (`CheckSlotRoots`). A reference the phase does not carry is refused with
+  `validation.slotRoots`'s own sentence rather than inference's "field not found".
+- **The third phase is deliberately absent.** The checker then conforms the value to the slot's
+  required type, but an address names a PHASE, and one phase serves slots with different
+  requirements (`url`, `timeout`, `children["a"].input`). `-e` answers what an expression produces,
+  not what it must produce.
+- **The inference is the checker's.** At `output` the expression is typed under every arm and the
+  results joined, and a declared `secret: true` travels with the type it sits on.
 
 ## 3. The phases
 
-[task-scopes.md](task-scopes.md) owns the model; this command exposes it. **After step 1** the
-context varies along one axis, `self`, and everything else is fixed per task: `input`, `config`
-and `outputs.*` by which paths reach the task, `last_error` by which tasks route their failure
-into it.
-
-| phase | `self` | `error` |
-|---|---|---|
-| action slots, `timeout` | `previous` | — |
-| the output map | `+ result` | — |
-| the switch | `+ result`, `+ output` | — |
-| `on_error[i]` | `previous` | that rule's declared payload |
-
-The three `self` values are `beforeOutput` / `afterAction` / `afterOutput`, already named in
-[scope.go:23](../internal/validation/scope.go#L23). The fourth row is the same `self` as the
-first, and is an address rather than a phase name for one reason: `error` is per rule, because
-each rule catches a different set of codes.
-
-Before step 1 there was no such table — `error` in the first three rows was the failure that
-routed into the task, in the fourth the one that rule caught, and `retry.*` sat in the fourth row
-reading the first row's value. Reporting that would have been the alternative to fixing it,
-which is why the split was step 1 and not a follow-up. `retry` now reads the fourth row like
-every other slot of a rule, so the fourth row is one context and not two.
+[task-scopes.md](task-scopes.md) owns the model, and this command exposes it. A task has one context
+per phase: the action slots (and `timeout`), the output map, the switch (plus one per case), and each
+`on_error` rule (plus its clauses). The phases differ in `self`. `error` differs per rule, since each
+rule catches different codes.
 
 ### What is guaranteed
 
-Every task slot's context is the one the checker built, and not by agreement: **there is one
-constructor**. `taskScopes` (`internal/validation/context.go`) holds what a context is built
-from and has one method per phase; the checker, `Compare`'s per-task view and `SlotContexts`
-all call those, so `contextSchema` has no other caller. Two things make feeding it from a
-finished `SchemaFile` sound: inference infers every output in phase 1 before it builds any
-phase-2 context, so nothing it used was still being solved, and the pool only ever GROWS
-(`uniqueDefName` renames the newcomer), so a ref that resolved during the check resolves the
-same way after. `TestSlotContextsAreTheCheckersOwn` pins both — bodies identical, and every
-definition the check resolved still resolving to the same thing.
-
-That now covers the process `output` too, whose context is the union the checker types
-against. `compat` is a different question entirely: it compares `taskContexts` — the DURABLE row, `config` stripped and no `self` — which
-is not what an expression can read. specs/compat-command.md §2a.
+Every context is the one the checker built, because **there is one constructor**: `taskScopes`
+(`internal/validation/context.go`), with one method per phase. The checker, `Compare`'s per-task view
+and `SlotContexts` all call it. Building from a finished `SchemaFile` is sound for two reasons.
+Inference infers every output before it builds any phase-2 context, and the `$defs` pool only grows
+(`uniqueDefName` renames the newcomer). `TestSlotContextsAreTheCheckersOwn` pins it. `compat`
+compares something else, `taskContexts` (the durable row, with no `self` and no `config`):
+compat-command.md §2a.
 
 ## 4. Output
 
-**stdout is the schema and nothing else**, so a piece of a definition pipes into a generator
-without a `jq` in between. Diagnostics go to stderr; they never land in the document.
+**stdout is the schema and nothing else**, so it pipes into a generator; diagnostics go to stderr.
+A schema prints as YAML, the language definitions are written in, or as JSON with `--json`. Keys come
+out in **reading order** (`schema.KeywordOrder`: `description`, `$ref`, `type`, composition,
+`properties`, …, `$defs` last), followed by unrecognised keywords sorted, because both encoders
+would otherwise sort.
 
-**A schema prints as YAML, and as JSON with `--json`.** YAML is the language definitions are
-written in, so an answer can be pasted into one, and it spends no lines on punctuation. Either
-way the keys come out in **reading order** — `description`, `$ref`, `type`, the composition
-keywords, `properties`, `required`, `items`, the constraints, and `$defs` last — because both
-encoders sort a map, which puts `properties` before `type` and the pool before either. An
-unrecognised keyword follows, sorted, so a new one shows up rather than disappearing.
+The document is **self-contained**: the reachable `$defs`, with refs rewritten against the returned
+root. Refs survive rather than being inlined, because a task output may reference itself
+([recursive-type-inference.md](recursive-type-inference.md)). A definition that is ONLY a `$ref` is
+dropped, and refs through it name what it named (`collapseAliases`). Every task output is stored
+as `<id>_output` because recursion resolves through the name, and where the output is already a
+definition, that name is a hop that says nothing.
 
-The document is **self-contained**: the reachable subset of `$defs`, with `$ref`s rewritten
-against the returned root. Inlining is not the alternative — a task output may reference
-itself ([recursive-type-inference.md](recursive-type-inference.md)), so refs have to survive.
-A definition that is ONLY a `$ref` is dropped, and refs through it name what it named: every
-task gets a `<id>_output` because recursion resolves through the name, and where the output
-already is a definition that leaves a hop that says nothing.
-
-With **no address** it prints one entry per phase, keyed by address:
+**With no address**, `--json` prints one entry per slot address over one shared pool, so the
+listing is the map of what can be asked:
 
 ```jsonc
-{
-  "output":                    { /* … */ },
-  "tasks.price.action":        { /* … */ },
-  "tasks.price.output":        { /* … */ },
-  "tasks.price.switch":        { /* … */ },
-  "tasks.price.switch.0":      { /* … */ },
-  "tasks.price.on_error.0":    { /* … */ },
-  "$defs":                     { /* … */ }
-}
+{ "output": {…}, "tasks.price.action": {…}, "tasks.price.output": {…},
+  "tasks.price.switch": {…}, "tasks.price.switch.0": {…}, "tasks.price.on_error.0": {…},
+  "$defs": {…} }
 ```
 
-The keys are the addresses, so the listing is the map of what can be asked. One entry per
-phase and not per slot: the per-slot listing repeats identical contexts dozens of times and
-buries the four that differ.
-
-The human rendering names what each slot can READ, rather than printing nine schemas:
+The human rendering names what each slot can read. `self` and `outputs` are spelled out, because
+they are what moves. `?` marks a root a path may not set, and `=null` one that a state says an ending
+did not produce. A context with arms (the process output) prints one line per arm:
 
 ```
-tasks.price.action       input, outputs
 tasks.price.output       input, outputs, self{headers, result, status}
-tasks.price.switch       input, outputs, self{headers, output, result, status}
-tasks.price.on_error.0   error, input, outputs
-```
-
-`self` and `outputs` are spelled out, `?` marks what a path may not set and `=null` what one
-state says an ending did not produce, because those are what move; the rest is a root name. A
-slot whose context has ARMS — the process output — prints one line per arm, named by it:
-
-```
 output   on the path ending at task "left":  input, outputs{left, right=null}
          on the path ending at task "right": input, outputs{left=null, right}
 ```
- An earlier draft printed a DELTA against the fixed
-part (`… +error(limit_exceeded)`), which needs a baseline to diff against and a code name the
-schema does not carry — the members are the same information without either.
 
 ## 5. No code resolver runs
 
-A query must never shell out to `tsc`. It does not have to: inference collapses a literal to
-its base type, so an unresolved `$import: ./fee.ts` leaf types as `string` — exactly what the
-placeholder `apply` splices types as, by the argument [source-resolution.md](source-resolution.md)
-§"Why the placeholder is sound" already makes. The directive is left where it is.
-
-The structural phase does run — `$process` and registered structural resolvers (2026-09-17/19) —
-because it moves the types reported (source-resolution.md §Built-in, and overridable).
+A query never shells out. It runs the structural phase only, because a structural resolver moves the
+types reported and a code resolver does not (source-resolution.md §Built-in, and overridable). An
+unresolved `$import: ./fee.ts` leaf types as `string`, exactly what `apply`'s placeholder types as
+(source-resolution.md §"Why the placeholder is sound").
 
 ## 6. Open
 
-- ~~**The process `output` context is a floor.**~~ **Settled 2026-09-04 by making the partition
-  part of the context**: it is one `anyOf` arm per way the process can end, each naming its
-  ending, and inference distributes over the arms. Before that the checker walked the paths
-  itself and handed out a flattened context, so `(outputs.a ?? outputs.b) + 1` was refused by a
-  reader of the answer and accepted by the checker — the precision existed but was not in the
-  artefact. specs/path-sensitive-output.md §2.
 - **`child_map` entries** (`children["a"].input`) are per-entry slots sharing the action
   phase. Covered by the resolution rule, so they need no address of their own — until an entry
   gets a scope the others do not.
@@ -297,17 +167,19 @@ because it moves the types reported (source-resolution.md §Built-in, and overri
 ## 7. `type`
 
 The address space is the **contract boundaries**, the places someone generates code from:
-`input`, `output`, `raises.<code>`,
-`tasks.<id>.action.{input|body,query,children.<k>.input,result}` and
-`tasks.<id>.{output,last_error}`. Answers are
-standalone documents, as in §4.
+
+- `input`, `output`, `raises.<code>`
+- `tasks.<id>.action.{input|body, query, children.<k>.input, result}`
+- `tasks.<id>.{output, last_error}`
+
+Answers are standalone documents (§4). The sent slots are the inferred shape conformed to any
+declaration (declared-slot-schemas.md §1).
 
 ### One address space, two questions
 
-`context` and `type` do not have similar addresses; they have **the same** ones. An address
-names a slot, `context` says what an expression written there may READ, `type` says what shape
-the slot IS, and each refuses — naming its sibling — where it has no answer. That refusal is
-what makes it one space rather than two that happen to look alike.
+`context` and `type` have **the same** addresses. `context` says what an expression written at a
+slot may READ, and `type` says what shape the slot IS. Each refuses, naming its sibling, where it has
+no answer.
 
 | address | `context` | `type` |
 |---|---|---|
@@ -324,30 +196,13 @@ what makes it one space rather than two that happen to look alike.
 | `tasks.<id>.switch` | the switch context | — (a case is boolean by construction) |
 | `tasks.<id>.on_error.<i>` | that rule's context | — |
 
-`tasks.<id>.output` is the case that proves it: one spelling, one slot, and two documents that
-answer different questions about it — what an expression written there may read, and what the map
-produces. Where only one view has an answer the other names it (§2, a miss teaches the space).
+Navigation is §2's: `tasks.price.action.result.tiers[0]` and `raises["http.429"].detail` are paths
+like any other, and `tasks.send` is the whole contract of one task.
 
-### Navigation
+### `result` is what `self.result` sees
 
-Navigation is §2's, unchanged: this view is a document like the other one, so
-`tasks.price.action.result.tiers[0]` and `raises["http.429"].detail` are paths like any other —
-and `tasks.send` is the whole contract of one task, which is what a worker implementor wants.
-
-### `result` is what `self.result` sees [decided 2026-09-04]
-
-A fetch declares `responses` per status, and the answer is the accepted ones, unioned exactly as
-inference types `self.result`. Not one address per status: the non-accepted declared bodies are
-already `tasks.<id>.last_error` — what routed here carries — so the two halves of the contract each
-have an address and the grammar gains no fourth arity. What a worker returns and what a caller
-must handle, which is what a generator is being handed.
-
-### The prerequisite is a deletion
-
-`TaskSchemas` carried `ActionType`, `Input`, `Output` and `Error` and no result, so the declared
-`result_schema` / `responses` existed only as the inline type of `self.result`. The evidence
-that this was a hole rather than a choice: genctl read the declared result **out of the raw
-YAML** — `enclosingTask`, [sources.go](../internal/sources/sources.go) — to fill the resolver
-manifest's `output`, so one half of that manifest was a document read and the other inference.
-Adding `Result` is additive (a `SchemaFile` is computed per call, never persisted) and lets that
-read go.
+`result` is `TaskSchemas.Result`: a declared `result_schema`, or a fetch's accepted `responses`,
+unioned exactly as inference types `self.result`. It is absent where nothing is declared, and on a
+routing task. There is not one address per status, because the non-accepted declared bodies are
+already `tasks.<id>.last_error`. The two halves of the contract each have an address, and the grammar
+gains no fourth arity.

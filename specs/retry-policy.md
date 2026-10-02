@@ -1,124 +1,67 @@
-# `retry`: from a count to a policy
+# `retry`: a policy, not a count
 
-Status: **implemented (2026-08-02).** An `on_error` rule's `retries: N` became
-`retry: {retries, delay, factor, max_delay}`, with `retry: 3` as the scalar shorthand (the
-count was `attempts` until 2026-09-11).
-Line numbers and behaviour are as of that date. **Every slot also accepts a `$:`
-expression (2026-08-22)** — see §"Expression-valued slots" below, which supersedes the
-first bullet of "What was deliberately left out".
+Status: **Built, except what "What was deliberately left out" lists.**
 
-## What was wrong with a count
+An `on_error` rule's `retry` is `{retries, delay, factor, max_delay}`; `retry: 3` is shorthand
+for `{retries: 3}`, and every slot also takes a `$:` expression.
 
-The rule had exactly one knob, and everything about *when* a retry fired was fixed in
-code: `2^attempt` seconds, ceiling 5 minutes, jitter into the upper half. The only
-override in the system was `--immediate-retries`, a testing flag.
+## Why a policy
 
-Two consequences, and the second is the one that mattered:
-
-- **The wall-clock budget was not authorable and barely predictable.** Authors wrote a
-  count; what they cared about was duration. `retries: 5` meant "somewhere between thirty
-  seconds and a minute", and the jitter — which is correct and stays — made the mapping
-  fuzzy on purpose.
-- **The curve was wrong at both ends.** A rate-limited API answering 429 with a window
-  got hammered five times inside that window and then failed. A DNS blip that clears in
-  200 ms waited two seconds anyway.
-
-The escape hatch existed and still does:
-[examples/polling-task/poller.genroc.yaml](../examples/polling-task/poller.genroc.yaml)
-is a hand-rolled retry loop — `on_error → goto $backoff`, a `delay` task, a counter in
-`self.previous.attempt`, a `raise` when the budget is spent. It expresses *any* policy,
-at the cost of an extra task and a hand-maintained counter, and it only works because
-`delay`'s `for` accepts expressions while `retries` accepted an integer literal. That
-asymmetry was the actual finding: the delay grammar is the richest thing in the
-language, and retry was the one timer that could not reach it.
+Authors care about duration, not a count, and one fixed curve was wrong at both ends: a
+rate-limited API answering 429 with a window got hammered inside it, and a DNS blip that clears
+in 200 ms waited seconds anyway. A hand-rolled loop —
+[examples/polling-task/poller.genroc.yaml](../examples/polling-task/poller.genroc.yaml), an
+`on_error → goto` into a `delay` task with a counter — expresses any policy at the cost of an
+extra task, because `delay`'s `for` takes expressions. `retry` was the one timer that could not
+reach that grammar.
 
 ## The field set
 
-Not invented here: `{initial delay, growth factor, max interval, attempts}` is the
-industry-standard quartet — genroc had one of the four. Two findings behind it: the
-ceiling must be an explicit field (its job is to stop a runaway `factor`; deriving it
-from the base is not the same thing), and one ordered `on_error` list that both routes
-and retries per code pattern beats splitting retry-eligibility from the catch into two
-lists over the same error names.
+`{initial delay, growth factor, max interval, attempts}` is the industry-standard quartet. The
+ceiling is an explicit field: its job is to stop a runaway `factor`, which deriving it from the
+base does not do. One ordered `on_error` list both routes and retries per code pattern, rather
+than splitting retry-eligibility from the catch into two lists over the same codes.
 
 ## The shape
 
-```yaml
-on_error:
-  - code: [pre.error, pre.timeout]
-    retry: 3                                            # == {retries: 3}
-  - code: [http.429]
-    retry: { retries: 4, delay: 30s, factor: 2, max_delay: 10m }
-```
+Each decision had a cheaper alternative:
 
-Decisions worth recording, since each had a cheaper alternative:
-
-- **An object, not four flat fields.** `ErrorCase` already carried six keys. A nested
-  policy keeps the rule readable, makes D7's child-task rejection (since reversed) one key
-  rather than four, and leaves an obvious home for a budget or a jitter setting later.
-- **A scalar shorthand, following `Timeout`.** Same reason and same mechanism: the
-  shorthand lives on a wrapper type nothing embeds, and `MarshalJSON` writes the object
-  form, so a stored definition is canonical and everything downstream sees one shape.
-- **The default curve is 1s, factor 2, ceiling 5m** — the standard default elsewhere.
-  The old fixed curve started at 2s, but only as an artifact: it passed
-  an already-incremented attempt counter into `2^attempt`, so its 1s step was never
-  emitted. With `delay` now documented as the wait before the *first* retry — which is
-  what every engine means by its interval field — 2s was a number with no argument behind
-  it.
-- **The ceiling is absolute, not relative to the base.** A relative ceiling is only safe
-  when a wall-clock budget backstops it; genroc deferred that budget (below), so a
-  relative ceiling would have nothing behind it.
-- **A default ceiling never truncates an authored base.** `Retry.Resolve` takes the
-  ceiling as `max(5m, delay)`, so `delay: 1h` alone does not clamp back to 5m; an *authored*
-  `max_delay` below `delay` is refused instead of silently winning.
-- **Durations are fixed-unit only.** `delay: 1d` is refused with `"24h"` as the fix: the
-  curve multiplies the value and compares it to a ceiling, and a calendar duration has no
-  length until a timezone and a start instant fix it. This is why `RetryDuration` is its
-  own type rather than a reuse of `DelaySpec`.
-- **A rule-level `retries` is refused, not accepted as an alias** — since 2026-09-11 it is
-  valid only inside `retry`, and the hint says so. Two spellings for one field is a
-  second thing to keep true, and the hint names the replacement. Accepting it silently
-  was never an option: a dropped key leaves a rule that still matches and still routes,
-  and only never retries.
+- **An object, not four flat fields** — keeps a rule readable and leaves a home for a later
+  setting.
+- **A scalar shorthand on a wrapper type nothing embeds**, like `Timeout`; `MarshalJSON` writes
+  the object form, so a stored definition is canonical. Never embed `Retry`: its promoted
+  `UnmarshalJSON` would eat the outer object.
+- **The default curve is 1s, factor 2, ceiling 5m**, `delay` being the wait before the *first*
+  retry.
+- **The ceiling is absolute, not relative to the base.** A relative ceiling bounds nothing unless
+  a wall-clock budget sits behind it, and genroc has none.
+- **A default ceiling never truncates an authored base**: `Retry.Resolve` takes
+  `max(5m, delay)`, so `delay: 1h` alone is not clamped to 5m. An authored `max_delay` below
+  `delay` is refused instead of silently winning.
+- **Durations are fixed-unit only** — `RetryDuration`, not `DelaySpec`. The curve multiplies the
+  value, and a calendar duration has no length until a zone and an instant fix it; `1d` is
+  refused with `24h` as the fix.
+- **Unknown keys are refused, never aliased.** A rule-level `retries` gets a hint naming
+  `retry` (`ruleFieldHints`), and a typo inside `retry` is an error: a dropped key leaves a rule
+  that still matches and routes, and never retries.
 
 ## Expression-valued slots
 
-Every slot — `retries`, `delay`, `factor`, `max_delay` — accepts a `$:` expression
-alongside its literal form:
+**The classification is syntactic, decided at decode**, as `DelaySpec` does it: a bare number is
+the literal, a `$:` leaf is an expression, a `${ }` interpolation is refused by name (it produces
+a string), and a quoted number is refused.
 
-```yaml
-on_error:
-  - code: [pre.error, pre.timeout]
-    retry:
-      retries: "$: config.retry_attempts"
-      delay: "$: config.retry_delay_ms"
-```
-
-**The classification is syntactic, decided at decode**, the same split `DelaySpec` makes:
-a bare number is the literal, a `$:` leaf is an expression, and a `${ }` interpolation is
-refused by name because it produces a string. A quoted number stays refused too — the one
-string form a numeric slot takes is an expression.
-
-Three consequences, each of which is a way this goes silently wrong:
-
-- **A slot has no value at registration, so its bounds move to runtime.** `validateRetry`
-  guards every check on `IsExpr()`, and `Retry.Resolve` repeats all of them with the same
-  wording. Anything checked in only one of the two places is a bound config can walk past.
-- **A policy resolves once per error, before it is consulted, and a resolution failure
-  fails the instance.** Falling through instead would turn an unreadable policy into "no
-  retries" — the author's attempt budget vanishing with nothing reporting it.
-- **An expression `retries` counts as retries for the `only_once` tiers.** Its value is
-  unknown at registration and the conservative reading is the one that keeps the tiers in
-  force; the runtime half (`isRetryAllowed`) gates by code regardless.
-
-A retry expression reads **`error`** — the failure it is retrying — beside `input`, `outputs`
-and `config`, in the same scope the rule's `case` is matched in. It did not, until 2026-09-04:
-the engine resolved the policy before the failure was written to the context, and this
-paragraph recorded that as a design ("the policy is a property of the deployment, not of the
-individual failure"). Both landed in one commit, and the restriction was the placement
-described rather than a decision the placement served. A `Retry-After` in a response body —
-`delay: "$: error.data.retry_after"` — is the case it cost, and the one below still wants the
-header. specs/task-scopes.md §The error axis.
+- **Bounds move to runtime.** `validateRetry` guards every check on `IsExpr()`, and
+  `Retry.Resolve` repeats them all with the same wording. A bound checked in one place only is
+  one config can walk past.
+- **A policy resolves once per error, before it is consulted, and a resolution failure fails
+  the instance** (`engine.expression`). Falling through would turn an unreadable policy into "no
+  retries", the author's budget vanishing with nothing reporting it.
+- **An expression `retries` counts as retrying for the `only_once` tiers** — the conservative
+  reading, which keeps them in force; `isRetryAllowed` gates by code at runtime regardless.
+- **It reads `error`** — the failure being retried (per slot, on a child task) — beside `input`,
+  `outputs` and `config`: the scope the rule's `case` is matched in (specs/task-scopes.md §The
+  error axis). So `delay: "$: error.data.retry_after"` works where a payload carries the value.
 
 ## What was deliberately left out
 

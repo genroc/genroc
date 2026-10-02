@@ -1,138 +1,105 @@
 # Pause/resume vs retry: design
 
-Status: **agreed and implemented 2026-07-20.** Code: `db_lifecycle.go`,
-the pause-landing CASEs in `queries.sql`, `settlePausing`, migration 022. The
-silent-failure invariants live in [internal/db/CLAUDE.md](../internal/db/CLAUDE.md).
+Status: **Built.** Code: `db_lifecycle.go`, the pause-landing CASEs in `queries.sql`,
+`settlePausing`/`settleCancelling` in `internal/engine/error.go`. The silent-failure invariants
+live in [internal/db/CLAUDE.md](../internal/db/CLAUDE.md).
 
 ## Motivation
 
-`cancel` + a `retry` that accepted failed **or** cancelled roots served two unrelated
-situations with one verb: a **failed** process spent its authored `on_error` budget, so
-reviving it is an override the definition never authorised (with `force`, one that
-skips `only_once` too); a process an operator **stopped** was never owed anything and
-should carry on exactly where it was. Because `cancelled` was terminal, the shared
-implementation had to be the destructive one — and produced a real bug: cancel+retry
-silently converted "wait 30s, then retry" into "retry immediately", both halves
-clearing `wake_at`.
+A **failed** process spent its authored `on_error` budget, so reviving it is an override the
+definition never authorised (with `force`, one that skips `only_once` too). A process an operator
+**paused** was never owed anything and should carry on exactly where it was. One verb serving both
+must be the destructive one — a shared cancel+retry silently turned "wait 30s, then retry" into
+"retry immediately", both halves clearing `wake_at`.
 
 ## The model
 
-`paused` is **not an outcome** — it means only "does not advance automatically". The
-instance keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep
-running. `pause` (root, running → pausing if leased else paused), `resume` (paused rows
-anywhere in the subtree → running), `retry` (root, failed only, keeps `force`).
-`cancelling`/`cancelled` were **removed, not renamed** — the whole draining machine
-went with them; migration 022 maps old rows. There is deliberately no permanent cancel:
-every process must have a way back; a terminal stop, if ever wanted, is a new status
-beside `failed`, leaving `paused` untouched.
+`paused` is **not an outcome** — it means only "does not advance automatically". The instance
+keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep running.
 
-**That stop was later wanted, and built on exactly those terms** (migration 045): `cancelled` is
-settled beside `failed`, `RetryProcess` refuses it by name, and `paused` is untouched — the two
-verbs never meet, which is what keeps this document true. See §Cancel below.
+- `pause` — root only; `running` rows go to `pausing` if leased, else `paused`.
+- `resume` — `paused`/`pausing` rows anywhere in the subtree go to `running`.
+- `retry` — root only, `failed` only; `force` overrides `only_once`.
+- `cancel` — root only, terminal (§Cancel). `cancelled` is settled beside `failed`,
+  `RetryProcess` refuses it, and it never meets `paused`.
 
 ## The decisions
 
-1. **Pause is non-destructive, so resume is a status flip.** Everything that makes
-   retry complicated is *absent* from resume: no revive walk, no wait-state
-   reconstruction, no `only_once` question, no force. The asymmetries fall out rather
-   than being chosen (budget untouched vs deliberately exceeded; `wake_at` preserved vs
-   backoff cleared; mechanical vs judgement call). This is why the verbs must never
-   re-merge.
-2. **`pausing` means *leased*, not not-yet-seen.** Only a row a worker currently holds
-   drains; everything parked goes straight to `paused` — load-bearing, because a
-   `children` row is excluded from claims, so marking it `pausing` would strand it
-   forever (the old cancel path dodged this only via a trick pause cannot use).
-   `pausing` stays claimable purely for crash recovery (`settlePausing`); the
-   interrupted-`only_once` verdict is resolved on that reclaim *before* the pause
-   settles — its evidence does not survive the settling write — see
-   [only-once-interrupted.md](only-once-interrupted.md); `settlePausing` must not
-   regain the question.
-3. **A pending pause lands in SQL, not in Go.** A worker mid-task cannot know the pause
-   arrived after its claim, so `pausing → paused` is a CASE on the lease-releasing
-   writes — guarded in `UpdateInstance` so real outcomes still win, unconditional in
-   `UpdateInstanceProgress` (a checkpoint means "still running"). Progress matters
-   most: it is also the write that parks on a delay/external — the pause lands there
-   or never. `SpawnChildrenAndWait` remaps explicitly, and children inherit the
-   settled status so a suspended tree never spawns runnable work.
-4. **A failure outranks a pause.** `FailAncestors` includes paused/pausing rows. But
-   paused children count as active, so a tree that loses a branch while suspended sits
-   at `failing` over paused descendants until resumed — not a bug; resume is how the
-   operator unblocks it, which is why `ResumeProcess`'s precondition is on the
-   *subtree*, not the root's status. `WakeParent` arms a paused parent for `collecting`
-   (healthy, just suspended); a failing one gets `''`.
-5. **Timers keep running while paused.** A timer elapsing during a pause is due at
-   resume. Freeze-and-rebase was rejected: paused must mean *only* "does not continue
-   automatically".
-6. **Delivery is not advancement.** A paused instance still accepts signals (rejecting
-   would make a pause lose events). Armed → delivered but not advanced
-   (`DeliverSignal` leaves status alone); unreached → buffered. Treating
-   paused-but-armed as unarmed looks safer and is not: an armed task never re-arms, so
-   the buffered result would sit unread forever (caught by a test, not review). The
-   external-task queue excludes paused rows — resolve would reject the submission.
-7. **Audit asymmetry is deliberate.** Per-instance entries are debug (subtree fan-out);
-   only pause gets a root info entry, because only its outcome is deferred
-   (`meta.pausing` counts the drainers). Resume is atomic, so a root entry would
-   restate the per-instance ones — do not "fix" the asymmetry. Both log after commit;
-   both SELECT-FOR-UPDATE + explicit id-list updates (same lock order as
-   FailAncestors), which also yields the per-instance outcomes a row count cannot.
+1. **Pause is non-destructive, so resume is a status flip.** Everything that makes retry
+   complicated is *absent* from resume: no revive walk, no wait reconstruction, no `only_once`
+   question, no force. The asymmetries fall out rather than being chosen (budget untouched vs
+   deliberately exceeded; `wake_at` preserved vs backoff cleared). This is why the verbs must
+   never re-merge.
+2. **`pausing` means *leased*, not not-yet-seen.** Only a row a worker currently holds drains;
+   everything parked goes straight to `paused` — load-bearing, because a `children` row is
+   excluded from claims, so marking it `pausing` would strand it forever. `pausing` stays
+   claimable purely for crash recovery (`settlePausing`); the interrupted-`only_once` verdict is
+   resolved on that reclaim *before* the pause settles, since its evidence does not survive the
+   settling write ([only-once-interrupted.md](only-once-interrupted.md)). `settlePausing` must
+   not regain the question.
+3. **A pending pause lands in SQL, not in Go.** A worker mid-task cannot know the pause arrived
+   after its claim, so `pausing → paused` is a CASE on the lease-releasing writes — guarded in
+   `UpdateInstance` (only where the new status is `running`, so real outcomes win),
+   unconditional in `UpdateInstanceProgress` (a checkpoint means "still running"). Progress
+   matters most: it is also the write that parks on a delay/external — the pause lands there or
+   never. `SpawnChildrenAndWait` remaps explicitly, and children inherit the settled status so a
+   suspended tree never spawns runnable work.
+4. **A failure outranks a pause.** `FailAncestors` includes paused/pausing rows. Paused children
+   count as active, so a tree that loses a branch while suspended sits at `failing` over paused
+   descendants until resumed — which is why `ResumeProcess` keys on the *subtree*, not the root's
+   status. `WakeParent` arms a paused parent for `collecting` (healthy, just suspended); a failing
+   one gets `''`.
+5. **Timers keep running while paused.** A timer elapsing during a pause is due at resume.
+   Rejected: freeze-and-rebase — paused must mean *only* "does not continue automatically".
+6. **Delivery is not advancement.** A paused instance still accepts signals (rejecting would
+   lose events); the outcome waits, unclaimable, until resume. `DeliverSignal` decides armed-ness
+   without testing status: treating paused-but-armed as unarmed would buffer a result no re-arm
+   will ever read. The external-task claim queue excludes paused rows.
+7. **Audit asymmetry is deliberate.** Per-instance entries are debug (subtree fan-out); only
+   pause gets a root info entry, because only its outcome is deferred (`meta.pausing` counts the
+   drainers). Resume is atomic, so a root entry would restate the per-instance ones — do not
+   "fix" the asymmetry. Both log after commit; both lock the subtree in id order (`lockTree`, the
+   order every tree verb shares) and update an explicit id list, which also yields the
+   per-instance outcomes a row count cannot.
 
 ## Known gaps
 
-The deferred `pausing → paused` landing is unlogged in the normal case — it happens
-inside the owner's write, and reporting it back means RETURNING on the hottest queries
-plus `:exec`→`:one` semantics changes at seven call sites; judged a bad trade (the
-crash-recovery path does log it). Resume has no info-level trace — attribution needs
-`?level=debug`; accepted. Migration 022's data mapping is untested (the runner only
-exposes `m.Up()`, so test DBs never hold legacy rows); its index rebuild is covered
-indirectly by every claim-path test.
+The deferred `pausing → paused` landing is unlogged in the normal case: it happens inside the
+owner's write, and reporting it back means RETURNING on the hottest queries — judged a bad trade
+(the crash-recovery path does log it). Resume has no info-level trace; attribution needs
+`?level=debug`. Migration 022's data mapping is untested (test databases never hold legacy rows).
 
-## Coverage & future
+## Open
 
-Each decision above is pinned by named tests across `pause_retry_test.go`, the
-tick-suite pause files, `crash_recovery_test.ts`, `signal_test.ts`, and the stress
-suites (pause vs FinishChild/FailAncestors races, SIGKILL chaos, the Postgres fleet).
 Pause is also the foundation for step-debugging (start paused + per-instance tick; one
 `advance()` is the natural step unit) — tracked in ROADMAP.
 
-## Prior art
-
-Mature engines separate the same three axes: reversible suspension, terminal
-cancellation, retry-budget override. Suspension is expensive in an event-sourced
-partitioned engine; it is nearly free here, where the scheduler is a claim query over
-one table — why genroc has it and some larger engines still do not.
-
 ## Cancel
 
-**Built 2026-09-07.** `cancelling`/`cancelled`, root-only, reusing this document's machinery
-rather than extending it: the leased/parked split is pause's (a row a worker is inside can only
-be ASKED to stop), the deferred landing is pause's CASE in the lease-releasing writes, and the
-crash-recovery settle is `settlePausing`'s shape. Three things differ, each because cancel is
-terminal where pause is reversible:
+`cancelling`/`cancelled`, root-only, reusing this document's machinery: the leased/parked split
+is pause's (a row a worker is inside can only be ASKED to stop), the deferred landing is pause's
+CASE in the lease-releasing writes, and `settleCancelling` has `settlePausing`'s shape. Three
+things differ, each because cancel is terminal where pause is reversible:
 
 1. **The selector is every live status, not `running` alone.** A paused tree is exactly what an
-   operator needs to dispose of, and a `failing` one draining a dead branch is the other. Pause
-   can take `running` only because anything else is already stopped in the sense pause means.
-2. **A failure does not outrank a cancel** — the reverse of §4. A pause is reversible, so the
-   tree must still record that it broke; a cancel is terminal and there is no later run for the
+   operator needs to dispose of, and a `failing` one draining a dead branch is the other.
+2. **A failure does not outrank a cancel** — the reverse of §4. There is no later run for the
    failure to matter to, so `FailAncestors` excludes both cancel states and the operator's stop
    stands.
-3. **`settleCancelling` does not resolve an interrupted `only_once` first**, unlike
-   `settlePausing`. That resolution exists to route `only_once.interrupted` into `on_error` so
-   the process can ask the system of record and carry on — and carrying on is what the operator
-   just forbade. The interruption stays in the trail; what it must not do is restart the tree.
+3. **`settleCancelling` does not resolve an interrupted `only_once` first.** That resolution
+   routes `only_once.interrupted` into `on_error` so the process can carry on — which is what the
+   operator just forbade.
 
-What does NOT differ is §1: cancel writes the status column and nothing else, so a stopped
-tree still records what each node was doing. Clearing `phase` was tried and reverted —
-besides losing that record, it breaks `ReleaseExternalClaim`, which finds a claim by
-`phase = 'external'`, and releasing is precisely what the heartbeat tells a cancelled
-worker to do. `settleFailing` clears the wait because there it genuinely ENDED; a cancel
-abandons one, which is not the same thing.
+What does NOT differ is §1: cancel writes the status column and nothing else, so a stopped tree
+still records what each node was doing. Do not clear `phase`: `ReleaseExternalClaim` finds a
+claim by `phase = 'external'`, and releasing is what the heartbeat tells a cancelled worker to do.
+(`settleFailing` clears the wait because there it genuinely ended; a cancel abandons one.)
 
-Two seams the build found. `ClaimInstances`'s status list and migration 045's partial index are
-**one predicate written twice**: `cancelling` must be in both, and a status in the index but not
-the query is simply never scanned — which strands every draining row whose worker died. And
-`Status.Terminal()`'s SQL copies (`CountActiveSiblings`, `NonTerminalSubtree`) had to gain
-`cancelled` by hand, as that function's own comment warns.
+Two seams. `ClaimInstances`'s status list and the `idx_instances_runnable` partial index are
+**one predicate written twice**: `cancelling` must be in both, and a status in one but not the
+other is either never scanned (stranding every draining row whose worker died) or index churn. And
+`Status.Terminal()`'s SQL copies (`CountActiveSiblings`, `NonTerminalSubtree`) gain a terminal
+status by hand.
 
-Reaching work already in flight is the heartbeat's job, not this document's:
+Reaching work already in flight is the heartbeat's job:
 [external-task-queue.md](external-task-queue.md) §Renew is the heartbeat.

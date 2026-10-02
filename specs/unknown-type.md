@@ -1,50 +1,40 @@
 # The `unknown` type: opaque results, narrowed at the boundary
 
-Status: **implemented 2026-07-31** (designed 2026-07-21). Authored as the empty schema
-`{}` — there is no keyword; worked example in `examples/polling-task/`. The **Infer**
-mode below is the one part still unbuilt. Invariants live in
-[internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md).
+Status: **Built, except the Infer result-typing mode.** Authored as `{}`; worked example in
+`examples/polling-task/`. Invariants live in [internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md).
 
 ## The idea
 
-An `unknown` is a value a process **handles but does not inspect**; whoever wants to
-read it must narrow it first — exactly how a `fetch` response already needs a
-`responses` schema. This makes a child process able to play the same opaque-source role,
-uniformly. Motivation: a forwarding process should not have to declare a shape that is
-the *caller's* concern.
+An `unknown` is a value a process **handles but does not inspect**; whoever reads it must narrow
+it first, as a `fetch` body needs a `responses` schema. A forwarding process should not have to
+declare a shape that is the *caller's* concern.
 
 ## `unknown` IS the `{}` top type
 
-No keyword, no alias — the empty node already had the three needed behaviours (this is
-`unknown`, emphatically not `any`): reads through it are rejected (with a dedicated
-message, since it is the one such case an author reaches deliberately); `{} ⊄ T` for
-any typed T; `X ⊆ {}` — so it can be exported or nested (`{data: self.result}`) and
-nothing else.
+No keyword: the empty node already behaves as `unknown` (emphatically not `any`). Reads through
+it are refused (`ErrUnknownValue` — a dedicated message, since it is the one such case an author
+reaches deliberately); `{} ⊄ T` for any typed T; `X ⊆ {}`, so it can be exported or nested
+(`{data: self.result}`) and nothing else.
 
-- **Announcing intent:** a YAML comment, or a `description` — `isEmptyNode` ignores it,
-  it survives into storage and the editor, and canonicalization strips it before type
-  identity, so it provably cannot perturb inference.
-- **A `type: unknown` keyword was built, then dropped**: it would have been genroc's
-  only divergence from JSON Schema (everything else is subsetting, so outside tooling
-  works unmodified), and the explicitness was illusory — erased at parse, it existed
-  only in the one medium that already has comments and descriptions. A custom
-  `{"unknown": true}` keyword was rejected too (the parser rejects unknown keywords by
-  allowlist, so genroc doesn't play by the ignore-unknown convention).
-- **Omission stayed an error**: an omitted `result_schema` still yields an unreadable,
-  unexportable result. Making omission mean `unknown` would erase "I meant opaque" vs
-  "I forgot", deferring the failure to some distant consumer. The states were already
-  distinct; the error message names both fixes.
+- Intent is announced with a YAML comment or a `description`: `isEmptyNode` ignores it and
+  canonicalization strips it, so it cannot perturb inference.
+- Rejected: a `type: unknown` keyword. It would be genroc's only divergence from JSON Schema
+  (everything else is subsetting, so outside tooling works unmodified), and it would be erased at
+  parse anyway. A custom `{"unknown": true}` fails the keyword allowlist.
+- **Omission stays an error**: an omitted `result_schema` yields an unreadable, unexportable
+  result. Omission meaning `unknown` would erase "I meant opaque" vs "I forgot" and defer the
+  failure to a distant consumer; the message names both fixes.
 
 ## Narrowing — the one load-bearing rule
 
-An unknown enters the typed world only through a **runtime-checked** narrowing, and the
-narrowing point already existed: the `result_schema` on the producing action, conformed
-at collect from the parent's pinned definition. The entire build was one relation:
-`Schema.NarrowsTo` = `IsSubset` with the `isEmptyNode(sub)` rule flipped, checked
-inside the recursion (so an unknown narrows at any depth), used by
-`checkChildOutputType` and nowhere else (later also `checkDeclaredRaises`, for X2's payloads). A typed **input** still rejects `{}` — not for
-symmetry, but because nothing conforms a child input on the parent's behalf; the
-privilege belongs exactly where a real check stands behind it.
+An unknown enters the typed world only through a **runtime-checked** narrowing: the parent's
+`result_schema` (or `raises` entry), conformed at collect against the parent's current task
+schema by `resolveAndValidateChildOutput` for `child`, `child_map` and `child_list` alike; a
+failure is a catchable `result.invalid`. Statically that is `Schema.NarrowsTo` — `IsSubset` with
+the `isEmptyNode(sub)` rule flipped inside the recursion, so an unknown narrows at any depth —
+used by `checkChildOutputType` and `checkDeclaredRaises` and nowhere else. A typed **input** still
+refuses `{}`: nothing conforms a child input on the parent's behalf, and the privilege belongs
+only where a real check stands behind it.
 
 ## How a parent types a child result
 
@@ -74,31 +64,26 @@ four costs above, cycle handling is the one that does not disappear — it moves
 ## Consequences (deliberate)
 
 Validation moves from source to consumption: a malformed payload fails at the *parent*
-boundary, outside the child's own retry scope; an unknown nobody narrows is never
-validated at all; multiple consumers may narrow the same value to different schemas,
-each checked independently. The narrowing conform also **strips** undeclared keys. All
-pinned by the example's integration test (child completes, parent fails).
+boundary, outside the child's own retry scope; an unknown nobody narrows is never validated;
+several consumers may narrow one value to different schemas, each checked independently. The
+narrowing conform also **strips** undeclared keys. Pinned by
+`tests/integration/examples_polling_test.ts`.
 
-The per-field rule of thumb: data a process reads to decide must stay typed; only data
-it forwards untouched can be unknown. The poller is the canonical mix — opaque body
-(drives its loop off the HTTP status instead), typed `attempts`.
+Data a process reads to decide must stay typed; only data it forwards untouched can be unknown.
+The poller is the canonical mix — opaque body, typed `attempts`.
 
-## Ledger
+## Traps
 
-Built: `NarrowsTo`, two error messages that name the fix, and — opportunistically —
-unrecognised **type names now rejected at registration** (they used to parse into
-silently-unsatisfiable schemas; a CheckDoc rule, not a decode rule, so legacy rows stay
-decodable). Reused untouched: the `{}` top type and its pass-through validation, the
-`result_schema` conform, all recursion machinery. **Trap avoided:** do not represent
-unknown as a dangling `$ref` — a missing def is a hard error on touch, and an
-unresolved super in `IsSubset` silently reads as top (unsound).
+- Do not represent unknown as a dangling `$ref`: a missing def is a hard error on touch, and an
+  unresolved super in `IsSubset` silently reads as top (unsound).
+- Unrecognised type names are refused by `CheckDoc` at registration, not at decode, so stored
+  rows stay decodable.
+
+## Open
 
 Open: Infer's cross-process machinery; a better message when a typed input rejects an
 unknown; hardening `derefSubset` to error on unresolved super (latent, independent,
-still unfixed). Settled while building: all three child collectors funnel through
-`resolveAndValidateChildOutput`, so narrowing is backed by a real check for
-`child`/`child_map`/`child_list` alike (the schema's *address* moved off the spawn row
-— version-compatibility.md §3a).
+still unfixed).
 
 ## Appendix — not planned: schema-valued generics
 
