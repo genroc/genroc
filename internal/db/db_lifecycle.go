@@ -190,9 +190,9 @@ func (db *DB) lockTree(ctx context.Context, exec dbgen.DBTX, columns, where stri
 	return rows.Err()
 }
 
-// heldColumns: whether a worker holds the row's lease at `?` (now). A leased row cannot be stopped
-// mid-task, so it only records the request and settles on the write that ends its task.
-const heldColumns = `id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ? THEN 1 ELSE 0 END AS held`
+// heldColumns: whether a worker is on the row, lapsed lease or not. Such a row only records the
+// request: its owner's write settles it, or a new claim bumps the epoch, fencing that write, and settles it.
+const heldColumns = `id, CASE WHEN worker_id IS NOT NULL THEN 1 ELSE 0 END AS held`
 
 // scanHeld sorts each row into settled or leased by its held flag.
 func scanHeld(settled, leased *[]string) func(*sql.Rows) error {
@@ -234,7 +234,7 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 
 		// Selecting rather than blind-updating yields the per-instance outcome the audit trail
 		// needs, which a row count cannot express.
-		if err := db.lockTree(ctx, exec, heldColumns, `status = 'running'`, scanHeld(&settled, &leased), now, id); err != nil {
+		if err := db.lockTree(ctx, exec, heldColumns, `status = 'running'`, scanHeld(&settled, &leased), id); err != nil {
 			return err
 		}
 
@@ -461,7 +461,7 @@ func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleRes
 		now := nowMillis()
 
 		if err := db.lockTree(ctx, exec, heldColumns, `status IN ('running', 'failing', 'pausing', 'paused')`,
-			scanHeld(&settled, &leased), now, id); err != nil {
+			scanHeld(&settled, &leased), id); err != nil {
 			return err
 		}
 

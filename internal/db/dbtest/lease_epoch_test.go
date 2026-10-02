@@ -577,47 +577,63 @@ func TestFence_ReusedEpochProgress(t *testing.T) {
 	}
 }
 
-// A pause or cancel that settles a lapsed lease is an operator's stop: the still-alive owner's late
-// write, with or without the gate's repair renewal first, must not turn it back into a run.
-func TestLapsedLease_TheStopSurvivesTheOwnersLateWrite(t *testing.T) {
+// A stop on a row with a worker recorded drains, lapsed lease or not: the late owner either saves in
+// time (and its save settles the stop), or a new claim bumps the epoch and fences that save out.
+func TestLapsedLease_TheStopDrainsInsteadOfSettling(t *testing.T) {
 	stops := []struct {
-		name string
-		want model.Status
-		stop func(*dbpkg.DB) (dbpkg.LifecycleResult, error)
+		name              string
+		draining, settled model.Status
+		stop              func(*dbpkg.DB) (dbpkg.LifecycleResult, error)
 	}{
-		{"pause", model.StatusPaused, func(d *dbpkg.DB) (dbpkg.LifecycleResult, error) {
+		{"pause", model.StatusPausing, model.StatusPaused, func(d *dbpkg.DB) (dbpkg.LifecycleResult, error) {
 			return d.PauseProcess(context.Background(), "lapse-1", "")
 		}},
-		{"cancel", model.StatusCancelled, func(d *dbpkg.DB) (dbpkg.LifecycleResult, error) {
+		{"cancel", model.StatusCancelling, model.StatusCancelled, func(d *dbpkg.DB) (dbpkg.LifecycleResult, error) {
 			return d.CancelProcess(context.Background(), "lapse-1", "")
 		}},
 	}
 	for _, stop := range stops {
-		for _, renew := range []bool{false, true} {
+		for _, reclaimed := range []bool{false, true} {
 			for _, b := range testBackends(t) {
-				t.Run(fmt.Sprintf("%s/%s/renew=%v", b.name, stop.name, renew), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/%s/reclaimed=%v", b.name, stop.name, reclaimed), func(t *testing.T) {
 					insertRunning(t, b.db, "lapse-1")
-					inst := claimOne(t, b.db, "worker-A", 30*time.Millisecond)
+					late := claimOne(t, b.db, "worker-A", 30*time.Millisecond)
 					dbpkg.AdvanceClock(time.Second)
 
 					res, err := stop.stop(b.db)
 					if err != nil {
 						t.Fatalf("%s: %v", stop.name, err)
 					}
-					if res.Status != stop.want {
-						t.Fatalf("premise: a lapsed lease settles straight to %q, got %q", stop.want, res.Status)
+					if res.Status != stop.draining {
+						t.Fatalf("a lapsed lease still has a worker on it, so the %s must drain: got %q, want %q",
+							stop.name, res.Status, stop.draining)
 					}
-					if renew {
-						if _, err := b.db.RenewWorkerLeases("worker-A", []string{"lapse-1"}, time.Minute); err != nil {
-							t.Fatalf("RenewWorkerLeases: %v", err)
+
+					late.Status = model.StatusRunning
+					if !reclaimed {
+						if err := b.db.UpdateInstance(late); err != nil {
+							t.Fatalf("the late owner's save was refused though nobody reclaimed the row: %v", err)
 						}
+						if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.settled {
+							t.Fatalf("the late owner's save did not settle the %s: status %q", stop.name, got.Status)
+						}
+						return
 					}
 
-					inst.Status = model.StatusRunning
-					_ = b.db.UpdateInstance(inst)
-
-					if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.want {
-						t.Fatalf("the owner's late write undid the %s: status %q", stop.name, got.Status)
+					fresh := claimOne(t, b.db, "worker-B", time.Minute)
+					if err := b.db.UpdateInstance(late); !errors.Is(err, dbpkg.ErrLeaseLost) {
+						t.Fatalf("the late owner's save after a reclaim: err=%v, want ErrLeaseLost", err)
+					}
+					if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.draining {
+						t.Fatalf("the fenced save moved the row: status %q, want %q", got.Status, stop.draining)
+					}
+					// What settlePausing / the cancel settle does on the new grant.
+					fresh.Status = stop.settled
+					if err := b.db.UpdateInstance(fresh); err != nil {
+						t.Fatalf("the new owner could not settle the %s: %v", stop.name, err)
+					}
+					if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.settled {
+						t.Fatalf("the %s did not settle on the new grant: status %q", stop.name, got.Status)
 					}
 				})
 			}

@@ -30,17 +30,18 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
    question, no force. The asymmetries fall out rather than being chosen (budget untouched vs
    deliberately exceeded; `wake_at` preserved vs backoff cleared). This is why the verbs must
    never re-merge.
-2. **`pausing` means *leased*, not not-yet-seen.** Only a row a worker currently holds drains;
-   everything parked goes straight to `paused` — load-bearing, because a `children` row is
-   excluded from claims, so marking it `pausing` would strand it forever. `pausing` stays
-   claimable purely for crash recovery (`settlePausing`); the interrupted-`only_once` verdict is
+2. **`pausing` means *a worker is on it* (`worker_id` set, lease lapsed or not), not not-yet-seen.**
+   A lapsed owner may still save; either its save settles the row, or a new claim bumps the epoch,
+   fences it out and settles the row; settling a lapsed row directly let the late save undo the
+   stop. Only such a row drains; everything parked goes straight to `paused` — load-bearing,
+   because a `children` row is excluded from claims, so marking it `pausing` would strand it
+   forever. `pausing` stays claimable for a dead or lapsed owner (`settlePausing`); the interrupted-`only_once` verdict is
    resolved on that reclaim *before* the pause settles, since its evidence does not survive the
    settling write ([only-once-interrupted.md](only-once-interrupted.md)). `settlePausing` must
    not regain the question.
 3. **A pending pause lands in SQL, not in Go.** A worker mid-task cannot know the pause arrived
    after its claim, so `pausing → paused` is a CASE on the lease-releasing writes — guarded in
-   `UpdateInstance` (only where the new status is `running`, so real outcomes win; it matches
-   settled `paused`/`cancelled` too, which a stop leaves on a lapsed lease whose owner may still write),
+   `UpdateInstance` (only where the new status is `running`, so real outcomes win),
    unconditional in `UpdateInstanceProgress` (a checkpoint means "still running"). Progress
    matters most: it is also the write that parks on a delay/external — the pause lands there or
    never. `SpawnChildrenAndWait` remaps explicitly, and children inherit the settled status so a

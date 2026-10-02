@@ -1648,10 +1648,10 @@ SET task             = ?1,
     objects          = ?11,
     retry_count      = ?12,
     wake_at    = ?13,
-    status           = CASE WHEN status IN ('pausing', 'paused')
+    status           = CASE WHEN status = 'pausing'
                             AND CAST(?14 AS TEXT) = 'running'
                             THEN 'paused'
-                            WHEN status IN ('cancelling', 'cancelled')
+                            WHEN status = 'cancelling'
                             AND CAST(?14 AS TEXT) = 'running'
                             THEN 'cancelled' ELSE CAST(?14 AS TEXT) END,
     phase       = ?15,
@@ -1692,8 +1692,7 @@ type UpdateInstanceParams struct {
 
 // input_data is never written (immutable). The status CASE lands a pause that arrived
 // while this instance was leased, decided in SQL against the row's current value; only
-// a still-running instance settles into 'paused' (pause invariants: CLAUDE.md). 'paused' and
-// 'cancelled' are matched too: a stop that settled a lapsed lease meets the live owner's late write.
+// a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
 // A claim belongs to one occurrence (task_epoch): a write that moves the epoch drops it.
 // lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
 // callers bind both as read under their row lock. worker_id is there because a rewind can
@@ -1849,9 +1848,8 @@ type UpgradeInstanceVersionParams struct {
 // task predicate is what turns that into a lost race a re-run picks up rather than a
 // clobber.
 //
-// worker_id IS NULL is a live case: pause settles a row whose lease lapsed without clearing
-// worker_id, which is the ReclaimedExpired/only_once evidence -- never clear it to admit a move.
-// The handler refuses such a row by name first; this catches one that gained it after the plan.
+// worker_id IS NULL is defence: a stop on a row with a worker recorded drains rather than settling,
+// so a settled row has none. Never clear worker_id to admit a move -- it is the only_once evidence.
 func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanceVersionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, upgradeInstanceVersion,
 		arg.ToVersion,
