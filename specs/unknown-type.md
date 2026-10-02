@@ -45,21 +45,11 @@ only where a real check stands behind it.
 | **Infer** (not built) | marker TBD | coupled — child must be defined | auto-adopts; fails only where a changed field is used |
 | **Unknown** (built) | `{}` | decoupled | n/a — consumer narrows |
 
-Infer is the ergonomic linchpin of [custom-tasks.md](custom-tasks.md) and a much larger
-build — it makes output inference recursive across process boundaries: cross-process
-resolution, cycle handling at process granularity (reusing collapse-or-keep /
-productivity), `(process, version)` memoization, and a registration-ordering rule.
-It composes with unknown (an inherited unknown stays unknown; pinning onto it narrows).
-
 **Most of what Infer is wanted for is reachable at author time instead.** The spread form
 resolves another definition's types into the call site and stores the result, so what lands is
-a Pin and none of the runtime machinery above is needed. That is the argument for leaving Infer
-unscheduled, and the reason the row above is a *variant of Pin* rather than a fourth mode.
-
-It pays for that in exactly one place. The spread graph must be **acyclic**, so a self- or
-mutually recursive process cannot type itself by reference, and one edge of the cycle falls back
-to a written Pin or to Unknown ([source-resolution.md](source-resolution.md) §Ordering). Of the
-four costs above, cycle handling is the one that does not disappear — it moves to the author.
+a Pin and no cross-process inference is needed. That is why Infer is unscheduled. Its one cost:
+the spread graph must be **acyclic**, so one edge of a recursive cycle falls back to a written Pin
+or to Unknown ([source-resolution.md](source-resolution.md) §Ordering).
 
 ## Consequences (deliberate)
 
@@ -81,15 +71,14 @@ The poller is the canonical mix — opaque body, typed `attempts`.
 
 ## Open
 
-Open: Infer's cross-process machinery; a better message when a typed input rejects an
-unknown; hardening `derefSubset` to error on unresolved super (latent, independent,
-still unfixed).
+- Infer's cross-process machinery (resolution, cycles at process granularity, `(process, version)`
+  memoization, registration ordering). Trigger: the spread form's acyclicity blocking real
+  definitions.
+- A better message when a typed input rejects an unknown. Trigger: an author misreading it.
+- `derefSubset` reads an unresolved super as top (unsound, latent); it should error. Trigger: any
+  path that lets an unresolved ref reach `IsSubset`.
 
 ## Appendix — not planned: schema-valued generics
 
-Passing schemas as values for generic processes with call-site specialization was
-considered and dropped: it needs a first-class `Schema` type with an untrusted-schema
-boundary, and call-site specialization breaks the solver's per-definition memoization
-(a genuinely new keying axis) — a permanent tax on the hairiest subsystem for no
-recurring use case. The recursion machinery itself would have coped. Resume here if
-genuinely reusable schema-parameterised processes ever materialise.
+Dropped: a first-class `Schema` value needs an untrusted-schema boundary, and call-site
+specialization breaks the solver's per-definition memoization.

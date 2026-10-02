@@ -5,26 +5,7 @@ Status: **X2 built (§X2-c); X1 and X3 are open.** Extends
 batch, slot, raise set) and invariants (I1–I6) apply throughout. An open entry records the case
 both ways and the **trigger** that should reopen it.
 
-## X1 — Routing on batch shape
-
-**Gap.** Only `raised[0]` in slot order routes. Fan out over 100; 40 raise
-`rate_limited`, slot 0 raises `invalid_input` — the parent routes on the one and never
-learns of the 40. The branch that matters ("all raised the same transient code → back
-off and re-spawn" vs "mixed → one item is bad; re-spawning burns the rest") is not
-expressible.
-
-**Shape.** A quantifier on the match, never a payload: `when: all` on a rule
-(`raised[0]` still selects the rule; `when` decides whether it fires).
-
-**For:** zero type cost (no context slot, no schema change, R5 untouched); additive.
-**Against:** adjacent to rejected D2 (the `siblings` aggregate) and thresholds
-(`when: ">50%"`) are the natural next ask — and a count IS a value; rule matching gains
-a second dimension; no observed demand.
-
-**Trigger.** A real fan-out author asks for it, or abandons the error channel for
-`{ok: false}` outputs and finds that unsatisfying.
-
-### X1-b — re-spawn only the raised slots
+## X1-b — re-spawn only the raised slots
 
 Built as child-error-handling.md §5.5. The attempt count rides the child's `_spawn_*`
 bookkeeping, so the sibling queries gain neither column nor predicate, and `on_error` itself
@@ -34,28 +15,6 @@ answers which codes retry. It does not consult batch shape, so X1 is unaffected.
 
 Built as §X2-c. A raise carried code and message only, so a structured value (`card_declined`
 with `{decline_code, retry_after}`) had nowhere to go but message prose.
-
-### The replacement direction: union outputs
-
-Authors reach for data-in-errors because the success channel cannot express "one of
-several shaped outcomes". Instead of a second typed channel, let a completed process
-output a tagged union (`output: {type: declined, decline_code: "51", …}`) and narrow on
-the discriminant. One mechanism; and §0's line then holds because nobody wants to climb
-the wall, not because the wall exists.
-
-This is an increment, not a subsystem — `narrowCondition`, `withGuard`, and the union
-accessors exist. Three gaps, increasing in cost: (1) sibling narrowing via a
-discriminant (`X.disc == lit` should narrow `X`, not just `X.disc`); (2) narrowing
-across `&&`/`||` (today only the ternary's call site narrows); (3) narrowing across a
-switch case into the target task (flow typing over the task graph — hold until 1+2
-prove out). (1)+(2) cover the motivating case, and (1) makes ascription syntax
-unnecessary — the discriminant test *is* the narrowing.
-
-**Deferred (2026-07-24)** with a warning unlike the X-items': deferring additive
-features is free, but narrowing rules are near-permanent once definitions rely on them
-— draw the supported patterns from real usage, do not guess. (2) and (3) shipped
-2026-09-15 ([guard-narrowing.md](guard-narrowing.md)); (1) waits on
-[literal-types.md](literal-types.md).
 
 ### X2-c — parent-readable, caller-declared
 
@@ -157,51 +116,42 @@ runtime:
 What still reaches the runtime conform is a payload whose own type is the top type — a generic
 wrapper forwarding an unknown, and a bet that may lose.
 
-## X3 — Opt-in exhaustiveness over a child's raise set
-
-**Gap.** R5 checks only that every rule can fire; a code added to a child with no rule
-surfaces at runtime (§3.1 row 3).
-
-**Framing that decides the shape:** the motivation is change *subscription* ("tell me
-if this child's raise set drifts"), not strictness — closer to a lockfile than a
-linter, so opt-in is correct, not a compromise. The flag goes on the **child entry**,
-not the task: a task-level flag subscribes to the union across all children, making it
-noisiest exactly where it looks most useful.
-
-**For:** D3 untouched for everyone else; one boolean, no rule-level syntax; reversible.
-**Against:** only helps the already-careful; permanent schema surface for
-undemonstrated demand; and a cheaper alternative may dominate — `raises(D)` is already
-published per version, so a `genctl` diff + CI step answers the question with zero
-engine surface.
-
-Opt-in is defensible only because the default is loud: an unhandled raise fails the
-parent with the child's own code, naming child and slot.
-
-**Trigger.** A team reports a production surprise from §3.1 row 3. Once is anecdote;
-twice is a signal.
-
-### X3-alt — required catch-all (rejected on judgement)
-
-Rule considered: a child task with partial rules and uncovered codes must carry an
-explicit catch-all (verb-less = "the rest are defects") — the `switch` catch-all rule
-made conditional on coverage, with the required-fallthrough-acknowledgement precedent
-behind it. The opt-out marker even exists already (a verb-less catch-all is legal and
-behaves identically to no rule).
-
-**Rejected because:** it breaks every existing definition with partial rules (the
-constraint D3 set); it cannot be uniform with `switch` (an action task's engine-code
-space is open, so the rule would apply unevenly and lose the analogy's consistency);
-and every opt-out spelling is unpleasant (`code: []` reads unfinished; `panic: true`
-costs a `Fault | true` union; `goto: panic` breaks §0's field→outcome mapping and adds
-a third reserved bare word next to `end`'s existing sharp edge). On-by-default is the
-wrong default for something most parents do not want.
-
 ## Summary
 
 | | adds | for | against |
 |---|---|---|---|
-| **X1** | `when: all` quantifier | real branch, zero type cost | adjacent to rejected D2; threshold slope |
+| **X1** | `when: all` quantifier | **open** — real branch, zero type cost | adjacent to rejected D2; threshold slope |
 | **X1-b** | partial re-spawn | **built** — child-error-handling.md §5.5 | |
 | **X2** | caller-declared `raises` | **built** — §X2-c | costs a caller a declaration per code it reads |
-| **X3** | per-entry `exhaustive: true` | right shape for a subscription | helps only the careful; CLI diff may dominate |
-| **X3-alt** | required catch-all | catches the careless | breaking, non-uniform, unpleasant syntax |
+| **X3** | per-entry `exhaustive: true` | **open** — right shape for a subscription | helps only the careful; CLI diff may dominate |
+| **X3-alt** | required catch-all | **rejected** | breaking, non-uniform, no good opt-out |
+
+## Open
+
+### X1 — Routing on batch shape
+
+Only `raised[0]` in slot order routes: fan out over 100, 40 raise `rate_limited`, slot 0 raises
+`invalid_input`, and the parent never learns of the 40 — "all raised one transient code → back
+off and re-spawn" vs "mixed → one item is bad" is not expressible. The shape is a quantifier on
+the match, never a payload: `when: all` on a rule (`raised[0]` still selects the rule; `when`
+decides whether it fires). Zero type cost and additive, but thresholds (`when: ">50%"`) are the
+next ask, and a count is a value — rejected D2's `siblings` aggregate.
+
+**Trigger.** A fan-out author asks for it, or abandons the error channel for `{ok: false}`
+outputs and finds that unsatisfying.
+
+### X3 — Opt-in exhaustiveness over a child's raise set
+
+R5 checks only that every rule can fire; a code added to a child with no rule surfaces at
+runtime (child-error-handling.md §3.1). The motivation is change *subscription* ("tell me if
+this child's raise set drifts"), so opt-in is correct, and the flag goes on the **child entry**:
+a task-level flag subscribes to the union across all children, noisiest where it looks most
+useful. Opt-in is defensible only because the default is loud — an unhandled raise fails the
+parent with the child's code, naming child and slot. A cheaper alternative may dominate:
+`raises(D)` is published per version, so a `genctl` diff in CI answers it with no engine surface.
+
+**Trigger.** A team reports a production surprise from an unruled code. Once is anecdote;
+twice is a signal.
+
+**X3-alt, a required catch-all, is rejected**: it breaks every definition with partial rules
+(D3), cannot be uniform with `switch`, and has no pleasant opt-out spelling.

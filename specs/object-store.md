@@ -138,31 +138,6 @@ When one holder replaces a shared value the content stays, because it is another
 data: no object outlives every claim on it. Sharing happens only between owners that produced
 identical bytes independently, so it grants no access.
 
-### A definition claim is permanent, and needs no special case [decided 2026-08-24]
-
-A `definition` ref carries no horizon and is never dropped: nothing deletes a definition
-version. That is fact rather than policy — there is no delete endpoint and no
-`DELETE FROM process_definitions` anywhere — and it is the retention rule code needs anyway,
-since an instance pinned to an old version must still be able to load its bundle.
-
-**The general rule already implements it.** "Collectable when no ref remains" means an object
-with a definition claim is never collectable; the GC does not need to know what kind of claim it
-found, and no branch is added for one. That is the test of whether the ref model was the right
-shape, and it passes.
-
-Two consequences worth stating so neither is a surprise:
-
-- **Definition objects accumulate monotonically**, and the bound is *distinct bundle content*
-  rather than versions or instances. Content dedupes globally, so a new definition version that
-  changed its YAML but not its script claims the object that is already there. The cost is one
-  object per distinct bundle ever applied, which is bounded by deploys that actually changed the
-  code.
-- **It does not foreclose deletion.** If a version ever becomes deletable, dropping its refs
-  makes its objects collectable through the same rule as everything else — nothing about
-  permanence is baked into the schema, only into the fact that nothing drops those refs today.
-
-Nothing claims under `definition` — §Phasing 3 shipped definition objects without it.
-
 ## The invariants the stress tests encode
 
 `tests/stress/gc_chaos_test.ts` and `object_deref_test.ts` guard the store through crash, error,
@@ -276,14 +251,10 @@ coarsening terminates.
 
 ## Open
 
-- **Whether an `instance` ref is per-slot or per-instance.** Per-instance (today's shape,
-  one ref per (instance, hash)) keeps `applyContextObjectDiff`'s whole-context diff. Per-slot
-  would let a write know less than the whole picture, which is the point of §3 above — but it
-  multiplies rows and the diff is not currently a problem. Start per-instance.
-- **Batch fetch.** N refs in a response is N round trips. The common case is one (a task's
-  code), so this is an optimization rather than a requirement — but a detail view of an
-  instance with ten externalized outputs is ten calls, and `genctl get --resolve` is the thing
-  that will feel it first.
-- **Encryption at rest**, which is what actually protects an object's content and is the reason
-  redaction-on-read was dropped rather than reimplemented. Out of scope here; the shape above
-  does not foreclose it (content is opaque to every layer but the one that wrote it).
+- **Per-slot `instance` refs.** Per-instance today; per-slot only if the whole-context diff
+  (`applyContextObjectDiff`) becomes a problem.
+- **Batch fetch.** N refs is N round trips; the common case is one (a task's code). Build when a
+  view resolving many refs feels it — `genctl get --resolve` first.
+- **Encryption at rest** — what actually protects content, and why redaction-on-read was dropped.
+  Build when values at rest need protection; content is opaque to every layer but its writer, so
+  nothing above forecloses it.

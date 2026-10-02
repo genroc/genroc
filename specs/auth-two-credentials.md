@@ -50,10 +50,9 @@ cookie's `SameSite=Lax` is set by genroc-ui's code.
 
 Every token is a machine credential, and rotating one is a deploy, not a clock, so nothing sets
 `api_tokens.expires_at`. The column stays because a lifetime is a property of a credential, not of
-a session, and dropping it costs a migration — and it is where a `--expires` flag would hang the
-day a machine token wants a lifetime. `GetAPITokenByHash` and `CountLiveAdminTokens` exclude
-expired rows in SQL, so an expired admin token neither authenticates nor satisfies bootstrap
-(api-auth.md §5.3).
+a session, and dropping it costs a migration (§8). `GetAPITokenByHash` and `CountLiveAdminTokens`
+exclude expired rows in SQL, so an expired admin token neither authenticates nor satisfies
+bootstrap (api-auth.md §5.3).
 
 ## 6.1 `X-Genroc-Actor`
 
@@ -64,9 +63,9 @@ not a `/whoami` endpoint: no extra round trip, nothing to keep fresh, and no per
 for an endpoint every principal may reach. **Absent on a 401** — the absence tells a client to ask
 for a credential — and **present on a 403**, where naming the caller is the point. HTTP only.
 
-## 8. Open, and deliberately not decided here
+## 8. Open
 
-- **mTLS / mesh identity.** Still no OIDC token. A future `mtls` mode reads the connection, not
-  a header; until then those callers use `token`.
-- **PKCE in the SPA.** Would remove the proxy from the browser path entirely and is the other
-  way to satisfy §0's rule. Not needed here, because §3 gives the browser a JWT without it.
+- **`--expires` on `token create`** — the day a machine token wants a lifetime; it writes
+  `expires_at`, which §6 keeps for it.
+- **An `mtls` mode** — when mesh-identified machines cannot hold a `token`. It reads the
+  connection, never a header.

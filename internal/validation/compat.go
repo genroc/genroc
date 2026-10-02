@@ -107,7 +107,7 @@ const (
 type SetReport struct {
 	Compatible bool `json:"compatible"`
 	// Passes is the same question asked of the SELECTION: false only where a GATING member
-	// broke. The two disagreeing is the intended reading when something is ignored (§8).
+	// broke. The two disagreeing is the intended reading when something is ignored (§6d).
 	Passes bool `json:"passes"`
 	// Exactly one row per name on either side, whatever became of it — an unanalysable
 	// version included, so a reader never crosses two arrays to find out what happened.

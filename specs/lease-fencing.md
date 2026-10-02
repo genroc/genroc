@@ -31,13 +31,7 @@ fast failover, so the stale writer is stopped at the resource, not by timing.
   one re-issues the same epoch to someone else. Postgres only (SQLite is in-process, so a rewind
   takes the worker with it): failover to a lagging replica, or an unclean shutdown under relaxed
   durability (durability-levels.md §7). So two live workers must never share an id, and the
-  default is `hostname-pid-random`.
-- **The narrow case it does not close**, recorded so it is not mistaken for covered:
-  `runAdvance` drops the in-flight marker *before* persisting (deliberately — a freed row
-  still marked is a wedged instance), so a rewind landing in that gap lets the same worker
-  start a second advance at a re-issued epoch with `worker_id` matching on both. Bounded by
-  that window; the alternative that closes it is rewind detection
-  (`pg_postmaster_start_time()`), rejected for now as a second mechanism to keep true.
+  default is `hostname-pid-random`. One narrow rewind case stays open (§Open).
 
 ## The fenced write surface
 
@@ -135,12 +129,12 @@ Go throughout (nothing over HTTP can freeze a worker); freezes are simulated wit
 - `tests/tick/lease_fence_test.ts` — the fence over HTTP (`/tick advance_ms` as the sleep, a
   concurrent tick as the wake). The gate stays in Go: `Tick` has no gate.
 
-## Open questions
+## Open
 
-- Should `lease_lost` be counted and exposed (an API field), or is the per-instance audit
-  entry enough? Leaning enough — the loud case is a stream of them.
-- Should the skipping claimant apply the `only_once` verdict immediately rather than
-  deferring to the next claim? It holds the current epoch, so the write would be
-  legitimate and a lease period faster; against it, `dispatch` gains a definition lookup
-  and a `failInstance`, and the deferred path reuses the existing `prepareAdvance` check.
-  Deferring wins unless the extra lease period turns out to matter.
+- **A rewind inside `runAdvance`'s marker gap is not fenced.** The in-flight marker drops *before*
+  persisting (a freed row still marked is a wedged instance), so a rewind there lets the same
+  worker start a second advance at a re-issued epoch, `worker_id` matching on both. Closing it
+  needs rewind detection (`pg_postmaster_start_time()`), a second mechanism to keep true — build
+  if Postgres failover or relaxed durability makes that window real.
+- **The skipping claimant's `only_once` verdict** is deferred to the next claim; revisit if a lease
+  period matters.

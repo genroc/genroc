@@ -160,15 +160,9 @@ matches a day).
 - Don't route the literal grammar through `shape.Shape`; the `$:` branch uses a plain shape, not
   `Expr` (the slot's string still carries its marker).
 
-## Open questions
+## Open
 
-Lists (`0,15,30,45`) — steps cover every regular schedule. Steps on date fields —
-unasked. `tz` from an expression ("their local time") — the easiest slot to relax
-later; relaxing is compatible, tightening is not. A definition-level default `tz`.
-A ceiling on resolved delays (a `$:` units slip parks an instance for a decade;
-shipped unbounded, a gap carried forward from `ms`). Per-attempt vs whole-task
-timeouts — `timeout: 30s` with three retries is up to four attempts plus backoff;
-"give up after 2 minutes total" is inexpressible, and an `until` fetch would be the
-wrong answer — a separate whole-task budget is the honest one. `$:` accepting RFC 3339
-on `until` — reintroduces a runtime parse needing a catchable code; the number form
-covers callers that can convert (same wall as `Retry-After` in fetch-http-surface).
+- A ceiling on resolved delays: a `$:` units slip parks an instance for a decade (unbounded, as
+  `ms` was). Trigger: the first runaway wait.
+- A whole-task budget: `timeout` is per attempt, so "give up after 2 minutes total" is
+  inexpressible (an `until` fetch is the wrong answer). Trigger: a retrying call with a deadline.

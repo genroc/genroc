@@ -1,7 +1,7 @@
 # API authentication and authorization
 
-Status: **Built**, except the resource half of authorization and scoped grants (§3, §9), k8s
-`TokenReview` (§5.3) and attribution history (§7).
+Status: **Built**, except the resource half of authorization, scoped grants, k8s `TokenReview`
+and attribution history (§10).
 
 Four specs cover auth, each fact in one of them: this one owns authorization, the path contract,
 machine tokens, JWT verification and attribution; [auth-two-credentials.md](auth-two-credentials.md)
@@ -137,16 +137,12 @@ carries its credential in the envelope's `Token` field; a unix socket skips the 
 authorized by its file mode, like the docker socket. `Envelope.principal` is unexported so the
 wire cannot set it.
 
-**Two shapes v1 must not foreclose, because both are expensive to retrofit and free now.**
+**`Grants` is `[]Grant`, not `[]Perm`** — a permission plus a `Constraint` declared and never
+populated, because a bare permission cannot express *"resolve tasks in `approval`"*. A scoped grant
+(§10) then changes what the check reads, not the type every call site passes.
 
-1. **`Grants` is `[]Grant`, not `[]Perm`** — a permission plus a `Constraint` declared and never
-   populated, because a bare permission cannot express *"resolve tasks in `approval`"* (§9).
-2. **Authorization is two-phase.** A check in front of the handler answers *does this principal
-   hold `worker` at all* — but `resolve` carries only a token, and the process it belongs to is
-   not known until the row is fetched. So the resource half runs INSIDE the handler, once the
-   target is loaded. A pure middleware model cannot express this, and bolting it on later means
-   threading the grant into every handler that resolves an id. **Only the coarse half is built**;
-   the resource half has nothing to enforce until a constraint can be set.
+**Only the coarse half of authorization is built** — *does this principal hold `worker` at all*.
+The resource half, inside the handler once the target is loaded, is §10.
 
 ## 4. The role map, and where it lives
 
@@ -155,9 +151,6 @@ Not in the server: genroc-ui resolves groups to permissions ([ui-issued-tokens.m
 describing which tokens to accept — `-jwt-secret-file` (or `$GENROC_JWT_SECRET`, exclusive),
 `-jwt-issuer`, `-jwt-audience`, `-jwt-leeway` — each with a `$GENROC_JWT_*` variable; a file for
 four scalars would be a parser and a mount for nothing.
-
-Per-process scoping (`team-a` may deploy `orders-*`) is the obvious next ask and is
-deliberately **not** in v1 — §9.
 
 ## 5. Machines get tokens
 
@@ -235,11 +228,6 @@ replicas starting together all insert — 8 replicas minted 8 admin tokens with 
 transaction, 1 under SERIALIZABLE. SQLite's single writer hides this, so
 `TestTokens_BootstrapRaceMintsExactlyOne` pins nothing without `POSTGRES_DSN`.
 
-**k8s `TokenReview` stays worth building later** — a worker presents its projected ServiceAccount
-token, genroc asks the cluster to validate it, and the ServiceAccount maps to `worker`. Nothing
-to create, distribute or rotate; the kubelet handles it. Strictly better than a stored token in
-k8s, and it needs no new concepts here because it produces the same `Principal`.
-
 ## 6. The exposure warning
 
 No-auth stays the default so `make test` and the quickstarts run unchanged, and is made
@@ -280,14 +268,7 @@ established, and two columns invite the query that reads one and loses the other
 - **A log column is written in two places** — `writeLogBatch` for buffered rows, the common path,
   and sqlc's `InsertLog` for rows carrying objects (internal/db/CLAUDE.md).
 
-**What this does NOT give you is history.** Every actor here is on a current-state row, so
-*"who promoted v7 to prod"* is answerable while v7 is on prod and gone the moment v8 replaces it.
-A definition version is immutable so its actor is permanent; a channel's is not. The audit log
-would be the natural home for the history, and it cannot be: `process_logs.instance_id` is NOT
-NULL and a channel move belongs to no instance. So this needs a second audit table keyed by
-something other than an instance — deliberately not built, because the column answers the
-question that was actually being asked and a table nobody has asked for yet would fix its shape
-before anyone knows what it should hold.
+**No history**: a channel's actor is its last mover (§10).
 
 ## 8. Two codes, not one
 
@@ -304,50 +285,21 @@ action needed, and an empty `Allow` words itself as "the admin permission".
 - **Cookies.** genroc reads `Authorization` only. A cookie is an *ambient* credential, which is
   what CSRF exploits; the browser's cookie belongs to genroc-ui, which sets `SameSite=Lax` itself
   ([ui-component.md](ui-component.md) §2).
-- **Scoped grants** — a permission narrowed by a filter rather than held over everything. The
-  driver is concrete: a UI that renders forms for one process's approvals should hold something
-  that resolves tasks *in that process*, not `worker` over the whole queue.
+- **The caller's `Principal` in expressions.** A definition that behaves per caller is a large
+  idea with no demand behind it.
 
-  **The constraint vocabulary already exists and should be reused verbatim: `(process, version,
-  task)`.** That is what `ClaimExternalTasks` already filters on, what the queue index covers,
-  and what `process_dependencies` addresses by. A grant of
-  `{perm: worker, process: "approval", task: "review"}` introduces no new concept — it is the
-  same triple, applied by the server instead of supplied by the caller.
+## 10. Open
 
-  Nothing new has to be loaded to enforce it. `claim` already turns the triple into SQL
-  predicates, so a constrained grant forces them and a caller cannot widen past its own grant;
-  `resolve` holds the instance and its current task by the time it validates the token
-  (`GetInstance` then `CurrentTask`); `signal` fetches the instance too. What it needs is §3's
-  two-phase check, which is why that is called out there rather than here.
-
-  It generalises: `read` or `operate` narrowed to a process works the same way — load the
-  instance, compare. One hook, every axis. Not built, because the coarse set is what makes a
-  first version reviewable.
-
-  **The shape is reserved rather than merely argued**: `Grant.Constraint` ships declared and
-  never populated, so adding a scoped grant changes what the check reads and not the type every
-  call site already passes. That was §3's first wish and it cost one struct.
-
-- **A per-TASK grant** is the narrower cousin, and genroc already has one worth not reinventing.
-  The two-part
-  token `<instance>.<task_epoch>` names exactly one arming: it is validated against the row, it
-  stops working the moment the task un-parks or a worker claims it, and a retry moves the epoch
-  out from under it. So it is single-use and self-expiring by construction — most of what a
-  scoped grant needs, already there.
-
-  What it is *not* is secret-grade. An instance id carries no randomness at all — it is a
-  scattered per-process counter (`6fah8w2p`, [internal/idgen](../internal/idgen)), it appears in
-  logs,
-  CLI history and every instance view, so the next one is a guess away. That is fine as a handle passed
-  between trusted components and **not** fine as the only thing standing between the public and
-  a resolve, which is what a browser form would make it. So the likely shape is a genroc token
-  (§5) whose row carries `{perm: worker, instance, task}` plus a TTL — minted per form, revocable,
-  attributable — with the external token remaining the addressing INSIDE the request rather than
-  the authorization for it. Recording the distinction now because conflating the two is the
-  tempting shortcut, and it is the one that puts a weak capability on the open internet.
-
-## 10. Open questions
-
-- **Does the caller's `Principal` need to survive into expressions?** A definition that behaves
-  differently per caller is a large idea with no demand behind it, and naming it here is enough
-  to stop it being added accidentally.
+- **The resource half of two-phase authorization.** `resolve` carries only a token, so its
+  process is unknown until the row is fetched: the check runs inside the handler, once the target
+  is loaded. Nothing to enforce until a scoped grant exists; built with it.
+- **Scoped grants** — when a UI rendering one process's approvals should hold `worker` over that
+  process, not the whole queue. Reuse the `(process, version, task)` triple verbatim — what
+  `ClaimExternalTasks` filters on and `Grant.Constraint` declares. Needs the resource half above.
+- **Per-task grant.** The external token `<instance>.<task_epoch>` is addressing, not
+  authorization: an instance id carries no randomness. A browser form needs a minted single-task
+  genroc token (§5) carrying `{worker, instance, task}` and a TTL.
+- **k8s `TokenReview`** — when workers run in k8s: the cluster validates a projected
+  ServiceAccount token, which maps to `worker` — the same `Principal`, nothing to distribute.
+- **Attribution history** — when "who promoted v7 to prod" must outlive v8. Needs an audit table
+  not keyed by an instance: `process_logs.instance_id` is NOT NULL.

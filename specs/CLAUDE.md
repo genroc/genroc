@@ -91,11 +91,11 @@ section keeps its heading and a one-line pointer.
 
 ## Not built
 
-- [custom-tasks](custom-tasks.md) — north star, no plugins: a custom task is a child process.
-- [deterministic-simulation](deterministic-simulation.md) — the engine against a simulated world.
-  The races are over DB state, so a baton at transaction boundaries replays them without tier 2.
-- [discriminated-unions](discriminated-unions.md) — narrowing a `oneOf` by tag; blocked on literals.
-- [literal-types](literal-types.md) — infer `"sent"` as `enum: [sent]`. The real work is enum-aware
-  canonicalisation; without it `?? false` infers an overlapping `oneOf`.
+- [custom-tasks](custom-tasks.md) — a principle in force: no plugins, a custom task is a child
+  process and arbitrary logic a sidecar. Open: sidecar idempotency, cancel reaching a sidecar.
+- [deterministic-simulation](deterministic-simulation.md) — exhaustive crash points and
+  interleavings. The races are over DB state, so a baton at transaction boundaries replays them.
+- [literal-types](literal-types.md) — infer `"sent"` as `enum: [sent]`, unblocking discriminant
+  narrowing (§9). Enum-aware merging comes first, or `?? false` infers an overlapping `oneOf`.
 - [openapi-resolver](openapi-resolver.md) — `$openapi` spreads an operation's `method` and
   `responses` into a fetch. `allOf` is flattened in the resolver, not admitted to the language.

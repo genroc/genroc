@@ -149,9 +149,6 @@ literal, so a symbol that does not type is dropped rather than reported. The sam
 is why nothing can point at a piece of an expression (a binder, a sub-range). Semantic highlighting
 uses the lexer's `syntax.Tokens` instead.
 
-Offsets in the AST are still a real change to `parser.go`, deferred until something needs a
-range *inside* an expression — precise squiggles.
-
 ## 7. Phases
 
 All built; the feature list is at the top.
@@ -181,3 +178,8 @@ All built; the feature list is at the top.
   KIND. Its differential checks avoid a list of which mappings are open maps, which would rot.
 - `wasm_test.ts` is differential against the binary, because a fallback that quietly disagrees is
   worse than none.
+
+## 9. Open
+
+- **Offsets in the expression AST** (§6), a real change to `parser.go`. Trigger: something needing
+  a range *inside* an expression, such as precise squiggles.

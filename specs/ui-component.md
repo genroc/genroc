@@ -71,9 +71,8 @@ route on what a request carries.
   `/auth/` targets.
 - `/auth/login` skips the chooser when there is exactly one provider and no passwords.
 - **On expiry, the browser goes back through the login**, silently while the provider's session is
-  alive, which is what makes no refresh tokens acceptable. Adding refresh later means storing one, and
-  that is the first thing here that would need persistence -- so it is deliberately not in v1.
-- Logout (`POST /auth/logout`) clears the cookie. RP-initiated logout at the IdP is not built.
+  alive, which is what makes no refresh tokens acceptable (§8).
+- Logout (`POST /auth/logout`) clears the cookie, not the IdP's session (§8).
 - **A confidential client**, not PKCE with a public client: genroc-ui is a server, so it can hold
   a client secret, which is both stronger and simpler.
 - Password login (`POST /auth/password`) is throttled per email (10 failures per 5 minutes) and per
@@ -93,19 +92,13 @@ genroc-ui logs in against any OIDC provider with discovery and a client secret (
 provider with no ID token — GitHub, LDAP, SAML — needs a broker such as Dex in front. genroc-ui
 signs only its own token for genroc (ui-issued-tokens.md); an issuer with connectors *is* Dex,
 and rebuilding it would cost auth-two-credentials.md §1 its answer that a broker covers every
-non-OIDC provider. The signal to reopen this is not "someone asked for
-GitHub"; it is a deployment that cannot run a broker at all.
+non-OIDC provider. When to reopen it is §8.
 
 **Not embedded Dex**, though `dexidp/dex/server.NewServer` returns an `http.Handler`: it persists
 signing keys, giving the component a database; it lands SAML, LDAP, etcd and client-go in `ui/`'s
 module graph; a Dex advisory becomes our release instead of an image-tag bump; and it optimises the
 minority case, since nearly every IdP is OIDC and the default deployment is genroc + genroc-ui
 with no Dex.
-
-**The complaint that motivates it is packaging, and packaging answers it**: a compose file or
-chart that bundles Dex for the people who need it, while the two-container path stays default.
-The reopen signal is a **single-binary deployment** -- genroc on a VM under systemd, no
-orchestrator -- where a second PROCESS is the obstacle rather than a second line of YAML.
 
 genroc-ui holds a session for a login someone else performed, or checks a bcrypt hash from its
 config (ui-issued-tokens.md §5); it does not own accounts.
@@ -118,6 +111,9 @@ placeholder so `go build` works without Node, and only the image build swaps the
 
 ## 8. Open
 
-- **The dev loop.** `ui/frontend/`'s Vite dev server proxies to genroc today and can keep doing so
-  with auth off. Whether `npm run dev` should instead point at a local genroc-ui, so the login
-  path is exercised in development, is unsettled.
+- **Refresh tokens** — when silent re-login through the provider stops being enough. A stored
+  refresh token is the first persistence genroc-ui would need.
+- **RP-initiated logout** — when signing out must also end the IdP's session.
+- **Connectors in genroc-ui** (§5.1) — not when someone asks for GitHub, but for a deployment
+  that cannot run a broker at all: a **single binary** under systemd, where a second process is
+  the obstacle.

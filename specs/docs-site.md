@@ -1,7 +1,7 @@
 # Documentation site: a reference generated from the code that defines it
 
 Status: **Built, except Pagefind search, the React islands and the per-tag versioned deploy**
-(`DOCS_BASE` is wired; no workflow builds tags).
+(Open).
 
 ## The gap is genre, not volume
 
@@ -17,10 +17,6 @@ guides own the user-level "why" while reference stays free of it.
   two consumers.
 - **No theme**: when the design is the point, a theme is a dependency paid to delete its output.
   Content collections with Zod-validated frontmatter, hand-written CSS, two Shiki themes.
-
-**Search: Pagefind, no service** — post-build over `dist/`, chunked static index, JS
-API with our own markup (not the bundled UI); `data-pagefind-body` on content or nav
-text pollutes every result. The only JS on reference pages.
 
 **Generated, not written** (`make docs-reference`, `cmd/genrocspec`):
 
@@ -45,12 +41,8 @@ closure, and a miss silently publishes a schema that disagrees with the server. 
 deploys; the Astro build is byte-stable, so an unrelated push changes nothing and the push step
 exits without committing.
 
-**Styling**: plain Astro + CSS, ASCII/terminal aesthetic. React islands only where
-interaction demands (search, version select, mobile nav, tabs, copy) — Radix
-Primitives, because it styles through data attributes (plain CSS against
-`[data-state]`, no theme object). Frontmatter deliberately has **no
-`status: shipped|proposed`** field — if docs only describe what landed, it has one
-legal value; a `since:` field may earn a place instead.
+**Styling**: plain Astro + CSS, ASCII/terminal aesthetic. Frontmatter has **no `status:`** field:
+docs describe only what landed, so it would have one legal value.
 
 ## Navigation direction is derived, not authored
 
@@ -77,29 +69,18 @@ Traps:
   itself from a capture-phase click listener, because its names are assigned while *its* snapshot
   is captured.
 
-## Versioning and deployment
+## Deployment
 
-Build per tag into `/v1/`, `/v2/`, latest at root — a workflow, not a plugin (no
-framework has this built in). **Build once at the tag, never rebuild**: archived HTML
-must not need a three-year-old toolchain. Two traps:
+**A `gh-pages` checkout + `rsync --delete --exclude=/bench/`, never `actions/deploy-pages`**
+(`docs.yml`) — the artifact deployment replaces the whole site, silently deleting the benchmark
+time series bench.yml pushes under `bench/`, which exists nowhere else.
 
-- **Subdirectories, not subdomains**: GitHub Pages allows one custom domain per repo,
-  so `v1.genroc.org` needs an archive repo per major or a host move. Reopen if the
-  host changes anyway.
-- **A `gh-pages` checkout + `rsync --delete --exclude=/bench/`, never `actions/deploy-pages`**
-  (`docs.yml`) — the artifact deployment replaces the whole site, silently deleting the benchmark
-  time series bench.yml pushes under `bench/`, which exists nowhere else.
-- Assets referenced relatively — root-absolute links break the moment a build lands
-  at `/v1/`.
+## Open
 
-## Not scoped: a playground
-
-Not planned; recorded only because the architecture need not anticipate it — an island
-is additive (one component, one WASM asset, one worker). The fact that makes it cheap
-if ever wanted: **`internal/validation` has no db/engine/api dependency** — the thing
-that would run in the browser is a wrapper, not a port.
-
-## Still open
-
-Where guide-level "why" stops and spec-level "why" begins (the first guides will set
-it). Versioning mechanics (per-tag build is a sketch; the switcher needs a manifest).
+- **Pagefind search** — when the nav stops finding pages. Post-build over `dist/`, no service, our
+  own markup over its JS API; `data-pagefind-body` on nav text pollutes every result.
+- **React islands** (Radix, styled through `[data-state]`) — only where interaction demands it:
+  search, a version select.
+- **Per-tag versioned deploy** — `/v1/`, latest at root, when a second major ships; `DOCS_BASE` is
+  wired, no workflow builds tags. **Build once at the tag, never rebuild**: archived HTML must not
+  need an old toolchain, which is why Swagger UI is vendored rather than loaded from a CDN.

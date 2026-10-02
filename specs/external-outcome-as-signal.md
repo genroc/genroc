@@ -52,7 +52,7 @@ reaches `completed`. This is not the keep-the-lease case
 - **FIFO.** Outcomes are consumed in arrival order, one per advance; extras stay for a re-arm. A
   failure and a result submitted for one arming resolve as whichever came first.
 - **A buffer read that fails** retries (`retryRead`, 3 attempts 50 ms apart) and then fails the
-  instance with `engine.spawn`, which is terminal. Recorded rather than fixed: the honest fix is a way for an advance to report a transient failure, which is a bigger change than this one.
+  instance with `engine.spawn`, which is terminal (§Open).
 
 ## Tests that must bite
 
@@ -63,3 +63,8 @@ reaches `completed`. This is not the keep-the-lease case
 - One claim cycle per resolve (`tests/tick/external_test.ts`, above).
 - A signal racing the arm is neither lost nor consumed twice.
 - A stale `task_epoch` is refused rather than buffered.
+
+## Open
+
+- **An advance cannot report a transient failure**, so a buffer read that outlasts `retryRead` is
+  terminal. Build that channel when such failures show up in practice; it is bigger than this design.

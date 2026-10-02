@@ -9,7 +9,7 @@ import (
 	"genroc/internal/db"
 )
 
-// Authorization: specs/api-auth.md §0, §3, §9. Identity is NOT here — nothing below may ask
+// Authorization: specs/api-auth.md §0, §3, §10. Identity is NOT here — nothing below may ask
 // which mode established a Principal.
 
 // Perm is a coarse capability over the API surface. Five, deliberately: a set small enough that
@@ -32,11 +32,11 @@ const (
 
 // Grant is a permission plus the constraint narrowing it to some resources. Constraint is
 // unused in v1 but present, since adding it later means revisiting every call site.
-// specs/api-auth.md §3, §9.
+// specs/api-auth.md §3, §10.
 type Grant struct {
 	Perm Perm
 	// Constraint, when set, limits this grant to matching resources. The vocabulary is meant
-	// to be the queue's own (process, version, task) — see §9 before inventing another.
+	// to be the queue's own (process, version, task) — see §10 before inventing another.
 	Constraint *GrantConstraint
 }
 

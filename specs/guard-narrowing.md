@@ -1,6 +1,6 @@
 # Guard narrowing
 
-Status: **Built, except the two limits in §Guard catalogue** (`||` on a taken edge, the
+Status: **Built, except the two catalogue items in Open** (`||` on a taken edge, the
 discriminant guard). `computeRefinements` (`internal/validation/guards.go`) carries a `switch`
 case's proof along the edge it selects; `guardFacts` (`internal/schema/infer.go`) is the
 catalogue, shared with expression-level narrowing — `?:` narrows its branches and the left of
@@ -32,13 +32,9 @@ path-sensitive-output §5 avoids.
 Closed: `X != null` / `X == null` (each exact on both branches), `X == lit` (non-null on the equal
 branch; `X != lit` proves nothing — not being one non-null literal says nothing about type),
 `!G`, and `G1 && G2` (both refinements on the taken edge, **nothing** on fall-through — the
-negation of a conjunction is not a per-reference fact). `||` narrows nothing across an EDGE
-in v1 — inside an expression it is exact, its right operand running only where the left
-failed, which is why the shipped half carries it and this half does not. (Falling past a `||`
-case does carry `¬A ∧ ¬B`, which is per-reference.) The
-discriminant guard (`X.d == lit`) lives in
-[discriminated-unions.md](discriminated-unions.md), deferred on literal types; nothing
-here waits on it.
+negation of a conjunction is not a per-reference fact). `G1 || G2` narrows nothing on its taken
+edge (Open) — inside an expression it is exact, its right operand running only where the left
+failed; falling past a `||` case does carry `¬A ∧ ¬B`, which is per-reference.
 
 The lattice is three states per reference (unrefined / non-null / exactly-null), so the fixpoint
 terminates trivially — any extension must justify its effect on termination, not just
@@ -144,6 +140,11 @@ assertion.
 
 ## Open
 
-Open: should refined types appear in the published
-schema (they differ per incoming edge, which SchemaFile cannot express)? How is
-provenance reported in errors ("narrowed by the case on task a")?
+- `||` on a taken edge: each disjunct proves only "one of these", not a per-reference fact.
+  Trigger: an author forced into `?? 0` after an `a != null || b != null` case.
+- The discriminant guard (`X.d == lit` selecting a union arm) — needs
+  [literal-types.md](literal-types.md). Trigger: literal types landing.
+- Refined types in the published schema — they differ per incoming edge, which SchemaFile cannot
+  express. Trigger: a consumer of the schema needing the narrowed type.
+- Reporting which case narrowed in errors ("narrowed by the case on task a"). Trigger: an author
+  confused by a type that differs from the declared one.

@@ -1,6 +1,6 @@
 # Source resolution: a definition source file is not a definition
 
-Status: Built, except `$infer`.
+Status: Built, except `$infer` (§Open).
 
 A `.genroc` in the repo registers resolver binaries, a `"$<resolver>: <argument>"` leaf names one,
 and genctl resolves the source file into the definition it sends. A TypeScript bundler, a type
@@ -284,32 +284,6 @@ resolver and the path; left alone it would reach the server as a literal string.
 the editor run this phase. `tests/cli/structural_test.ts`, `tests/lsp/directive_hover_test.ts`,
 `internal/sources/structural_test.go`.
 
-## `$infer` — the other direction
-
-    result_schema: "$infer: ./summarize.ts"
-
-Phase 1. Extracts the script's return type into a JSON Schema, so the definition picks the
-type *up* instead of handing it *down*.
-
-**It requires an explicitly annotated return type.** A file that is both `$infer`'d for its
-output and `$import`ed for its code needs its return type extracted in phase 1 — before
-phase 2 has generated the `Input` type that TypeScript's own return inference would read
-(`function f(input) { return input.x }`). The annotation cuts the cycle and reduces
-extraction to reading a declaration. Refuse the unannotated case by name; do not fall back
-to whole-program inference, which is how the cycle comes back.
-
-Why it is safe: resolution is source-level, so the **stored** definition carries the
-extracted schema. [`genctl compat`](../internal/validation/compat.go#L169) then sees a
-changed `.ts` return type as a real contract break — the type escaped into the definition
-and versioning still works on it. A design where the schema stayed in the `.ts` file would
-lose exactly that.
-
-What it is, stated so it is not built twice: [unknown-type.md](unknown-type.md)'s unbuilt
-**Infer** result-typing mode, reached at author time. It skips cross-process resolution,
-cycle handling at process granularity, `(process, version)` memoization and the
-registration-ordering rule — most of the payoff, none of the engine build. That makes it
-also the argument for not scheduling the engine-side version.
-
 ## `$process` — another definition's types, spread
 
     type: child
@@ -373,12 +347,8 @@ An entry whose key differs from its spread `name` is correct and must not be "fi
 
 ### It is a Pin, not an Infer
 
-The schema lands in the **stored** definition, so [`genctl compat`](../internal/validation/compat.go#L169)
-reads a changed child type as a real contract break — the same property `$infer` is built on. That
-is the whole argument for doing this at author time: [unknown-type.md](unknown-type.md)'s
-engine-side **Infer** buys the same ergonomics and needs cross-process resolution at runtime,
-`(process, version)` memoization and a registration-ordering rule. Still not scheduled, and this
-is why.
+The schema lands in the **stored** definition, so `genctl compat` reads a changed child type as a
+contract break. Engine-side **Infer** is argued in [unknown-type.md](unknown-type.md).
 
 ### Ordering, and the recursion it cannot type
 
@@ -392,14 +362,8 @@ spread is a concrete copy made in phase 1, before the solver runs. **So one edge
 written by hand**: a Pin, or `{}` where the parent only forwards the value
 ([unknown-type.md](unknown-type.md)).
 
-**Deferred, not impossible — recorded so it is not re-derived [2026-09-17].** The cross-file case
-reduces to the solver's own problem: a spreading process's output type is one more computed
-definition and a spread is a `$ref` to it, so cycles collapse on contact and the existing
-converge / degenerate / productive / no-base-case outcomes apply unchanged. What is not free is
-cross-file member naming against the two `$defs` pools, and synthesizing `$defs` into the parent
-— a kept recursion is a `$ref` and a stored definition is self-contained. `$process` would also
-stop being a pre-pass and become a participant in inference, which is engine-side **Infer** minus
-the engine. Declined against a one-line annotation at the recursion point.
+Typing a cross-file spread cycle through the solver (a spread as a `$ref` to a computed
+definition) was declined: `$process` would join inference, against a one-line hand annotation.
 
 ## What a type generator owes
 
@@ -420,11 +384,24 @@ silently rather than as a compile error:
 like exactly that. It is not one: resolvers run at author time, on the author's machine, named by a
 file in the author's repo, and the bytes they produce reach the wire as ordinary data.
 
-## Open questions
+## Open
 
 - **Stale generated files.** Nothing removes a `.d.ts` whose script was deleted. Cheapest
   fix if it matters: the resolver prints what it wrote and genctl reports it.
 - **Caching.** Resolvers run on every apply. Content-hash the manifest if it becomes slow —
   not before, and never in a way that can serve a stale string.
-- ~~**The structural phase.**~~ **Built 2026-09-19** for registered resolvers; `$infer` is what
-  remains, and it is one such resolver with `mode: "infer"` reading of the argument.
+
+### `$infer` — the other direction
+
+    result_schema: "$infer: ./summarize.ts"
+
+A registered structural resolver, called with `mode: "infer"`, that extracts a script's return type
+into a JSON Schema, so the definition picks the type *up* instead of handing it *down*:
+[unknown-type.md](unknown-type.md)'s **Infer**, reached at author time. The stored definition
+carries the result, so [`genctl compat`](../internal/validation/compat.go#L456) still sees a changed
+return type as a contract break. Trigger: a hand-written `result_schema` drifting from the script
+it types.
+
+**It requires an explicitly annotated return type.** A file both `$infer`'d and `$import`ed would
+otherwise need phase 2's `Input` type in phase 1. Refuse the unannotated case by name; whole-program
+inference is how the cycle comes back.

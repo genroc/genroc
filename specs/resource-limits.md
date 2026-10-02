@@ -77,14 +77,9 @@ protecting.
 The verdict is reached **without consulting the engine**, so a worker whose database is gone still
 answers; `TestHealth_ReportsUnavailableWhenTheDatabaseIsGone` passes a nil engine to hold it.
 
-## Still open
+## Open
 
-- **TCP and UDS have no per-message limit.** `handleConn` decodes a persistent stream of
-  envelopes off the socket; bounding a single message means introducing framing, which is a
-  protocol change rather than a limit. Both transports are opt-in via flag, unlike the HTTP
-  listener.
-- **`retries` has no upper bound at registration.** The overflow it used to cause is fixed
-  in `retryDelay` (`internal/engine/backoff.go`), so a large value is now merely a
-  long-running retry loop at the policy's `max_delay` — the author's choice.
-- **No metrics.** `/healthz` answers "is this worker serving"; it does not answer "how many
-  instances are in flight, how deep is the backlog, how often are leases being taken over".
+- **A per-message limit on TCP and UDS** — when either faces untrusted peers; both are opt-in by
+  flag. `handleConn` decodes a stream of envelopes, so a bound needs framing: a protocol change.
+- **Metrics** — when operating a fleet needs more than "is this worker serving": in-flight
+  instances, backlog depth, the age of the oldest due `wake_at`, lease takeovers.

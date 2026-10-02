@@ -1,4 +1,4 @@
-# §8: `compatible` (conjunction over everything compared) stays false while `passes` (the
+# §6d: `compatible` (conjunction over everything compared) stays false while `passes` (the
 # gated answer) is true and the run exits 0. Per-member verdicts derive from the issues
 # (§6c): `upgrade.compatible` true beside `contract.compatible` false.
 apply:

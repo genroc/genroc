@@ -163,21 +163,6 @@ The taxonomy is the standard one: an object that does not exist is an error by d
 without `-f`), and one already in the target state is success (`systemctl stop` on a stopped
 unit). Pause/resume/cancel are that assertion; `retry` has no counterpart there.
 
-## Known gaps
-
-- **No `--json`.** The per-id lines and the exit code are the contract. The trigger to add
-  one is the first script that needs to branch per id rather than on the aggregate; the
-  shape would be `{id, outcome, reason}` per the `--json`-is-the-one-machine-format rule.
-- **`pause` treats a settled tree and an already-paused one as the same outcome** — both
-  are `already`, because the promise is "not advancing" and both keep it. They are still
-  distinguishable when it matters: `GET /instances/{id}` says which (a 204 carries no
-  `status`). What is deliberately *not* offered is a way to make settled fatal.
-- **No selector sweep.** `pause --status running --process foo` stays unbuilt: `instances`
-  grew `--process`/`--version` instead, so the sweep is spelled as a substitution the shell
-  already understands rather than as a second selector on every verb.
-- The summary line is more explicit than `upgrade`'s existing tally ("moved 2 tree(s), 1
-  already there"). `upgrade` may adopt this form later; nothing here requires it.
-
 ## Coverage
 
 Pinned: convergence of a re-run partial group, a refusal between two workable ids, every row of
@@ -188,3 +173,8 @@ nothing for an empty list, and the default listing excluding children. Tests:
 `tests/cli/instances_test.ts`, `tests/integration/lifecycle_outcomes_test.ts`,
 `tests/tick/tree_pause_test.ts`, `tests/tick/pause_retry_test.ts`,
 `internal/db/dbtest/pause_retry_test.go`.
+
+## Open
+
+- `--json`: `{id, outcome, reason}` per id; until then the per-id lines and exit code are the
+  contract. Trigger: the first script that branches per id rather than on the aggregate.

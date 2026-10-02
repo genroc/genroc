@@ -77,32 +77,12 @@ at task "b": …`.
 
 ## 5. Deferred: mid-process task contexts
 
-The same idiom appears inside a task reachable from two branches, and there it is **still
-collapsed** — `outputs.a.v ?? outputs.b.v` read from task `c` remains nullable.
-
-The output boundary was cheap because its terminals are already materialised as a list, and
-since §2 the *representation* is no longer the obstacle either: a union context is what a
-path-sensitive task scope would be, and inference already distributes over one. What is left is
-computing the alternatives. Task contexts come from `computeContextSets`, a fixpoint whose
-lattice element is *one* set of ids, intersected across predecessors. Making it path-sensitive means carrying a
-**set of alternative must-sets** — a DNF — which is exponential in the worst case and needs
-a widening rule to terminate. That is a different piece of work with a different risk
-profile.
-
-The workaround is a trailing default (`?? false`), which is exactly what an author would
-write anyway, and it now behaves correctly thanks to the `StripNull` fix above. Since guard
-narrowing there is a second one: route on each branch (`case: outputs.a != null`, then
-`case: outputs.b != null`, then a `panic`), and each target reads its branch non-null.
-
-Reopen this if the mid-process case shows up in real definitions often enough to justify
-the lattice change. The signal to watch for: definitions carrying a `?? default` whose
-default is provably unreachable.
-
-Note that [guard-narrowing.md](guard-narrowing.md) (built 2026-09-15) removes a *different*
-slice of the same annoyance and was tractable, because it refines one reference at a time rather
-than correlating two. It does not close this section: after `case: outputs.a != null`, the
-fallthrough edge knows `outputs.a` is null, not that `outputs.b` is present.
-
+Inside a task reachable from two branches the context is still collapsed: `outputs.a.v ??
+outputs.b.v` read from task `c` stays nullable. Lifting it means `computeContextSets` carrying a
+*set* of must-sets (a DNF) — exponential in the worst case, and needing a widening rule to
+terminate. Workaround: a guard switch (`case: outputs.a != null`, then `case: outputs.b != null`,
+then `panic`), each target reading its branch non-null; or `?? default`. Trigger: definitions
+carrying a `?? default` whose default is provably unreachable.
 
 ## 6. Rejected alternative: a coverage check inside `??`
 

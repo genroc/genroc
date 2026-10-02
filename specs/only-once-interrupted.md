@@ -102,11 +102,10 @@ produce the value itself (by reading it back).
   sending it from input makes retries safe outright; genroc cannot synthesise one, having no run
   identity in the expression environment.
 
-## Open questions
+## Open
 
 - Should a stable run identity be exposed to expressions (making idempotency keys
   derivable for any process)? Its own design — a change to the expression environment.
 - Is there a third outcome between "fail" and "route" — "stopped, needs a human"? A
   lifecycle change, noted not proposed.
-- Should `error` say more than the code? Only meaningful if action-level response
-  metadata lands (fetch-http-surface).
+- A failed fetch's `error` carries no headers.

@@ -5,8 +5,8 @@ fsyncs only where losing a commit would break a promise, and leaves the rest to 
 
 ## 0. Status
 
-Status: **Built, except the per-definition `durability:` field (§8), the `none` / `accepted`
-rungs (§5) and the deadline refinement for deliveries (§4).**
+Status: **Built, except the per-definition `durability:` field and the deadline refinement for
+deliveries (§8).**
 
 ## 1. macOS `fsync` does not flush
 
@@ -49,17 +49,11 @@ a permanent hang, strictly worse than the failure the contract buys.
 | boundary | why | batches? |
 |---|---|---|
 | process create from outside | we 2xx'd a caller who will not re-submit | yes, across callers |
-| delivery into a park with **no deadline** | see below | yes |
+| delivery into a park | the sender will not re-send | yes |
 | `only_once` execute (before + after) | not replayable | rare by construction |
 | everything else | replay covers it | — |
 
-**The deadline refinement.** [internal/engine/action.go](../internal/engine/action.go)
-records that an external task has no default timeout — "parking indefinitely is what it is
-for." So inbound delivery splits: if the park has a deadline, a lost delivery degrades to
-`external.timeout`, `on_error` routes it, and the user can retry — recoverable, no fsync
-needed. If it has none, the instance parks forever and nobody re-delivers. `runExternal`
-already computes `hasDeadline` at arm time, so the rule is exactly expressible. [unbuilt:
-every delivery syncs, deadline or not]
+Narrowing delivery to deadline-less parks is open (§8).
 
 **`only_once` cannot be dropped.** Its evidence is the claim — `worker_id` plus the task the row
 names, durable before the request leaves — which `interruptedOnlyOnce` reads on reclaim. Lose that
@@ -73,19 +67,18 @@ Levels are strictly increasing; each adds fsync points to the one above.
 
 | level | guarantee | adds | drain |
 |---|---|---|---|
-| `none` | consistency only; accepted work can vanish | — | 3,858 |
-| `accepted` | handed work is never forgotten | create, deadline-less delivery | 3,858 ¹ |
-| `only-once` | + `only_once` never runs twice | bracket around `only_once` | 3,858 ² |
+| `only-once` | handed work is never forgotten, `only_once` never runs twice | create, delivery, bracket around `only_once` | 3,858 ¹ |
 | `terminal` | + a finished process stays finished | process end | ~3,000 |
 | `strict` | + no completed task ever repeats | every commit | 183 |
 
 ¹ creates sit in drain's untimed load phase; steady state costs 1 fsync per accepted item,
-batched across concurrent callers. ² free unless the definition uses `only_once`.
+batched across concurrent callers. The bracket is free unless the definition uses `only_once`.
 
-`none` and `accepted` were not built; the shipped ladder starts at `only-once`.
+Rungs below `only-once` (`none`, consistency only; `accepted`, no bracket) were considered and
+not built.
 
-**Default: `only-once`.** It is the strongest guarantee that costs nothing over `accepted`,
-and 21× faster than `strict`. `terminal` is the level that stops a poller seeing `completed` and
+**Default: `only-once`**, the lowest rung: its bracket costs nothing unless used, and it is 21×
+faster than `strict`. `terminal` is the level that stops a poller seeing `completed` and
 then `running` again after a power cut — one sync per process rather than one per task.
 
 **The rule that has to hold in the code:** every write declares the weakest level at which it
@@ -155,9 +148,6 @@ fsync.
 - **`strict` is affordable on Postgres and ruinous on SQLite.** The ladder is mostly a
   SQLite feature. `SetMaxOpenConns(1)` ([internal/db/db.go](../internal/db/db.go)) makes
   commits serial; no knob creates group commit there.
-- **The SQLite analogue is app-level.** Coalesce several instance advances into one
-  transaction in the poll loop. `ClaimInstances` already returns a batch, so the shape
-  exists. Full durability retained.
 - **Group commit fixes throughput, never latency.** One process's tasks are causally sequential,
   so a 50-task process under `strict` pays 50 × 4.07 ms ≈ 200 ms of fsync on either engine. Only
   the boundary scheme touches that.
@@ -186,8 +176,8 @@ set it fails rather than silently not applying a flag the operator asked for.
 
 **SQLite is left at its ceiling, deliberately.** Under "synchronous always" it has one
 writer, no group commit and no knob: 246 serial fsyncs/s ÷ 1.34 per instance ≈ 180 inst/s,
-which is what §2 measures. The app-level batching above is the only lever that would move it
-without spending durability, and it was **not** built — SQLite is positioned as the
+which is what §2 measures. Coalescing several advances into one transaction in the poll loop is
+the only lever that would move it without spending durability, and it was **not** built — SQLite is positioned as the
 single-node and development engine, Postgres as the throughput one, and §6a is the evidence
 for that split (1,663 against 177 at identical durability, ~9.4×).
 
@@ -202,58 +192,6 @@ rewind takes the worker with it.
 **Reader-visible rewind.** Below `terminal`, a client polling an instance can see `completed` and
 later `running` again — consistent with at-least-once, but a different promise from "tasks may
 repeat"; the `--durability` help says so.
-
-## 8. Open questions
-
-- ~~**Who sets the level**~~ — **decided 2026-08-25: both. The flag SHIPPED; the
-  per-definition field is deferred, not queued.** The flag sets the default and the
-  minimum; a `durability:` field on the definition may only raise its own floor, never
-  lower it, so `effective = max(flag, definition)` and an operator's guarantee cannot be
-  weakened by something they did not write.
-
-  Deferred because it adds a per-instance column and a rule operators must understand, for
-  a benefit no deployment needs yet. **The trigger to build it** is one deployment running
-  both process shapes at once: §5a shows `terminal` is worth 4.9x on a parking-heavy
-  process and nothing on a two-task one, so a single global level serves such a deployment
-  badly. Sizing, from having built the rest: the mechanism is done, so the work is the
-  level reaching ~6 instance-scoped writes (the `next_replayable` denormalisation pattern,
-  including its 3 scan sites and 2 inline param builders), the model/validation surface,
-  and one widened condition in `hardenClaims` for a `strict` definition's claim.
-
-  Two traps worth knowing before starting. The **zero value must be `strict`**, which is
-  the EXPENSIVE level -- so every create path must set it explicitly or throughput
-  collapses; that is the bug shape hit on 2026-08-25 with `next_replayable`, except the
-  fail-safe default costs 18x rather than one fsync. And `max(flag, definition)` means
-  **lowering the flag cannot speed up a `strict` definition**, which is correct and
-  surprising, so it is a documentation problem as much as an implementation one.
-
-  A cheaper variant that covers the motivating case: since the flag is already a floor, the
-  only useful thing a definition can do is raise itself, so `durability: strict` as a single
-  opt-in needs no ordering rules at all.
-
-  The two sub-questions it was blocked on:
-
-  **Child inheritance is not a question.** §3 already answers it: an fsync at commit N
-  hardens 1..N-1, so a later sync covers every earlier commit whoever wrote it. A `strict`
-  parent spawning a `none` child does not need to lift the child, because the parent's own
-  next sync hardens the child's writes anyway; and if the crash lands before that sync, the
-  parent is still parked on the child and the child replays — at-least-once, the contract.
-  The parent's guarantee is about the parent's tasks, and it survives intact. So a child
-  takes its own definition's level against the flag, exactly as a root does, and there is
-  no inheritance rule to write. `only_once` inside a child is likewise the child
-  definition's business, and the default level already covers it.
-
-  **A transaction spanning two instances takes the max of their levels.** It is the
-  conservative direction (more durable, never less) and needs no reasoning about which
-  instance "owns" the commit. The paths that span instances are `SpawnChildrenAndWait`,
-  `RespawnSlotsAndWait`, `FinishChild`, `FailInstanceAndAncestors`, and the subtree verbs
-  (`PauseProcess`/`ResumeProcess`/`RetryProcess`) — the last three are operator-driven and
-  rare, so the max costs them nothing.
-
-  What remains is mechanical, not a design question: `internal/model` validation, the JSON
-  schema, the editor schema, and where the level is read from in the delivery path
-  ([internal/db/db_signals.go](../internal/db/db_signals.go) holds an instance id, not a
-  definition — either look the definition up or denormalize the level onto the row).
 
 ## 9. Reproducing
 
@@ -271,3 +209,18 @@ repeat"; the `--durability` help says so.
 **Interleave the A/B and take a median**: the same config measured 1.33× and 1.03× in two
 sessions, and the variance is in the baseline. `bench-deep` is the control — `commit_siblings`
 gates the delay off there, so it must show no change.
+
+## 8. Open
+
+- **Per-definition `durability:` field.** A definition may only raise its own floor —
+  `effective = max(flag, definition)` — so an operator's guarantee cannot be weakened by something
+  they did not write. Build when one deployment runs both process shapes: §5a has `terminal` at
+  4.9× on a parking-heavy process and nothing on a two-task one. Two traps: the zero value must be
+  `strict`, the expensive level, so every create path must set it (the `next_replayable` bug shape,
+  at 18× rather than one fsync); and lowering the flag cannot speed up a `strict` definition —
+  correct but surprising, so document it. Child inheritance needs no rule: a later sync hardens
+  every earlier commit (§3), so a child takes its own definition's level against the flag.
+- **Deadline refinement for deliveries.** Every delivery syncs. One into a park with a deadline
+  need not: lost, it degrades to `external.timeout`, which `on_error` routes; without a deadline
+  the instance parks forever. `runExternal` already computes `hasDeadline` at arm time. Build when
+  delivery fsyncs show up in a workload's count.

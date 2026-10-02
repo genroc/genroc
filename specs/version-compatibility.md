@@ -1,6 +1,6 @@
 # Instance upgrade
 
-**Status: built, except §3b's pairing check and §8.**
+**Status: built, except §8.**
 
 The upgrade gate: moving an instance from one version to another. The check it answers to —
 what is compared, in which direction, how it is reported — is
@@ -57,16 +57,9 @@ now, never a spawn-time copy — which is why a parked parent's `result_schema` 
 concern (compat-command.md §2c). Do not reintroduce a copy: the conform normalizes, so a stale
 schema strips fields both sides agreed on ([internal/engine/CLAUDE.md](../internal/engine/CLAUDE.md)).
 
-### 3b. The pairing check (not built)
+### 3b. The pairing check
 
-One schema governs both steps: `outC.NarrowsTo(S_parent)` as the parent currently
-stands. Both-move is already guaranteed (batch registration checks it); the two mixed
-rows — child moves only (`outC_new ⊆ S_old`), parent moves only (`outC_old ⊆ S_new`) —
-are the cross-document check only `CompareSet` can compute. The child's general output
-contract (compat-command.md §3a) transitively implies row two, but the pairing is
-**tighter**: a child dropping a field fails that general contract, yet a parent that never
-named the field is unaffected, and only this says so. Per key for `child_map`, per element
-for `child_list`; skipped without a `result_schema`.
+Not built: §8.
 
 ### 3c. A running child may not move without its parent
 
@@ -100,7 +93,8 @@ disagrees with every stored value derived from its absence (compat-command.md §
 5. **Stale outputs are pruned, not carried.** The conform strips a dropped task's output (the
    layer is complete inside `outputs`, and nothing on the new version can read it); engine keys
    outside the layer pass through `MigrateState`.
-6. **A renamed task** reads as removed + added, and is refused (§8).
+6. **A renamed task** reads as removed + added, and is refused: nothing validates an
+   operator's remap, and a wrong one is unrecoverable.
 7. **Redaction** is config-only and console-only, and config is never stored, so `secret: true`
    changing with the version exposes nothing; compat reports it as a `(not judged)`
    `config_schema` row.
@@ -130,24 +124,21 @@ the target counts as already there, so re-running the same ids repairs a partial
 `genctl compat <instance-id> --to …` asks the same pair as a question, scoped to the row's
 process — one id, since a side carries one version per process.
 
+**A channel move upgrades nothing** — rejected as implicit; if ever wanted, an explicit flag.
+
 ## 7. Where it lives
 
 `internal/validation` owns the migration and the checks, with no db/engine/api dependency, so
 the whole gate is testable from two documents. The API handler therefore owns the composition:
-plan the tree's versions (db), migrate each state (validation), write them together (db).
-**`CompareSet` is a per-name loop today and
-must stop being one when §3b lands**: it needs old-parent/new-child and new-parent/old-child in
-one frame. The comparison's internals are in
-[internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md).
+plan the tree's versions (db), migrate each state (validation), write them together (db). The
+comparison's internals are in [internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md).
 
-## 8. Deferred
+## 8. Open
 
-- **Compat at apply time** — advisory block in `applyBatch`'s planning pass; must never
-  refuse. After the general command, not instead.
-- **Fan-in compat** ("which live versions can move to v5?") + live instance counts per
-  task.
-- **Conforming the input on upgrade** — opt-in, unlocks required-with-default, costs
-  reversibility.
-- **Task rename / `--at <taskID>`** — mechanically easy, excluded because nothing
-  validates the operator's claim and a wrong remap is unrecoverable.
-- **Auto-upgrade on channel move** — deliberately not built; if ever, an explicit flag.
+- **The pairing check** (§3b) — `outC.NarrowsTo(S_parent)` across the two mixed rows: child
+  moves only (`outC_new ⊆ S_old`), parent moves only (`outC_old ⊆ S_new`); both-move is
+  registration's. Tighter than the child's output contract (compat-command.md §3a): a dropped
+  field no parent names breaks that contract and not the pairing. Per key / per element;
+  skipped without a `result_schema`. **`CompareSet` must stop being a per-name loop** to build
+  it: it needs old-parent/new-child and new-parent/old-child in one frame. Trigger: operators
+  excusing child output breaks that no parent reads.

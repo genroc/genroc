@@ -74,6 +74,7 @@ and the culprit, re-claimed, panicked again (`panic_barrier_test.go`). Three det
 - **`failInstance` assigns the terminal fields before it audits**, so `failed` persists even if
   the audit panics.
 
-**Open, low priority:** background loops log-and-continue with no escalation — a
-renewer failing for ten minutes is indistinguishable from one that failed once. Noted
-so it is not mistaken for an oversight.
+## Open
+
+- **Background loops never escalate** — they log and continue, so a renewer failing for ten
+  minutes reads like one that failed once. Trigger: a persistent loop failure that went unnoticed.

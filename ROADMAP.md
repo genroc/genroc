@@ -6,21 +6,22 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 - [] **attribution history** — every actor is on a current-state row, so "who promoted v7 to
   prod" is gone once v8 replaces it; needs an audit table not keyed by an instance
-  (specs/api-auth.md §7)
+  (specs/api-auth.md §10)
 - [] **metrics** — `/healthz` is binary; nothing reports backlog depth or the age of the
   oldest due `wake_at` (specs/resource-limits.md)
 - [] **instance retention** — logs prune and objects sweep, `process_instances` grows forever
-- [] **deterministic simulation**, tier 1 — the only place `only_once` can be asserted
+- [] **deterministic simulation**, tier 1 — crash-recovery tests already assert `only_once` with
+  counting services; this adds exhaustive crash points and interleavings
   (specs/deterministic-simulation.md)
 - [] **enum-aware canonicalization** — `mergeSimpleVariants` won't fold arms carrying an
-  `enum`; prerequisite for literal types (specs/literal-types.md §4)
+  `enum`; prerequisite for literal types (specs/literal-types.md §3)
 - [] **literal types** — `"sent"` infers as `string`; unblocks discriminated unions
   (specs/literal-types.md)
-- [] **discriminated unions** — blocked on literal types (specs/discriminated-unions.md)
+- [] **discriminated unions** — blocked on literal types (specs/literal-types.md §9)
 - [] **mid-process path sensitivity** — needs a DNF lattice; workaround is `?? default`
   (specs/path-sensitive-output.md §5)
-- [] **action extensibility from a parent** — what a parent can hand a child is a fixed shape
-  (specs/custom-tasks.md)
+- [] **sidecar idempotency and cancel** — no instance-scoped key to dedup a sidecar call on, and a
+  cancel never reaches a `fetch` sidecar (specs/custom-tasks.md)
 - [] **source resolution**: `$infer` (specs/source-resolution.md)
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)

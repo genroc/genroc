@@ -37,6 +37,11 @@ Conforming makes a declaration true by construction, so no consumer has to decid
 it. It also does bookkeeping an author cannot do by hand (§4). The conform is an **assertion**, not
 a check (§4). Adding a declaration changes what a slot publishes, so it is a version event (§9).
 
+**A declared task output goes back into the pool as written, after `Solve`** (`outputorder.go`).
+The solver stores canonical forms, which drop `description`, the prose a declaration is imported
+for. It is restored only where the check passed: a failed slot keeps the `{}` the diagnostics'
+suppression expects.
+
 ## 2. The slots
 
 | slot | shape | target without a declaration |
@@ -53,10 +58,6 @@ declaration types **one element**, like `result_schema` does there. The check ru
 item type (`checkDeclaredListElement`), and the conform runs per element. Checked against the absent
 `input`, it would compare an empty object and assert nothing. An `over` with no declared item type
 is refused by name.
-
-`headers_schema` is deliberately **not** in the table. Headers already have a fixed target
-(`object<string>`) and a declaration would add only required-ness. The one producer that would
-fill it is an importer's request side, which does not exist; build it when that does.
 
 **Placement is per action type** and refused by name elsewhere (`validateInputSchemaPlacement`).
 `body_schema` and `query_schema` are fetch-only. `input_schema` is refused on a fetch, where the
@@ -85,12 +86,6 @@ Admitting it would make the closed rule conditional on a keyword. It is a per-sl
 `CheckDoc`, because the keyword is valid in a `result_schema`. Refusing is the reversible direction:
 it costs an author a projection today and can be relaxed to exactly the existing open behaviour on
 the day the argument arrives.
-
-**The trigger to revisit is a count, not a debate.** An imported request-body schema will
-carry `additionalProperties` sometimes; the resolver's translate row already handles the
-keyword for responses ([openapi-resolver.md](openapi-resolver.md) §3). Because the refusal
-names the keyword and the slot, running the importer over real documents counts the cases for
-free — the same measurement §6 of that spec asks for before building its `allOf` fallbacks.
 
 ## 4. The conform, and the null the author should not have to think about
 
@@ -179,13 +174,6 @@ inferred type still carries the nulls the conform removes, so keeping both check
 that works at runtime. The `$process` copy of `input_schema` makes this registration check a test
 that the copy is still current (source-resolution.md §`$process`).
 
-**Fetch body.** A note for whoever writes the importer's request side: the dialect table strips
-`format` and `pattern`, and the argument that stripping is safe
-([openapi-resolver.md](openapi-resolver.md) §3) is a **response-side** argument — it accepts
-more, which is the harmless direction for something arriving. On a request, a stripped
-`pattern` means the check passes a value the server rejects, and the conform will not catch it
-either, since the stripped keyword is not in the schema being conformed against.
-
 ## 6. `query_schema` has a target above it
 
 A query value is a scalar, null, or an array of scalars (`querySchema`), and a declaration may not
@@ -224,8 +212,8 @@ makes publishing it a statement about what left.
 
 **Hiding is refused.** A declaration omitting keys the output produces (expose `{status}` while
 computing `{status, debug}`) would have the conform strip them, so §3 refuses the undeclared key
-instead: we decline to delete what someone wrote. Admitting `additionalProperties` (§3's count) is
-what would reopen it, and it should be reopened deliberately rather than as a side effect.
+instead: we decline to delete what someone wrote. Admitting `additionalProperties` (§11) is what
+would reopen it, and it should be reopened deliberately rather than as a side effect.
 
 **A declaration may widen and may resolve an unknown, but may not narrow.** An author who knows a
 field is `enum: [sent, failed]` where inference says `string` is refused. A narrowing declaration is
@@ -270,20 +258,16 @@ a registration failure for a process that runs to completion and then cannot del
 
 ## 11. Open
 
-- **A declared task output's prose survives `Solve` by being written back afterwards.** The
-  solver stores canonical forms, which carry no `description`; the write-back restores it where
-  the check passed. Storing annotations beside the canonical type would be the cleaner shape if
-  a second annotation ever needs the same treatment.
-- `headers_schema`, when an importer's request side exists to fill it (§2).
-- `additionalProperties`, and with it hiding (§3, §8). Count first.
+- `headers_schema`. Headers have a fixed target (`object<string>`), so it would add only
+  required-ness. Trigger: an importer's request side to fill it.
+- `additionalProperties`, and with it hiding (§3, §8). Trigger: a count, not a debate. The refusal
+  names the keyword and slot, so running an importer's request side over real documents counts
+  the cases (the responses already translate it: [openapi-resolver.md](openapi-resolver.md) §3).
 - Narrowing declarations, if [literal-types.md](literal-types.md) does not remove the appetite
   (§8). The measurement that decides it is how many real declarations want to say something
   inference will never produce once literals are inferred.
 - Whether `$process` spreading `input_schema` should be a **required** part of the spread or an
   entry an author may drop. It is the only one of the four that can be checked against its
   source, so dropping it is more visibly a choice than dropping `raises`.
-- Filtering EXPRESSION completion by the declared target type. Tempting and declined for now:
-  the scope view is one thing everywhere, and a slot that hides a legal read is worse than one
-  that offers a wrong one, which the diagnostic catches anyway.
 - A code action filling every missing required key from the declaration. The obvious companion
   to an import; out of scope because it is an edit, and every answer in §7 is a read.

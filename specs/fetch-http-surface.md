@@ -32,14 +32,11 @@ appended (`appendQuery`).
   plus, so a server reading it that way takes the wrong value in silence. `%20` is a space under
   both readings, and the rewrite is exact: a literal plus is already `%2B`.
 
-The two forms NOT chosen would each need more than a target widening: `?t=a,b`
-(`explode: false`) and `?t[]=a` are per-parameter serialisation choices, so they want either a
-`join` builtin or an option beside the value. Neither has been asked for; OpenAPI's `style`
-vocabulary is the obvious model if one ever is.
+Rejected for now: `?t=a,b` and `?t[]=a` — per-parameter choices needing a `join` builtin or an
+option beside the value; OpenAPI's `style` is the model once a server demands one.
 
 `Action` decodes with plain `encoding/json`, so a definition using `query` on an older binary
-decodes cleanly and drops it — silent version skew, true of any new action field (Open
-questions).
+decodes cleanly and drops it — silent version skew, true of any new action field (Open).
 
 # §2 — `responses`
 
@@ -99,10 +96,6 @@ test, so `{"2xx": T}` covers the whole default accepted set without enumerating 
   `http.NNN`. Rejected: leniency (route `http.400` anyway, `error.data` null) — every declared
   error schema becomes nullable at the point of use. `code: [http.400, result.invalid]` handles
   both; `"4xx": {}` never escalates, the top type conforming to everything.
-
-**The consequence to state in docs:** declaring a schema for a status means that status's code
-can be replaced by a body-validation code, so `code: [http.4%]` no longer catches a 400 whose
-body is malformed. Symmetric with the success side, and the fix is to name both codes.
 
 - **`error.data` is present exactly where a pattern is declared** — undeclared data is never
   accessible, the rule `self.result` obeys; `"4xx": {}` is the escape hatch (carried and
@@ -166,9 +159,6 @@ body is malformed. Symmetric with the success side, and the fix is to name both 
   One resolver, or they drift.
 - A plain code may be written unquoted in YAML (`200:` reaches genroc as `"200"`); a range or a
   list must be quoted, and JSON quotes everything.
-- Add a `ruleFieldHints`-style hint for `schema` ([wire.go:206](../internal/model/wire.go#L206)):
-  anyone arriving from OpenAPI writes `{"200": {schema: ...}}` and gets `unsupported schema
-  keyword "schema"` from the strict allowlist — correct, but it should name the fix.
 
 ## Compat
 
@@ -199,18 +189,9 @@ most of HTTP, since `.retry-after` is a subtraction. Inference carries access pa
 **Computed keys** are typed only on homogeneous bases (arrays, `additionalProperties`-only
 maps), where every key has the same type; refused on objects with named properties.
 
-**What it buys, and has not yet been spent:** the poller's 202 loop can become an ordinary
-switch (`accepted_status: ["200","202"]`, `case: self.status == 202`) instead of routing
-through `on_error` — no error-path loop, no 19 `action_failed` entries per healthy run, the
-attempt counter back on the task that polls. The example still uses the old trick, because
-switching it means the poller must accept 202 itself and its caller therefore stops choosing
-`accepted_status` — a change to that example's input contract, not to this feature. **`accepted_status` quietly shifts meaning** — from "which statuses are
-successes" to "which statuses I handle myself" — worth stating in docs; behaviour is unchanged.
-
-Objects are open, so a wholesale `output: "$: self"` export widens safely. One remote
-risk worth a directed test: `output: "$: self"` inside a recursive task grows the type per
-unrolling level against the solver's widening cap. **Trap:** do not re-wrap `self.result` as
-`{body, headers, status}` — tidier, and breaks every definition in existence.
+Objects are open, so a wholesale `output: "$: self"` export widens safely. **Trap:** do not
+re-wrap `self.result` as `{body, headers, status}` — tidier, and breaks every definition in
+existence.
 
 # What none of this does
 
@@ -222,16 +203,16 @@ unrolling level against the solver's widening cap. **Trap:** do not re-wrap `sel
   would contain — nothing checks the endpoint can return one, and nothing requires an
   `on_error` rule to catch it.
 
-# Open questions
+# Open
 
-- Should a declared error status whose body fails to conform leave a `warn` audit entry, or is
-  that noise on a path already logging `action_failed`?
-- Does `accepted_status` still earn a slot once `responses` keys carry the same vocabulary? It
-  survives for the dynamic case alone — one example's requirement holding a slot open for all.
-- Should `headers` gain `query`'s null-omits for consistency? A behaviour change to an existing
-  slot; needs its own argument.
-- Version skew on new action fields generally — `min_engine`, or rejecting unknown action
-  fields; both breaking, both bigger than these features.
-- `Retry-After` is still not usable end to end: it is in seconds, `for` wants milliseconds, and
-  the expression language has no numeric conversion builtin — separate proposal.
-- `Set-Cookie` lost to comma-joining; reopen if a session-carrying flow needs it.
+- Version skew on new action fields — `min_engine`, or rejecting unknown action fields; both
+  breaking. Trigger: a definition silently losing a field on an older binary.
+- `Retry-After` end to end: seconds, while `for` wants milliseconds and there is no numeric
+  conversion builtin. Trigger: a retry that must honour it.
+- A `ruleFieldHints`-style hint ([wire.go](../internal/model/wire.go)) for `{"200": {schema: ...}}`,
+  which OpenAPI habit produces and the allowlist refuses without naming the fix. Trigger: the
+  first user it trips.
+- The poller example's 202 loop as a switch (`accepted_status: ["200","202"]`, `case: self.status
+  == 202`) instead of an `on_error` loop. Trigger: changing that example's input contract.
+- A directed test for `output: "$: self"` in a recursive task, which grows the type per unrolling
+  level against the solver's widening cap. Trigger: the next change to that cap.

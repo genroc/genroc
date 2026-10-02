@@ -1,6 +1,6 @@
 # Lazy context access
 
-**Built, except wish 2 (path-level laziness in expressions).** The read side of
+**Built, except wish 2 (§Open).** The read side of
 [object-store.md](object-store.md): a caller asks the context for a path, and only what that path
 needs is loaded.
 
@@ -8,17 +8,12 @@ needs is loaded.
 
 1. **One accessor.** A caller asks the context for a path. Whether `outputs.x` is inline, cut in
    three places, or a single whole-slot reference is the context's business, not the caller's.
-2. **Laziness at the path, not the slot.** Reading `outputs.x.y` must not load the 200 KB leaf
-   sitting at `outputs.x.code`.
+2. **Laziness at the path, not the slot.** Not built — §Open.
 3. **Untouched means unloaded.** A value an advance never reads must reach the next write as the
    reference it already was — no load, no re-hash, no new object.
 
 Wish 3 needs nothing from the write path: `cutForSize` already re-emits an `*ObjectRef` leaf as
 the reference it is, with no new object.
-
-## What blocks each wish
-
-2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
 
 ## Design
 
@@ -46,10 +41,7 @@ Row two is what makes wish 3 work: a caller that copies that subtree copies its 
 
 ### 3. Paths, not names, in `Roots`
 
-`collectRoots` already walks `MemberNode` chains to recognise `outputs.<id>`. Record the longest
-**static** prefix instead, stopping at the first dynamic step (computed key, index, lambda
-parameter) and falling back to the enclosing prefix. `AllOutputs` becomes the path `["outputs"]`.
-The conservatism rule is unchanged, one level finer.
+Not built — §Open.
 
 ### 3a. Copy versus read-through [built]
 
@@ -82,9 +74,8 @@ engine bug. This is what makes the analysis safe to refine.
 Copying an untouched leaf already works with today's grammar — a shape building
 `{b: outputs.x.b}` copies the reference at `b` and the next write re-emits it.
 
-A genuine **partial update of one large object** (`{...outputs.x, y: n}`) does not: there is no
-spread and no merge function. That is a language question, not a storage one, and it is the one
-part of the target this design does not reach on its own.
+Known limitation: a **partial update of one large object** (`{...outputs.x, y: n}`) has no
+spelling — there is no spread or merge — so it rewrites the whole object.
 
 ### A reference must not cross a boundary
 
@@ -106,11 +97,6 @@ claims.
 - The per-slot threshold stays, so a row is still unbounded in the *number* of slots.
 - Client-side splicing (genctl, the evaluator worker) holds hashes, not a context.
 
-## Phasing
-
-2. **Path-level `Roots`** -- wish 2. Deferred with its fork undecided (static path analysis
-   versus lazy values in eval); §3 records the recommendation.
-
 ## Tests
 
 Content addressing makes a copied reference and a re-loaded, re-hashed one **identical on the
@@ -131,3 +117,11 @@ in-memory load count (`inst.ResolvedObjects`), so these are Go tests:
   member chain reaches `Through` regardless.
 - `child_marker_test.ts` covers all three child types across the boundary; `claims_test.go` pins
   claims-follow-references on both engines.
+
+## Open
+
+- **Path-level laziness (wish 2).** Reading `outputs.x.y` still loads the 200 KB leaf at
+  `outputs.x.code`: `Roots` is name-level and `buildEnv` resolves whole slots. Recommended: record
+  the longest static prefix in `collectRoots`, stopping at the first dynamic step (`AllOutputs`
+  becomes `["outputs"]`), over lazy values in eval. Build when sibling reads beside a large leaf
+  show up in load counts; `TestBuildEnv_ReadingASiblingLeavesTheBigLeafAlone` fails when it lands.

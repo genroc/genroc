@@ -6,7 +6,7 @@ import (
 )
 
 // Per-request cost beyond the proxy hop: verify the session, resolve roles, sign an access token.
-// Answers ui-issued-tokens.md §7's open "is per-request minting too expensive?".
+// ui-issued-tokens.md §4 rests on this staying microseconds; §7 is when it would not.
 
 func benchSigner() *signer {
 	return &signer{

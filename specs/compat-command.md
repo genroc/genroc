@@ -94,8 +94,7 @@ conform strips an orphan. It still gets a `(not judged)` row, being a call no lo
 that changes where an instance goes, not what it holds, and fails loudly — so it sits beside
 `switch`, unjudged.
 
-The cross-document half — a child moving without its parent — is version-compatibility.md
-§3b's pairing check, also unbuilt.
+A child moving without its parent is the cross-document half: version-compatibility.md §3b.
 
 ### 2d. The relation may be relaxed, because the gap is closable
 
@@ -326,7 +325,7 @@ release per difference.
 
 `ignore` is a request field. `compatible` is the conjunction over everything compared, ignoring
 nothing; **`passes` is the gated answer**, and the two disagreeing is the intended reading of a
-green run with an excused break (§8).
+green run with an excused break.
 
 ## 7. Where it lives
 
@@ -341,8 +340,6 @@ green run with an excused break (§8).
 
 ## 8. Open
 
-- Does an `external.input` change deserve a verdict? The worker is usually code the same
-  operator owns, an argument the fetch case cannot make.
-- `SetReport.Compatible` keeps its meaning — the conjunction over everything compared —
-  while the gated verdict is separate. Recorded because the two can disagree (green exit,
-  `compatible: false`), which is intended.
+- **A verdict on `external.input`** — unlike a fetch's service, the worker is usually code the
+  same operator owns. Trigger: a worker broken by an `external.input` edit compat left
+  `(not judged)`.

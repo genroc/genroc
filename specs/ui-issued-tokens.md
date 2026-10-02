@@ -58,8 +58,7 @@ on restart.
 
 **The cost:** the server can mint as well as verify, so reading its config yields the ability to
 forge any identity. That is a short step from database access, which is already full access
-(api-auth.md §5.3). It would
-matter more if the server's config were widely readable, and that is the signal to revisit.
+(api-auth.md §5.3). When that stops holding is §7.
 
 So the server's jwt mode is HS256 only, and the `jwks` package lives in `ui/`, which still
 verifies upstream providers' ID tokens. Both sides refuse a secret under 32 characters.
@@ -70,8 +69,10 @@ verifies upstream providers' ID tokens. Both sides refuse a secret under 32 char
   `aud: genroc-ui-session` — so it cannot be replayed as an access token under the same key — and
   expires after `session_ttl` (default 12h). `HttpOnly`, `SameSite=Lax`. The provider's ID token is
   used once at login and discarded.
-- **The access token** is minted from that session on every proxied request, carrying `perms`
-  (not cached — §7).
+- **The access token** is minted from that session on every proxied request, carrying `perms`.
+  Not cached: verify, resolve and sign cost ~6–8 µs on an M1 (`ui/token_bench_test.go`) against
+  milliseconds of proxying, and minting at use is what makes a role-map edit take effect on the
+  next request. Not a second cookie: the access half never needs to reach the browser.
 
 OIDC and a config password both produce `{sub, groups}`, and every step after is identical. With
 no session table there is nothing to survive a restart.
@@ -81,12 +82,7 @@ while a role-map edit takes effect on the next request. There is no refresh cloc
 provider knows a person's groups, so re-deriving them means a redirect every few minutes, and
 `session_ttl` would stop bounding a session once each refresh minted a fresh one;
 `offline_access` avoids the redirect, but Dex rotates refresh tokens, so concurrent requests race
-for the one valid copy. Until groups can be re-fetched *without* a redirect, `POST /auth/logout` —
-sign out, sign in — is the lever.
-
-What is worth building in its place is **revocation by subject**: a list genroc-ui refuses
-sessions against, which re-triggers the login flow for that person alone. It spends one action by
-the operator, where a clock spends a round trip on every session in every window.
+for the one valid copy. `POST /auth/logout` — sign out, sign in — is the lever (§7).
 
 **Revoking everyone** needs nothing built: rotate the shared secret and restart both components
 together, and every cookie and outstanding access token dies at once — both, because genroc-ui
@@ -135,16 +131,12 @@ broker.
 
 ## 7. Open
 
-- **Does genroc-ui need a `perms` claim namespace?** `perms` is unqualified and could collide if
-  a token ever came from elsewhere. `aud: genroc` plus a pinned issuer already scopes it; a
-  namespaced claim would be belt and braces.
-- **Per-request minting is not cached.** Verifying the session cookie, resolving the role map and
-  signing cost single-digit microseconds (~6–8 µs on an M1, `ui/token_bench_test.go`) against a
-  proxy hop and a genroc round trip in milliseconds, and minting at use is what makes a role-map
-  edit take effect on the next request. Not a second cookie holding the access token: the session
-  cookie already is the refresh half, and the access half never needs to reach the browser.
-
-  **The signal to revisit is RSA.** Signing goes from ~2 us to ~1 ms (§3 records why HMAC was
-  chosen), and at 400x the cost per-request minting stops being free.
-- **Multiple providers and the same person.** Two providers can assert the same email. Whether
-  that is one identity or two is a policy question this design does not answer.
+- **A config-readable forging key (§3)** — revisit HMAC if the server's config becomes widely
+  readable.
+- **Group refresh** — once groups can be re-fetched *without* a redirect; until then, logout.
+- **Revocation by subject** — a list genroc-ui refuses sessions against, re-running the login for
+  one person: one operator action, where a refresh clock spends a round trip on every session.
+- **Per-request minting under RSA (§4)** — signing goes from ~2 µs to ~1 ms, and at 400x minting
+  at use stops being free.
+- **Two providers asserting the same email** — one identity or two is a policy question this
+  design does not answer; it needs one once a deployment's providers overlap.

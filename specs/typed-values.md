@@ -21,9 +21,7 @@ structure is an error; concatenation inside a typed leaf uses the expression lan
 `$()` was rejected: it reads as a call.
 
 An unquoted `$:` leaf is YAML mapping syntax, so it errors or parses to `{"$": "..."}`; the docs
-say to quote it. (Reserving `$` as an object
-key with a did-you-mean hint is the recorded-but-untaken escape hatch if this proves
-error-prone.)
+say to quote it.
 
 **Expression-only positions never take a marker.** Where the type is a fixed non-string (switch
 `case` → boolean, `over` → array), literal text is never meaningful, so the field is one bare
@@ -71,11 +69,8 @@ so block scalars work. A `${` ends at the first `}` whose body parses
   `result_schema`/`responses`, raise/panic `code`, `on_error` codes —
   downstream analysis needs their concrete values.
 
-Deferred, with this grammar as prerequisite: per-action payload schemas (collapsing
-`validateActionRequiredFields` into one `Shape.Check`), the fetch payload pull-out, the
-`unknown` result type. The first was taken up by
-[declared-slot-schemas.md](declared-slot-schemas.md) (built 2026-09-18); the `unknown` result
-type is built ([unknown-type.md](unknown-type.md)).
+Per-action payload schemas, which needed this grammar, are
+[declared-slot-schemas.md](declared-slot-schemas.md).
 
 ## Editor schema
 
@@ -93,8 +88,10 @@ definition of where sub-schemas live, so a new keyword is picked up in one place
 
 ## Open
 
-- Open: author-time strictness on unknown object keys (runtime conform strips; `Shape.Check`
-  should probably reject so editors flag typos). Homogeneous arrays only (matches the
-  engine's single `items`). Object spread (`...$:`) deferred — order-dependent override
-  needs an ordered representation, and both `...` and `$:` need quoting; net-new in the
-  expression language too.
+- Author-time rejection of unknown object keys (runtime conform strips; `Shape.Check` should
+  reject so editors flag typos). Trigger: a typo'd key silently stripped in a real definition.
+- Heterogeneous arrays — only homogeneous ones, matching the engine's single `items`. Trigger: a
+  tuple-shaped slot that cannot be typed.
+- Object spread (`...$:`): order-dependent override needs an ordered representation, both `...`
+  and `$:` need quoting, and the expression language has none. Trigger: an override pattern
+  `??` per key cannot express.

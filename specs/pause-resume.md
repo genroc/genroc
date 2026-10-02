@@ -71,11 +71,6 @@ owner's write, and reporting it back means RETURNING on the hottest queries — 
 (the crash-recovery path does log it). Resume has no info-level trace; attribution needs
 `?level=debug`. Migration 022's data mapping is untested (test databases never hold legacy rows).
 
-## Open
-
-Pause is also the foundation for step-debugging (start paused + per-instance tick; one
-`advance()` is the natural step unit) — tracked in ROADMAP.
-
 ## Cancel
 
 `cancelling`/`cancelled`, root-only, reusing this document's machinery: the leased/parked split
@@ -105,3 +100,8 @@ status by hand.
 
 Reaching work already in flight is the heartbeat's job:
 [external-task-queue.md](external-task-queue.md) §Renew is the heartbeat.
+
+## Open
+
+- Step-debugging on top of pause: start paused, then a per-instance tick, one `advance()` per step.
+  Trigger: debugging a definition by stepping it (tracked in ROADMAP).

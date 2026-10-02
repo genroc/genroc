@@ -1,6 +1,6 @@
 # The external-task queue: claim, lease, and an error channel
 
-Status: **Built, except the claim long-poll (§Open) and a pump nudge after a resolve (§What was missing).**
+Status: **Built, except the claim long-poll and a pump nudge after a resolve (§Open).**
 
 `external` is a queue a worker fleet pulls from: the engine's claim/lease semantics on columns of
 its own, plus an error channel. The motivating consumer is [`eval-node/`](../eval-node/README.md)
@@ -20,11 +20,6 @@ stays durable (overload only produced a worse *code*, `http.timeout`, unknowable
 fetch holds one of `--max-concurrent` for its whole duration while an `external` holds none, and
 pull inverts the connection direction, so a worker can live behind NAT and genroc never dials a
 code-execution endpoint.
-
-## What was missing
-
-6. **No nudge.** Nothing wakes the pump after a resolve, so a resume waits up to `--poll`
-   (500ms) — irrelevant for an approval, material for a 50ms script.
 
 ## The claim must not reuse the engine's lease columns
 
@@ -191,7 +186,7 @@ its deadline still running.
 deadline regardless of a live claim, raises `external.timeout`, and the worker's later resolve
 fails the phase check. It needs no code — `ClaimInstances` reads only the engine's own lease
 columns — so `TestExternalClaim_DoesNotDelayTheEngineTimeout` pins it against a "simplification"
-onto shared columns. Cap a granted lease at the remaining budget, or at least return the deadline.
+onto shared columns.
 
 ### `external.lost`
 
@@ -237,22 +232,20 @@ with the task left parked; an `only_once` retry on a worker code is refused with
 resolve, resume — it continues on the submitted result and never reports `external.timeout`; a
 paused instance is not offered by `claim` at all.
 
-## Decided, and one thing that is not
+## Decided
 
 `worker_id` is required on claim and renew (release is fenced by the three-part token). It is
 self-declared, not bound to the credential; the endpoints are authorized by the `worker`
 permission ([api-auth.md](api-auth.md)). The token is an occurrence discriminator the queue hands
 to any caller, not a capability.
 
-Not introduced here, but adjacent and worth a look while in this code: a deadline that
-elapses during a long pause fires `external.timeout` the instant the tree resumes. That is
-[pause-resume.md](pause-resume.md)'s stated behaviour for timers generally, and it is the
-same `only_once` hazard as §Pause with nothing to accept in its place.
-
 ## Open
 
-A `wait_ms` long-poll on `claim`
-answers the latency note, but second — it changes connection lifetime, not the data model.
-
-Still unbuilt: the claim **long-poll**, which is the only
-thing standing between a 250ms idle poll and immediate pickup.
+- **Nudge after a resolve.** Nothing wakes the pump, so a resume waits up to `--poll` (500ms) —
+  irrelevant for an approval, material for a 50ms script. Build when script latency matters.
+- **Claim long-poll.** A `wait_ms` on `claim` is the only thing between a 250ms idle poll and
+  immediate pickup, and changes connection lifetime, not the data model — build when pickup
+  latency matters.
+- **A deadline elapsing during a pause** fires `external.timeout` the instant the tree resumes:
+  [pause-resume.md](pause-resume.md)'s rule for timers, and §Pause's `only_once` hazard with
+  nothing to accept in its place. Revisit if long pauses over `only_once` externals occur.

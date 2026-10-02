@@ -1,6 +1,6 @@
 # `retry`: a policy, not a count
 
-Status: **Built, except what "What was deliberately left out" lists.**
+Status: **Built, except what Open lists.**
 
 An `on_error` rule's `retry` is `{retries, delay, factor, max_delay}`; `retry: 3` is shorthand
 for `{retries: 3}`, and every slot also takes a `$:` expression.
@@ -63,20 +63,13 @@ a string), and a quoted number is refused.
   `outputs` and `config`: the scope the rule's `case` is matched in (specs/task-scopes.md §The
   error axis). So `delay: "$: error.data.retry_after"` works where a payload carries the value.
 
-## What was deliberately left out
+## Open
 
-- **`jitter`**, as a strategy or a factor. It is always on, always in the upper half, and
-  the integration tests depend on it only ever shortening. Nobody has asked to tune it.
-- **A wall-clock budget** (`retry_for: 10m`, or `until:`). The right unit conceptually,
-  but it collides with pause/resume (does a 10-minute budget survive a two-day pause?)
-  and with the per-attempt `timeout`. Real design work, deferred until asked for.
-- **`Retry-After`** — a server saying when to come back. Still the frontier: response
-  headers and string-literal indexing shipped ([fetch-http-surface.md](fetch-http-surface.md)),
-  but a failed fetch's `error` carries no headers and there is no seconds→ms conversion.
-  Expression-valued slots (below) are the syntax it will use; what is missing is the value to put in them.
-
-  This deferral once covered expression-valued slots as a whole, on the reasoning that
-  they existed *for* `Retry-After`. That turned out to be wrong: the case that arrived
-  first was a curve that has to differ per environment — a Kubernetes cold start is
-  minutes, a laptop is seconds — and it needs nothing from the HTTP surface, because
-  `config` is already resolved every tick and already in scope.
+- **Tuning `jitter`.** Always on, always in the upper half; the integration tests rely on it only
+  ever shortening. Trigger: someone asks to tune it.
+- **A wall-clock budget** (`retry_for: 10m`, or `until:`). Collides with pause/resume (does a
+  10-minute budget survive a two-day pause?) and with the per-attempt `timeout`. Trigger: asked
+  for, with an answer to both.
+- **`Retry-After`.** The slot syntax exists (expression-valued slots, above); the value does not —
+  a failed fetch's `error` carries no headers, and there is no seconds→ms conversion. Trigger: a
+  service whose rate-limit window no fixed curve fits.

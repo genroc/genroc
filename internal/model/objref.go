@@ -1,7 +1,5 @@
 package model
 
-import "fmt"
-
 // ObjectRef points at one row in objects. Ref is the content's sha256 truncated to 128 bits,
 // hex: object id and change-detection key at once. Size is surfaced without loading the object.
 type ObjectRef struct {
@@ -30,13 +28,4 @@ const (
 	// ObjectOwnerLog: a log payload. OwnerID is the LOG ROW, not the instance, so the claim is
 	// wanted exactly while the row is and the prune needs no horizon to say so.
 	ObjectOwnerLog ObjectOwner = "log"
-	// ObjectOwnerDefinition: a value embedded in a definition version, OwnerID "name@version".
-	// It never expires: nothing deletes a definition version, and an instance pinned to an old
-	// one must still be able to load its bundle.
-	ObjectOwnerDefinition ObjectOwner = "definition"
 )
-
-// DefinitionOwnerID is the owner_id a definition version claims objects under.
-func DefinitionOwnerID(name string, version int) string {
-	return fmt.Sprintf("%s@%d", name, version)
-}
