@@ -198,14 +198,14 @@ tasks. You can take this as an example implementation of
 <p>We are using two kinds of resolvers. <code>$process:</code> is build in documented in <a href="/guides/process-definition/child-processes/#importing-child-process">child process section</a>.
 Then we have <code>$import: ./greet.ts</code>, this is a special resolver intended for importing typescript files.</p>
 <p>The content of the file is bundled with rollup into one string and included directly into the process definition,
-so it can’t drift.</p>
+so it can&#39;t drift.</p>
 <h3 id="generated-types">Generated types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#generated-types"><span></span></a></h3>
 <p>Run <code>genctl types</code> and this setup will also generate <code>Input</code> and <code>Output</code> types for the <code>greet.ts</code> script.</p>
 <p>This way the script input and output is tied to the current <code>input</code> and <code>result_schema</code> defined in process.
-Genroc will fail if those types don’t match.</p>
+Genroc will fail if those types don&#39;t match.</p>
 <h3 id="the-script-format">The script format<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-script-format"><span></span></a></h3>
 <p>Genroc expects default import to be function and it will pass input as a first argument.
-It will take it’s output as a result.</p>
+It will take it&#39;s output as a result.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="ts"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">// `Input` and `Output` are written beside this file by `genctl types`, and by every apply.</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">import</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> Input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> Output </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> from</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">./greet.genroc</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">;</span></span>
 <span class="line"></span>

@@ -212,8 +212,8 @@ properties.</p>
 <p>This action sends a POST request with a JSON body and expects a 201 status with valid
 JSON that fits the defined schema. The response JSON is available as <code>self.result</code>
 and is referenced in the <code>output</code> field.</p>
-<p>If the status isn’t accepted, fetch fails with <code>http.&lt;status&gt;</code> (e.g. <code>http.404</code>); if the body
-doesn’t fit the schema, with <code>result.invalid</code>. Both can be handled in <code>on_error</code>.
+<p>If the status isn&#39;t accepted, fetch fails with <code>http.&lt;status&gt;</code> (e.g. <code>http.404</code>); if the body
+doesn&#39;t fit the schema, with <code>result.invalid</code>. Both can be handled in <code>on_error</code>.
 Check <a href="/guides/process-definition/error-handling/">error handling</a> for details.</p>
 <p>Here is a list of the fields available on the fetch action:</p>
 
@@ -267,11 +267,11 @@ Check <a href="/guides/process-definition/error-handling/">error handling</a> fo
 
 
 <table><thead><tr><th>Field</th><th>Required</th><th>Meaning</th></tr></thead><tbody><tr><td><code>method</code></td><td>yes</td><td>HTTP method, lowercase: <code>get</code>, <code>post</code>, <code>put</code>, …</td></tr><tr><td><code>url</code></td><td>yes</td><td>The request URL; can contain <code>${…}</code> templates.</td></tr><tr><td><code>headers</code></td><td></td><td>Request headers; each value a string.</td></tr><tr><td><code>query</code></td><td></td><td>Query parameters appended to the URL. A parameter whose value is <code>null</code> is left out.</td></tr><tr><td><code>body</code></td><td></td><td>The request body; an object is sent as JSON.</td></tr><tr><td><code>responses</code></td><td></td><td>Response types by status. A 2xx entry types <code>self.result</code>; others type the error body (<a href="/guides/process-definition/error-handling/#responses-field">more</a>).</td></tr><tr><td><code>accepted_status</code></td><td></td><td>Statuses that count as success; any 2xx by default (<a href="/guides/process-definition/error-handling/#accepted-statuses">more</a>).</td></tr><tr><td><code>timeout</code></td><td></td><td>Time limit for one attempt, <code>30s</code> by default; each retry gets a new one (<a href="/guides/process-definition/error-handling/#custom-timeout">more</a>).</td></tr></tbody></table>
-<p>In the task’s <code>output</code> and <code>switch</code>, the response is available as <code>self.result</code> (the body),
+<p>In the task&#39;s <code>output</code> and <code>switch</code>, the response is available as <code>self.result</code> (the body),
 <code>self.status</code> and <code>self.headers</code>.</p>
 <h2 id="delay">Delay<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#delay"><span></span></a></h2>
 <p>It parks the instance for a specified amount of time.
-The waiting costs nothing, because it’s just a record in the database,
+The waiting costs nothing, because it&#39;s just a record in the database,
 not an active process.</p>
 <p>The instance keeps the <code>running</code> status, but the engine
 continues with execution only after the specified time.</p>
@@ -354,7 +354,7 @@ If the value of <code>until</code> is in the past, the instance just continues i
 
 
 
-<table><thead><tr><th>Field</th><th>Where</th><th>Declares</th></tr></thead><tbody><tr><td><code>body_schema</code></td><td><code>fetch</code></td><td>the request body</td></tr><tr><td><code>query_schema</code></td><td><code>fetch</code></td><td>the query parameters</td></tr><tr><td><code>input_schema</code></td><td><code>child</code>, <code>child_list</code>, each entry of <code>child_map</code>, <code>external</code></td><td>the input sent to the child or worker</td></tr><tr><td><code>output_schema</code></td><td>a task, and the process itself</td><td>the task’s or process’s <code>output</code></td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Where</th><th>Declares</th></tr></thead><tbody><tr><td><code>body_schema</code></td><td><code>fetch</code></td><td>the request body</td></tr><tr><td><code>query_schema</code></td><td><code>fetch</code></td><td>the query parameters</td></tr><tr><td><code>input_schema</code></td><td><code>child</code>, <code>child_list</code>, each entry of <code>child_map</code>, <code>external</code></td><td>the input sent to the child or worker</td></tr><tr><td><code>output_schema</code></td><td>a task, and the process itself</td><td>the task&#39;s or process&#39;s <code>output</code></td></tr></tbody></table>
 <p>They keep the shapes from drifting. The shapes are checked against the schemas
 when you apply the definition, and the schemas also drive editor completion.</p>
 <p>You can also use a schema to solve optional vs. nullable field problems.

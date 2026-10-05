@@ -247,9 +247,9 @@ that is not an identifier. Navigating through a null yields null rather than fai
 
 
 
-<table><thead><tr><th>Name</th><th>Holds</th></tr></thead><tbody><tr><td><code>input</code></td><td>the instance’s input, conformed once at creation</td></tr><tr><td><code>outputs.&lt;task id&gt;</code></td><td>what a task published, for every task on the path taken</td></tr><tr><td><code>config</code></td><td>the config variables, re-resolved from the environment on every tick</td></tr><tr><td><code>last_error</code></td><td>the error that routed control here from another task’s <code>on_error</code></td></tr></tbody></table>
+<table><thead><tr><th>Name</th><th>Holds</th></tr></thead><tbody><tr><td><code>input</code></td><td>the instance&#39;s input, conformed once at creation</td></tr><tr><td><code>outputs.&lt;task id&gt;</code></td><td>what a task published, for every task on the path taken</td></tr><tr><td><code>config</code></td><td>the config variables, re-resolved from the environment on every tick</td></tr><tr><td><code>last_error</code></td><td>the error that routed control here from another task&#39;s <code>on_error</code></td></tr></tbody></table>
 <p><code>self</code> names the task itself, and its three members come into existence at different points
-along the task’s own timeline — so a slot may only read the ones that exist by the time it is
+along the task&#39;s own timeline — so a slot may only read the ones that exist by the time it is
 evaluated.</p>
 
 

@@ -153,7 +153,7 @@ one to fetch some information and another to mutate something.</p>
 <p>The issue is that your API can change in the meantime. If you fetch some data, then
 pause the process for a month and resume it, it will be talking to the new API
 with assumptions from the old one.</p>
-<p>Strict validation can’t prevent these issues, but makes them easy to detect.</p>
+<p>Strict validation can&#39;t prevent these issues, but makes them easy to detect.</p>
 <h2 id="static-checking-and-inference">Static checking and inference<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#static-checking-and-inference"><span></span></a></h2>
 <p>Because the inputs are typed, we can statically check every expression:
 that it references only properties that exist, and that its operations use the right types.</p>
@@ -166,8 +166,8 @@ can be accessed in the expressions.</p>
 <p>This creates a continuous flow of types through the process, so you always
 know what outputs are accessible and what their types are.</p>
 <h2 id="nullability">Nullability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#nullability"><span></span></a></h2>
-<p>Genroc tracks whether a field can be null. It doesn’t allow nullable fields
-in templates and operations that don’t make sense on a <code>null</code> type (e.g. <code>&lt;</code>).
+<p>Genroc tracks whether a field can be null. It doesn&#39;t allow nullable fields
+in templates and operations that don&#39;t make sense on a <code>null</code> type (e.g. <code>&lt;</code>).
 Comparing to <code>null</code> is always allowed, so <code>x == null</code> is how you test for one.</p>
 <p>There are two ways to get from a nullable value to one you can use.
 Give it a fallback with the <code>??</code> operator:</p>
@@ -188,9 +188,9 @@ is still refused, because the comparison is reached before anything has been pro
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      default</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> http://localhost:1234</span></span></code></pre>
 <p>Even though the value is not required here, genroc knows it can never be null
-inside the process, because if you don’t provide it, the default value will be used.
+inside the process, because if you don&#39;t provide it, the default value will be used.
 Combining required and default is refused, because then the default can never be applied.</p>
-<p>This changes, however, if it’s specified as <code>type: [string, &quot;null&quot;]</code>.
+<p>This changes, however, if it&#39;s specified as <code>type: [string, &quot;null&quot;]</code>.
 You can then pass <code>null</code> explicitly and the default value is not used.</p>
 <blockquote>
 <p>Genroc has only one NIL value, <code>null</code>, so in the expressions there is no difference between nullable and non-required values (they both contain <code>null</code>).</p>
@@ -258,10 +258,10 @@ based on where all the <code>goto: end</code> are in the process.</p>
 If you make a typo (e.g. <code>&quot;$: outputs.load_user.emial&quot;</code>), genroc will throw an error.</p>
 <h3 id="the-context-of-a-slot">The context of a slot<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-context-of-a-slot"><span></span></a></h3>
 <p>Each slot can have a slightly different context depending on previous tasks and
-on its position in the task. For example, you can’t use <code>self.result</code> in the action
+on its position in the task. For example, you can&#39;t use <code>self.result</code> in the action
 configuration, because the result is available only after the action has executed.</p>
 <h3 id="other-checks">Other checks<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#other-checks"><span></span></a></h3>
-<p>Genroc also validates switch/goto targets (that the task exists) and doesn’t
+<p>Genroc also validates switch/goto targets (that the task exists) and doesn&#39;t
 allow unreachable tasks.</p>
 <h2 id="config">Config<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#config"><span></span></a></h2>
 <p>Config lets a process read environment variables.
@@ -282,7 +282,7 @@ You can define <code>config_schema</code>. It must be a flat object, e.g.:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">server_url</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">/users/</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>
 <p>Genroc loads and validates config values every time it interacts with the process.
 You can declare any primitive type; genroc validates the value and converts it.
-If the validation doesn’t pass, the process is not allowed to register.
+If the validation doesn&#39;t pass, the process is not allowed to register.
 So if the value is required, you need to set the env before applying the definition (on the server).</p>
 <h3 id="secrets">Secrets<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#secrets"><span></span></a></h3>
 <p>In the config you can mark a property as <code>secret</code>.</p>
@@ -299,7 +299,7 @@ Secrets can still leak into db-stored logs or process state - so they will be
 visible through <code>genctl logs</code> and so on.</p>
 <p>The <code>secret</code> property can only be used in the config.</p>
 <h2 id="the-benefits">The benefits<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-benefits"><span></span></a></h2>
-<p>Genroc’s type system ensures validity at two different moments, which complement each other.</p>
+<p>Genroc&#39;s type system ensures validity at two different moments, which complement each other.</p>
 <p><strong>At registration</strong> - everything is statically checked - all the expressions,
 the types they produce, goto targets, reachability. A typo in an expression never
 reaches production. <code>genctl apply --check-only</code> runs exactly these checks, so

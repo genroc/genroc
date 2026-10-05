@@ -180,9 +180,9 @@ These are listed only if they have a value.</p>
 If the instance has finished, it tells you which task was the last.</p>
 <h3 id="phase">Phase<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#phase"><span></span></a></h3>
 <p>Some tasks are not atomic (external/children), meaning
-the engine needs to perform multiple “ticks” per task.</p>
+the engine needs to perform multiple &quot;ticks&quot; per task.</p>
 <p>In that case the <code>phase</code> field is used to distinguish between the sub-states.
-It is shown only when it’s not empty, and has the following meaning:</p>
+It is shown only when it&#39;s not empty, and has the following meaning:</p>
 
 
 
@@ -207,12 +207,12 @@ It is shown only when it’s not empty, and has the following meaning:</p>
 <table><thead><tr><th>Phase</th><th>Meaning</th></tr></thead><tbody><tr><td><code>children</code></td><td>Child instances were spawned; the parent is blocked until all of them finish.</td></tr><tr><td><code>collecting</code></td><td>All children have finished; the engine still has to merge their outputs into the parent.</td></tr><tr><td><code>external</code></td><td>Parked on an external task, waiting for an answer or for its timeout.</td></tr></tbody></table>
 <h3 id="error-code-and-error-data">Error, Code and Error data<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#error-code-and-error-data"><span></span></a></h3>
 <p>Describes an error if the status is <code>raised</code> or <code>failed</code>.
-System error codes contain a dot (e.g. <code>result.invalid</code>); user-defined codes can’t contain one.</p>
+System error codes contain a dot (e.g. <code>result.invalid</code>); user-defined codes can&#39;t contain one.</p>
 <p><code>Error data</code> is an optional payload of <code>panic</code> or <code>raise</code>.</p>
 <p>Check the <a href="/reference/definition/errors/">task error reference</a>.</p>
 <h3 id="output">Output<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#output"><span></span></a></h3>
 <p>This is the public output of the process.
-It’s available once the instance has completed, if the process defines <code>output</code>.</p>
+It&#39;s available once the instance has completed, if the process defines <code>output</code>.</p>
 <h2 id="instance-lifecycle">Instance lifecycle<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instance-lifecycle"><span></span></a></h2>
 <p>Genroc instances communicate their lifecycle through the <code>status</code> field.</p>
 <figure class="diagram" data-astro-cid-uwvadgfv><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 770 420" role="img" aria-labelledby="sd-title">
@@ -321,7 +321,7 @@ It’s available once the instance has completed, if the process defines <code>o
 </svg>
 </figure> 
 <p><code>Settled</code> marks a terminal state: no work moves and nothing advances out of it.
-<code>Accepts a result</code> is whether a worker’s answer to an external task is still delivered —
+<code>Accepts a result</code> is whether a worker's answer to an external task is still delivered —
 a pause suspends execution, not delivery.</p>
 
 
@@ -394,26 +394,26 @@ They can only be applied to root instances, and they apply to the whole
 tree. They are refused on children.</p>
 <h3 id="pause-and-resume">Pause (and resume)<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pause-and-resume"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> pause</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
-<p>This will pause the instance if it’s running. The instance can then be resumed by the <code>resume</code> command with the same syntax.</p>
+<p>This will pause the instance if it&#39;s running. The instance can then be resumed by the <code>resume</code> command with the same syntax.</p>
 <p>The <code>pause</code> command waits for running workers in the <code>pausing</code> status, so no worker is forcefully
 interrupted and no work is repeated.</p>
 <p>Pause/resume operates strictly within the definition boundaries (they never add a retry),
-so you can use them as you like without changing the instance’s behavior. The only caveat is that timers
+so you can use them as you like without changing the instance&#39;s behavior. The only caveat is that timers
 keep running even when the instance is paused, so a timeout (e.g. on an external task)
 can run out while the instance is paused.</p>
 <p>An external worker can still deliver a result through <code>resolve</code>, even if the instance
 has switched to the <code>paused</code> status.</p>
 <h3 id="cancel">Cancel<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#cancel"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> cancel</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
-<p>This cancels the instance for good — a cancelled instance can’t be resumed.</p>
+<p>This cancels the instance for good — a cancelled instance can&#39;t be resumed.</p>
 <p>Cancel also goes through <code>cancelling</code> while the workers settle.</p>
-<p>An external worker can’t deliver a result through <code>resolve</code> (it will fail) if the instance
+<p>An external worker can&#39;t deliver a result through <code>resolve</code> (it will fail) if the instance
 was cancelled while the worker was running.</p>
 <h3 id="retry">Retry<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#retry"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> retry</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
 <p>Retries a <code>failed</code> instance; it basically adds one extra attempt on the current task
-(it doesn’t reset the retry counter, so it tries once and goes straight back to <code>failed</code> on an error).</p>
-<p>Retry can’t be used on <code>paused</code>, <code>cancelled</code> or <code>raised</code> statuses.</p>
+(it doesn&#39;t reset the retry counter, so it tries once and goes straight back to <code>failed</code> on an error).</p>
+<p>Retry can&#39;t be used on <code>paused</code>, <code>cancelled</code> or <code>raised</code> statuses.</p>
 <p>If the task is <code>only_once</code>, retry needs the <code>--force</code> flag,
 because a retry could easily break the <code>only_once</code> rule by accident.</p>
 <h2 id="instance-logs">Instance logs<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instance-logs"><span></span></a></h2>
@@ -429,7 +429,7 @@ because a retry could easily break the <code>only_once</code> rule by accident.<
 <span class="line"><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">12:53:58  INFO   3k1nz7pq  inst_completed    eval_node       output={</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">at</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-30T10:53:58.669Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">greeting</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">hello,…</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">12:53:58</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  INFO</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   006y1m7d</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  child_collected</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   greet</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">12:53:58</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  INFO</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   006y1m7d</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  inst_completed</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">    greet</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">           output={</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">at</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2026-09-30T10:53:58.669Z</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">greeting</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">hello,…</span></span></code></pre>
-<p>When you target a root, the logs include its children’s logs as well.</p>
+<p>When you target a root, the logs include its children&#39;s logs as well.</p>
 <h2 id="instance-detail">Instance detail<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instance-detail"><span></span></a></h2>
 <p>If you want more info about an instance, use the <code>detail</code> command.</p>
 <p>It prints everything <code>get</code> does, plus extra info about the internal state.</p>
@@ -498,7 +498,7 @@ because a retry could easily break the <code>only_once</code> rule by accident.<
 
 
 
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires - a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task’s output under <code>outputs</code>, and <code>last_error</code> - the error last caught by <code>on_error</code>.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires - a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task&#39;s output under <code>outputs</code>, and <code>last_error</code> - the error last caught by <code>on_error</code>.</td></tr></tbody></table>
 <p>Only <code>Epochs</code> is always shown; the rest appear when they have a value.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/script-evaluation/"> <span>previous</span> <strong>Typescript evaluation</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#listing-instances">Listing instances</a></li><li class="depth-2"><a href="#info-about-the-instance">Info about the instance</a></li><li class="depth-3"><a href="#task">Task</a></li><li class="depth-3"><a href="#phase">Phase</a></li><li class="depth-3"><a href="#error-code-and-error-data">Error, Code and Error data</a></li><li class="depth-3"><a href="#output">Output</a></li><li class="depth-2"><a href="#instance-lifecycle">Instance lifecycle</a></li><li class="depth-3"><a href="#pause-and-resume">Pause (and resume)</a></li><li class="depth-3"><a href="#cancel">Cancel</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-2"><a href="#instance-logs">Instance logs</a></li><li class="depth-2"><a href="#instance-detail">Instance detail</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]

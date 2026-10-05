@@ -199,13 +199,13 @@
 
 
 
-<table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>id</code></td><td><code>string</code></td><td>yes</td><td>Task identifier, unique within the definition.</td></tr><tr><td><code>switch</code></td><td><code>Switch</code></td><td>yes</td><td>Required. Routing: a shorthand (“next”, “end”, “$task-id”) or an ordered list of cases.</td></tr><tr><td><code>action</code></td><td><code>Action</code></td><td></td><td>Describes the action to perform. Omit for switch-only (routing) tasks.</td></tr><tr><td><code>on_error</code></td><td><code>Error rule[]</code></td><td></td><td>Ordered error-routing rules evaluated when the call fails. First match wins.</td></tr><tr><td><code>only_once</code></td><td><code>boolean</code></td><td></td><td>At-most-once execution: only errors that never reached the remote may retry. Defaults to false.</td></tr><tr><td><code>output</code></td><td><code>Shape</code></td><td></td><td>Templated value remapping this task’s output; it becomes outputs.taskID and self.output.</td></tr><tr><td><code>output_schema</code></td><td><code>JSON Schema</code></td><td></td><td>JSON Schema this task’s output is checked against and conformed to. It becomes the published type of outputs.taskID.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>id</code></td><td><code>string</code></td><td>yes</td><td>Task identifier, unique within the definition.</td></tr><tr><td><code>switch</code></td><td><code>Switch</code></td><td>yes</td><td>Required. Routing: a shorthand ("next", "end", "$task-id") or an ordered list of cases.</td></tr><tr><td><code>action</code></td><td><code>Action</code></td><td></td><td>Describes the action to perform. Omit for switch-only (routing) tasks.</td></tr><tr><td><code>on_error</code></td><td><code>Error rule[]</code></td><td></td><td>Ordered error-routing rules evaluated when the call fails. First match wins.</td></tr><tr><td><code>only_once</code></td><td><code>boolean</code></td><td></td><td>At-most-once execution: only errors that never reached the remote may retry. Defaults to false.</td></tr><tr><td><code>output</code></td><td><code>Shape</code></td><td></td><td>Templated value remapping this task's output; it becomes outputs.taskID and self.output.</td></tr><tr><td><code>output_schema</code></td><td><code>JSON Schema</code></td><td></td><td>JSON Schema this task's output is checked against and conformed to. It becomes the published type of outputs.taskID.</td></tr></tbody></table>
 <h2 id="switch">Switch<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#switch"><span></span></a></h2>
-<p>The value of a task’s <code>switch</code>.</p>
+<p>The value of a task's <code>switch</code>.</p>
 <h3 id="string"><code>string</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#string"><span></span></a></h3>
-<p>A single unconditional route: “next”, “end”, or “$task-id”.</p>
+<p>A single unconditional route: "next", "end", or "$task-id".</p>
 <h3 id="object"><code>object[]</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#object"><span></span></a></h3>
-<p>Ordered routing rules; first match wins and the last must be a catch-all (omit ‘case’).</p>
+<p>Ordered routing rules; first match wins and the last must be a catch-all (omit 'case').</p>
 <p>Each element:</p>
 
 
@@ -242,7 +242,7 @@
 
 
 
-<table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>case</code></td><td><code>string</code></td><td></td><td>Boolean expression. Omit for a catch-all; must be last.</td></tr><tr><td><code>goto</code></td><td><code>string</code></td><td></td><td>“end” to terminate, “next” to advance, or “$task-id” to jump to a task.</td></tr><tr><td><code>panic</code></td><td><code>Fault</code></td><td></td><td>Terminate as ‘failed’ with this code and message — a defect. Nothing can catch a panic.</td></tr><tr><td><code>raise</code></td><td><code>Fault</code></td><td></td><td>Terminate as ‘raised’ with this code and message — a condition a parent can catch.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>case</code></td><td><code>string</code></td><td></td><td>Boolean expression. Omit for a catch-all; must be last.</td></tr><tr><td><code>goto</code></td><td><code>string</code></td><td></td><td>"end" to terminate, "next" to advance, or "$task-id" to jump to a task.</td></tr><tr><td><code>panic</code></td><td><code>Fault</code></td><td></td><td>Terminate as 'failed' with this code and message — a defect. Nothing can catch a panic.</td></tr><tr><td><code>raise</code></td><td><code>Fault</code></td><td></td><td>Terminate as 'raised' with this code and message — a condition a parent can catch.</td></tr></tbody></table>
 <h2 id="shape">Shape<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#shape"><span></span></a></h2>
 <p>The value of an <code>output</code>, a <code>body</code>, or any other templated slot.</p>
 <ul>

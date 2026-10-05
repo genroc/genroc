@@ -191,7 +191,7 @@
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
 <p>Fails with <code>400</code>, <code>500</code>.</p>
 <h2 id="post-apiexternal-tasksrenew">POST /api/external-tasks/renew<a class="swagger-link" href="../../../swagger/index.html#/External%20Tasks/renew_external_claims" target="_blank" rel="noopener" aria-label="Open in Swagger UI"></a><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#post-apiexternal-tasksrenew"><span></span></a></h2>
-<p>Extend this worker’s claims. Answers per token: <code>renewed</code> is still yours, <code>lost</code> is already someone else’s (stop, do not release), <code>cancelled</code> is yours but no longer wanted (stop and release). Renewal is mandatory, not an optimisation — it is the only channel that reaches a running worker</p>
+<p>Extend this worker's claims. Answers per token: <code>renewed</code> is still yours, <code>lost</code> is already someone else's (stop, do not release), <code>cancelled</code> is yours but no longer wanted (stop and release). Renewal is mandatory, not an optimisation — it is the only channel that reaches a running worker</p>
 <p>Requires the <code>worker</code> permission (or <code>admin</code>).</p>
 <p><strong>Request</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span></span>
@@ -224,7 +224,7 @@
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
 <p>Fails with <code>400</code>, <code>409</code>, <code>500</code>.</p>
 <h2 id="post-apiexternal-tasksresolve">POST /api/external-tasks/resolve<a class="swagger-link" href="../../../swagger/index.html#/External%20Tasks/resolve_external_task" target="_blank" rel="noopener" aria-label="Open in Swagger UI"></a><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#post-apiexternal-tasksresolve"><span></span></a></h2>
-<p>Submit an outcome for a waiting external task — a result, or an <code>error</code> routed through the task’s on_error rules; validated against what the task declares, then the process resumes</p>
+<p>Submit an outcome for a waiting external task — a result, or an <code>error</code> routed through the task's on_error rules; validated against what the task declares, then the process resumes</p>
 <p>Requires the <code>worker</code> permission (or <code>admin</code>).</p>
 <p><strong>Request</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span></span>

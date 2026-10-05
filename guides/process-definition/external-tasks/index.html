@@ -204,14 +204,14 @@ It parks the instance until a result is submitted.</p>
 
 
 <table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>input</code></td><td>What the worker receives; the only data of the instance a worker sees.</td></tr><tr><td><code>input_schema</code></td><td>Declares that input — the contract a worker reads.</td></tr><tr><td><code>result_schema</code></td><td>What an answer must look like; without it, any JSON is accepted.</td></tr><tr><td><code>raises</code></td><td>The error codes a worker may report, with their data schemas. A worker can report only these.</td></tr><tr><td><code>timeout</code></td><td>How long to wait before failing with <code>external.timeout</code>; waits forever when omitted.</td></tr></tbody></table>
-<p>Let’s apply the example process and run it.</p>
+<p>Let&#39;s apply the example process and run it.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl apply</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">latest:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> approval</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> v1</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> (current)</span></span>
 <span class="line"></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl run approval --set amount</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">=</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">10</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">started:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 5fy765kh</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (running)</span></span></code></pre>
 <p>If we get the state of the instance after it has started,
-we’ll see it has <code>Phase: external</code>.</p>
+we&#39;ll see it has <code>Phase: external</code>.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl get @last</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">       5fy765kh</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Process:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span></span>
@@ -242,7 +242,7 @@ with the regular <code>instances</code> command.</p>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">4cqpdx8z</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  running·external</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">8nte1end</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  running·external</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span></span></code></pre>
 <h2 id="signals">Signals<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#signals"><span></span></a></h2>
-<p>In the example above we’ve used the <code>genctl signal</code> command
+<p>In the example above we&#39;ve used the <code>genctl signal</code> command
 to submit the result of an external task. Signals can be
 submitted at any time (even if the instance is not waiting for one yet).
 Genroc puts submitted signals into a queue, and they are picked up

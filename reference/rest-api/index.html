@@ -149,7 +149,7 @@ whatever you write. The pages below list every endpoint, grouped by what it acts
 <p>Everything is served under <code>/api</code>, except the readiness probe at <code>/healthz</code> — a probe must
 not move when the API namespace does.</p>
 <h2 id="the-document">The document<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-document"><span></span></a></h2>
-<p>The endpoint list is generated from the server’s own action registry, so it cannot drift from
+<p>The endpoint list is generated from the server&#39;s own action registry, so it cannot drift from
 what is served. This site publishes it at <a href="/openapi.json"><code>/openapi.json</code></a>, and a running
 server serves the same document at <code>/public/openapi.json</code> with a browsable UI at
 <code>/public/docs</code>.</p>
@@ -159,7 +159,7 @@ calls prepend <code>/api</code> and the documented paths stay the ones the serve
 <a href="../../swagger/index.html">Swagger UI here</a>. It is read-only: genroc sends no CORS headers, so a request
 issued from this domain is blocked by the browser before it reaches anything. Your own
 server serves the same explorer at <code>/public/docs</code>, same-origin, with <strong>Try it out</strong> working.</p>
-<p>There is also a per-process document, with that process’s <code>input_schema</code> patched into the
+<p>There is also a per-process document, with that process&#39;s <code>input_schema</code> patched into the
 start-instance body:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">curl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> localhost:8448/api/definitions/welcome-user/openapi.json</span></span></code></pre>
 <p>Its browsable form is at <code>/api/definitions/{name}/docs</code>.</p>
@@ -185,9 +185,9 @@ start-instance body:</p>
 
 
 
-<table><thead><tr><th>credential</th><th>who holds it</th><th>genroc’s role</th></tr></thead><tbody><tr><td>an opaque <code>genroc_sk_*</code></td><td>machines — CI, workers, apps, <code>genctl</code></td><td>issues it, and verifies it</td></tr><tr><td>a signed JWT</td><td>people, through genroc-ui</td><td>verifies only — never issues, never refreshes</td></tr></tbody></table>
+<table><thead><tr><th>credential</th><th>who holds it</th><th>genroc&#39;s role</th></tr></thead><tbody><tr><td>an opaque <code>genroc_sk_*</code></td><td>machines — CI, workers, apps, <code>genctl</code></td><td>issues it, and verifies it</td></tr><tr><td>a signed JWT</td><td>people, through genroc-ui</td><td>verifies only — never issues, never refreshes</td></tr></tbody></table>
 <p>Nothing else is an identity: no trusted headers, no cookies, no client certificates. A
-deployment configures genroc to accept its identity provider’s tokens, and that configuration
+deployment configures genroc to accept its identity provider&#39;s tokens, and that configuration
 is the whole integration.</p>
 <p>The default is <code>--auth none</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
 open. That is fine on a laptop and nowhere else — <code>PUT /definitions</code> is arbitrary code

@@ -153,7 +153,7 @@ is entered) or <strong><code>until</code></strong> (an instant), plus an optiona
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> wait_until_monday</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> until</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">mon 09:00</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> tz</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> Europe/Prague</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span></code></pre>
-<p>The same grammar is an action’s <code>timeout</code> — a timeout is this syntax aimed at a deadline
+<p>The same grammar is an action&#39;s <code>timeout</code> — a timeout is this syntax aimed at a deadline
 rather than at a wake-up. Exactly one of the two slots, never both and never neither: there is
 no default, and an absent slot is not zero.</p>
 <h2 id="for--a-duration"><code>for</code> — a duration<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#for--a-duration"><span></span></a></h2>
@@ -212,8 +212,8 @@ number is milliseconds, so <code>for: 30000</code> is thirty seconds — quoted,
 
 <table><thead><tr><th>Unit</th><th>Means</th><th>Kind</th></tr></thead><tbody><tr><td><code>ms</code></td><td>milliseconds</td><td>fixed</td></tr><tr><td><code>s</code></td><td>seconds</td><td>fixed</td></tr><tr><td><code>m</code></td><td>minutes</td><td>fixed</td></tr><tr><td><code>h</code></td><td>hours</td><td>fixed</td></tr><tr><td><code>d</code></td><td>days</td><td>calendar</td></tr><tr><td><code>w</code></td><td>weeks</td><td>calendar</td></tr><tr><td><code>mo</code></td><td>months</td><td>calendar</td></tr><tr><td><code>y</code></td><td>years</td><td>calendar</td></tr></tbody></table>
 <p><strong>Fixed units are elapsed time; calendar units are calendar arithmetic</strong> in <code>tz</code>, and calendar
-units apply first whatever order they were written in. So <code>1d</code> is “the same wall clock
-tomorrow” — 23 or 25 hours across a daylight-saving boundary, not 24. Month arithmetic clamps
+units apply first whatever order they were written in. So <code>1d</code> is &quot;the same wall clock
+tomorrow&quot; — 23 or 25 hours across a daylight-saving boundary, not 24. Month arithmetic clamps
 to the end of the target month, so 31 January plus <code>1mo</code> is 28 or 29 February rather than
 rolling into March.</p>
 <h2 id="until--an-instant"><code>until</code> — an instant<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#until--an-instant"><span></span></a></h2>
@@ -255,13 +255,13 @@ zero, and a three-letter weekday (<code>mon</code>…<code>sun</code>, any case)
 <p>An IANA name (<code>Europe/Prague</code>), the literal <code>UTC</code>, or a fixed offset (<code>+02:00</code>). Absent means
 UTC.</p>
 <p>Abbreviations such as <code>CET</code> and the special name <code>Local</code> are refused on purpose: an
-abbreviation denotes the wrong thing for half the year, and <code>Local</code> resolves against the host’s
+abbreviation denotes the wrong thing for half the year, and <code>Local</code> resolves against the host&#39;s
 zone database — so the same definition would mean different things on two workers.</p>
 <p>Two wall clocks have no single answer, and each has a rule. A time that does not exist, because
 the clock jumped forward over it, <strong>normalizes forward</strong>. A time that happens twice, because
 the clock went back, <strong>takes the first occurrence</strong>.</p>
 <h2 id="expressions-in-these-slots">Expressions in these slots<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#expressions-in-these-slots"><span></span></a></h2>
-<p>A slot’s accepted form is decided before type inference, so the three spellings are not
+<p>A slot&#39;s accepted form is decided before type inference, so the three spellings are not
 interchangeable:</p>
 <ul>
 <li>a <strong>literal</strong> is parsed against the grammars above;</li>
@@ -293,8 +293,8 @@ target is a legitimate state to resume into. What happens next depends on who wa
 
 
 
-<table><thead><tr><th>Slot</th><th>Behaviour</th></tr></thead><tbody><tr><td>a <code>delay</code></td><td>clamps to now and wakes</td></tr><tr><td>an <code>external</code> task’s <code>timeout</code></td><td>clamps to now and raises <code>external.timeout</code></td></tr><tr><td>a <code>fetch</code> timeout</td><td>refuses — reporting <code>http.timeout</code> for a request that was never sent would be a lie</td></tr></tbody></table>
-<p><code>until</code> is external-only as a timeout. A fetch’s budget is <code>for</code>, and a retry gets a fresh one.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/definition/expressions/"> <span>previous</span> <strong>Expressions</strong> </a> <a class="next" href="/reference/definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#for--a-duration">for — a duration</a></li><li class="depth-2"><a href="#until--an-instant">until — an instant</a></li><li class="depth-2"><a href="#tz">tz</a></li><li class="depth-2"><a href="#expressions-in-these-slots">Expressions in these slots</a></li><li class="depth-2"><a href="#a-target-already-in-the-past">A target already in the past</a></li></ul><script>
+<table><thead><tr><th>Slot</th><th>Behaviour</th></tr></thead><tbody><tr><td>a <code>delay</code></td><td>clamps to now and wakes</td></tr><tr><td>an <code>external</code> task&#39;s <code>timeout</code></td><td>clamps to now and raises <code>external.timeout</code></td></tr><tr><td>a <code>fetch</code> timeout</td><td>refuses — reporting <code>http.timeout</code> for a request that was never sent would be a lie</td></tr></tbody></table>
+<p><code>until</code> is external-only as a timeout. A fetch&#39;s budget is <code>for</code>, and a retry gets a fresh one.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/definition/expressions/"> <span>previous</span> <strong>Expressions</strong> </a> <a class="next" href="/reference/definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#for--a-duration">for — a duration</a></li><li class="depth-2"><a href="#until--an-instant">until — an instant</a></li><li class="depth-2"><a href="#tz">tz</a></li><li class="depth-2"><a href="#expressions-in-these-slots">Expressions in these slots</a></li><li class="depth-2"><a href="#a-target-already-in-the-past">A target already in the past</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

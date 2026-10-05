@@ -151,7 +151,7 @@ around them can change and the definition might need to adapt.</p>
 <h2 id="internal-state-compatibility">Internal state compatibility<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#internal-state-compatibility"><span></span></a></h2>
 <p>Because genroc is statically typed, it knows what shape the internal state should have
 at every point of the process. So it can quite easily compare the instance state
-with the new definition’s required shape.</p>
+with the new definition&#39;s required shape.</p>
 <h3 id="upgrade-command">Upgrade command<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#upgrade-command"><span></span></a></h3>
 <p>Genroc allows upgrading an instance from one definition version to another.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> welcome-user</span></span>
@@ -186,7 +186,7 @@ with the new definition’s required shape.</p>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">moved</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> tree</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">(</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">s</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">)</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> to</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> latest</span></span></code></pre>
 <p>Only <code>paused</code> or <code>failed</code> instances can be upgraded (a <code>running</code> one is
 paused before the upgrade and resumed afterwards).
-Genroc checks if the instance’s internal state is compatible
+Genroc checks if the instance&#39;s internal state is compatible
 with the equivalent state in the new definition. And if there is no problem,
 it upgrades the instance.</p>
 <p>The new version is actually 100% compatible with the old one, so an instance
@@ -196,7 +196,7 @@ can be upgraded at any stage and <code>upgrade</code> will never fail here.</p>
 <code>genctl upgrade welcome-user --from 1 --to latest</code></p>
 </blockquote>
 <h3 id="failing-example">Failing example<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#failing-example"><span></span></a></h3>
-<p>If we’d make <code>user_name</code> a required property, the upgrade would fail.</p>
+<p>If we&#39;d make <code>user_name</code> a required property, the upgrade would fail.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
@@ -206,7 +206,7 @@ can be upgraded at any stage and <code>upgrade</code> will never fail here.</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">user_email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> user_name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic"> # user_name newly required</span></span></code></pre>
 <p>All tasks in the process expect <code>input.user_name</code> to be non-nullable,
-but the old instances won’t have data for this field.</p>
+but the old instances won&#39;t have data for this field.</p>
 <blockquote>
 <p>New defaults are not applied to the older instances during the upgrade.</p>
 </blockquote>
@@ -227,7 +227,7 @@ but the old instances won’t have data for this field.</p>
 <span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      ...</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      body</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        in_reply_to</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> outputs</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">welcome</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">email_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">  # new</span></span></code></pre>
-<p>In this example we’ve added an output to the <code>welcome</code> task.
+<p>In this example we&#39;ve added an output to the <code>welcome</code> task.
 Now all the tasks after it can access this output,
 and if we upgraded the instance after that task had already
 run on the old version, the new tasks would break.
@@ -259,8 +259,8 @@ is a slot some check passed, and <code>(not judged)</code> is a slot no check co
 a request body can change meaning without changing shape, so genroc names it and
 leaves it to you.</p>
 <p>The two words are two questions. <strong>upgrade</strong> is about instances you already have;
-<strong>compatible</strong> is about callers outside, who were written against this process’s
-input and output. Ours is unaffected - the input didn’t change.</p>
+<strong>compatible</strong> is about callers outside, who were written against this process&#39;s
+input and output. Ours is unaffected - the input didn&#39;t change.</p>
 <p>It exits non-zero on a break, so it drops into a pipeline. <code>--ignore contract</code> drops
 that half from the exit code, when you meant to break it.</p>
 <h2 id="how-often-are-upgrades-possible">How often are upgrades possible?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#how-often-are-upgrades-possible"><span></span></a></h2>
