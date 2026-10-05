@@ -9,7 +9,7 @@ import { BASE_URL } from "../helpers/constants.ts";
 import { evaluate } from "../../eval-node/eval.ts";
 
 // A script task is an `external` task an evaluator claims; the failure KIND is the code on_error
-// matches. Realm properties are asserted via evaluate() at the bottom (eval-node/README.md).
+// matches. Realm properties are asserted via evaluate() at the bottom (specs/script-tasks.md).
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 

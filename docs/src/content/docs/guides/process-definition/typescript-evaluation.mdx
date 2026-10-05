@@ -127,12 +127,12 @@ You can create your custom resolvers in the similar fashion.
 
 ## eval-node
 
-Typescript support is enabled by eval-node docker image which runs as a separate service.
-It is a node worker which expects the genroc server on port `8448` and resolves external
-task from `script-node` process.
+Typescript support is enabled by [eval-node docker image](https://hub.docker.com/r/genroc/eval-node)
+which runs as a separate service. It is a node worker which expects the genroc server on port `8448` 
+and resolves external task from `script-node` process.
 
 ### npm package
 
-Resolver in .genroc file calls `eval-node` npm package binary, which uses rollup to
-bundle the requested file into a string (also strips types). It also inlines
-dependencies so you can use javascript/typescript packages as well.
+Resolver in .genroc file calls [eval-node npm package](https://www.npmjs.com/package/@genroc/eval-node)
+binary, which uses rollup to bundle the requested file into a single string (also strips types).
+It also inlines dependencies so you can use javascript/typescript packages as well.

@@ -99,6 +99,17 @@ jobs:
       fail-fast: false
       matrix:
         image: [genroc, eval-node, ui]
+        # Carried in the matrix for the same reason as the Dockerfile in `build`.
+        include:
+          - image: genroc
+            description: A durable process orchestrator — engine, API and web UI
+            readme: .github/dockerhub-README.md
+          - image: eval-node
+            description: genroc script-task worker (Node)
+            readme: .github/dockerhub-eval-node-README.md
+          - image: ui
+            description: genroc web UI and OIDC login
+            readme: .github/dockerhub-README.md
     # Hoisted because `secrets` is not an allowed context in a step-level `if` — referencing it
     # there fails the whole workflow at parse time, with zero jobs and no error in the UI.
     env:
@@ -170,8 +181,8 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ env.DOCKERHUB_TOKEN }}
           repository: ${{ vars.DOCKERHUB_NAMESPACE || 'genroc' }}/${{ matrix.image }}
-          short-description: ${{ matrix.image == 'genroc' && 'A durable process orchestrator — engine, API and web UI' || 'genroc script-task worker (Node)' }}
-          readme-filepath: ./.github/dockerhub-README.md
+          short-description: ${{ matrix.description }}
+          readme-filepath: ./${{ matrix.readme }}
 
   # genctl binaries. Tags only — a `main` push publishes images, not a release. genctl is
   # CGO_ENABLED=0 with no database dependency, so every target cross-compiles from one runner;
