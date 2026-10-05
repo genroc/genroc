@@ -192,12 +192,15 @@ func TestSplitArgsAgreesWithSh(t *testing.T) {
 		}
 	}
 
-	// One script for every case, since a process per case is most of the test's time.
+	// One script for every case, since a process per case is most of the test's time. On stdin, not
+	// `-c`: Linux caps one argument at 128 KiB, and macOS does not, so `-c` passes only locally.
 	var script strings.Builder
 	for _, in := range inputs {
 		fmt.Fprintf(&script, "set -- %s\nprintf '%%s\\0' \"$#\"\nfor a; do printf '%%s\\0' \"$a\"; done\n", in)
 	}
-	out, err := exec.Command(sh, "-c", script.String()).Output()
+	cmd := exec.Command(sh)
+	cmd.Stdin = strings.NewReader(script.String())
+	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("sh: %v", err)
 	}
