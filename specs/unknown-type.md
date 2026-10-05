@@ -75,8 +75,6 @@ The poller is the canonical mix — opaque body, typed `attempts`.
   memoization, registration ordering). Trigger: the spread form's acyclicity blocking real
   definitions.
 - A better message when a typed input rejects an unknown. Trigger: an author misreading it.
-- `derefSubset` reads an unresolved super as top (unsound, latent); it should error. Trigger: any
-  path that lets an unresolved ref reach `IsSubset`.
 
 ## Appendix — not planned: schema-valued generics
 

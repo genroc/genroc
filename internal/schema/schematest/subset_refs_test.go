@@ -34,6 +34,19 @@ func TestIsSubset_refs(t *testing.T) {
 			true,
 		},
 		{
+			// Dropping super's pool must not make it accept everything.
+			"a super ref that resolves to nothing accepts nothing",
+			`{"type":"string"}`,
+			`{"$defs":{"Other":{"type":"number"}},"$ref":"#/$defs/Missing"}`,
+			false,
+		},
+		{
+			"a super ref with no pool at all accepts nothing",
+			`{"type":"object"}`,
+			`{"$ref":"#/$defs/T"}`,
+			false,
+		},
+		{
 			"inline sub, ref in super",
 			`{"type":"integer"}`,
 			`{"$defs":{"T":{"type":"number"}},"$ref":"#/$defs/T"}`,

@@ -774,11 +774,9 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			return fmt.Errorf("parent %q is already in phase %q", parent.ID, currentPhase)
 		}
 
-		// A pause that landed mid-spawn settles here or never: the park below leaves the claim
-		// predicate. Children inherit the settled status, so a paused tree spawns nothing runnable.
-		if model.Status(currentStatus) == model.StatusPausing {
-			currentStatus = string(model.StatusPaused)
-		}
+		// A pause or cancel that landed mid-spawn settles here, and the children inherit it, so a
+		// stopped tree spawns nothing that waits for a worker.
+		currentStatus = settledAtSpawn(currentStatus)
 
 		// created_at = now+i gives siblings a strict spawn order, which ClaimInstances
 		// (ORDER BY created_at) follows.
@@ -808,6 +806,18 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 	})
 }
 
+// settledAtSpawn lands a draining stop: the spawn's park is the parent's last write before its
+// children, so a pending pause or cancel settles there or the whole tree waits on a claim.
+func settledAtSpawn(status string) string {
+	switch model.Status(status) {
+	case model.StatusPausing:
+		return string(model.StatusPaused)
+	case model.StatusCancelling:
+		return string(model.StatusCancelled)
+	}
+	return status
+}
+
 // RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the parent
 // back on 'children': a crash between retire and insert would leave a slot with no occupant.
 // specs/child-error-handling.md s5.5.
@@ -825,11 +835,8 @@ func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInst
 		if model.Phase(currentPhase) != model.PhaseCollecting {
 			return fmt.Errorf("parent %q is in phase %q, not collecting", parent.ID, currentPhase)
 		}
-		// Same landing as a first spawn: a pause that arrived mid-resolution settles here,
-		// and the replacements inherit it so a suspended tree queues nothing runnable.
-		if model.Status(currentStatus) == model.StatusPausing {
-			currentStatus = string(model.StatusPaused)
-		}
+		// Same landing as a first spawn.
+		currentStatus = settledAtSpawn(currentStatus)
 
 		now := nowMillis()
 		for _, id := range retired {

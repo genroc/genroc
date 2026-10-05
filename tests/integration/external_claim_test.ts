@@ -410,3 +410,21 @@ test("the next external task is claimable at once after a claimed answer", async
   const got = await claim("worker-2", name, { task: "second" });
   expect(got.length, "the second task waited for the first task's lease to lapse").toBe(1);
 });
+
+test("renewing a finished task's token reports it lost, though the same worker holds the next", async () => {
+  const name = `claim_renew_stale_${crypto.randomUUID()}`;
+  await define(name, twoInARow());
+  const id = await startInstance(name);
+
+  const [first] = await claimWhenReady("worker-1", name, { task: "first" });
+  await client.POST("/external-tasks/resolve", { body: { token: first.token, result: { ok: 1 } } });
+  await parkedOn(id, "second");
+  const [second] = await claimWhenReady("worker-1", name, { task: "second" });
+
+  const { data } = await client.POST("/external-tasks/renew", {
+    body: { worker_id: "worker-1", tokens: [first.token, second.token] },
+  });
+  expect((data as any)?.lost, "the first task's arming is over; its token must not renew the second's claim")
+    .toEqual([first.token]);
+  expect((data as any)?.renewed).toEqual([second.token]);
+});

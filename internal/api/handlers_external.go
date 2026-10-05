@@ -316,34 +316,27 @@ func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	if bad != nil {
 		return bad.reply()
 	}
-	ids := make([]string, 0, len(req.Tokens))
+	claims := make([]db.ExternalClaim, 0, len(req.Tokens))
 	for _, t := range req.Tokens {
-		id, _, _, hasClaim, ok := model.ParseExternalToken(t)
+		id, taskEpoch, claimEpoch, hasClaim, ok := model.ParseExternalToken(t)
 		if !ok || !hasClaim {
 			return invalid("token %q is not a claim token — renew takes the three-part token a claim granted", t).reply()
 		}
-		ids = append(ids, id)
+		claims = append(claims, db.ExternalClaim{ID: id, TaskEpoch: taskEpoch, ClaimEpoch: claimEpoch})
 	}
-	out, err := h.db.RenewExternalClaims(context.Background(), req.WorkerID, ids, lease)
+	verdicts, err := h.db.RenewExternalClaims(context.Background(), req.WorkerID, claims, lease)
 	if err != nil {
 		return errReply(err)
 	}
-	// Answered in the caller's tokens, not instance ids; re-walked over req.Tokens so two
-	// tokens naming one instance both get an answer.
-	bucket := make(map[string]*[]string, len(ids))
 	renewed, lost, cancelled := []string{}, []string{}, []string{}
-	for _, id := range out.Renewed {
-		bucket[id] = &renewed
-	}
-	for _, id := range out.Lost {
-		bucket[id] = &lost
-	}
-	for _, id := range out.Cancelled {
-		bucket[id] = &cancelled
-	}
 	for i, t := range req.Tokens {
-		if b := bucket[ids[i]]; b != nil {
-			*b = append(*b, t)
+		switch verdicts[i] {
+		case db.RenewRenewed:
+			renewed = append(renewed, t)
+		case db.RenewCancelled:
+			cancelled = append(cancelled, t)
+		default:
+			lost = append(lost, t)
 		}
 	}
 	return okReply(map[string]any{

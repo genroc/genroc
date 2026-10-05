@@ -47,7 +47,7 @@ argues for `process_instances`:
 **Re-claim, not expiry, invalidates a handle**, so a worker that overran its lease and was never
 taken over still answers successfully. Resolve and release bind the claim epoch and refuse on
 mismatch (a conflict naming re-claim), under the row lock that checks the phase and `task_epoch`;
-renew is scoped by `external_worker_id`, as the engine's is by `worker_id`. The two claim paths
+renew matches the whole grant (instance, `task_epoch`, claim epoch) and `external_worker_id`. The two claim paths
 share principles, not code: a helper would be parameterised on nearly everything, so the tests
 hold them together.
 
@@ -99,7 +99,9 @@ other fleets' included.
 
 ### Renew and release
 
-`RenewExternalClaims` is chunked, scoped to the requested ids ∩ `external_worker_id`, and must
+`RenewExternalClaims` answers per token and renews a grant only on an exact match of instance,
+`task_epoch`, claim epoch and `external_worker_id`: matched by worker alone, a stale token (an
+earlier arming or grant) read `renewed` while the same worker held the current claim. It must
 neither bump the claim epoch (it would fence the worker out of its own answer) nor clear the
 worker id. `ReleaseExternalClaim` is the nack — how a queue spells *retryable*, so a runner fault
 needs no error code.

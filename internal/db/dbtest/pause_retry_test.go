@@ -640,6 +640,33 @@ func TestSpawnChildrenAndWait_PausingParent(t *testing.T) {
 	}
 }
 
+// The cancel twin: a cancel landing mid-spawn settles here, and the children are born cancelled.
+// Left 'cancelling', every row waits for a claim just to be told to stop.
+func TestSpawnChildrenAndWait_CancellingParent(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "parent", model.StatusCancelling, "", nil, "")
+			parent, err := b.db.GetInstance("parent")
+			if err != nil {
+				t.Fatalf("GetInstance parent: %v", err)
+			}
+			child := &model.ProcessInstance{
+				ID: "child", ProcessName: "test", Task: "step1", State: map[string]any{},
+				ParentID: "parent", CallStack: []string{"parent"}, Status: model.StatusRunning,
+			}
+			if err := b.db.SpawnChildrenAndWait(context.Background(), parent, []*model.ProcessInstance{child}); err != nil {
+				t.Fatalf("SpawnChildrenAndWait: %v", err)
+			}
+			if got := mustStatus(t, b.db, "parent"); got != model.StatusCancelled {
+				t.Errorf("parent: the cancel must settle here, got %q", got)
+			}
+			if got := mustStatus(t, b.db, "child"); got != model.StatusCancelled {
+				t.Errorf("child: a cancelled tree spawns nothing that waits for a worker, got %q", got)
+			}
+		})
+	}
+}
+
 // insertChild inserts a child instance spawned by the given parent task.
 func insertChild(t *testing.T, db *dbpkg.DB, id string, status model.Status, parentID, spawnTaskID string, callStack []string, errMsg string) {
 	t.Helper()

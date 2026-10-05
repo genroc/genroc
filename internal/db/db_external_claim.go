@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -171,65 +172,65 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	return result, tx.Commit()
 }
 
-// RenewOutcome sorts every requested id into exactly one list. Lost: the claim is someone else's;
-// stop and do NOT release, or the new holder's epoch is bumped from under it. Cancelled: stop and
-// DO release. specs/external-task-queue.md.
-type RenewOutcome struct {
-	Renewed   []string
-	Lost      []string
-	Cancelled []string
+// ExternalClaim names one grant, as a claim token does.
+type ExternalClaim struct {
+	ID         string
+	TaskEpoch  int64
+	ClaimEpoch int64
 }
 
-// RenewExternalClaims re-stamps this worker's claims on ids to now+leaseDur. It must NOT bump
-// external_claim_epoch (fencing the worker out of its own answer) nor clear external_worker_id (the
-// hand-back). The status read shares the chunk's transaction, or a cancel in between reads renewed.
-func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []string, leaseDur time.Duration) (RenewOutcome, error) {
-	out := RenewOutcome{}
-	if len(ids) == 0 {
-		return out, nil
-	}
-	newExpiry := nowMillis() + leaseDur.Milliseconds()
-	held := make(map[string]model.Status, len(ids))
+// RenewVerdict answers one claim. Lost: the grant is no longer this worker's; stop and do NOT
+// release, or the new holder's epoch is bumped from under it. Cancelled: stop and DO release.
+// specs/external-task-queue.md.
+type RenewVerdict string
 
-	for start := 0; start < len(ids); start += renewChunkSize {
-		end := min(start+renewChunkSize, len(ids))
-		idsJSON, err := json.Marshal(ids[start:end])
-		if err != nil {
-			return out, err
-		}
-		if err := db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
-			if _, err := qtx.RenewExternalLeasesChunk(ctx, dbgen.RenewExternalLeasesChunkParams{
-				NewExpiry:        sql.NullInt64{Int64: newExpiry, Valid: true},
-				Ids:              string(idsJSON),
-				ExternalWorkerID: sql.NullString{String: workerID, Valid: true},
-			}); err != nil {
-				return err
-			}
-			rows, err := qtx.HeldExternalClaimsChunk(ctx, dbgen.HeldExternalClaimsChunkParams{
-				Ids:              string(idsJSON),
-				ExternalWorkerID: sql.NullString{String: workerID, Valid: true},
-			})
-			if err != nil {
-				return err
-			}
-			for _, r := range rows {
-				held[r.ID] = model.Status(r.Status)
+const (
+	RenewRenewed   RenewVerdict = "renewed"
+	RenewLost      RenewVerdict = "lost"
+	RenewCancelled RenewVerdict = "cancelled"
+)
+
+// RenewExternalClaims re-stamps each grant this worker holds to now+leaseDur and answers one
+// verdict per claim, in order. It must NOT bump external_claim_epoch (fencing the worker out of
+// its own answer) nor clear external_worker_id (the hand-back).
+func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, claims []ExternalClaim, leaseDur time.Duration) ([]RenewVerdict, error) {
+	out := make([]RenewVerdict, len(claims))
+	expiry := nullInt64(nowMillis() + leaseDur.Milliseconds())
+	worker := sql.NullString{String: workerID, Valid: true}
+	for start := 0; start < len(claims); start += renewChunkSize {
+		end := min(start+renewChunkSize, len(claims))
+		err := db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+			for i := start; i < end; i++ {
+				c := claims[i]
+				n, err := qtx.RenewExternalClaim(ctx, dbgen.RenewExternalClaimParams{
+					NewExpiry: expiry, ID: c.ID, ExternalWorkerID: worker,
+					TaskEpoch: c.TaskEpoch, ClaimEpoch: c.ClaimEpoch,
+				})
+				if err != nil {
+					return err
+				}
+				if n == 1 {
+					out[i] = RenewRenewed
+					continue
+				}
+				status, err := qtx.HeldExternalClaimStatus(ctx, dbgen.HeldExternalClaimStatusParams{
+					ID: c.ID, ExternalWorkerID: worker, TaskEpoch: c.TaskEpoch, ClaimEpoch: c.ClaimEpoch,
+				})
+				switch st := model.Status(status); {
+				case errors.Is(err, sql.ErrNoRows):
+					out[i] = RenewLost
+				case err != nil:
+					return err
+				case st == model.StatusCancelling || st == model.StatusCancelled:
+					out[i] = RenewCancelled
+				default:
+					out[i] = RenewLost
+				}
 			}
 			return nil
-		}); err != nil {
-			return out, err
-		}
-	}
-
-	// Driven by the REQUESTED ids: one the query never saw is Lost, which nothing else reports.
-	for _, id := range ids {
-		switch status, ok := held[id]; {
-		case !ok:
-			out.Lost = append(out.Lost, id)
-		case status == model.StatusCancelling || status == model.StatusCancelled:
-			out.Cancelled = append(out.Cancelled, id)
-		default:
-			out.Renewed = append(out.Renewed, id)
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 	return out, nil

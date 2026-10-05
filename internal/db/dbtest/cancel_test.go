@@ -190,16 +190,18 @@ func TestRenewExternalClaims_ReportsCancelled(t *testing.T) {
 				t.Fatalf("CancelProcess: %v", err)
 			}
 
-			out, err := b.db.RenewExternalClaims(ctx, "w1",
-				[]string{"inst-cancel", "inst-live"}, claimLease)
+			out, err := b.db.RenewExternalClaims(ctx, "w1", []dbpkg.ExternalClaim{
+				{ID: "inst-cancel", TaskEpoch: cancelBefore.TaskEpoch, ClaimEpoch: cancelBefore.ExternalClaimEpoch},
+				{ID: "inst-live", TaskEpoch: liveBefore.TaskEpoch, ClaimEpoch: liveBefore.ExternalClaimEpoch},
+			}, claimLease)
 			if err != nil {
 				t.Fatalf("renew: %v", err)
 			}
-			if len(out.Cancelled) != 1 || out.Cancelled[0] != "inst-cancel" {
-				t.Errorf("the cancelled claim must be named so the worker can stop THAT one: %+v", out)
+			if out[0] != dbpkg.RenewCancelled {
+				t.Errorf("the cancelled claim must be named so the worker can stop THAT one: %v", out)
 			}
-			if len(out.Renewed) != 1 || out.Renewed[0] != "inst-live" {
-				t.Errorf("a live claim beside a cancelled one must still renew: %+v", out)
+			if out[1] != dbpkg.RenewRenewed {
+				t.Errorf("a live claim beside a cancelled one must still renew: %v", out)
 			}
 
 			after, _ := b.db.GetInstance("inst-cancel")

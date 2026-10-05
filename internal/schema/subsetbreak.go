@@ -22,6 +22,7 @@ const (
 	BreakConstraint      SubsetBreakKind = "constraint"
 	BreakVariants        SubsetBreakKind = "variants"
 	BreakUnknown         SubsetBreakKind = "unknown"
+	BreakUnresolved      SubsetBreakKind = "unresolved" // super's $ref has no target in its pool
 	// BreakUndeclared: sub can carry a key super does not declare. Only the `closed` mode
 	// produces it — see checkClosed.
 	BreakUndeclared SubsetBreakKind = "undeclared"

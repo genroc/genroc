@@ -359,8 +359,8 @@ Two invariants that are easy to break:
 1. **A pending pause lands in SQL, not in Go.** `PauseProcess` marks a row `pausing` only
    if it is currently leased; a worker mid-task cannot know the pause arrived after it
    claimed, so the `pausing` → `paused` transition is a `CASE` in `UpdateInstance` /
-   `UpdateInstanceProgress` (and an explicit remap in `SpawnChildrenAndWait`, which parks
-   the parent on `phase='children'` and would otherwise strand it). Everything not
+   `UpdateInstanceProgress` (and `settledAtSpawn` in `SpawnChildrenAndWait` / `RespawnSlotsAndWait`, which lands a pending
+   pause or cancel on the parent and its new children). Everything not
    leased is set to `paused` directly — a row parked on `children` is excluded from
    `ClaimInstances`, so marking it `pausing` would leave it draining forever. `pausing`
    stays in the claim predicate purely for crash recovery. "Leased" means `worker_id` is set, lapsed lease or

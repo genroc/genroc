@@ -44,8 +44,8 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
    `UpdateInstance` (only where the new status is `running`, so real outcomes win),
    unconditional in `UpdateInstanceProgress` (a checkpoint means "still running"). Progress
    matters most: it is also the write that parks on a delay/external — the pause lands there or
-   never. `SpawnChildrenAndWait` remaps explicitly, and children inherit the settled status so a
-   suspended tree never spawns runnable work.
+   never. A spawn settles a pending pause or cancel (`settledAtSpawn`), and children inherit the
+   settled status, so a stopped tree never spawns work that waits for a worker.
 4. **A failure outranks a pause.** `FailAncestors` includes paused/pausing rows. Paused children
    count as active, so a tree that loses a branch while suspended sits at `failing` over paused
    descendants until resumed — which is why `ResumeProcess` keys on the *subtree*, not the root's

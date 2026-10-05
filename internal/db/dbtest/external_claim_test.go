@@ -204,10 +204,11 @@ func TestRenewExternalClaims(t *testing.T) {
 				t.Fatalf("claim: got %d err=%v", len(claimed), err)
 			}
 			epoch := claimed[0].ExternalClaimEpoch
+			grant := dbpkg.ExternalClaim{ID: "inst-renew", TaskEpoch: claimed[0].TaskEpoch, ClaimEpoch: epoch}
 
-			out, err := b.db.RenewExternalClaims(ctx, "w1", []string{"inst-renew"}, claimLease)
-			if err != nil || len(out.Renewed) != 1 || out.Renewed[0] != "inst-renew" {
-				t.Fatalf("renew: %+v err=%v, want inst-renew renewed", out, err)
+			out, err := b.db.RenewExternalClaims(ctx, "w1", []dbpkg.ExternalClaim{grant}, claimLease)
+			if err != nil || out[0] != dbpkg.RenewRenewed {
+				t.Fatalf("renew: %v err=%v, want renewed", out, err)
 			}
 			after, _ := b.db.GetInstance("inst-renew")
 			if after.ExternalClaimEpoch != epoch {
@@ -220,9 +221,22 @@ func TestRenewExternalClaims(t *testing.T) {
 
 			// Scoped to the holder: a stranger's renewal touches nothing, and the answer names
 			// the id as lost rather than staying silent about it.
-			if out, err := b.db.RenewExternalClaims(ctx, "w2", []string{"inst-renew"}, claimLease); err != nil ||
-				len(out.Renewed) != 0 || len(out.Lost) != 1 {
-				t.Fatalf("renew by a non-holder: %+v err=%v, want it reported lost", out, err)
+			if out, err := b.db.RenewExternalClaims(ctx, "w2", []dbpkg.ExternalClaim{grant}, claimLease); err != nil ||
+				out[0] != dbpkg.RenewLost {
+				t.Fatalf("renew by a non-holder: %v err=%v, want it reported lost", out, err)
+			}
+
+			// The same worker re-claims after a lapse: the old grant's token is stale and must
+			// renew nothing, though the worker id matches.
+			dbpkg.AdvanceClock(2 * claimLease)
+			again, err := b.db.ClaimExternalTasks("w1", claimLease, 1, "", 0, "")
+			if err != nil || len(again) != 1 {
+				t.Fatalf("re-claim: got %d err=%v", len(again), err)
+			}
+			current := dbpkg.ExternalClaim{ID: "inst-renew", TaskEpoch: again[0].TaskEpoch, ClaimEpoch: again[0].ExternalClaimEpoch}
+			out, err = b.db.RenewExternalClaims(ctx, "w1", []dbpkg.ExternalClaim{grant, current}, claimLease)
+			if err != nil || out[0] != dbpkg.RenewLost || out[1] != dbpkg.RenewRenewed {
+				t.Fatalf("renew [stale, current] by the same worker: %v err=%v, want [lost renewed]", out, err)
 			}
 		})
 	}

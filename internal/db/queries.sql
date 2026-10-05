@@ -284,21 +284,21 @@ SET external_worker_id = sqlc.arg(external_worker_id),
     external_claim_epoch = external_claim_epoch + 1
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)));
 
--- name: RenewExternalLeasesChunk :execrows
--- Scoped by external_worker_id so a renewal never resurrects another holder's claim. Cancelled
--- rows not renewed on purpose: the worker is owed "stop" (HeldExternalClaimsChunk reports it).
+-- name: RenewExternalClaim :execrows
+-- One grant, matched exactly: a stale token (an earlier arming or grant) must renew nothing even
+-- when the same worker holds the current claim. Cancelled rows are not renewed: the worker is owed
+-- "stop".
 UPDATE process_instances
 SET external_lease_expires_at = sqlc.arg(new_expiry)
-WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
-  AND external_worker_id = sqlc.arg(external_worker_id)
+WHERE id = sqlc.arg(id) AND external_worker_id = sqlc.arg(external_worker_id)
+  AND task_epoch = sqlc.arg(task_epoch) AND external_claim_epoch = sqlc.arg(claim_epoch)
   AND status NOT IN ('cancelling', 'cancelled');
 
--- name: HeldExternalClaimsChunk :many
--- Same transaction as RenewExternalLeasesChunk. An absent id is lost; the caller derives it by
--- difference. specs/external-task-queue.md.
-SELECT id, status FROM process_instances
-WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
-  AND external_worker_id = sqlc.arg(external_worker_id);
+-- name: HeldExternalClaimStatus :one
+-- Same transaction as RenewExternalClaim, for a grant it did not renew: no row means lost.
+SELECT status FROM process_instances
+WHERE id = sqlc.arg(id) AND external_worker_id = sqlc.arg(external_worker_id)
+  AND task_epoch = sqlc.arg(task_epoch) AND external_claim_epoch = sqlc.arg(claim_epoch);
 
 -- name: ReleaseExternalClaim :execrows
 -- The epoch bump voids the releaser's handle at once; claim_epoch must name the current grant.

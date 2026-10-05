@@ -138,6 +138,10 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 
 	sub = derefSubset(sub, ctx.subDefs)
 	super = derefSubset(super, ctx.superDefs)
+	// Still a ref after the deref: its pool lacks the target. Read as {} it would accept anything.
+	if super != nil && super.Ref != "" {
+		return ctx.no(at, BreakUnresolved, typeNames(sub), "unresolved $ref "+super.Ref)
+	}
 
 	// {} accepts anything.
 	if isEmptyNode(super) {

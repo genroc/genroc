@@ -707,45 +707,30 @@ func (q *Queries) GrantLeases(ctx context.Context, arg GrantLeasesParams) error 
 	return err
 }
 
-const heldExternalClaimsChunk = `-- name: HeldExternalClaimsChunk :many
-SELECT id, status FROM process_instances
-WHERE id IN (SELECT value FROM json_each(?1))
-  AND external_worker_id = ?2
+const heldExternalClaimStatus = `-- name: HeldExternalClaimStatus :one
+SELECT status FROM process_instances
+WHERE id = ?1 AND external_worker_id = ?2
+  AND task_epoch = ?3 AND external_claim_epoch = ?4
 `
 
-type HeldExternalClaimsChunkParams struct {
-	Ids              interface{}
+type HeldExternalClaimStatusParams struct {
+	ID               string
 	ExternalWorkerID sql.NullString
+	TaskEpoch        int64
+	ClaimEpoch       int64
 }
 
-type HeldExternalClaimsChunkRow struct {
-	ID     string
-	Status string
-}
-
-// Same transaction as RenewExternalLeasesChunk. An absent id is lost; the caller derives it by
-// difference. specs/external-task-queue.md.
-func (q *Queries) HeldExternalClaimsChunk(ctx context.Context, arg HeldExternalClaimsChunkParams) ([]HeldExternalClaimsChunkRow, error) {
-	rows, err := q.db.QueryContext(ctx, heldExternalClaimsChunk, arg.Ids, arg.ExternalWorkerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []HeldExternalClaimsChunkRow
-	for rows.Next() {
-		var i HeldExternalClaimsChunkRow
-		if err := rows.Scan(&i.ID, &i.Status); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// Same transaction as RenewExternalClaim, for a grant it did not renew: no row means lost.
+func (q *Queries) HeldExternalClaimStatus(ctx context.Context, arg HeldExternalClaimStatusParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, heldExternalClaimStatus,
+		arg.ID,
+		arg.ExternalWorkerID,
+		arg.TaskEpoch,
+		arg.ClaimEpoch,
+	)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const insertAPIToken = `-- name: InsertAPIToken :exec
@@ -1382,24 +1367,33 @@ func (q *Queries) ReleaseExternalClaim(ctx context.Context, arg ReleaseExternalC
 	return result.RowsAffected()
 }
 
-const renewExternalLeasesChunk = `-- name: RenewExternalLeasesChunk :execrows
+const renewExternalClaim = `-- name: RenewExternalClaim :execrows
 UPDATE process_instances
 SET external_lease_expires_at = ?1
-WHERE id IN (SELECT value FROM json_each(?2))
-  AND external_worker_id = ?3
+WHERE id = ?2 AND external_worker_id = ?3
+  AND task_epoch = ?4 AND external_claim_epoch = ?5
   AND status NOT IN ('cancelling', 'cancelled')
 `
 
-type RenewExternalLeasesChunkParams struct {
+type RenewExternalClaimParams struct {
 	NewExpiry        sql.NullInt64
-	Ids              interface{}
+	ID               string
 	ExternalWorkerID sql.NullString
+	TaskEpoch        int64
+	ClaimEpoch       int64
 }
 
-// Scoped by external_worker_id so a renewal never resurrects another holder's claim. Cancelled
-// rows not renewed on purpose: the worker is owed "stop" (HeldExternalClaimsChunk reports it).
-func (q *Queries) RenewExternalLeasesChunk(ctx context.Context, arg RenewExternalLeasesChunkParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, renewExternalLeasesChunk, arg.NewExpiry, arg.Ids, arg.ExternalWorkerID)
+// One grant, matched exactly: a stale token (an earlier arming or grant) must renew nothing even
+// when the same worker holds the current claim. Cancelled rows are not renewed: the worker is owed
+// "stop".
+func (q *Queries) RenewExternalClaim(ctx context.Context, arg RenewExternalClaimParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renewExternalClaim,
+		arg.NewExpiry,
+		arg.ID,
+		arg.ExternalWorkerID,
+		arg.TaskEpoch,
+		arg.ClaimEpoch,
+	)
 	if err != nil {
 		return 0, err
 	}
