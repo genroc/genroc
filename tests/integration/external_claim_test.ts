@@ -4,27 +4,26 @@ import { client, outputsOf, startInstance, waitForInstance } from "../helpers/cl
 
 // The pull half of the external-task queue: claim, renew, release, answer. specs/external-task-queue.md.
 
-async function define(name: string, tasks?: unknown[]) {
-  const { error } = await client.PUT("/definitions", {
-    body: {
-      name,
-      tasks: (tasks ?? [
-        {
-          id: "work",
-          action: {
-            type: "external" as const,
-            input: { job: "compute" },
-            result_schema: {},
-            raises: { worker_failed: null },
-          },
-          output: "$: self.result",
-          on_error: [{ code: ["worker_failed"], goto: "$failed" }],
-          switch: [{ goto: "end" }],
-        },
-        { id: "failed", output: { route: "failed" }, switch: [{ goto: "end" }] },
-      ]) as never,
+function workThenFailed(work = "work") {
+  return [
+    {
+      id: work,
+      action: {
+        type: "external" as const,
+        input: { job: "compute" },
+        result_schema: {},
+        raises: { worker_failed: null },
+      },
+      output: "$: self.result",
+      on_error: [{ code: ["worker_failed"], goto: "$failed" }],
+      switch: [{ goto: "end" }],
     },
-  });
+    { id: "failed", output: { route: "failed" }, switch: [{ goto: "end" }] },
+  ];
+}
+
+async function define(name: string, tasks: unknown[] = workThenFailed()) {
+  const { error } = await client.PUT("/definitions", { body: { name, tasks: tasks as never } });
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
 
@@ -296,8 +295,11 @@ test("a lapsed claim on an ordinary task just returns to the queue", async () =>
 test("a lost-claim row does not strand the rest of the batch, and filters isolate processes", async () => {
   const lostName = `batch_lost_${crypto.randomUUID()}`;
   const okName = `batch_ok_${crypto.randomUUID()}`;
-  await defineOnlyOnce(lostName, { on_error: [{ code: ["external.lost"], goto: "$checked" }] });
-  await define(okName);
+  // Shared by both processes and nothing else on the server, so the claim below spans both while
+  // naming no process. Unfiltered, it took other files' parked tasks and failed their resolves.
+  const task = `batch_${crypto.randomUUID().replaceAll("-", "_")}`;
+  await defineOnlyOnce(lostName, { id: task, on_error: [{ code: ["external.lost"], goto: "$checked" }] });
+  await define(okName, workThenFailed(task));
   const lostId = await startInstance(lostName);
   const okId = await startInstance(okName);
 
@@ -305,29 +307,20 @@ test("a lost-claim row does not strand the rest of the batch, and filters isolat
   await claimWhenReady("worker-1", lostName, { lease_ms: 300 });
   await new Promise((r) => setTimeout(r, 500));
 
-  // A claim naming no process spans both. The lapsed row is skipped, not fatal: failing the
-  // request would leave the other task's grant written and never handed to anyone.
+  // The lapsed row is skipped, not fatal: failing the request would leave the other task's grant
+  // written and never handed to anyone.
   const deadline = Date.now() + 20_000;
   let got: any[] = [];
-  // An unfiltered claim also takes other files' parked work: hold it until the loop ends (released
-  // early, it refills every batch and crowds okName out), then hand it back or it times out.
-  const foreign: string[] = [];
-  try {
-    while (Date.now() < deadline) {
-      const { data, error } = await client.POST("/external-tasks/claim", {
-        body: { worker_id: "worker-2", limit: 10 } as never,
-      });
-      expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
-      const items = ((data as any)?.items ?? []) as any[];
-      foreign.push(...items.filter((j) => j.process !== okName).map((j) => j.token));
-      got = items.filter((j) => j.process === okName);
-      if (got.length) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
-  } finally {
-    for (const token of foreign) await client.POST("/external-tasks/release", { body: { token } });
+  while (Date.now() < deadline) {
+    const { data, error } = await client.POST("/external-tasks/claim", {
+      body: { worker_id: "worker-2", task, limit: 10 } as never,
+    });
+    expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
+    got = ((data as any)?.items ?? []) as any[];
+    if (got.length) break;
+    await new Promise((r) => setTimeout(r, 50));
   }
-  expect(got.length, "the claimable task in the batch was never handed out").toBe(1);
+  expect(got.map((j) => j.process), "only the claimable task in the batch is handed out").toEqual([okName]);
 
   const { error } = await client.POST("/external-tasks/resolve", {
     body: { token: got[0].token, result: { priced: 11 } },
