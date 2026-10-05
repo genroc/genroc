@@ -88,7 +88,7 @@ func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := sources.Resolve(docs); err != nil {
+	if err := sources.Resolve(docs); err != nil {
 		return nil, nil, err
 	}
 	out := make([]any, len(docs))

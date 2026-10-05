@@ -198,5 +198,5 @@ test("an escaped directive in the child stays escaped in what the spread copies"
 
   const r = runCli(bin, ["generate", "-f", p], OFFLINE);
   expect(r.stderr, "the child's literal `$import:` text became a live directive in the parent").toBe("");
-  expect(r.stdout).toContain("no imports found");
+  expect(r.stdout).toBe("no resolvers - nothing to do\n");
 });

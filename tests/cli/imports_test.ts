@@ -215,7 +215,7 @@ test("generate — writes declarations and applies nothing", () => {
   );
 
   const r = runCli(bin, ["generate", "-f", def]);
-  expect(r.stdout).toContain("generated types for 1 import");
+  expect(r.stdout).toBe("import: 1 site(s)\n");
   expect(`${r.stdout}${r.stderr}`, "generate mode answers nothing, so genctl must not echo the resolver's stdout")
     .not.toContain("RESOLVER-STDOUT");
   expect(p.manifest().mode).toBe("generate");
@@ -285,7 +285,7 @@ test("generate — a definition with no directive is the server's to judge, not 
 
   const types = runCli(bin, ["generate", "-f", good, bad]);
   expect(types.ok, `a broken sibling must not stop type generation:\n${types.stdout}${types.stderr}`).toBe(true);
-  expect(types.stdout).toContain("generated types for 1 import");
+  expect(types.stdout).toBe("import: 1 site(s)\n");
 
   // …and the judgement genctl skipped still happens, with the server's own message.
   const applied = runCli(bin, ["apply", "-f", good, bad]);
@@ -293,13 +293,41 @@ test("generate — a definition with no directive is the server's to judge, not 
   expect(applied.stderr).toContain("switch");
 });
 
-test("generate — says so when a definition imports nothing", () => {
+test("generate — says so when a definition has no typed directive", () => {
   const p = echoProject();
   const def = p.write(
     "proc.yaml",
     `name: ${uid("import")}\ntasks:\n  - id: t\n    switch: [{ goto: end }]\n`,
   );
-  expect(runCli(bin, ["generate", "-f", def]).stdout).toContain("no imports found");
+  expect(runCli(bin, ["generate", "-f", def]).stdout).toBe("no resolvers - nothing to do\n");
+});
+
+test("generate — reports each resolver that ran, not types it cannot see", () => {
+  const p = project(
+    [
+      "resolvers:",
+      "  - { name: import, phase: typed, ext: [.txt], command: [node, echo.mjs] }",
+      "  - { name: infer, phase: typed, command: [node, echo.mjs] }",
+      "  - { name: import, phase: typed, ext: [.md], command: [node, echo.mjs] }",
+      "",
+    ].join("\n"),
+  );
+  for (const f of ["a.txt", "b.txt", "c.md"]) p.write(f, "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${uid("import")}`,
+      "tasks:",
+      "  - id: t",
+      '    output: ["$import: ./a.txt", "$infer: ./b.txt", "$import: ./c.md"]',
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+  expect(
+    runCli(bin, ["generate", "-f", def]).stdout,
+    "one line per resolver NAME in first-site order: entries differing only in ext are one resolver to the author",
+  ).toBe("import: 2 site(s)\ninfer: 1 site(s)\n");
 });
 
 test("apply — a relative -f path still leaves the resolver a base it can join", async () => {

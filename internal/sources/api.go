@@ -87,13 +87,22 @@ func pointerAddress(p []any) string {
 	return strings.Join(parts, ".")
 }
 
-// Resolve runs both phases and splices every answer, leaving no directive behind. It returns the
-// number of typed sites.
-func Resolve(docs []Doc) (int, error) { return resolveDocs(docs, modeResolve) }
+// Resolve runs both phases and splices every answer, leaving no directive behind.
+func Resolve(docs []Doc) error {
+	_, err := resolveDocs(docs, modeResolve)
+	return err
+}
+
+// ResolverSites is how many typed sites one resolver was shown.
+type ResolverSites struct {
+	Resolver string
+	Sites    int
+}
 
 // Generate runs both phases for the files typed resolvers write, and discards their answers: the
-// docs keep a placeholder at each typed site, so they are not for applying.
-func Generate(docs []Doc) (int, error) { return resolveDocs(docs, modeGenerate) }
+// docs keep a placeholder at each typed site, so they are not for applying. What a resolver wrote,
+// if anything, genctl cannot see; the result is only which resolvers ran, in first-site order.
+func Generate(docs []Doc) ([]ResolverSites, error) { return resolveDocs(docs, modeGenerate) }
 
 // DecodeDefinition decodes one document into a definition.
 func DecodeDefinition(d Doc) (*model.ProcessDefinition, error) { return decodeDefinition(d) }

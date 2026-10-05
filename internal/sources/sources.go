@@ -565,27 +565,27 @@ func runStructuralResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]
 // ── the pass ───────────────────────────────────────────────────────────────────
 
 // resolveDocs resolves every directive in docs, mutating them in place. In generate mode the typed
-// sites keep their placeholder: the resolvers ran for the files they write. It returns the number
-// of typed sites, so zero means nothing was imported.
-func resolveDocs(docs []sourceDoc, mode string) (int, error) {
+// sites keep their placeholder: the resolvers ran for the files they write. It returns the typed
+// sites each resolver was shown, so empty means no typed resolver ran.
+func resolveDocs(docs []sourceDoc, mode string) ([]ResolverSites, error) {
 	if len(docs) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	cfg, err := findProjectConfig(filepath.Dir(docs[0].File))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	// Phase 1 first, and its result is what phase 2 is typed against: a structural resolver
 	// may change what the typechecker sees, which is the whole difference between the phases.
 	if _, err := resolveStructuralPass(docs, cfg, nil); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// Re-walked rather than filtered from one pass: a spread adds keys to a mapping, so a
 	// location found before it ran can name a different slot after.
 	all, err := findSites(docs, cfg)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	var sites []site
 	for _, s := range all {
@@ -595,28 +595,30 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	}
 	if len(sites) == 0 {
 		unescapeDocs(docs)
-		return 0, nil
+		return nil, nil
 	}
 
 	// The placeholder pass. A typed string is opaque to inference, so an empty string types
 	// identically to the real one and the schemas below are the schemas of what is applied.
 	for _, s := range sites {
 		if err := splice(docs, s, ""); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 	schemas, err := inferSchemas(docs, sites)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	byResolver := map[int][]site{}
 	var order []int
+	var counts []ResolverSites
 	for _, s := range sites {
 		if _, seen := byResolver[s.resolverIdx]; !seen {
 			order = append(order, s.resolverIdx)
 		}
 		byResolver[s.resolverIdx] = append(byResolver[s.resolverIdx], s)
+		counts = countSite(counts, cfg.Resolvers[s.resolverIdx].Name)
 	}
 
 	for _, idx := range order {
@@ -624,18 +626,18 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 		for i := range group {
 			types, err := siteTypes(schemas, cfg.Resolvers[idx].Types, group[i])
 			if err != nil {
-				return 0, err
+				return nil, err
 			}
 			group[i].Types = types
 		}
 		processes, err := byProcess(schemas, docs, group)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		m := manifest{Mode: mode, Processes: processes}
 		values, err := runTypedResolver(cfg, cfg.Resolvers[idx], m)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if mode == modeGenerate {
 			continue
@@ -644,14 +646,25 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 		// interleave two files differently, and `values` answers what the resolver was shown.
 		for i, s := range m.flatten() {
 			if err := splice(docs, s, escapeDollars(values[i])); err != nil {
-				return 0, err
+				return nil, err
 			}
 		}
 	}
 	// Last, once no walk will look for a directive again. A spliced string is untouched: it was
 	// escaped on the way in and the template layer undoes that at run time.
 	unescapeDocs(docs)
-	return len(sites), nil
+	return counts, nil
+}
+
+// countSite merges by name: two entries may share one, differing only in `ext`.
+func countSite(counts []ResolverSites, name string) []ResolverSites {
+	for i := range counts {
+		if counts[i].Resolver == name {
+			counts[i].Sites++
+			return counts
+		}
+	}
+	return append(counts, ResolverSites{Resolver: name, Sites: 1})
 }
 
 // inferSchemas types the definitions that carry a directive. genctl computes types and the server

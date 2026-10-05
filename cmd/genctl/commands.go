@@ -129,15 +129,17 @@ func runGenerateCmd(args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-	n, err := sources.Generate(docs)
+	ran, err := sources.Generate(docs)
 	if err != nil {
 		fatal("%v", err)
 	}
-	if n == 0 {
-		fmt.Println("no imports found - nothing to generate")
+	if len(ran) == 0 {
+		fmt.Println("no resolvers - nothing to do")
 		return
 	}
-	fmt.Printf("generated types for %d import(s)\n", n)
+	for _, r := range ran {
+		fmt.Printf("%s: %d site(s)\n", r.Resolver, r.Sites)
+	}
 }
 
 func runChannelCmd(server string, args []string) {
