@@ -1,9 +1,6 @@
 # Runs a script through the eval-node worker. Apply it beside your own definitions; a caller
 # spreads it with `$process` and narrows `result_schema` to what its script returns.
 name: script-node
-config_schema:
-  type: object
-  properties: {}
 input_schema:
   type: object
   properties:

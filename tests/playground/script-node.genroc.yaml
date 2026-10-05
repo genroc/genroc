@@ -4,9 +4,6 @@
 # `type: child` plus a result_schema, and the engine has no idea scripts exist. The output is
 # the top type; the caller narrows it with result_schema (specs/unknown-type.md).
 name: script-node
-config_schema:
-  type: object
-  properties: {}
 input_schema:
   type: object
   properties:
