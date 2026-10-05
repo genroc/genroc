@@ -8,7 +8,7 @@ If you want to have custom scripts as part of the process,
 initialize your project with `genctl init --eval-node`.
 
 
-### The setup
+## The setup
 
 If we look at the project structure, you will see, that there are some extra fields
 compared to regular one.
@@ -35,7 +35,7 @@ tasks. You can take this as an example implementation of
 
 
 
-### Example process
+## Example process
 
 The example process will look something like this:
 
@@ -77,14 +77,14 @@ Then we have `$import: ./greet.ts`, this is a special resolver intended for impo
 The content of the file is bundled with rollup into one string and included directly into the process definition,
 so it can't drift.
 
-### Generated types
+## Generated types
 
 Run `genctl types` and this setup will also generate `Input` and `Output` types for the `greet.ts` script.
 
 This way the script input and output is tied to the current `input` and `result_schema` defined in process.
 Genroc will fail if those types don't match.
 
-### The script format
+## The script format
 
 Genroc expects default import to be function and it will pass input as a first argument.
 It will take it's output as a result.
@@ -124,3 +124,15 @@ fields. Here we need `task.action.input.input` which is the `input` slot next to
 we also take `result` as a output.
 
 You can create your custom resolvers in the similar fashion.
+
+## eval-node
+
+Typescript support is enabled by eval-node docker image which runs as a separate service.
+It is a node worker which expects the genroc server on port `8448` and resolves external
+task from `script-node` process.
+
+### npm package
+
+Resolver in .genroc file calls `eval-node` npm package binary, which uses rollup to
+bundle the requested file into a string (also strips types). It also inlines
+dependencies so you can use javascript/typescript packages as well.
