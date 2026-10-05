@@ -49,13 +49,13 @@ func (j *JWTModeConfig) Validate() error {
 
 func (j JWTModeConfig) resolveSecret() (string, error) {
 	if j.Secret != "" && j.SecretFile != "" {
-		return "", fmt.Errorf("$GENROC_JWT_SECRET and -jwt-secret-file are exclusive")
+		return "", fmt.Errorf("$GENROC_JWT_SECRET and --jwt-secret-file are exclusive")
 	}
 	secret := j.Secret
 	if j.SecretFile != "" {
 		raw, err := os.ReadFile(j.SecretFile)
 		if err != nil {
-			return "", fmt.Errorf("-jwt-secret-file: %w", err)
+			return "", fmt.Errorf("--jwt-secret-file: %w", err)
 		}
 		// Trimmed: a secret delivered as a file almost always arrives with a trailing newline,
 		// and a mismatch on an invisible byte is the worst kind to debug.

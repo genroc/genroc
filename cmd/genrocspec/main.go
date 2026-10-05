@@ -20,7 +20,9 @@ func main() {
 		"write the error-code pages into the definition and HTTP reference directories (needs both)")
 	configRef := flag.String("config-reference", "", `directory to write the configuration reference pages into ("" to skip)`)
 	statusTable := flag.String("status-table", "", `file to write the bare instance-status table into, for a guide to import ("" to skip)`)
+	serverRef := flag.String("server-reference", "", `directory to write the server flag reference page into ("" to skip)`)
 	genctl := flag.String("genctl", "./genctl", "the genctl binary the CLI reference is read from")
+	genroc := flag.String("genroc", "./genroc", "the genroc binary the server reference is read from")
 	flag.Parse()
 
 	write(*out, api.Spec)
@@ -29,6 +31,12 @@ func main() {
 
 	if *cliRef != "" {
 		if err := writeCLIReference(*cliRef, *genctl); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if *serverRef != "" {
+		if err := writeServerReference(*serverRef, *genroc); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -47,7 +55,7 @@ func main() {
 	}
 	if *errRef {
 		if *defRef == "" || *httpRef == "" {
-			fmt.Fprintln(os.Stderr, "error: -error-reference needs -definition-reference and -http-reference")
+			fmt.Fprintln(os.Stderr, "error: --error-reference needs --definition-reference and --http-reference")
 			os.Exit(1)
 		}
 		if err := writeErrorReference(*defRef, *httpRef); err != nil {

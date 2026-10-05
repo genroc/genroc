@@ -15,7 +15,7 @@ these files — so if a README drifts from the YAML, the suite fails.
 
 ```sh
 make build
-./genroc -db genroc.db          # in one terminal
+./genroc --db genroc.db          # in one terminal
 
 genctl apply -f <files…>        # children before parents
 genctl run <process> --input '{…}'

@@ -25,11 +25,11 @@ services:
   genroc:
     build: { context: ../.., dockerfile: Dockerfile }
     command:
-      - -pg
+      - --pg
       - postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable
-      - -http
+      - --http
       - :8448
-      - -auth
+      - --auth
       - token
     environment:
       # Stored if absent, ignored if present, so a restart is a no-op. ADMIN_TOKEN may be empty:
@@ -54,7 +54,7 @@ services:
   # Not started; for one-shot DB commands. Mints the admin credential to YOUR terminal only,
   # never a file or container env (then, on the host: genctl config set token <value>):
   #   docker compose -f examples/auth/compose.yaml run --rm tools \
-  #     token create -pg "$PG" --perms admin --label admin
+  #     token create --pg "$PG" --perms admin --label admin
   tools:
     # The same image as the server; it carries both binaries.
     build: { context: ../.., dockerfile: Dockerfile }

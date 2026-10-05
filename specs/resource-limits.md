@@ -53,7 +53,7 @@ shape — `ReadTimeout` 60s, `IdleTimeout` 120s, and a 10 MiB body cap (`http.Ma
 applied in the route wrapper so it covers every action, including a custom `fromHTTP`.
 
 **No `WriteTimeout`.** `POST /tick` blocks until every instance it claimed has advanced, which is
-unbounded by design (manual-tick mode, `-poll 0`, which the tests use); any write timeout short
+unbounded by design (manual-tick mode, `--poll 0`, which the tests use); any write timeout short
 enough to matter would sever it.
 
 ### The drain has to be awaited, not just bounded

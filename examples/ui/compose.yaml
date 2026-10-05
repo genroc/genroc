@@ -28,7 +28,7 @@ services:
           printf 'genroc_sk_%s' "$(rand)" > /data/worker-token
           echo "generated /data/worker-token"
         fi
-        # What -seed-tokens-file reads: label=perms=secret. Rewritten every start so it always
+        # What --seed-tokens-file reads: label=perms=secret. Rewritten every start so it always
         # matches the token file, which is the only thing that has to be preserved.
         printf 'evaluator=worker=%s' "$(cat /data/worker-token)" > /data/seed-tokens
         # 65532 is distroless's `nonroot`, which genroc and genroc-ui both run as. Written by

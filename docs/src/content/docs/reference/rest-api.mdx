@@ -48,7 +48,7 @@ Nothing else is an identity: no trusted headers, no cookies, no client certifica
 deployment configures genroc to accept its identity provider's tokens, and that configuration
 is the whole integration.
 
-The default is `-auth none`, which handles no `Authorization` at all and leaves every endpoint
+The default is `--auth none`, which handles no `Authorization` at all and leaves every endpoint
 open. That is fine on a laptop and nowhere else — `PUT /definitions` is arbitrary code
 execution on the server — so genroc warns at startup when it is also bound beyond loopback.
 

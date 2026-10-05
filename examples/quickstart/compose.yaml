@@ -6,17 +6,17 @@
 name: genroc-quickstart
 
 services:
-  # SQLite, so there is no database to configure. `-pg <dsn>` is the same image against Postgres.
+  # SQLite, so there is no database to configure. `--pg <dsn>` is the same image against Postgres.
   genroc:
     build: { context: ../.., dockerfile: Dockerfile }
-    command: [-db, /data/genroc.db, -http, ":8448"]
+    command: [--db, /data/genroc.db, --http, ":8448"]
     volumes: [data:/data]
 
   # Its own image, so a deployment embedding the server carries no UI (specs/ui-component.md §1).
   # No config means no login: requests are proxied as they arrive.
   genroc-ui:
     build: { context: ../.., dockerfile: ui/Dockerfile }
-    command: [-server, "http://genroc:8448"]
+    command: [--server, "http://genroc:8448"]
     ports: ["8448:8448"]
     depends_on:
       genroc: { condition: service_started }

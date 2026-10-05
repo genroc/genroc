@@ -43,10 +43,10 @@ release:
   footer: |
     ## Server
 
-        docker run -p 8448:8448 -v genroc:/data ghcr.io/genroc/genroc:{{ .Tag }} -db /data/genroc.db
+        docker run -p 8448:8448 -v genroc:/data ghcr.io/genroc/genroc:{{ .Tag }} --db /data/genroc.db
 
     ## Web UI
 
     Serves the UI and the login, and proxies to the server. See examples/ui for the pair.
 
-        docker run -p 8448:8448 ghcr.io/genroc/ui:{{ .Tag }} -config /etc/genroc/ui.yaml
+        docker run -p 8448:8448 ghcr.io/genroc/ui:{{ .Tag }} --config /etc/genroc/ui.yaml

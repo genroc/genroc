@@ -168,7 +168,7 @@ type HealthResp struct {
 	Worker     string `json:"worker_id" description:"Worker id stamped on the leases this worker holds"`
 	Database   string `json:"database" description:"Storage engine backing this worker: sqlite or postgres"`
 	LeaseAgeMs int64  `json:"lease_age_ms" description:"Milliseconds since this worker last renewed its leases. Past --lease-duration means its claimed instances are being taken over by peers."`
-	ManualTick bool   `json:"manual_tick" description:"True when started with -poll 0: the engine only advances via POST /tick"`
+	ManualTick bool   `json:"manual_tick" description:"True when started with --poll 0: the engine only advances via POST /tick"`
 }
 
 type StartInstanceResp struct {

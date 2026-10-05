@@ -45,7 +45,7 @@ Same image throughout — only flags change.
 | | adds | for |
 |---|---|---|
 | this example | — | a laptop |
-| [examples/auth](../auth) | `-auth token` | machines: CI, workers, scripts |
+| [examples/auth](../auth) | `--auth token` | machines: CI, workers, scripts |
 | [examples/ui](../ui) | genroc-ui, and a login | people, with real login |
 
 ## The image

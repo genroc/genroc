@@ -24,7 +24,7 @@ func runTokenCmd(args []string) {
 
 	fs := flag.NewFlagSet("token "+sub, flag.ExitOnError)
 	dbPath := fs.String("db", "genroc.db", "SQLite database file path")
-	pgDSN := fs.String("pg", "", "PostgreSQL DSN. When set, -db is ignored.")
+	pgDSN := fs.String("pg", "", "PostgreSQL DSN. When set, --db is ignored.")
 	label := fs.String("label", "", "a name for this token, shown in listings and recorded as the actor")
 	perms := fs.String("perms", "", "comma-separated permissions: admin, deploy, operate, read, worker")
 
@@ -74,7 +74,7 @@ func runTokenCmd(args []string) {
 		printTokens(rows)
 	case "revoke":
 		if fs.NArg() == 0 {
-			fmt.Fprintln(os.Stderr, "usage: genroc token revoke <id> [-db path | -pg dsn]")
+			fmt.Fprintln(os.Stderr, "usage: genroc token revoke <id> [--db path | --pg dsn]")
 			os.Exit(2)
 		}
 		for _, id := range fs.Args() {
@@ -152,14 +152,14 @@ func stamp(ms int64) string {
 func tokenUsage() {
 	fmt.Fprint(os.Stderr, `genroc token — credential management against the database.
 
-  genroc token create --perms <list> [--label <name>] [-db path | -pg dsn]
-  genroc token list                                   [-db path | -pg dsn]
-  genroc token revoke <id>...                         [-db path | -pg dsn]
+  genroc token create --perms <list> [--label <name>] [--db path | --pg dsn]
+  genroc token list                                   [--db path | --pg dsn]
+  genroc token revoke <id>...                         [--db path | --pg dsn]
 
 Permissions: admin, deploy, operate, read, worker.
 
 This works without the server running and without a credential — it needs only access to the
 database, which is the correct root of trust for a break-glass path. Day to day, use
-`+"`genctl token`"+`, which goes over the API. See specs/api-auth.md.
+`+"`genctl token`"+`, which goes over the API.
 `)
 }

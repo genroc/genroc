@@ -90,7 +90,7 @@ exposed as a password, so a real deployment terminates TLS at an ingress or a pr
 ## Notes
 
 - The image carries a statically linked cgo build, so **SQLite and PostgreSQL both work**.
-  This example uses PostgreSQL because that is what a deployment uses; `-db /data/genroc.db`
+  This example uses PostgreSQL because that is what a deployment uses; `--db /data/genroc.db`
   is the same image with one flag changed.
 
 - **`down` keeps the database; `down -v` resets it.** That distinction matters here: the admin
@@ -101,7 +101,7 @@ exposed as a password, so a real deployment terminates TLS at an ingress or a pr
   — there is a `tools` profile that needs no running server and no credential:
 
       docker compose -f examples/auth/compose.yaml run --rm tools \
-        token create -pg "$PG" --perms admin --label admin
+        token create --pg "$PG" --perms admin --label admin
 
 - `examples/auth/.env` is gitignored and written `0600`. Delete it and re-run `gen-env.sh` to
   rotate; the old tokens keep working until revoked, so revoke them after the fleet has rolled.

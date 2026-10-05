@@ -30,10 +30,10 @@ services:
   genroc:
     image: {{.Image}}
 {{- if .Postgres}}
-    command: [-pg, "postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable", -http, ":8448"]
+    command: [--pg, "postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable", --http, ":8448"]
 {{- else}}
-    # SQLite; `-pg <dsn>` is the same image against PostgreSQL.
-    command: [-db, /data/genroc.db, -http, ":8448"]
+    # SQLite; `--pg <dsn>` is the same image against PostgreSQL.
+    command: [--db, /data/genroc.db, --http, ":8448"]
 {{- end}}
 {{- if .Auth}}
     environment:
@@ -64,7 +64,7 @@ services:
     environment:
       GENROC_UI_CONFIG: /etc/genroc/ui.yaml
 {{- else}}
-    command: [-server, "http://genroc:8448"]
+    command: [--server, "http://genroc:8448"]
 {{- end}}
     ports: ["8448:8448"]
 {{- if .Auth}}

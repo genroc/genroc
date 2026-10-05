@@ -101,7 +101,7 @@ rather than a wall: `archtest.TestBinariesKeepTheirImportBoundaries` refuses `in
     make test       # go test across both modules + integration tests
 
     # Run with SQLite (default):
-    ./genroc -db genroc.db
+    ./genroc --db genroc.db
 
     # Run with PostgreSQL:
-    ./genroc -pg postgres://user:pass@localhost/genroc
+    ./genroc --pg postgres://user:pass@localhost/genroc

@@ -18,11 +18,11 @@ Go 1.25+ and a C toolchain (SQLite is cgo):
 make build                                           # ./genroc, ./genctl, ./genroc-ui
 make install                                         # put this genctl on PATH
 
-./genroc -db genroc.db                               # SQLite (default)
-./genroc -pg postgres://user:pass@localhost/genroc   # PostgreSQL
+./genroc --db genroc.db                               # SQLite (default)
+./genroc --pg postgres://user:pass@localhost/genroc   # PostgreSQL
 ```
 
-It listens on `:8448` (`-http` to change), which is where `genctl` looks
+It listens on `:8448` (`--http` to change), which is where `genctl` looks
 by default. In another shell, scaffold a project and run its one process:
 
 ```sh

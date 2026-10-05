@@ -91,7 +91,7 @@ alone would mint tokens the server rejects. All-or-nothing, so break-glass rathe
 
 ## 5. Where the role map goes
 
-genroc-ui's config file (`-config` / `$GENROC_UI_CONFIG`) — a file, not flags, because providers,
+genroc-ui's config file (`--config` / `$GENROC_UI_CONFIG`) — a file, not flags, because providers,
 roles and users are lists and maps:
 
 ```yaml
@@ -118,7 +118,7 @@ token:
 A person's permissions are the union of their groups' roles, their `users` entry, and `"*"`. Any
 other provider is a generic `oidc` entry with an `issuer`; discovery runs at startup, so an
 unreachable provider fails there rather than at someone's first login. Without a config,
-`-server` alone runs a UI with no login.
+`--server` alone runs a UI with no login.
 
 The login page is its own bundle (`login.html`), not a route inside the app it gates, because it
 renders before any session exists; it asks `GET /auth/options` which ways in exist and posts to

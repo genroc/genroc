@@ -187,7 +187,7 @@ func TestTokens_BootstrapRaceMintsExactlyOne(t *testing.T) {
 	}
 }
 
-// A supplied secret is used verbatim, which is what makes -bootstrap-token declarative
+// A supplied secret is used verbatim, which is what makes --bootstrap-token declarative
 // recovery: set the value, restart, and the credential you already hold works.
 func TestTokens_BootstrapUsesTheSuppliedSecret(t *testing.T) {
 	for _, b := range testBackends(t) {

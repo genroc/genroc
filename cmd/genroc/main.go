@@ -40,14 +40,14 @@ func main() {
 	pgCommitDelay := flag.Int("pg-commit-delay", 0, "Hold each PostgreSQL WAL flush back by this many microseconds so more commits coalesce into it (PostgreSQL commit_delay, set per session). Costs no durability - every commit is still flushed before it is acknowledged - and Postgres skips the delay unless commit_siblings (default 5) transactions are open, so narrow workloads are unaffected. Throughput peaks well below the flush latency and drops past it: on a 4ms F_FULLFSYNC disk 500us was the best value measured and 10000us was 26% worse than doing nothing. The gain itself is workload- and load-dependent (measured between +3% and +33% for the same 500us on the same machine), and shows up mainly as steadier throughput under contention rather than a higher ceiling. Measure on your own storage; 0 (the default) disables. Requires a superuser connection. Ignored for SQLite.")
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk's serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.")
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
-	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
-	authMode := flag.String("auth", envOr("GENROC_AUTH", "none"), "How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). See specs/api-auth.md.")
-	jwtSecretFile := flag.String("jwt-secret-file", os.Getenv("GENROC_JWT_SECRET_FILE"), "Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them. See specs/ui-issued-tokens.md.")
-	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The `iss` a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
-	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The `aud` a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
+	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown.")
+	authMode := flag.String("auth", envOr("GENROC_AUTH", "none"), "How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database).")
+	jwtSecretFile := flag.String("jwt-secret-file", os.Getenv("GENROC_JWT_SECRET_FILE"), "Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.")
+	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The iss claim a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
+	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The aud claim a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
 	jwtLeeway := flag.String("jwt-leeway", os.Getenv("GENROC_JWT_LEEWAY"), "Clock skew allowed on exp/nbf ($GENROC_JWT_LEEWAY); default 30s. A fixed zero fails on real clusters.")
 	seedTokens := flag.String("seed-tokens", "", "Credentials the operator generated, as a comma-separated list of `label=perms=secret` (perms itself is +-separated), e.g. \"admin=admin=genroc_sk_...,evaluator=worker=genroc_sk_...\" ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.")
-	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "Read -seed-tokens from this file instead ($GENROC_SEED_TOKENS_FILE), one `label=perms=secret` per line or comma-separated. A file rather than a flag keeps a credential out of the process list and out of `docker inspect`, and is the shape a mounted secret already has.")
+	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "Read --seed-tokens from the file at `path` instead ($GENROC_SEED_TOKENS_FILE), one label=perms=secret per line or comma-separated. A file rather than a flag keeps a credential out of the process list and out of `docker inspect`, and is the shape a mounted secret already has.")
 	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
 	httpAddr := flag.String("http", envOr("GENROC_HTTP", ":8448"), "HTTP listen address ($GENROC_HTTP; empty to disable)")
 	pollMs := flag.Int("poll", 500, "Engine poll interval in milliseconds")
@@ -63,6 +63,7 @@ func main() {
 	logRetention := flag.Duration("log-retention", 168*time.Hour, "Delete per-instance audit logs older than this; 0 = keep forever")
 	objectGrace := flag.Duration("object-grace", time.Hour, "How long a released large value stays fetchable by a reference already handed out. A read hands out references and fetching them is a second call, so the data can move on in between; this is the window in which that cannot lose. Raise it for slow consumers, lower it for processes that churn big values in a loop.")
 	showVersion := flag.Bool("version", false, "Print the version and exit.")
+	flag.Usage = func() { printFlags(flag.CommandLine) }
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(versionString())
@@ -162,7 +163,7 @@ func main() {
 		// should be a decision (specs/api-auth.md §6). Keyed on a human mode being ON, not on
 		// a config file existing.
 		if exposedAddr(*httpAddr) && !humanAuthOn {
-			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use -auth token, or bind to localhost.",
+			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use --auth token, or bind to localhost.",
 				"addr", *httpAddr)
 		}
 	case "token":
@@ -225,7 +226,7 @@ func main() {
 		auths = append(auths, api.NewTokenAuth(database))
 		log.Info("API authentication enabled", "mode", "token")
 	default:
-		log.Error("unknown -auth mode", "mode", *authMode, "valid", "none, token")
+		log.Error("unknown --auth mode", "mode", *authMode, "valid", "none, token")
 		os.Exit(1)
 	}
 
@@ -405,4 +406,32 @@ func redactSeed(entry string) string {
 		return entry[:i+len(db.TokenPrefix)] + "..."
 	}
 	return entry
+}
+
+// printFlags is flag.PrintDefaults with the house style: `--name` for a long flag, `-x` for a
+// single letter. Go accepts either form, so this changes only what is printed.
+func printFlags(fs *flag.FlagSet) {
+	w := fs.Output()
+	fmt.Fprintln(w, "Usage: genroc [flags]\n       genroc token <create|list|revoke> ...\n\nFlags:")
+	fs.VisitAll(func(f *flag.Flag) {
+		dash := "--"
+		if len(f.Name) == 1 {
+			dash = "-"
+		}
+		kind, usage := flag.UnquoteUsage(f)
+		if kind != "" {
+			kind = " " + kind
+		}
+		fmt.Fprintf(w, "  %s%s%s\n    \t%s", dash, f.Name, kind, usage)
+		switch f.DefValue {
+		case "", "false", "0", "0s":
+		default:
+			if kind == " string" {
+				fmt.Fprintf(w, " (default %q)", f.DefValue)
+			} else {
+				fmt.Fprintf(w, " (default %s)", f.DefValue)
+			}
+		}
+		fmt.Fprintln(w)
+	})
 }

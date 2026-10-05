@@ -12,7 +12,7 @@ async function getStatus(genroc: GenrocProcess, id: string) {
   return data!;
 }
 
-// Manual tick mode (-poll 0), so every intermediate DB state is observable.
+// Manual tick mode (--poll 0), so every intermediate DB state is observable.
 test("pause between tasks — step2 waits for the resume, then runs exactly once", async () => {
   const processName = `pause_tick_${crypto.randomUUID()}`;
   const db = join(tmpdir(), `genroc_pause_${Date.now()}.db`);

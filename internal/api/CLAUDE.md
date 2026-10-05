@@ -84,7 +84,7 @@ can appear is one genroc verified — there is no unverified one left to disting
 **`X-Genroc-Actor` reports that same string back on every HTTP response**, set in the route
 wrapper whenever a principal exists. A client cannot infer its own identity: behind a proxy the
 browser sends no credential of its own and still succeeds, which is indistinguishable from
-`-auth none` unless the server says which. Two rules, both pinned by an e2e test — a **403 carries
+`--auth none` unless the server says which. Two rules, both pinned by an e2e test — a **403 carries
 it** ("you are alice and alice may not" is the useful message), and a **401 must not**, because
 its absence is the signal to ask for a credential. It is a presentation affordance, not part
 of `Reply`.
@@ -122,7 +122,7 @@ that is already in use — the one case `main` treats as fatal precisely so it f
 ## There is no `WriteTimeout`, and adding one breaks `/tick`
 
 `POST /tick` blocks until every instance it claimed has finished advancing. That is
-unbounded by design — it is the manual-tick mode (`-poll 0`) the integration suite runs on.
+unbounded by design — it is the manual-tick mode (`--poll 0`) the integration suite runs on.
 Any `WriteTimeout` short enough to defend against a slow reader also severs a legitimate
 long tick, and the failure appears as flaky, unexplained truncation in tests far from this
 file. `ReadHeaderTimeout` is what bounds a connection that opens and sends nothing, which is

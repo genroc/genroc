@@ -111,7 +111,7 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if !c.loginConfigured() {
 		// A UI with no way to log in is legitimate: it proxies as requests arrive, which is the
-		// laptop shape against a server running -auth none or a pasted token.
+		// laptop shape against a server running --auth none or a pasted token.
 		return &c, nil
 	}
 

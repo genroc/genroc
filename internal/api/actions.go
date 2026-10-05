@@ -802,7 +802,7 @@ var registry = func() []actionDef {
 			Name:    "tick",
 			Method:  http.MethodPost,
 			Path:    "/tick",
-			Summary: "Manually trigger one engine poll cycle (useful when started with -poll 0); optionally shift the server clock forward first to expire leases and retry timers without real waits (testing only)",
+			Summary: "Manually trigger one engine poll cycle (useful when started with --poll 0); optionally shift the server clock forward first to expire leases and retry timers without real waits (testing only)",
 			Tags:    []string{"Debug"},
 			Errors:  []Code{CodeUnsupported},
 			Req:     TickReq{AdvanceMs: 12_000},

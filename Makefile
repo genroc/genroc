@@ -10,10 +10,10 @@ log     ?= info
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
-		-db $(db) \
-		-http $(http) \
-		-poll $(poll) \
-		-log $(log) \
+		--db $(db) \
+		--http $(http) \
+		--poll $(poll) \
+		--log $(log) \
 		$(ARGS)
 
 # Two modules, three binaries. genroc-ui builds from ./ui, which is a separate module with
@@ -126,19 +126,20 @@ script-runner:
 # `# yaml-language-server: $schema=` comment resolves with no genroc running. Generated,
 # never committed: it is a projection of internal/model.
 docs-schema:
-	$(BUILD_FLAGS) go run ./cmd/genrocspec -o docs/public/openapi.json -schema docs/public/process-schema.json -config-schema docs/public/config-schema.json
+	$(BUILD_FLAGS) go run ./cmd/genrocspec -o docs/public/openapi.json --schema docs/public/process-schema.json --config-schema docs/public/config-schema.json
 
-# The generated half of the reference. Needs a built genctl: the help text is the source,
-# and a flag is only registered once its command is running. Generated pages are gitignored --
+# The generated half of the reference. Needs built genctl and genroc binaries: their help text is
+# the source, and a genctl flag is only registered once its command is running. Generated pages are gitignored --
 # a committed copy is a second thing to keep true.
 docs-reference: build
 	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" \
-		-cli-reference docs/src/content/docs/reference/cli \
-		-http-reference docs/src/content/docs/reference/rest-api \
-		-definition-reference docs/src/content/docs/reference/definition \
-		-error-reference \
-		-config-reference docs/src/content/docs/reference \
-		-status-table docs/src/generated/instance-statuses.md
+		--cli-reference docs/src/content/docs/reference/cli \
+		--http-reference docs/src/content/docs/reference/rest-api \
+		--definition-reference docs/src/content/docs/reference/definition \
+		--error-reference \
+		--config-reference docs/src/content/docs/reference \
+		--server-reference docs/src/content/docs/reference \
+		--status-table docs/src/generated/instance-statuses.md
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root. Its own build shells out to

@@ -7,11 +7,11 @@ completion — surviving crashes, restarts and long waits without holding a thre
 > does not exist yet and will mean something when it does.
 
 ```sh
-docker run -p 8448:8448 -v genroc:/data genroc/genroc:preview -db /data/genroc.db
+docker run -p 8448:8448 -v genroc:/data genroc/genroc:preview --db /data/genroc.db
 ```
 
 Then open http://localhost:8448 — this image serves the web UI on the same origin as the API.
-Against PostgreSQL, same image: `-pg postgres://user:pass@host/genroc`.
+Against PostgreSQL, same image: `--pg postgres://user:pass@host/genroc`.
 
 A full stack — engine, UI, script worker, example processes, no credentials:
 
@@ -31,7 +31,7 @@ docker compose up
 ## Notes
 
 * **Authentication is off by default** and genroc warns loudly. `PUT /definitions` stores code
-  the engine runs, so an open port is remote code execution — use `-auth token`.
+  the engine runs, so an open port is remote code execution — use `--auth token`.
 * **Omit `-ui`** to run headless. Same binary.
 * 39.5 MB on disk, ~10 MB compressed.
 

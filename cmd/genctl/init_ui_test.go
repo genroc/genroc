@@ -65,8 +65,8 @@ func TestInitNoAuth_ReadsNoCredentialFilesButKeepsTheUI(t *testing.T) {
 	if !strings.Contains(out, "genroc-ui:") {
 		t.Error("--no-auth dropped genroc-ui; it turns the login off, not the UI")
 	}
-	if !strings.Contains(out, `command: [-server, "http://genroc:8448"]`) {
-		t.Error("genroc-ui has neither a config nor a -server, so it proxies nowhere")
+	if !strings.Contains(out, `command: [--server, "http://genroc:8448"]`) {
+		t.Error("genroc-ui has neither a config nor a --server, so it proxies nowhere")
 	}
 }
 

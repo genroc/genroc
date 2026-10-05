@@ -61,8 +61,8 @@ type Principal struct {
 Every mode produces this value with `Grants` already resolved — from a token's row, or a JWT's
 `perms` claim — so the gate has one input and cannot learn which mode ran.
 
-- **`token`** (`-auth token`) — genroc's own `genroc_sk_*`, for machines. §5.
-- **`jwt`** (on when `-jwt-secret-file` or `$GENROC_JWT_SECRET` is set) — an HS256 JWT minted by
+- **`token`** (`--auth token`) — genroc's own `genroc_sk_*`, for machines. §5.
+- **`jwt`** (on when `--jwt-secret-file` or `$GENROC_JWT_SECRET` is set) — an HS256 JWT minted by
   genroc-ui, for people. §2.1, §2.4.
 - With neither, no authenticator is installed and every request is `no-auth:anonymous` holding
   `admin` — the default, right for a laptop and `make test`. §6.
@@ -106,7 +106,7 @@ beside the parse, so no path verifies without them (`internal/api/jwtauth.go`):
   and RS256→HS256 confusion by construction. Only a token signed with the right secret and the
   wrong algorithm (HS512) tests the pin: `alg: none` fails on key typing anyway, so it passes with
   `WithValidMethods` deleted.
-- **`exp` required**, with a 30s default leeway (`-jwt-leeway`; zero fails on real clusters) — a
+- **`exp` required**, with a 30s default leeway (`--jwt-leeway`; zero fails on real clusters) — a
   verified token with no expiry is a permanent credential genroc has no way to revoke.
 
 The secret has no default, is refused under 32 characters, and is trimmed when read from a file.
@@ -146,8 +146,8 @@ The resource half, inside the handler once the target is loaded, is §10.
 
 Not in the server: genroc-ui resolves groups to permissions ([ui-issued-tokens.md](ui-issued-tokens.md)
 §5), and policy then cannot be edited through the API it governs. The server takes four flags
-describing which tokens to accept — `-jwt-secret-file` (or `$GENROC_JWT_SECRET`, exclusive),
-`-jwt-issuer`, `-jwt-audience`, `-jwt-leeway` — each with a `$GENROC_JWT_*` variable; a file for
+describing which tokens to accept — `--jwt-secret-file` (or `$GENROC_JWT_SECRET`, exclusive),
+`--jwt-issuer`, `--jwt-audience`, `--jwt-leeway` — each with a `$GENROC_JWT_*` variable; a file for
 four scalars would be a parser and a mount for nothing.
 
 ## 5. Machines get tokens
@@ -168,7 +168,7 @@ random bytes, unpadded base64url (43 characters):
 - `genctl token create --perms deploy --label ci`, `list`, `revoke <id>`, and `generate`, which
   mints offline with no server and no credential (§5.3, path 0). `POST`/`GET /api/tokens` and
   `DELETE /api/tokens/{id}` are admin-only.
-- **An unknown permission is refused at mint** by the API, `genroc token` and `-seed-tokens`, all
+- **An unknown permission is refused at mint** by the API, `genroc token` and `--seed-tokens`, all
   through `api.ValidPerms`: a typo would grant less than asked, discovered as a 403 somewhere unrelated.
 
 ### 5.1 One host: browsers through genroc-ui, machines direct
@@ -194,7 +194,7 @@ added beside it, not instead, once an organisation runs an IdP.
 **The problem is "no live admin token", not first run**: it recurs when `token` is enabled on a
 deployment that ran without auth, or when the last admin token is lost.
 
-0. **`-seed-tokens` / `-seed-tokens-file` / `$GENROC_SEED_TOKENS` — the operator generates,
+0. **`--seed-tokens` / `--seed-tokens-file` / `$GENROC_SEED_TOKENS` — the operator generates,
    genroc only stores.** `genctl token generate` mints offline, and genroc receives
    `label=perms=secret` entries (perms `+`-joined, to survive a compose `environment:` value and
    a shell) and stores their hashes. A secret never originates inside genroc, reaches its logs,
@@ -208,7 +208,7 @@ deployment that ran without auth, or when the last admin token is lost.
    break-glass path and unconditional. `genctl` cannot host it: it speaks HTTP, and bypassing
    HTTP is the point. The secret goes to stdout and everything else to stderr, so
    `TOKEN=$(genroc token create --perms admin)` captures the credential alone.
-2. **`-bootstrap-token` / `$GENROC_BOOTSTRAP_TOKEN`.** Created only when no live admin token
+2. **`--bootstrap-token` / `$GENROC_BOOTSTRAP_TOKEN`.** Created only when no live admin token
    exists, so it is idempotent across restarts and doubles as declarative recovery. A secret a
    revoked token holds then fails startup saying so; it is never reinstated.
 3. **Auto-mint**, when 2 is unset and no live admin token exists: printed once to stderr with a
@@ -229,7 +229,7 @@ transaction, 1 under SERIALIZABLE. SQLite's single writer hides this, so
 ## 6. The exposure warning
 
 No-auth stays the default so `make test` and the quickstarts run unchanged, and is made
-defensible by a startup warning: with no authenticator and `-http` bound beyond loopback (the
+defensible by a startup warning: with no authenticator and `--http` bound beyond loopback (the
 default `:8448` is all interfaces), genroc logs that anyone reaching the port can register a
 definition — arbitrary code execution. Suppressed when jwt mode is on. If the warning proves
 ignorable, the default should change.

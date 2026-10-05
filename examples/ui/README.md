@@ -54,7 +54,7 @@ what they change:
     genroc-ui   login, UI, and the proxy that turns a session into a token
     evaluator   the script-task worker; talks to genroc directly with its own token
 
-SQLite, so there is nothing to provision. `-pg <dsn>` is the same image against PostgreSQL;
+SQLite, so there is nothing to provision. `--pg <dsn>` is the same image against PostgreSQL;
 `examples/auth/` shows that.
 
 **This used to be six services** — Caddy routing on whether a request already carried a

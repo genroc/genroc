@@ -35,11 +35,12 @@ const (
 
 func main() {
 	configPath := flag.String("config", os.Getenv("GENROC_UI_CONFIG"),
-		"Path to the YAML config ($GENROC_UI_CONFIG). Without it, -server alone runs a UI with no login: requests are proxied as they arrive, which is the local shape against a server running -auth none or a pasted token.")
+		"Path to the YAML config ($GENROC_UI_CONFIG). Without it, --server alone runs a UI with no login: requests are proxied as they arrive, which is the local shape against a server running --auth none or a pasted token.")
 	server := flag.String("server", envOr("GENROC_SERVER", "http://localhost:8449"),
-		"The genroc API to proxy to, when no -config is given ($GENROC_SERVER).")
+		"The genroc API to proxy to, when no --config is given ($GENROC_SERVER).")
 	listen := flag.String("http", "", "Listen address; overrides the config.")
 	showVersion := flag.Bool("version", false, "Print the version and exit.")
+	flag.Usage = func() { printFlags(flag.CommandLine) }
 	flag.Parse()
 
 	if *showVersion {
@@ -469,4 +470,28 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// printFlags is flag.PrintDefaults in the house style genroc uses too: `--name`, or `-x` for a
+// single letter. Go accepts either form; only the printing differs.
+func printFlags(fs *flag.FlagSet) {
+	w := fs.Output()
+	fmt.Fprintln(w, "Usage: genroc-ui [flags]\n\nFlags:")
+	fs.VisitAll(func(f *flag.Flag) {
+		dash := "--"
+		if len(f.Name) == 1 {
+			dash = "-"
+		}
+		kind, usage := flag.UnquoteUsage(f)
+		if kind != "" {
+			kind = " " + kind
+		}
+		fmt.Fprintf(w, "  %s%s%s\n    \t%s", dash, f.Name, kind, usage)
+		switch f.DefValue {
+		case "", "false", "0", "0s":
+		default:
+			fmt.Fprintf(w, " (default %q)", f.DefValue)
+		}
+		fmt.Fprintln(w)
+	})
 }

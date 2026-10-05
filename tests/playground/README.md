@@ -11,7 +11,7 @@ not a test.
 Three terminals. The evaluator is separate because it CLAIMS script tasks off the server and
 listens on nothing of its own.
 
-    go run ./cmd/genroc -db tests/playground/genroc.db --http :8888   # the engine
+    go run ./cmd/genroc --db tests/playground/genroc.db --http :8888   # the engine
     make script-runner                                               # the evaluator
     export GENROC_SERVER=http://localhost:8888
 
