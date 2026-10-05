@@ -79,7 +79,5 @@ answers; `TestHealth_ReportsUnavailableWhenTheDatabaseIsGone` passes a nil engin
 
 ## Open
 
-- **A per-message limit on TCP and UDS** — when either faces untrusted peers; both are opt-in by
-  flag. `handleConn` decodes a stream of envelopes, so a bound needs framing: a protocol change.
 - **Metrics** — when operating a fleet needs more than "is this worker serving": in-flight
   instances, backlog depth, the age of the oldest due `wake_at`, lease takeovers.

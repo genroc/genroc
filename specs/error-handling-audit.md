@@ -18,9 +18,8 @@ plumbing's design; they stay separate.
 
 # Part 1 — the REST API
 
-**The classification lives on `Reply`, not the HTTP response**: all three transports share
-`Reply` (TCP and UDS have no status line), and the HTTP status renders the code through one
-table. The set is what a **client** can act on — `invalid` 400, `not_found` 404, `conflict` 409
+**The classification lives on `Reply`, not the HTTP response**: the body carries `code`, and
+the HTTP status renders it through one table. The set is what a **client** can act on — `invalid` 400, `not_found` 404, `conflict` 409
 (may succeed later), `unsupported` 501, `internal` 500, `unauthenticated` 401, `forbidden` 403,
 `unavailable` 503 — and engine detail belongs in `errcode` on the instance. **Unclassified is
 500, not 400**: an unclassified error is a server fault until shown otherwise.

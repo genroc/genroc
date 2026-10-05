@@ -132,10 +132,8 @@ A flat set, not a hierarchy: a list says what a hierarchy would without an order
 `upgrade` is `deploy` because it changes which version an instance executes.
 
 **The gate is a function, not middleware**: `authorize` is called by the HTTP route wrapper and by
-`Handlers.Handle` (TCP, UDS), since middleware on the HTTP mux would leave two transports open. TCP
-carries its credential in the envelope's `Token` field; a unix socket skips the modes and is
-authorized by its file mode, like the docker socket. `Envelope.principal` is unexported so the
-wire cannot set it.
+`Handlers.Handle`, never as mux middleware, so a dispatch path cannot skip it.
+`Envelope.principal` is unexported so a decoded request cannot set it.
 
 **`Grants` is `[]Grant`, not `[]Perm`** — a permission plus a `Constraint` declared and never
 populated, because a bare permission cannot express *"resolve tasks in `approval`"*. A scoped grant

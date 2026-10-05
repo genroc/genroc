@@ -45,8 +45,8 @@ Each id lands in one of three outcomes; only the third fails the command:
    either). The asymmetry is the point. Rejected: every conflict a refusal — it re-creates the
    non-convergence and trains the operator to ignore exit 1.
 
-3. **Classify on the outcome, never on prose.** `done` versus `already` is `Outcome` — the HTTP
-   status for clients that have one, a body field over TCP and UDS, which have no status line.
+3. **Classify on the outcome, never on prose.** `done` versus `already` is `Outcome`, which the HTTP
+   status renders.
    Every error is a refusal. Nothing may key on a message: a reworded server string must not be
    able to reclassify an outcome.
 
@@ -111,11 +111,10 @@ A retried POST after a network blip is therefore idempotent for every client, no
 
 ### The outcome belongs on `Reply`, and the status is derived from it
 
-`Reply.Code` carries the failure classification in the body because TCP and UDS clients have no
-status line; the HTTP status is derived from it (`statusOf`). The success half mirrors it:
-`Reply.Outcome`, mapped by `statusOfOutcome`. A success expressed only as a status code would be
-invisible to two of the three transports. `actionDef.AltSuccess` documents the extra statuses in
-OpenAPI.
+`Reply.Code` carries the failure classification in the body; the HTTP status is derived from it
+(`statusOf`). The success half mirrors it: `Reply.Outcome`, mapped by `statusOfOutcome`, so the
+handler decides the outcome and HTTP only renders it. `actionDef.AltSuccess` documents the extra
+statuses in OpenAPI.
 
 | outcome | HTTP | when |
 |---|---|---|

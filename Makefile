@@ -1,7 +1,5 @@
 db      ?= genroc.db
 http    ?= :8448
-tcp     ?=
-uds     ?=
 poll    ?= 500
 genroc_server ?= http://localhost:8448
 log     ?= info
@@ -14,8 +12,6 @@ run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
 		-db $(db) \
 		-http $(http) \
-		$(if $(tcp),-tcp $(tcp)) \
-		$(if $(uds),-uds $(uds)) \
 		-poll $(poll) \
 		-log $(log) \
 		$(ARGS)

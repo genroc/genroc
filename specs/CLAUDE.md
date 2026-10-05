@@ -17,7 +17,7 @@ section keeps its heading and a one-line pointer.
 ## Built
 
 - [api-auth](api-auth.md) — authorization and attribution. genroc owns which endpoints a caller
-  may reach: `actionDef.Allow` (zero value admin-only), one `authorize` gate for every transport.
+  may reach: `actionDef.Allow` (zero value admin-only), one `authorize` gate on every dispatch.
 - [auth-two-credentials](auth-two-credentials.md) — genroc issues opaque `genroc_sk_*` tokens for
   machines and only verifies JWTs for people; it reads no identity header and mints for no proxy.
 - [child-error-handling](child-error-handling.md) — raise/panic across a child. An error is a

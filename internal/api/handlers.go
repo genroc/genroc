@@ -40,10 +40,7 @@ type Envelope struct {
 	Payload json.RawMessage `json:"payload"`
 	// For GET-style actions that only need an ID.
 	ID string `json:"id,omitempty"`
-	// Token is a credential presented over TCP, whose protocol has no header channel. It is
-	// consumed by the transport and cleared before dispatch, so no handler can read it.
-	Token string `json:"token,omitempty"`
-	// principal is attached by the TRANSPORT; unexported so a client cannot decode its own
+	// principal is attached by the route wrapper; unexported so a client cannot decode its own
 	// grants into it. specs/api-auth.md §3.
 	principal *Principal
 }
@@ -52,19 +49,17 @@ type Reply struct {
 	OK    bool            `json:"ok"`
 	Data  json.RawMessage `json:"data,omitempty"`
 	Error string          `json:"error,omitempty"`
-	// Code is on Reply, not the HTTP response alone: TCP and UDS clients have no status
-	// line.
+	// Code is the failure classification; writeReply renders the status from it.
 	Code Code `json:"code,omitempty"`
-	// Outcome is Code's success-side twin, here so transports with no status line see what a
-	// lifecycle assertion did. specs/id-list-commands.md.
+	// Outcome is Code's success-side twin: the status a lifecycle assertion renders as.
+	// specs/id-list-commands.md.
 	Outcome model.Outcome `json:"outcome,omitempty"`
 	// Fields carries per-field detail when a submitted definition failed validation,
 	// so a client can point at the offending field instead of parsing the message.
 	Fields []model.FieldError `json:"fields,omitempty"`
 }
 
-// Handle is the single entry-point shared by all transports (HTTP, TCP, UDS); it
-// dispatches to the matching action in the registry (actions.go).
+// Handle dispatches to the matching action in the registry (actions.go), authorizing first.
 func (h *Handlers) Handle(env Envelope) Reply {
 	for i := range registry {
 		if registry[i].Name == env.Action {

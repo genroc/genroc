@@ -2,8 +2,7 @@ import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// The status distinguishes the kind of failure, and every body carries a machine-readable `code` —
-// what TCP/UDS clients get on the Reply, having no status line.
+// The status distinguishes the kind of failure, and every body carries a machine-readable `code`.
 
 const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 

@@ -11,8 +11,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// Code classifies every error reply; it is on Reply because TCP and UDS clients see no status
-// line. Small on purpose: distinctions a client can act on. Engine detail is errcode's.
+// Code classifies every error reply and rides in its body; the HTTP status is rendered from it.
+// Small on purpose: distinctions a client can act on. Engine detail is errcode's.
 type Code string
 
 const (

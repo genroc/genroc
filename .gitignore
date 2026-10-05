@@ -9,9 +9,6 @@
 *.db-wal
 *.db-shm
 
-# Unix sockets
-*.sock
-
 # Go build cache
 /vendor/
 

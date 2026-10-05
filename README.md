@@ -22,7 +22,7 @@ make install                                         # put this genctl on PATH
 ./genroc -pg postgres://user:pass@localhost/genroc   # PostgreSQL
 ```
 
-It listens on `:8448` (`-http`, `-tcp`, `-uds` to change), which is where `genctl` looks
+It listens on `:8448` (`-http` to change), which is where `genctl` looks
 by default. In another shell, scaffold a project and run its one process:
 
 ```sh

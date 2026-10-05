@@ -83,7 +83,6 @@ type actionDef struct {
 	// nil = default: decode body as JSON payload.
 	fromHTTP func(r *http.Request) (Envelope, error)
 
-	// handle is the actual handler, shared by HTTP, TCP, and UDS.
 	handle func(h *Handlers, env Envelope) Reply
 }
 

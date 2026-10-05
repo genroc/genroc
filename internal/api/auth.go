@@ -90,7 +90,7 @@ func (p *Principal) Allows(allow []Perm) bool {
 	return false
 }
 
-// authorize is the ONE gate every transport passes through. It is §3's coarse half; a scoped
+// authorize is the ONE gate every dispatch passes through. It is §3's coarse half; a scoped
 // grant's resource half runs later, in the handler that loaded the target.
 func authorize(a actionDef, p *Principal) *Error {
 	if a.Open {

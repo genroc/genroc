@@ -21,11 +21,10 @@ like. Filing a control-plane action under the inbound prefix hands it to every w
 inbound one under the control plane forces users to punch a hole in the rule protecting
 `PUT /definitions`. Both mistakes have already been made once each and are recorded in §1.
 
-## One gate, every transport, and a permission that cannot be forgotten
+## One gate, and a permission that cannot be forgotten
 
-`authorize` (`auth.go`) is the only authorization check, and BOTH dispatch paths call it —
-`ListenHTTP`'s route wrapper and `Handlers.Handle`, which serves TCP and UDS. Putting it in HTTP
-middleware alone would leave two transports open, which is the shape this nearly had.
+`authorize` (`auth.go`) is the only authorization check, called on dispatch — `ListenHTTP`'s
+route wrapper and `Handlers.Handle` — never as mux middleware, so no dispatch path can skip it.
 
 **An action with an empty `Allow` is admin-only.** That is the fail-closed default: a new
 endpoint is closed until someone decides otherwise, and `TestEveryActionDeclaresAPermission`
@@ -33,12 +32,11 @@ makes the decision explicit by requiring admin-only actions to be named there wi
 `Open: true` skips the gate entirely; `/healthz` is its only user, pinned by
 `TestOnlyTheProbeIsOpen`, because a probe must answer before an identity exists.
 
-`Envelope.principal` is **unexported on purpose**. The envelope is decoded straight off a socket
-for TCP/UDS, so a serialisable field there would let a client assert its own grants. The
-transport attaches it after establishing identity; `Handle` refuses an envelope without one
+`Envelope.principal` is **unexported on purpose**: a serialisable field would let a decoded
+request assert its own grants. The route wrapper attaches it after establishing identity; `Handle` refuses an envelope without one
 rather than defaulting to open, which is why in-process callers (tests) must supply their own.
 
-`none` is still the DEFAULT, and then the transports attach `anonymousAdmin()` and nothing is
+`none` is still the DEFAULT, and then the route wrapper attaches `anonymousAdmin()` and nothing is
 refused. Otherwise there are exactly **two credentials and one place to read them**: the bearer
 header. genroc issues `genroc_sk_*` for machines and only verifies JWTs for people; it reads no
 identity header and no cookie. specs/auth-two-credentials.md.
@@ -88,8 +86,8 @@ wrapper whenever a principal exists. A client cannot infer its own identity: beh
 browser sends no credential of its own and still succeeds, which is indistinguishable from
 `-auth none` unless the server says which. Two rules, both pinned by an e2e test — a **403 carries
 it** ("you are alice and alice may not" is the useful message), and a **401 must not**, because
-its absence is the signal to ask for a credential. HTTP only, deliberately: TCP and UDS encode a
-`Reply` and this is a presentation affordance, not part of the contract they share.
+its absence is the signal to ask for a credential. It is a presentation affordance, not part
+of `Reply`.
 
 **Only what an operator asked for is attributed.** The engine advances instances on its own
 behalf, so `AuditCreated` takes an actor for a ROOT instance and `""` for a spawned child, and the
@@ -100,9 +98,7 @@ writes would put an identity on work nobody requested.
 
 `Reply.Code` maps to a failure status through `statusOf`; `Reply.Outcome` is its
 success-side twin and maps through `statusOfOutcome` (200 applied / 202 accepted / 204
-unchanged). Both live on `Reply` rather than on the HTTP response for the same reason —
-**TCP and UDS clients encode `Reply` directly and have no status line to read**, so an
-outcome expressed only as a status code would be invisible to two of the three transports.
+unchanged). Both live on `Reply`, so a handler decides the outcome and `writeReply` only renders it.
 
 204 must not carry a body, which is why `outcomeReply` leaves `Data` empty for exactly
 that outcome and `writeReply` returns before encoding. A body added there is silently

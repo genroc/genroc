@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -31,8 +29,7 @@ const (
 	maxRequestBytes = 10 << 20
 )
 
-// Server listens on HTTP, TCP, and/or Unix Domain Socket simultaneously.
-// All three transports share the same handler logic; only the envelope extraction differs.
+// Server serves the API over HTTP.
 type Server struct {
 	handlers *Handlers
 	log      *slog.Logger
@@ -218,80 +215,7 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 	return nil
 }
 
-// ListenTCP serves a JSON stream over TCP: newline-delimited envelopes
-// {"action":"...","payload":{...},"id":"..."}.
-func (s *Server) ListenTCP(ctx context.Context, addr string) error {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("listen tcp %s: %w", addr, err)
-	}
-	s.log.Info("TCP listening", "addr", addr)
-	return s.acceptLoop(ctx, ln, false)
-}
-
-func (s *Server) ListenUDS(ctx context.Context, path string) error {
-	os.Remove(path)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		return fmt.Errorf("listen uds %s: %w", path, err)
-	}
-	s.log.Info("UDS listening", "path", path)
-	// A unix socket's file mode is the boundary, which is the standard answer for local IPC
-	// and the one the docker socket uses. specs/api-auth.md §3.
-	return s.acceptLoop(ctx, ln, true)
-}
-
-func (s *Server) acceptLoop(ctx context.Context, ln net.Listener, trustedTransport bool) error {
-	go func() {
-		<-ctx.Done()
-		ln.Close()
-	}()
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			// Normal shutdown. errors.Is, not message matching: a mismatch would turn a
-			// clean shutdown into a logged error and a hot retry loop.
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			s.log.Error("accept error", "err", err)
-			continue
-		}
-		go s.handleConn(conn, trustedTransport)
-	}
-}
-
-func (s *Server) handleConn(conn net.Conn, trustedTransport bool) {
-	defer conn.Close()
-	dec := json.NewDecoder(conn)
-	enc := json.NewEncoder(conn)
-	for {
-		var env Envelope
-		if err := dec.Decode(&env); err != nil {
-			return
-		}
-		// A trusted transport is authorised by the filesystem. Otherwise the credential rides in
-		// the envelope; `principal` is unexported so the wire cannot set it.
-		if trustedTransport {
-			env.principal = anonymousAdmin()
-		} else {
-			p, authErr := s.principalFor(context.Background(), env.Token)
-			if authErr != nil {
-				_ = enc.Encode(authErr.reply())
-				return
-			}
-			env.principal = p
-		}
-		env.Token = ""
-		if err := enc.Encode(s.handlers.Handle(env)); err != nil {
-			s.log.Warn("write reply", "err", err)
-			return
-		}
-	}
-}
-
-// errorBody mirrors Reply's failure half, so all three transports report the same facts
-// under the same names.
+// errorBody mirrors Reply's failure half, under the same names.
 type errorBody struct {
 	Error  string             `json:"error"`
 	Code   Code               `json:"code"`

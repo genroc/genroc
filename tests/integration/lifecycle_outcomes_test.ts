@@ -2,8 +2,8 @@ import { expect, test } from "vitest";
 import { client, startInstance, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
-// pause/resume are assertions: one that already holds succeeds having changed nothing. TCP/UDS have
-// no status line and read the same fact off Reply.outcome. specs/id-list-commands.md.
+// pause/resume are assertions: one that already holds succeeds having changed nothing.
+// specs/id-list-commands.md.
 
 const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 
