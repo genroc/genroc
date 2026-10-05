@@ -251,13 +251,13 @@ fields. Here we need <code>task.action.input.input</code> which is the <code>inp
 we also take <code>result</code> as a output.</p>
 <p>You can create your custom resolvers in the similar fashion.</p>
 <h2 id="eval-node">eval-node<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#eval-node"><span></span></a></h2>
-<p>Typescript support is enabled by eval-node docker image which runs as a separate service.
-It is a node worker which expects the genroc server on port <code>8448</code> and resolves external
-task from <code>script-node</code> process.</p>
+<p>Typescript support is enabled by <a href="https://hub.docker.com/r/genroc/eval-node">eval-node docker image</a>
+which runs as a separate service. It is a node worker which expects the genroc server on port <code>8448</code>
+and resolves external task from <code>script-node</code> process.</p>
 <h3 id="npm-package">npm package<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#npm-package"><span></span></a></h3>
-<p>Resolver in .genroc file calls <code>eval-node</code> npm package binary, which uses rollup to
-bundle the requested file into a string (also strips types). It also inlines
-dependencies so you can use javascript/typescript packages as well.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/external-tasks/"> <span>previous</span> <strong>External tasks</strong> </a> <a class="next" href="/guides/operating/managing-instances/"> <span>next</span> <strong>Managing instances</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-2"><a href="#example-process">Example process</a></li><li class="depth-2"><a href="#generated-types">Generated types</a></li><li class="depth-2"><a href="#the-script-format">The script format</a></li><li class="depth-2"><a href="#custom-resolvers">Custom resolvers</a></li><li class="depth-2"><a href="#eval-node">eval-node</a></li><li class="depth-3"><a href="#npm-package">npm package</a></li></ul><script>
+<p>Resolver in .genroc file calls <a href="https://www.npmjs.com/package/@genroc/eval-node">eval-node npm package</a>
+binary, which uses rollup to bundle the requested file into a single string (also strips types).
+It also inlines dependencies so you can use javascript/typescript packages as well.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/external-tasks/"> <span>previous</span> <strong>External tasks</strong> </a> <a class="next" href="/guides/operating/managing-instances/"> <span>next</span> <strong>Managing instances</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-2"><a href="#example-process">Example process</a></li><li class="depth-2"><a href="#generated-types">Generated types</a></li><li class="depth-2"><a href="#the-script-format">The script format</a></li><li class="depth-2"><a href="#custom-resolvers">Custom resolvers</a></li><li class="depth-2"><a href="#eval-node">eval-node</a></li><li class="depth-3"><a href="#npm-package">npm package</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
