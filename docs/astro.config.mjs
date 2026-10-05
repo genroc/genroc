@@ -108,6 +108,8 @@ export default defineConfig({
   prefetch: { prefetchAll: true, defaultStrategy: "hover" },
   integrations: [mdx(), hoverData()],
   markdown: {
+    // Off: SmartyPants turns a flag's `--` into an em dash wherever it is not in a code span.
+    smartypants: false,
     rehypePlugins: [
       // Links between pages are written as paths to the source file -- `./error-handling.mdx`,
       // what an editor completes and follows -- and this turns them into the URL that page is
