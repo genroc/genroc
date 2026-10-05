@@ -10,7 +10,7 @@ module genroc/ui
 
 go 1.25.0
 
-// One dependency. jwks/ lives inside this module because the SERVER stopped needing it: with
+// jwks/ lives inside this module because the SERVER stopped needing it: with
 // HS256 there is no key set to fetch there, and only genroc-ui still reads an upstream
 // provider's. specs/ui-issued-tokens.md §3.
 require github.com/golang-jwt/jwt/v5 v5.3.1

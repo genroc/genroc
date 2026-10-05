@@ -28,18 +28,7 @@ var instancePaginator = paginator{
 	maxLimit:   100,
 }
 
-// instanceCursorVals returns inst's key-column values for the active sort, matching
-// the queue's column order (parked external tasks key on updated_at).
-func instanceCursorVals(sort string, inst *model.ProcessInstance) []any {
-	switch sort {
-	case "updated": // external-task queue
-		return []any{inst.UpdatedAt.UnixMilli(), inst.ID}
-	default: // created
-		return []any{inst.CreatedAt.UnixMilli(), inst.ID}
-	}
-}
-
-// instanceSummaryCursorVals is instanceCursorVals for the summary list path
+// instanceSummaryCursorVals returns a summary's key-column values for the active sort
 // (instancePaginator's created/updated sorts).
 func instanceSummaryCursorVals(sort string, s *model.InstanceSummary) []any {
 	switch sort {
@@ -250,22 +239,6 @@ var engineStateKeys = map[string]string{
 	// replacement's input must be re-evaluated against the current definition, and this layer
 	// cannot evaluate expressions. specs/child-error-handling.md s12.
 	"_retry_override": "retry_override",
-}
-
-func toStringSlice(v any) []string {
-	switch s := v.(type) {
-	case []string:
-		return s
-	case []any:
-		out := make([]string, 0, len(s))
-		for _, item := range s {
-			if str, ok := item.(string); ok {
-				out = append(out, str)
-			}
-		}
-		return out
-	}
-	return nil
 }
 
 // persistState encodes inst's state and claims/releases the implied objects inside the caller's
@@ -498,16 +471,6 @@ func (db *DB) ListInstances(opts InstanceQuery) ([]*model.InstanceSummary, PageI
 		return nil, PageInfo{}, err
 	}
 	return runPage(db, b, scanInstanceSummary, instanceSummaryCursorVals)
-}
-
-func (db *DB) queryInstancePage(b built) ([]*model.ProcessInstance, PageInfo, error) {
-	return runPage(db, b, func(s rowScanner) (*model.ProcessInstance, error) {
-		r, err := scanInstance(s)
-		if err != nil {
-			return nil, err
-		}
-		return toInstance(r)
-	}, instanceCursorVals)
 }
 
 // ChildrenForTask returns ONE batch: (parentID, spawnTaskID) repeats each time a loop re-enters

@@ -41,7 +41,7 @@ func main() {
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk's serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.")
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
-	authMode := flag.String("auth", envOr("GENROC_AUTH", "none"), "How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
+	authMode := flag.String("auth", envOr("GENROC_AUTH", "none"), "How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
 	jwtSecretFile := flag.String("jwt-secret-file", os.Getenv("GENROC_JWT_SECRET_FILE"), "Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them. See specs/ui-issued-tokens.md.")
 	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The `iss` a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
 	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The `aud` a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
@@ -219,7 +219,7 @@ func main() {
 			os.Exit(1)
 		}
 		if created && *bootstrapToken == "" && os.Getenv("GENROC_BOOTSTRAP_TOKEN") == "" {
-			// Printed once, and nowhere else: this is the weakest of §5.3's three paths
+			// Printed once, and nowhere else: this is the weakest of §5.3's four paths
 			// because log aggregation ships it off the box.
 			fmt.Fprintf(os.Stderr, "genroc: created bootstrap admin token %s\n  %s\n"+
 				"  This is the only time it is shown, and it is now in your logs — rotate it.\n", tok.ID, tok.Secret)

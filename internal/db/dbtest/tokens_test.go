@@ -249,9 +249,7 @@ func TestTokens_BootstrapRefusesAnUnusableSecret(t *testing.T) {
 	}
 }
 
-// Expiry. specs/api-auth.md §5 -- the browser exchange mints on every page load, because it
-// cannot return a token it issued before (only the hash is stored), so a session token that
-// never expired left a permanent live credential behind each time.
+// Expiry. specs/api-auth.md §5.
 
 func TestTokens_ExpiredStopsAuthenticating(t *testing.T) {
 	for _, b := range testBackends(t) {

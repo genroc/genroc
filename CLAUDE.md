@@ -68,7 +68,7 @@ what it may depend on:
 | module | path | links |
 |---|---|---|
 | `.` | `genroc` | the server and `genctl` — engine, database, API. ~20 external modules |
-| `ui/` | `genroc/ui` | `golang-jwt`. **One**, and it cannot acquire the server's |
+| `ui/` | `genroc/ui` | `golang-jwt`, `x/crypto`, `yaml.v3` — none of the server's |
 
 `ui` is separate so the UI can grow without any of it reaching the binary people embed.
 specs/ui-component.md. It also owns the auth the server no longer does: it authenticates a
@@ -77,7 +77,7 @@ person, resolves their groups to permissions, and mints the token the server ver
 
 `ui/frontend/` is the React SPA, a Node project inside the Go module — `ui/web/` holds the
 committed placeholder `go:embed` compiles in, and only the image build swaps the built SPA over it.
-The `golang-jwt` claim above is about the Go module; npm is a separate graph that reaches no binary.
+The dependency list above is about the Go module; npm is a separate graph that reaches no binary.
 
 A third module for the language server was built and reverted: it inherited all 27 of its
 dependencies from `genroc`, so it fenced nothing. Its second argument — `package main` put
@@ -98,7 +98,7 @@ rather than a wall: `archtest.TestBinariesKeepTheirImportBoundaries` refuses `in
 
     make build      # produces ./genroc, ./genctl and ./genroc-ui
     make install    # replaces the genctl on PATH (renames into place -- see the target)
-    make test       # go test across all three modules + integration tests
+    make test       # go test across both modules + integration tests
 
     # Run with SQLite (default):
     ./genroc -db genroc.db

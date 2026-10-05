@@ -491,6 +491,7 @@ test("schema — a leaf that only LOOKS like a directive is claimed, which is wh
   const r = runCli(bin, ["schema", "type", name, "input", "--json", "-f", def], OFFLINE);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain('no resolver named "note"');
+  expect(r.stderr, "the refusal must say how to keep the text").toContain("write $$note: to keep it as text");
   // The slot, so a reader is sent to the leaf rather than to the top of the file.
   expect(r.stderr).toContain("input_schema.properties.tpl.default");
 });

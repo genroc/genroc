@@ -92,7 +92,7 @@ func ValidateTokenSecret(secret string) error {
 }
 
 // MintToken returns the token with its plaintext, the only time it exists. expiresAt is millis,
-// or 0 for never; required because machine credentials and browser sessions want opposite answers.
+// or 0 for never.
 func (db *DB) MintToken(ctx context.Context, label string, perms []string, expiresAt int64, actor string) (APIToken, error) {
 	secret, err := NewTokenSecret()
 	if err != nil {

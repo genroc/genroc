@@ -62,7 +62,7 @@ tasks:
     output:
       result: "$: self.result"
     # 202 is outside accepted_status, so it arrives as the catchable code http.202 —
-    # the only way to branch on a status, since self.result is just the body.
+    # an on_error rule loops the poll (a switch on self.status would work too).
     on_error:
       - code: [http.202]
         goto: $backoff

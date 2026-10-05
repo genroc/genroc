@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess, freePort } from "../helpers/server.ts";
 import { createClientTyped, listAllInstances } from "../helpers/client.ts";
 
-// An object is legitimate iff some claim holds it (a live slot, a log, a grace window). Chaos, then
+// An object is legitimate iff some claim holds it (a live slot, a log), or the sweep's release mark still windows it. Chaos, then
 // the raw tables are read. SQLite only: the check reads the DB file, and one crashing process
 // avoids multi-writer contention (multi_worker_test.ts is the Postgres fleet).
 

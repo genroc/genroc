@@ -313,8 +313,8 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 				// toolchain fails here with a sentence rather than inside `tsc`.
 				idx, nameKnown, ok := cfg.matchResolver(resolver, argument)
 				if !nameKnown {
-					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s",
-						sd.File, renderPointer(slotPointer(sd.Value, loc)), resolver, projectConfigName)
+					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s (write $$%s: to keep it as text)",
+						sd.File, renderPointer(slotPointer(sd.Value, loc)), resolver, projectConfigName, resolver)
 				}
 				if !ok {
 					return fmt.Errorf("%s: %s: resolver %q accepts %s files, but %q is not one",

@@ -30,6 +30,10 @@ One line per item. The argument lives in `specs/`; this is the index.
   Postgres, durability, auth setup, genroc-ui config)
 - [] **`$openapi` resolver** — an operation's response types spread into a fetch; `allOf`
   flattened in the resolver, not the language (specs/openapi-resolver.md)
+- [] **suspected bugs, reproduce first** — `derefSubset` reads an unresolved `$ref` as the top
+  type, so a compat check could pass (specs/unknown-type.md); external renew is scoped by worker
+  id, not the claim epoch, so a same-id reclaim renews with an old token; children spawned during
+  a cancel start `cancelling` and settle only when claimed (pause spawns them `paused`)
 
 ## Shipped
 - [x] **declared slot schemas** — an optional `<slot>_schema` beside every shape, checked

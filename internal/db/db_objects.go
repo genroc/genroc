@@ -195,35 +195,21 @@ func (db *DB) retireOrphanedLogRefs(ctx context.Context) error {
 // only the target row, so its NOT EXISTS keeps the old snapshot and deletes just-claimed content.
 // internal/db/CLAUDE.md, the object store, item 2.
 func (db *DB) collectUnreferencedPG(ctx context.Context, cutoff int64) (int64, error) {
-	tx, err := db.sqldb.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("begin object sweep: %w", err)
-	}
-	defer tx.Rollback()
-
-	const lock = `SELECT hash FROM objects o
-		WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = o.hash) FOR UPDATE`
-	rows, err := tx.QueryContext(ctx, lock)
-	if err != nil {
-		return 0, fmt.Errorf("lock unclaimed objects: %w", err)
-	}
-	rows.Close()
-
-	const del = `DELETE FROM objects o
-		WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = o.hash)
-		  AND o.released_at IS NOT NULL AND o.released_at < $1`
-	res, err := tx.ExecContext(ctx, del, cutoff)
-	if err != nil {
-		return 0, fmt.Errorf("collect unreferenced objects: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit object sweep: %w", err)
-	}
-	return n, nil
+	var n int64
+	err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
+		rows, err := exec.QueryContext(ctx, `SELECT hash FROM objects o
+			WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = o.hash) FOR UPDATE`)
+		if err != nil {
+			return fmt.Errorf("lock unclaimed objects: %w", err)
+		}
+		rows.Close()
+		n, err = qtx.CollectUnreferencedObjects(ctx, nullInt64(cutoff))
+		if err != nil {
+			return fmt.Errorf("collect unreferenced objects: %w", err)
+		}
+		return nil
+	})
+	return n, err
 }
 
 // CountObjectRefs reports how many owners hold an object. The cross-instance sharing this store

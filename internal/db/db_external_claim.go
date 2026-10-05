@@ -20,8 +20,8 @@ const claimableWhere = `phase = 'external' AND status = 'running'
 		  AND (wake_at IS NULL OR wake_at > ?)`
 
 // ClaimExternalTasks atomically leases up to limit parked external tasks to workerID, oldest park
-// first, filtered by name/version/task (empty/0 = any). The ONLY place external_claim_epoch moves;
-// it must touch neither task_epoch (every handle out) nor the engine's lease columns. A candidate
+// first, filtered by name/version/task (empty/0 = any). It bumps external_claim_epoch (so do release
+// and lost-marking); it must touch neither task_epoch (every handle out) nor the engine's lease columns. A candidate
 // already holding an answer goes to the engine instead, so fewer than limit may come back.
 func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit int, processName string, processVersion int, task string) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
@@ -240,19 +240,11 @@ func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []st
 // current grant, so a fenced-out worker cannot release the new holder's work.
 func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskEpoch, claimEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-		res, err := raw.ExecContext(ctx,
-			`UPDATE process_instances
-			   SET external_worker_id = NULL, external_lease_expires_at = NULL,
-			       external_claim_epoch = external_claim_epoch + 1
-			 WHERE id = ? AND task_epoch = ? AND external_claim_epoch = ?
-			   AND phase = 'external' AND external_worker_id IS NOT NULL`,
-			instanceID, taskEpoch, claimEpoch)
+		n, err := qtx.ReleaseExternalClaim(ctx, dbgen.ReleaseExternalClaimParams{
+			ID: instanceID, TaskEpoch: taskEpoch, ClaimEpoch: claimEpoch,
+		})
 		if err != nil {
 			return fmt.Errorf("release external claim: %w", err)
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
 		}
 		if n == 0 {
 			return fmt.Errorf("claim is no longer held (it may have expired and been re-claimed): %w", ErrConflict)
@@ -292,21 +284,11 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 // external.lost; without it a task with no timeout would sit unclaimable forever.
 func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, taskEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-		// Leaves external_input untouched: rewriting it would disturb the references it holds.
-		now := nowMillis()
-		res, err := raw.ExecContext(ctx,
-			`UPDATE process_instances
-			   SET external_lost = 1, wake_at = ?, updated_at = ?,
-			       external_worker_id = NULL, external_lease_expires_at = NULL,
-			       external_claim_epoch = external_claim_epoch + 1
-			 WHERE id = ? AND task_epoch = ? AND phase = 'external'`,
-			now, now, instanceID, taskEpoch)
+		n, err := qtx.MarkExternalClaimLost(ctx, dbgen.MarkExternalClaimLostParams{
+			Now: nullInt64(nowMillis()), ID: instanceID, TaskEpoch: taskEpoch,
+		})
 		if err != nil {
 			return fmt.Errorf("mark external claim lost: %w", err)
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return err
 		}
 		if n == 0 {
 			return fmt.Errorf("task is no longer parked on this arming: %w", ErrConflict)
@@ -318,11 +300,9 @@ func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, task
 // ClaimExternalTaskDirect claims one row by id, bypassing the queue predicate, for tests needing a
 // holder ClaimExternalTasks would not grant. It writes only the three claim columns.
 func (db *DB) ClaimExternalTaskDirect(ctx context.Context, instanceID, workerID string, leaseDur time.Duration) error {
-	_, err := db.exec.ExecContext(ctx,
-		`UPDATE process_instances
-		   SET external_worker_id = ?, external_lease_expires_at = ?,
-		       external_claim_epoch = external_claim_epoch + 1
-		 WHERE id = ?`,
-		workerID, nowMillis()+leaseDur.Milliseconds(), instanceID)
-	return err
+	return db.q.ClaimExternalTaskDirect(ctx, dbgen.ClaimExternalTaskDirectParams{
+		ExternalWorkerID:       sql.NullString{String: workerID, Valid: true},
+		ExternalLeaseExpiresAt: nullInt64(nowMillis() + leaseDur.Milliseconds()),
+		ID:                     instanceID,
+	})
 }

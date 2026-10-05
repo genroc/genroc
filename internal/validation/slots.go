@@ -160,8 +160,7 @@ func typeSlots(sf SchemaFile) map[string]schema.Schema {
 		for key, child := range ts.Children {
 			put(schema.JoinPath(schema.JoinPath(schema.JoinPath(action, slotChildren), key), slotInput), child)
 		}
-		// A routing task's result is `null` — what `self.result` reads there — and that is a
-		// fact about the scope, not a contract a caller generates from.
+		// A routing task has no result: `self.result` is absent there, so there is nothing to put.
 		if ts.ActionType != "" {
 			put(schema.JoinPath(action, slotResult), ts.Result)
 		}

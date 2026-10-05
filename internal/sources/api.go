@@ -88,7 +88,7 @@ func pointerAddress(p []any) string {
 }
 
 // ResolveCode runs the code phase: every phase-2 resolver, shelling out to the command each
-// one names. mode is the resolver protocol's mode ("resolve" or "types").
+// one names. mode is the resolver protocol's mode ("build" or "types").
 func ResolveCode(docs []Doc, mode string) (int, error) { return resolveDocs(docs, mode) }
 
 // DecodeDefinition decodes one document into a definition.

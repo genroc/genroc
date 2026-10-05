@@ -92,8 +92,8 @@ its absence is the signal to ask for a credential. HTTP only, deliberately: TCP 
 `Reply` and this is a presentation affordance, not part of the contract they share.
 
 **Only what an operator asked for is attributed.** The engine advances instances on its own
-behalf, so `AuditCreated` takes an actor for a ROOT instance and `""` for a spawned child, and no
-engine event carries one. Crediting the operator who started a run for every row the engine then
+behalf, so `AuditCreated` takes an actor for a ROOT instance and `""` for a spawned child, and the
+engine's own rows carry `engine:self` (`model.ActorEngine`), never an operator. Crediting the operator who started a run for every row the engine then
 writes would put an identity on work nobody requested.
 
 ## A successful assertion carries its status too

@@ -173,7 +173,7 @@ func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self 
 	if err != nil {
 		// Degrade, but not SILENTLY: `${ }` is legal literal text (`$${` escapes it), so an
 		// unrendered template reads as intended.
-		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventFaultMessage, Task: inst.Task,
 			Msg: fmt.Sprintf("fault message did not render, emitting its source text: %v", err)})
 		return f.Message
 	}
@@ -182,7 +182,7 @@ func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self 
 	}
 	// Registration guaranteed a string. Show the value: it is the evidence, and the reader
 	// already has the template.
-	e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
+	e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventFaultMessage, Task: inst.Task,
 		Msg: fmt.Sprintf("fault message rendered to %T, not a string", rendered)})
 	return fmt.Sprint(rendered)
 }
@@ -229,8 +229,8 @@ func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self
 	return e.evalShape(inst, *f.Data, self)
 }
 
-// setErrorData leaves the slot ABSENT for no payload, which is what tells a parent's collect
-// there is nothing to conform. Never touch `error`: an upgrade validates what was CAUGHT.
+// setErrorData leaves the slot ABSENT for no payload; a parent declaring the code conforms that
+// absence as null. Never touch `error`: an upgrade validates what was CAUGHT.
 func setErrorData(inst *model.ProcessInstance, data any) {
 	if data == nil {
 		delete(inst.State, model.StateErrorData)

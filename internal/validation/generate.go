@@ -156,8 +156,7 @@ func Check(def *model.ProcessDefinition) (SchemaFile, Diagnostics) {
 		result.ProcessOutput = schema.Ref(name)
 	}
 
-	// Kept so redaction can see inside a declared payload (specs/error-extensions.md §X2-c). The
-	// entry is CREATED where missing: a handler reading error.data usually exports nothing.
+	// The entry is CREATED where missing: a handler reading error.data usually exports nothing.
 	_, _, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
 	for _, t := range def.Tasks {

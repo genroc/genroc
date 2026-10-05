@@ -60,10 +60,6 @@ type DB struct {
 	// objectGraceMs: how long a RELEASED object stays fetchable, so a reference already handed
 	// out still resolves after the data moved on. specs/object-store.md.
 	objectGraceMs atomic.Int64
-
-	// objectRetentionMs: how long a log's claim on an object survives; mirrors log retention,
-	// 0 = forever.
-	objectRetentionMs atomic.Int64
 }
 
 type defKey struct {

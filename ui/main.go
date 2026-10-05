@@ -341,7 +341,7 @@ func (s *uiServer) callback(w http.ResponseWriter, r *http.Request) {
 	groups := claims.Groups
 	if s.directory != nil && s.providerType(pc.Value) == "google" {
 		// The login FAILS if this does not answer: signing someone in with fewer permissions
-		// would be misdiagnosed as a broken role map. The server's jwt mode does the same.
+		// would be misdiagnosed as a broken role map.
 		if groups, err = s.directory.groups(r.Context(), tok.Access, claims.Subject); err != nil {
 			s.log.Error("google groups", "subject", claims.Subject, "err", err)
 			http.Error(w, "login failed: could not read your Google groups", http.StatusBadGateway)

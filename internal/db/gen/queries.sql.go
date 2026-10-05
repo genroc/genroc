@@ -14,8 +14,7 @@ const bumpDurabilityMarker = `-- name: BumpDurabilityMarker :exec
 UPDATE durability_marker SET n = n + 1 WHERE id = 1
 `
 
-// Written only to be a commit that flushes; the value is never read.
-// specs/durability-levels.md s4.
+// A commit that flushes; the value is never read. specs/durability-levels.md s4.
 func (q *Queries) BumpDurabilityMarker(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, bumpDurabilityMarker)
 	return err
@@ -35,11 +34,7 @@ type ChildrenOfInstanceRow struct {
 	SupersededAt sql.NullInt64
 }
 
-// Every child a parent has spawned, for the detail view. Derived from parent_id rather than
-// read off a slot on the parent: the rows already carry the relation, and a copy kept on the
-// parent is a second source nothing keeps in step with deletes or reparenting. engine_state
-// comes along because the slot a child occupies -- its child_map key, its child_list index --
-// is recorded on the CHILD.
+// engine_state: a child's slot (child_map key, child_list index) is recorded on the CHILD.
 func (q *Queries) ChildrenOfInstance(ctx context.Context, parentID string) ([]ChildrenOfInstanceRow, error) {
 	rows, err := q.db.QueryContext(ctx, childrenOfInstance, parentID)
 	if err != nil {
@@ -68,14 +63,33 @@ func (q *Queries) ChildrenOfInstance(ctx context.Context, parentID string) ([]Ch
 	return items, nil
 }
 
+const claimExternalTaskDirect = `-- name: ClaimExternalTaskDirect :exec
+UPDATE process_instances
+SET external_worker_id = ?1,
+    external_lease_expires_at = ?2,
+    external_claim_epoch = external_claim_epoch + 1
+WHERE id = ?3
+`
+
+type ClaimExternalTaskDirectParams struct {
+	ExternalWorkerID       sql.NullString
+	ExternalLeaseExpiresAt sql.NullInt64
+	ID                     string
+}
+
+// Tests only: a holder ClaimExternalTasks would not grant.
+func (q *Queries) ClaimExternalTaskDirect(ctx context.Context, arg ClaimExternalTaskDirectParams) error {
+	_, err := q.db.ExecContext(ctx, claimExternalTaskDirect, arg.ExternalWorkerID, arg.ExternalLeaseExpiresAt, arg.ID)
+	return err
+}
+
 const clearObjectRelease = `-- name: ClearObjectRelease :execrows
 UPDATE objects SET released_at = NULL
 WHERE released_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash)
 `
 
-// Something claims it again, so the mark is void. Runs before the mark, so an object that gained
-// and kept a claim is never collected on a stale one.
+// Runs before MarkObjectReleased, so a re-claimed object is never collected on a stale mark.
 func (q *Queries) ClearObjectRelease(ctx context.Context) (int64, error) {
 	result, err := q.db.ExecContext(ctx, clearObjectRelease)
 	if err != nil {
@@ -90,14 +104,8 @@ WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash)
   AND released_at IS NOT NULL AND released_at < ?1
 `
 
-// Sweep, step two, and the whole GC rule: an object goes when no claim remains. Never "was mine
-// the last one", which is the question a refcount would have to get right and the way a shared
-// store loses someone else's value.
-//
-// SQLITE ONLY. Its single writer means no claim can commit between this statement's snapshot and
-// its delete. Postgres needs the lock-then-delete split in collectUnreferencedPG: one statement
-// has one snapshot, so a concurrent claim stays invisible to the NOT EXISTS however long the
-// statement waited on a row lock.
+// On Postgres only after collectUnreferencedPG's FOR UPDATE, in the same transaction.
+// CLAUDE.md, the object store, items 1-2.
 func (q *Queries) CollectUnreferencedObjects(ctx context.Context, before sql.NullInt64) (int64, error) {
 	result, err := q.db.ExecContext(ctx, collectUnreferencedObjects, before)
 	if err != nil {
@@ -120,11 +128,9 @@ type CountActiveSiblingsParams struct {
 	ParentTaskEpoch int64
 }
 
-// Only completed/failed/raised are settled; a paused sibling counts as active, so a
-// parent never collects while a child is suspended. 'raised' must stay or the parent
-// hangs in 'children'. The SQL half of model.Status.Terminal(); kept in step by hand.
-// No superseded_at predicate on purpose: a retired attempt is 'raised', so it is already
-// outside this test, and the check would cost the child-settle hot path nothing but time.
+// The SQL half of model.Status.Terminal() plus 'raised' (drop it and the parent hangs in
+// 'children'), kept in step by hand; paused counts as active. No superseded_at predicate on
+// purpose: a retired attempt is already 'raised'.
 func (q *Queries) CountActiveSiblings(ctx context.Context, arg CountActiveSiblingsParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countActiveSiblings, arg.ParentID, arg.SpawnTaskID, arg.ParentTaskEpoch)
 	var count int64
@@ -150,8 +156,6 @@ func (q *Queries) CountBufferedSignals(ctx context.Context, arg CountBufferedSig
 }
 
 const countDrainingInTree = `-- name: CountDrainingInTree :one
-
-
 SELECT COUNT(*) FROM process_instances
 WHERE root_id = ?1 AND status = ?2
 `
@@ -161,21 +165,8 @@ type CountDrainingInTreeParams struct {
 	Draining string
 }
 
-// ListLogs (one instance) and ListTreeLogs (a whole tree) are hand-written in db_logs.go:
-// both take a dynamic ORDER BY + keyset cursor (see paginate.go). They differ only in
-// which indexed column they filter on -- instance_id or root_id -- since migration 040.
-// CountDrainingInTree counts the rows a previous pause or cancel left mid-task, which is
-// what tells a tree that has STOPPED from one still draining: both select 'running' only,
-// so a second call on a draining tree writes nothing and would otherwise report it as
-// stopped while a worker is still inside a task. `draining` is the caller's own draining
-// state ('pausing' or 'cancelling') -- counting the other verb's would report a tree as
-// still stopping because someone paused it.
-// specs/id-list-commands.md.
-//
-// Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
-// locks (no dialect-dependent FOR UPDATE) and binds no dynamic id list.
-//
-// `root` must BE a root: root_id names the tree (migration 040), so a child counts nothing.
+// Tells a stopped tree from a draining one. Count only the caller's own draining status, or a
+// cancel reads a paused tree as still stopping. root must BE a root. specs/id-list-commands.md.
 func (q *Queries) CountDrainingInTree(ctx context.Context, arg CountDrainingInTreeParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDrainingInTree, arg.Root, arg.Draining)
 	var count int64
@@ -189,11 +180,8 @@ WHERE revoked_at IS NULL AND perms LIKE '%"admin"%'
   AND (expires_at IS NULL OR expires_at > ?1)
 `
 
-// Bootstrap asks this under the same transaction as its insert. Counting ADMIN rows rather
-// than all rows is what makes "no way in" the condition, rather than "no tokens at all": a
-// deployment holding only worker tokens has locked its operators out and still needs a way back.
-// An expired admin token cannot authenticate, so it must not satisfy "a way in still exists"
-// either -- otherwise a deployment whose only admin credential lapsed can never bootstrap again.
+// Runs in bootstrap's insert transaction. Live ADMIN rows only: the question is "is there
+// still a way in", which worker or expired tokens do not answer.
 func (q *Queries) CountLiveAdminTokens(ctx context.Context, now sql.NullInt64) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countLiveAdminTokens, now)
 	var count int64
@@ -205,8 +193,6 @@ const countObjectRefs = `-- name: CountObjectRefs :one
 SELECT COUNT(*) FROM object_refs WHERE hash = ?1
 `
 
-// How many owners hold this object. Diagnostics, and the only way a test can see the
-// cross-instance sharing this store exists for.
 func (q *Queries) CountObjectRefs(ctx context.Context, hash string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countObjectRefs, hash)
 	var count int64
@@ -229,7 +215,6 @@ func (q *Queries) DeleteChannel(ctx context.Context, arg DeleteChannelParams) er
 }
 
 const deleteDependencies = `-- name: DeleteDependencies :exec
-
 DELETE FROM process_dependencies
 WHERE parent_name = ?1 AND parent_version = ?2
 `
@@ -239,8 +224,6 @@ type DeleteDependenciesParams struct {
 	ParentVersion int64
 }
 
-// ListDefinitions is hand-written in db_registry.go (dynamic ORDER BY + keyset
-// cursor; see paginate.go).
 func (q *Queries) DeleteDependencies(ctx context.Context, arg DeleteDependenciesParams) error {
 	_, err := q.db.ExecContext(ctx, deleteDependencies, arg.ParentName, arg.ParentVersion)
 	return err
@@ -278,9 +261,7 @@ type DropObjectRefParams struct {
 	OwnerID   string
 }
 
-// Release one owner's claim. It does NOT touch content: another owner may hold the same hash,
-// and deleting here is exactly how a shared store loses an unrelated instance's value. The
-// caller stamps a grace claim instead, so a reference already handed out stays fetchable.
+// Never deletes content: another owner may share the hash. CLAUDE.md, the object store, item 1.
 func (q *Queries) DropObjectRef(ctx context.Context, arg DropObjectRefParams) error {
 	_, err := q.db.ExecContext(ctx, dropObjectRef, arg.Hash, arg.OwnerKind, arg.OwnerID)
 	return err
@@ -301,15 +282,8 @@ type FailAncestorsParams struct {
 	Ids          interface{}
 }
 
-// Paused ancestors are included: pause suppresses advancement, not settlement, so a
-// dead branch still poisons upward. 'raised' is deliberately absent (a settled outcome
-// never reopens into 'failing' -- terminal for "batch done", yet neither poisoning nor
-// poisonable). error_code travels along so a poisoned tree filters by its origin code.
-//
-// 'cancelling'/'cancelled' are absent for the opposite reason to 'paused': a pause is
-// reversible, so the tree must still record that it broke, but a cancel is terminal and
-// there is no later run for the failure to matter to. Recording it would overwrite the
-// operator's stop with a fault nobody will act on.
+// Paused included (CLAUDE.md, pause/resume). 'raised' absent: a settled outcome never reopens.
+// 'cancelling'/'cancelled' absent: a fault would only overwrite the operator's stop.
 func (q *Queries) FailAncestors(ctx context.Context, arg FailAncestorsParams) error {
 	_, err := q.db.ExecContext(ctx, failAncestors,
 		arg.ErrorMessage,
@@ -405,10 +379,7 @@ type GetAPITokenByHashRow struct {
 	Label string
 }
 
-// The authentication read, on the hot path for every request in token mode. Revoked and expired
-// rows are excluded here rather than by the caller: a revocation that only some call sites
-// honour is the kind of hole that survives review, and an expiry is the same shape of rule.
-// NULL expires_at means the token does not expire.
+// Revoked and expired rows are filtered here, not by callers, so no call site can forget.
 func (q *Queries) GetAPITokenByHash(ctx context.Context, arg GetAPITokenByHashParams) (GetAPITokenByHashRow, error) {
 	row := q.db.QueryRowContext(ctx, getAPITokenByHash, arg.Hash, arg.Now)
 	var i GetAPITokenByHashRow
@@ -427,8 +398,8 @@ type GetAnyAPITokenByHashRow struct {
 	ExpiresAt sql.NullInt64
 }
 
-// Revoked and expired rows INCLUDED, unlike the read above: seeding and bootstrap must tell a
-// dead secret from an absent one, or their insert hits UNIQUE(hash). Never authenticate from it.
+// Dead rows INCLUDED, so seeding can tell a dead secret from an absent one (UNIQUE(hash)).
+// Never authenticate from it.
 func (q *Queries) GetAnyAPITokenByHash(ctx context.Context, hash string) (GetAnyAPITokenByHashRow, error) {
 	row := q.db.QueryRowContext(ctx, getAnyAPITokenByHash, hash)
 	var i GetAnyAPITokenByHashRow
@@ -602,12 +573,8 @@ FROM process_instances
 WHERE id = ?1
 `
 
-// Column order matches the process_instances row struct (context columns then task then
-// error_code then lease_epoch then the external-claim trio, appended by migrations 019, 020,
-// 023, 025, 026 and 028) so sqlc returns dbgen.ProcessInstance directly. That is why
-// error_code trails the list instead of sitting beside `error_message`: the order is the table's, not
-// a reading order. A column added to the table must be appended HERE too, or sqlc emits a
-// subset row type and every toInstance caller stops compiling.
+// Column order is the table's, so sqlc returns dbgen.ProcessInstance: append a new table column
+// here, in GetChildrenForTask and in NonTerminalSubtree, or every toInstance caller breaks.
 func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, error) {
 	row := q.db.QueryRowContext(ctx, getInstance, id)
 	var i ProcessInstance
@@ -652,13 +619,9 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 }
 
 const getInstanceRoot = `-- name: GetInstanceRoot :one
-
 SELECT root_id FROM process_instances WHERE id = ?1
 `
 
-// GetInstanceStatus reads one root's status inside the transaction that already holds the
-// tree, which is what lets ResumeProcess decide "already advancing" from "settled and
-// never will" on the same snapshot as the outcome itself.
 func (q *Queries) GetInstanceRoot(ctx context.Context, id string) (string, error) {
 	row := q.db.QueryRowContext(ctx, getInstanceRoot, id)
 	var root_id string
@@ -686,8 +649,7 @@ type GetObjectRow struct {
 	Size    int64
 }
 
-// The only read. Addressed by content hash and consulting no ref: knowing a hash is knowing the
-// bytes that produce it, so this discloses nothing a holder of the hash did not already have.
+// Consults no claim on purpose: CLAUDE.md, the object store, item 4.
 func (q *Queries) GetObject(ctx context.Context, hash string) (GetObjectRow, error) {
 	row := q.db.QueryRowContext(ctx, getObject, hash)
 	var i GetObjectRow
@@ -720,7 +682,6 @@ type GrantExternalLeasesParams struct {
 	Ids                    interface{}
 }
 
-// The external queue's twin of GrantLeases, on the external-claim trio.
 func (q *Queries) GrantExternalLeases(ctx context.Context, arg GrantExternalLeasesParams) error {
 	_, err := q.db.ExecContext(ctx, grantExternalLeases, arg.ExternalWorkerID, arg.ExternalLeaseExpiresAt, arg.Ids)
 	return err
@@ -739,10 +700,8 @@ type GrantLeasesParams struct {
 	Ids            interface{}
 }
 
-// The SQLite claim's second half: it selects the runnable rows, then grants them here.
-// Postgres does both in one statement with FOR UPDATE SKIP LOCKED, which is the dialect gap
-// that keeps ClaimInstances hand-written -- this half is portable and lives here.
-// A claim IS a grant, so this is one of the two places lease_epoch may move.
+// The SQLite claim's grant half (CLAUDE.md, exceptions); with the Postgres claim, the only
+// places lease_epoch moves.
 func (q *Queries) GrantLeases(ctx context.Context, arg GrantLeasesParams) error {
 	_, err := q.db.ExecContext(ctx, grantLeases, arg.WorkerID, arg.LeaseExpiresAt, arg.Ids)
 	return err
@@ -764,11 +723,8 @@ type HeldExternalClaimsChunkRow struct {
 	Status string
 }
 
-// Which of the ids a renewing worker still holds, and what its instance is doing. Run in
-// the SAME transaction as RenewExternalLeasesChunk so the classification describes exactly
-// the rows that write touched: present and live is renewed, present and cancelled is
-// cancelled, and ABSENT is lost -- the id is not reported, so the caller derives it by
-// difference against what it asked for. specs/external-task-queue.md.
+// Same transaction as RenewExternalLeasesChunk. An absent id is lost; the caller derives it by
+// difference. specs/external-task-queue.md.
 func (q *Queries) HeldExternalClaimsChunk(ctx context.Context, arg HeldExternalClaimsChunkParams) ([]HeldExternalClaimsChunkRow, error) {
 	rows, err := q.db.QueryContext(ctx, heldExternalClaimsChunk, arg.Ids, arg.ExternalWorkerID)
 	if err != nil {
@@ -836,8 +792,8 @@ type InsertDefinitionParams struct {
 	Actor       string
 }
 
-// The conflict path leaves actor alone: re-applying identical content does not re-deploy it,
-// so the first deployer keeps the credit rather than the latest caller taking it.
+// The conflict path leaves actor alone: identical content is not a re-deploy, so the first
+// deployer keeps the credit.
 func (q *Queries) InsertDefinition(ctx context.Context, arg InsertDefinitionParams) error {
 	_, err := q.db.ExecContext(ctx, insertDefinition,
 		arg.Name,
@@ -888,10 +844,7 @@ VALUES
      ?5, ?6, ?7,
      ?8, ?9, ?10, ?11, ?12,
      ?13,
-     -- The tree, read off the PARENT rather than taken from the caller: parent_id is the one
-     -- edge the whole system agrees on, so deriving from anything else (a call_stack a fixture
-     -- forgot, a field a new creation site did not set) would put a row in a tree of its own
-     -- and lose its rows from the trail without erroring.
+     -- Derived from the parent, never bound: CLAUDE.md, root_id.
      COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?13), ?1),
      ?14, ?15, ?16,
      ?17, ?18, ?19,
@@ -968,9 +921,7 @@ INSERT INTO process_logs
     (id, instance_id, root_id, seq, level, event, task_id, message, code, data, objects, meta, created_at, actor)
 VALUES
     (?1, ?2,
-     -- Read off the instance rather than taken from the writer: four call sites append rows and
-     -- a forgotten field would drop a child's rows out of its tree's trail without erroring.
-     -- An orphan (instance already gone) is its own root, which is what the migration backfilled.
+     -- Derived, never bound (CLAUDE.md, root_id); an orphan is its own root.
      COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?2), ?2),
      ?3, ?4, ?5,
      ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
@@ -1012,7 +963,6 @@ func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
 }
 
 const insertSignal = `-- name: InsertSignal :exec
-
 INSERT INTO process_signals (id, instance_id, task_id, seq, outcome, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 `
@@ -1026,9 +976,6 @@ type InsertSignalParams struct {
 	CreatedAt  int64
 }
 
-// ListInstances is hand-written in db_instances.go (dynamic ORDER BY + keyset cursor; see
-// paginate.go). idx_external_queue now serves FILTERED claims -- (process_name,
-// process_version, updated_at) is the claim's predicate once a worker names a process or task.
 func (q *Queries) InsertSignal(ctx context.Context, arg InsertSignalParams) error {
 	_, err := q.db.ExecContext(ctx, insertSignal,
 		arg.ID,
@@ -1120,9 +1067,6 @@ type ListDependenciesRow struct {
 	ChildVersion int64
 }
 
-// Every child version one definition version was registered against. A comparison uses
-// it to close a named process over the versions it actually runs, so a parent is never
-// judged without the children it calls.
 func (q *Queries) ListDependencies(ctx context.Context, arg ListDependenciesParams) ([]ListDependenciesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listDependencies, arg.ParentName, arg.ParentVersion)
 	if err != nil {
@@ -1147,7 +1091,6 @@ func (q *Queries) ListDependencies(ctx context.Context, arg ListDependenciesPara
 }
 
 const loadDefinitionsOnChannel = `-- name: LoadDefinitionsOnChannel :many
-
 SELECT pc.version, pd.definition
 FROM process_channels pc
 JOIN process_definitions pd ON pd.name = pc.name AND pd.version = pc.version
@@ -1160,8 +1103,6 @@ type LoadDefinitionsOnChannelRow struct {
 	Definition string
 }
 
-// ListChannels is hand-written in db_registry.go (dynamic ORDER BY + keyset
-// cursor; see paginate.go).
 func (q *Queries) LoadDefinitionsOnChannel(ctx context.Context, channel string) ([]LoadDefinitionsOnChannelRow, error) {
 	rows, err := q.db.QueryContext(ctx, loadDefinitionsOnChannel, channel)
 	if err != nil {
@@ -1185,15 +1126,35 @@ func (q *Queries) LoadDefinitionsOnChannel(ctx context.Context, channel string) 
 	return items, nil
 }
 
+const markExternalClaimLost = `-- name: MarkExternalClaimLost :execrows
+UPDATE process_instances
+SET external_lost = 1, wake_at = ?1, updated_at = ?1,
+    external_worker_id = NULL, external_lease_expires_at = NULL,
+    external_claim_epoch = external_claim_epoch + 1
+WHERE id = ?2 AND task_epoch = ?3 AND phase = 'external'
+`
+
+type MarkExternalClaimLostParams struct {
+	Now       sql.NullInt64
+	ID        string
+	TaskEpoch int64
+}
+
+// wake_at = now so the next poll raises external.lost; external_input is left untouched.
+func (q *Queries) MarkExternalClaimLost(ctx context.Context, arg MarkExternalClaimLostParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markExternalClaimLost, arg.Now, arg.ID, arg.TaskEpoch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const markObjectReleased = `-- name: MarkObjectReleased :execrows
 UPDATE objects SET released_at = ?1
 WHERE released_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash)
 `
 
-// Nothing claims it, and nothing had noticed yet: start the clock. The sweep decides this rather
-// than the releaser, because no owner dropping ITS claim can tell whether it dropped the last one
-// -- which is what made stamping a grace claim a distributed obligation nobody could satisfy.
 func (q *Queries) MarkObjectReleased(ctx context.Context, now sql.NullInt64) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markObjectReleased, now)
 	if err != nil {
@@ -1206,8 +1167,7 @@ const nextWorkerNumber = `-- name: NextWorkerNumber :one
 UPDATE id_counters SET value = value + 1 WHERE name = 'worker' RETURNING value
 `
 
-// Allocates this process's id namespace. One statement, so the read and the increment cannot
-// interleave: Postgres takes the row lock, SQLite serialises on its single writer.
+// One statement, so the read and the increment cannot interleave.
 func (q *Queries) NextWorkerNumber(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, nextWorkerNumber)
 	var value int64
@@ -1230,15 +1190,8 @@ WHERE root_id = ?1
 ORDER BY created_at ASC, id ASC
 `
 
-// The instance and every DESCENDANT that is still live, oldest first. Terminal descendants
-// are excluded on purpose: their outputs are frozen and nothing re-runs them, so they are
-// not part of the unit that moves. specs/version-compatibility.md s3c.
-//
-// The root is returned whatever its status, because `failed` is a state an upgrade is FOR
-// (move it, then retry it on the new version) and a root filtered out of its own subtree
-// reads as "no tree to move". A failed root has no live descendants anyway: a parent
-// poisoned by a child goes to `failing`, and the claim predicate refuses a waiting row, so
-// it cannot settle to `failed` until its children are terminal.
+// The root is returned whatever its status: a failed root is what an upgrade is for.
+// specs/version-compatibility.md s3c.
 func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]ProcessInstance, error) {
 	rows, err := q.db.QueryContext(ctx, nonTerminalSubtree, root)
 	if err != nil {
@@ -1309,8 +1262,7 @@ type OrphanedLogRefsRow struct {
 	OwnerID string
 }
 
-// Log claims whose owner row is gone. owner_id IS the log row's id, so a claim is wanted exactly
-// while its row is and needs no horizon to say so.
+// owner_id IS the log row's id, so no time horizon is needed.
 func (q *Queries) OrphanedLogRefs(ctx context.Context) ([]OrphanedLogRefsRow, error) {
 	rows, err := q.db.QueryContext(ctx, orphanedLogRefs)
 	if err != nil {
@@ -1350,9 +1302,7 @@ type PeekOldestSignalRow struct {
 	Outcome string
 }
 
-// The oldest buffered outcome for (instance, task), FIFO. READ ONLY: the advance decides on it
-// and persist deletes it (DeleteSignal) in the same transaction as the state it produced, so a
-// crash between the two cannot lose an answer or apply it twice.
+// READ ONLY: DeleteSignal removes it in the same transaction as the state it produced.
 func (q *Queries) PeekOldestSignal(ctx context.Context, arg PeekOldestSignalParams) (PeekOldestSignalRow, error) {
 	row := q.db.QueryRowContext(ctx, peekOldestSignal, arg.InstanceID, arg.TaskID)
 	var i PeekOldestSignalRow
@@ -1373,24 +1323,8 @@ type PutObjectParams struct {
 	CreatedAt int64
 }
 
-// Write the content once, globally. Immutable by construction -- the hash IS the content -- so
-// the conflict path has nothing to change.
-//
-// DO UPDATE, not DO NOTHING, and that is load-bearing rather than style. DO NOTHING writes
-// nothing and takes no row lock, so a concurrent sweep never even pauses before deleting the
-// object this statement is about to claim. The update is what makes the sweep WAIT.
-//
-// It also clears the release mark, and this is the right moment for it: the writer is about to
-// claim the object, so any window the sweep opened is void. Doing it here rather than leaving it
-// to the sweep's own clear closes the gap where an object is marked, claimed and released again
-// BETWEEN two sweeps -- which would leave a mark already older than the window and collect the
-// content with no grace at all. size is written for the lock; released_at is written because it
-// is true.
-//
-// Waiting is only half of it, and the half this comment used to claim on its own was wrong: a
-// one-statement sweep wakes and re-checks the row, not its subquery, so it deleted anyway. The
-// other half is the sweep's lock-then-delete split (collectUnreferencedPG). Neither works alone.
-// specs/object-store.md.
+// DO UPDATE, never DO NOTHING: the row lock makes a racing sweep wait, and clearing released_at
+// voids its mark. CLAUDE.md, the object store, items 2-3.
 func (q *Queries) PutObject(ctx context.Context, arg PutObjectParams) error {
 	_, err := q.db.ExecContext(ctx, putObject,
 		arg.Hash,
@@ -1414,8 +1348,6 @@ type PutObjectRefParams struct {
 	CreatedAt int64
 }
 
-// Claim an object for an owner. Idempotent: a repeat claim keeps the row it already has, so a
-// caller never needs to know which of the hashes it references are new.
 func (q *Queries) PutObjectRef(ctx context.Context, arg PutObjectRefParams) error {
 	_, err := q.db.ExecContext(ctx, putObjectRef,
 		arg.Hash,
@@ -1424,6 +1356,30 @@ func (q *Queries) PutObjectRef(ctx context.Context, arg PutObjectRefParams) erro
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const releaseExternalClaim = `-- name: ReleaseExternalClaim :execrows
+UPDATE process_instances
+SET external_worker_id = NULL, external_lease_expires_at = NULL,
+    external_claim_epoch = external_claim_epoch + 1
+WHERE id = ?1 AND task_epoch = ?2
+  AND external_claim_epoch = ?3
+  AND phase = 'external' AND external_worker_id IS NOT NULL
+`
+
+type ReleaseExternalClaimParams struct {
+	ID         string
+	TaskEpoch  int64
+	ClaimEpoch int64
+}
+
+// The epoch bump voids the releaser's handle at once; claim_epoch must name the current grant.
+func (q *Queries) ReleaseExternalClaim(ctx context.Context, arg ReleaseExternalClaimParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseExternalClaim, arg.ID, arg.TaskEpoch, arg.ClaimEpoch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const renewExternalLeasesChunk = `-- name: RenewExternalLeasesChunk :execrows
@@ -1440,12 +1396,8 @@ type RenewExternalLeasesChunkParams struct {
 	ExternalWorkerID sql.NullString
 }
 
-// RenewWorkerLeasesChunk's external twin, scoped by external_worker_id for the same reason:
-// a renewal must not resurrect a claim on a row someone else now holds.
-//
-// A cancelled row is deliberately NOT renewed: the answer the worker is owed is "stop",
-// and extending a lease on work nobody wants would hold the claim open until the worker
-// noticed some other way. HeldExternalClaimsChunk reports it in the same transaction.
+// Scoped by external_worker_id so a renewal never resurrects another holder's claim. Cancelled
+// rows not renewed on purpose: the worker is owed "stop" (HeldExternalClaimsChunk reports it).
 func (q *Queries) RenewExternalLeasesChunk(ctx context.Context, arg RenewExternalLeasesChunkParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, renewExternalLeasesChunk, arg.NewExpiry, arg.Ids, arg.ExternalWorkerID)
 	if err != nil {
@@ -1474,11 +1426,8 @@ type RenewWorkerLeasesChunkParams struct {
 	ChunkSize int64
 }
 
-// Renews up to chunk_size of the listed (held-set) leases, soonest-to-expire first, in
-// a loop of small transactions; the new_expiry predicate makes each row eligible once
-// per pass, so the loop terminates. Must NOT bump lease_epoch (it would fence out the
-// advance it rescues) and must NOT clear worker_id: an unlisted row expires with it
-// set, which is the ReclaimedExpired/only_once evidence. specs/lease-fencing.md.
+// The new_expiry predicate makes a row eligible once per pass, so the chunk loop terminates.
+// Never bump lease_epoch or clear worker_id here: CLAUDE.md, the lease fence.
 func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLeasesChunkParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, renewWorkerLeasesChunk,
 		arg.NewExpiry,
@@ -1503,8 +1452,6 @@ type RevokeAPITokenParams struct {
 	ID        string
 }
 
-// revoked_by is set in the same statement as revoked_at: they describe one write, and a column
-// only some paths set is the failure section 7 already paid for once.
 func (q *Queries) RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeAPIToken, arg.RevokedAt, arg.RevokedBy, arg.ID)
 	if err != nil {
@@ -1525,11 +1472,8 @@ type SetStatusInParams struct {
 	Ids       interface{}
 }
 
-// Sets one status on an explicit id list the CALLER has already locked -- pause, resume and
-// cancel all write their tree this way. Status ONLY, cancel included: it abandons a wait
-// rather than ending one, and ReleaseExternalClaim finds a claim by phase='external'.
-// The ids bind as a JSON array through json_each, the same dynamic-IN pattern as
-// FailAncestors, which is why neither needs a dialect branch.
+// The caller already holds the locks. Status ONLY, cancel included: ReleaseExternalClaim finds
+// a claim by phase='external'.
 func (q *Queries) SetStatusIn(ctx context.Context, arg SetStatusInParams) error {
 	_, err := q.db.ExecContext(ctx, setStatusIn, arg.Status, arg.UpdatedAt, arg.Ids)
 	return err
@@ -1544,10 +1488,8 @@ type SupersedeInstanceParams struct {
 	ID           string
 }
 
-// Retires one attempt at a batch slot. The row stays -- it is the attempt's history, its logs
-// and its object claims -- but GetChildrenForTask and the revive walk stop treating it as the
-// slot's live occupant, so the collect merges one value per slot and a replaced raise is not
-// routed again. specs/child-error-handling.md s12.
+// The row stays (history, logs, object claims); GetChildrenForTask and the revive walk skip
+// it. specs/child-error-handling.md s12.
 func (q *Queries) SupersedeInstance(ctx context.Context, arg SupersedeInstanceParams) error {
 	_, err := q.db.ExecContext(ctx, supersedeInstance, arg.SupersededAt, arg.ID)
 	return err
@@ -1585,8 +1527,7 @@ type UnparkAnsweredExternalParams struct {
 	Ids       interface{}
 }
 
-// UnparkExternal for those of the listed rows holding an answer for their current task: one that
-// deferred to a claim which has since ended. Statuses are AcceptsExternalOutcome's.
+// Statuses kept in step with model.Status.AcceptsExternalOutcome by hand.
 func (q *Queries) UnparkAnsweredExternal(ctx context.Context, arg UnparkAnsweredExternalParams) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, unparkAnsweredExternal, arg.UpdatedAt, arg.Ids)
 	if err != nil {
@@ -1623,11 +1564,8 @@ type UnparkExternalParams struct {
 	ID        string
 }
 
-// Makes a parked external task claimable, after its answer has been buffered. Callers act on a
-// PARKED row under the row lock, so there is no grant to fence; worker_id stays -- clearing it
-// destroys a crashed owner's ReclaimedExpired evidence. Clearing wake_at is load-bearing beyond
-// tidiness: an answered wait must not later fire external.timeout, which on an only_once task
-// can never be retried.
+// Unfenced on purpose (CLAUDE.md, the lease fence). Keep worker_id: it is the ReclaimedExpired
+// evidence. Clearing wake_at stops an answered wait firing external.timeout.
 func (q *Queries) UnparkExternal(ctx context.Context, arg UnparkExternalParams) error {
 	_, err := q.db.ExecContext(ctx, unparkExternal, arg.UpdatedAt, arg.ID)
 	return err
@@ -1690,14 +1628,9 @@ type UpdateInstanceParams struct {
 	WorkerID       string
 }
 
-// input_data is never written (immutable). The status CASE lands a pause that arrived
-// while this instance was leased, decided in SQL against the row's current value; only
-// a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
-// A claim belongs to one occurrence (task_epoch): a write that moves the epoch drops it.
-// lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
-// callers bind both as read under their row lock. worker_id is there because a rewind can
-// re-issue an epoch to a second worker; it does not replace the epoch, which is what fences
-// a self-reclaim. COALESCE so an unheld row compares. specs/lease-fencing.md.
+// input_data is never written. The status CASE lands a pause/cancel that arrived mid-lease;
+// moving task_epoch drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE
+// so a lease-less caller's unheld row still matches.
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
@@ -1772,10 +1705,8 @@ type UpdateInstanceProgressParams struct {
 	WorkerID       string
 }
 
-// Mid-process write: input_data (immutable) and output_data (completion-only) are not
-// touched. A checkpoint means "still running", so a pending pause lands unconditionally
-// here -- including on the write that parks the instance out of the claim predicate,
-// its last chance to settle. lease_epoch and the claim columns: see UpdateInstance.
+// input_data is immutable, output_data completion-only. A pending pause lands unconditionally,
+// including on the write that parks the row out of the claim predicate. Fence: UpdateInstance.
 func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,
@@ -1838,18 +1769,9 @@ type UpgradeInstanceVersionParams struct {
 	Task          string
 }
 
-// Moves an instance to another version of its definition, writing the migrated state with
-// it: the version is the lens through which the row is read, so the two cannot be written
-// apart. specs/version-compatibility.md s4.
-//
-// Conditional on everything that would make the migration stale. process_version and task
-// pin what the state was conformed against. status keeps it to the settled states -- a
-// running instance can be claimed and advanced between the read and this write, and the
-// task predicate is what turns that into a lost race a re-run picks up rather than a
-// clobber.
-//
-// worker_id IS NULL is defence: a stop on a row with a worker recorded drains rather than settling,
-// so a settled row has none. Never clear worker_id to admit a move -- it is the only_once evidence.
+// Every predicate pins what the state was conformed against, so a stale move loses the race
+// instead of clobbering (specs/version-compatibility.md s4). Never clear worker_id to admit a
+// move: it is the only_once evidence.
 func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanceVersionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, upgradeInstanceVersion,
 		arg.ToVersion,
@@ -1888,8 +1810,8 @@ type UpsertChannelParams struct {
 	Actor     string
 }
 
-// The conflict path overwrites actor, unlike InsertDefinition's: a channel is a mutable
-// pointer, so the useful actor is whoever moved it last, not whoever created it.
+// Overwrites actor, unlike InsertDefinition: a channel is a mutable pointer, so the actor is
+// whoever moved it last.
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
 	_, err := q.db.ExecContext(ctx, upsertChannel,
 		arg.Name,
@@ -1914,10 +1836,7 @@ type WakeParentParams struct {
 	ID        string
 }
 
-// A healthy parent moves to 'collecting' to merge its children's outputs; a doomed
-// one ('failing') clears the wait state and just settles. A paused parent is healthy
-// (it is suspended, not doomed) so it is armed for the collect it will run when
-// resumed. Its status keeps it unclaimable in the meantime.
+// A paused parent is armed too (suspended, not doomed); its status keeps it unclaimable.
 func (q *Queries) WakeParent(ctx context.Context, arg WakeParentParams) error {
 	_, err := q.db.ExecContext(ctx, wakeParent, arg.UpdatedAt, arg.ID)
 	return err

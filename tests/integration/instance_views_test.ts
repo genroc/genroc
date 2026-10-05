@@ -4,7 +4,7 @@ import { waitForParked } from "../helpers/external.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // /instances/{id} is what an instance reports OUTWARD; /detail is what it HOLDS. State is
-// engine-internal, so it stays off the outward view. specs/version-compatibility.md.
+// engine-internal, so it stays off the outward view.
 
 async function completedInstance(): Promise<string> {
   const name = `views_${crypto.randomUUID().slice(0, 8)}`;

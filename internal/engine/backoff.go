@@ -8,7 +8,7 @@ import (
 )
 
 // retryDelay returns how long to park before retry number `attempt` (1-based, so the first
-// retry waits the policy's base delay exactly).
+// retry waits up to the policy's base delay; jitter keeps it in the upper half).
 func (e *Engine) retryDelay(attempt int, r model.ResolvedRetry) time.Duration {
 	if e.immediateRetries {
 		return 0

@@ -40,6 +40,7 @@ const (
 	EventInstanceRaised  = "inst_raised" // concluded by a `raise` clause; the parent may react to the code
 	EventInstanceFailed  = "inst_failed"
 	EventInstanceSettled = "inst_settled"
+	EventFaultMessage    = "fault_message" // a raise/panic message that did not render to a string
 	// EventInstanceUpgraded must tell the whole story: nothing else records which version
 	// the instance came from. specs/version-compatibility.md s4.
 	EventInstanceUpgraded = "inst_upgraded"

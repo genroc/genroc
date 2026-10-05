@@ -72,7 +72,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	ctx := context.Background()
 
 	// The wake_at IS NULL branch excludes 'external': a no-timeout wait is the resolve API's.
-	// This list and migration 045's partial index are one predicate written twice -- a status
+	// This list and migration 047's partial index are one predicate written twice -- a status
 	// in one but not the other is either never scanned or pure index churn.
 	const where = `status IN ('running', 'failing', 'pausing', 'cancelling')
 			  AND phase <> 'children'
