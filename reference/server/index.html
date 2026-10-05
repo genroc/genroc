@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Task errors — genroc</title><meta name="description" content="The codes a task can fail with, and which of them an on_error rule can catch."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Server — genroc</title><meta name="description" content="Every flag of the genroc server, and the genroc token subcommand."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/actions":"00.01.02.03","/guides/process-definition/error-handling":"00.01.02.04","/guides/process-definition/validations-and-types":"00.01.02.05","/guides/process-definition/child-processes":"00.01.02.06","/guides/process-definition/versioning":"00.01.02.07","/guides/process-definition/upgrading-instances":"00.01.02.08","/guides/process-definition/external-tasks":"00.01.02.09","/guides/process-definition/script-evaluation":"00.01.02.10","/guides/operating":"00.01.03","/guides/operating/managing-instances":"00.01.03.01","/reference/rest-api":"00.02.01","/reference/rest-api/definitions":"00.02.01.01","/reference/rest-api/instances":"00.02.01.02","/reference/rest-api/channels":"00.02.01.03","/reference/rest-api/objects":"00.02.01.04","/reference/rest-api/external-tasks":"00.02.01.05","/reference/rest-api/tokens":"00.02.01.06","/reference/rest-api/debug":"00.02.01.07","/reference/rest-api/errors":"00.02.01.08","/reference/cli":"00.02.02","/reference/cli/definitions":"00.02.02.01","/reference/cli/instances":"00.02.02.02","/reference/cli/channels":"00.02.02.03","/reference/cli/setup":"00.02.02.04","/reference/definition":"00.02.03","/reference/definition/process":"00.02.03.01","/reference/definition/task":"00.02.03.02","/reference/definition/actions":"00.02.03.03","/reference/definition/expressions":"00.02.03.04","/reference/definition/delay-syntax":"00.02.03.05","/reference/definition/error-handling":"00.02.03.06","/reference/definition/errors":"00.02.03.07","/reference/server":"00.02.04","/reference/project-file":"00.02.05"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
@@ -144,122 +144,122 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still a prototype, use at your own risk</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible trail open"> <a href="/reference/definition/process/"> Definition language </a> <ul> <li> <a href="/reference/definition/process/"> Process </a>  </li><li> <a href="/reference/definition/task/"> Task </a>  </li><li> <a href="/reference/definition/actions/"> Actions </a>  </li><li> <a href="/reference/definition/expressions/"> Expressions </a>  </li><li> <a href="/reference/definition/delay-syntax/"> Delay and timeout syntax </a>  </li><li> <a href="/reference/definition/error-handling/"> Error handling </a>  </li><li> <a href="/reference/definition/errors/" aria-current="page"> Task errors </a>  </li> </ul> </li><li> <a href="/reference/server/"> Server </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible trail open"> <a href="/reference/definition/process/"> Definition language </a> <ul> <li> <a href="/reference/definition/process/"> Process </a>  </li><li> <a href="/reference/definition/task/"> Task </a>  </li><li> <a href="/reference/definition/actions/"> Actions </a>  </li><li> <a href="/reference/definition/expressions/"> Expressions </a>  </li><li> <a href="/reference/definition/delay-syntax/"> Delay and timeout syntax </a>  </li><li> <a href="/reference/definition/error-handling/"> Error handling </a>  </li><li> <a href="/reference/definition/errors/" aria-current="page"> Task errors </a>  </li> </ul> </li><li> <a href="/reference/server/"> Server </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/reference/rest-api/">Reference</a> / <a href="/reference/definition/process/">Definition language</a> </p> <h1>Task errors</h1> <p>The codes a task can fail with, and which of them an on_error rule can catch.</p> </div>  <!-- Generated by `make docs-reference` from internal/errcode. Do not edit. -->
-<h2 id="catchable">Catchable<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#catchable"><span></span></a></h2>
-<p>An <code>on_error</code> rule matches these by code. <code>Reported by</code> is the kind of
-task that produces the code — a rule naming one its task cannot produce is refused at
-registration.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Code</th><th>Reported by</th><th>Means</th></tr></thead><tbody><tr><td><code>http.timeout</code></td><td><code>fetch</code></td><td>connected, but no response arrived in time</td></tr><tr><td><code>http.disconnected</code></td><td><code>fetch</code></td><td>the request went out, the connection broke before a response</td></tr><tr><td><code>pre.timeout</code></td><td><code>fetch</code></td><td>timed out before the request was written — it never left</td></tr><tr><td><code>pre.error</code></td><td><code>fetch</code></td><td>failed before the request was written — it never left</td></tr><tr><td><code>result.parse</code></td><td><code>fetch</code></td><td>the response body was not valid JSON</td></tr><tr><td><code>result.too_large</code></td><td><code>fetch</code></td><td>the response body exceeded the size a fetch will read</td></tr><tr><td><code>result.invalid</code></td><td><code>fetch</code>, <code>child</code></td><td>the result did not satisfy the schema declared for it</td></tr><tr><td><code>external.timeout</code></td><td><code>external</code></td><td>the wait deadline elapsed</td></tr><tr><td><code>external.lost</code></td><td><code>external</code></td><td>a worker’s claim expired without an answer</td></tr><tr><td><code>only_once.interrupted</code></td><td><code>only_once</code></td><td>a previous attempt was interrupted — route it, never retry</td></tr></tbody></table>
-<h2 id="http-status-codes">HTTP status codes<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#http-status-codes"><span></span></a></h2>
-<p>A fetch whose response status is not accepted fails with <code>http.&#x3C;status></code> —
-<code>http.500</code>, <code>http.404</code>. The family is unbounded, so it has no table: match it with a
-pattern, <code>http.5%</code>.</p>
-<h2 id="terminal">Terminal<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#terminal"><span></span></a></h2>
-<p>These fail the instance outright. No <code>on_error</code> rule sees one, so none can be
-caught or retried; they are listed because every failure stores a code and these are what
-<code>error_code</code> then holds.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Code</th><th>Means</th></tr></thead><tbody><tr><td><code>engine.definition</code></td><td>the definition is unusable: missing, or it names a task or goto that is not in it</td></tr><tr><td><code>engine.expression</code></td><td>an expression could not be evaluated against this context</td></tr><tr><td><code>engine.config</code></td><td>config could not be resolved from the environment</td></tr><tr><td><code>engine.input</code></td><td>an input did not satisfy the schema declared for it</td></tr><tr><td><code>engine.output</code></td><td>an output did not satisfy the schema declared for it</td></tr><tr><td><code>engine.spawn</code></td><td>spawning children, or arming an external task and reading its answer, failed</td></tr><tr><td><code>engine.collect</code></td><td>collecting a settled batch’s outputs failed</td></tr><tr><td><code>engine.panic</code></td><td>a Go panic escaped this instance’s advance</td></tr></tbody></table>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/reference/server/"> <span>next</span> <strong>Server</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#catchable">Catchable</a></li><li class="depth-2"><a href="#http-status-codes">HTTP status codes</a></li><li class="depth-2"><a href="#terminal">Terminal</a></li></ul><script>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still a prototype, use at your own risk</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/server/" aria-current="page"> Server </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/server/" aria-current="page"> Server </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/reference/rest-api/">Reference</a> </p> <h1>Server</h1> <p>Every flag of the genroc server, and the genroc token subcommand.</p> </div>  <!-- Generated by `make docs-reference` from `genroc -h`. Do not edit. -->
+<p>Flags are written <code>--name value</code> or <code>--name=value</code>. Where a flag names an environment variable, the variable is read when the flag is not given.</p>
+<h2 id="listening">Listening<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#listening"><span></span></a></h2>
+<p>Where the API is served. An empty <code>--http</code> runs a worker-only node.</p>
+<h3 id="http">—http<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#http"><span></span></a></h3>
+<p><code>string</code> · default <code>:8448</code></p>
+<p>HTTP listen address ($GENROC_HTTP; empty to disable)</p>
+<h3 id="pprof">—pprof<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pprof"><span></span></a></h3>
+<p><code>string</code></p>
+<p>pprof listen address, e.g. localhost:6060 (empty to disable)</p>
+<h2 id="database">Database<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#database"><span></span></a></h2>
+<p>SQLite by default; <code>--pg</code> switches to PostgreSQL.</p>
+<h3 id="db">—db<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#db"><span></span></a></h3>
+<p><code>string</code> · default <code>genroc.db</code></p>
+<p>SQLite database file path ($GENROC_DB)</p>
+<h3 id="pg">—pg<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pg"><span></span></a></h3>
+<p><code>string</code></p>
+<p>PostgreSQL DSN, e.g. postgres://user:pass@host/db ($GENROC_PG). When set, —db is ignored.</p>
+<h3 id="pg-max-open-conns">—pg-max-open-conns<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pg-max-open-conns"><span></span></a></h3>
+<p><code>int</code> · default <code>50</code></p>
+<p>PostgreSQL connection pool size, and with it the group-commit batch-width ceiling: only transactions in flight together coalesce into one WAL flush, so the pool bounds how many ever do. Size a worker fleet so workers*pg-max-open-conns stays under the server’s max_connections. Ignored for SQLite.</p>
+<h2 id="durability">Durability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#durability"><span></span></a></h2>
+<p>What is flushed to disk before a write is acknowledged.</p>
+<h3 id="durability-1">—durability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#durability-1"><span></span></a></h3>
+<p><code>string</code> · default <code>only-once</code></p>
+<p>How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown.</p>
+<h3 id="sqlite-synchronous">—sqlite-synchronous<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#sqlite-synchronous"><span></span></a></h3>
+<p><code>string</code> · default <code>FULL</code></p>
+<p>SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk’s serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.</p>
+<h3 id="sqlite-fullfsync">—sqlite-fullfsync<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#sqlite-fullfsync"><span></span></a></h3>
+<p><code>boolean</code></p>
+<p>Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, —sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.</p>
+<h3 id="pg-commit-delay">—pg-commit-delay<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pg-commit-delay"><span></span></a></h3>
+<p><code>int</code></p>
+<p>Hold each PostgreSQL WAL flush back by this many microseconds so more commits coalesce into it (PostgreSQL commit_delay, set per session). Costs no durability - every commit is still flushed before it is acknowledged - and Postgres skips the delay unless commit_siblings (default 5) transactions are open, so narrow workloads are unaffected. Throughput peaks well below the flush latency and drops past it: on a 4ms F_FULLFSYNC disk 500us was the best value measured and 10000us was 26% worse than doing nothing. The gain itself is workload- and load-dependent (measured between +3% and +33% for the same 500us on the same machine), and shows up mainly as steadier throughput under contention rather than a higher ceiling. Measure on your own storage; 0 (the default) disables. Requires a superuser connection. Ignored for SQLite.</p>
+<h2 id="authentication">Authentication<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#authentication"><span></span></a></h2>
+<p>Off by default (<code>--auth none</code>). Machines use tokens; people reach the API through genroc-ui.</p>
+<h3 id="auth">—auth<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#auth"><span></span></a></h3>
+<p><code>string</code> · default <code>none</code></p>
+<p>How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database).</p>
+<h3 id="bootstrap-token">—bootstrap-token<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#bootstrap-token"><span></span></a></h3>
+<p><code>string</code></p>
+<p>In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.</p>
+<h3 id="seed-tokens">—seed-tokens<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#seed-tokens"><span></span></a></h3>
+<p><code>label=perms=secret</code></p>
+<p>Credentials the operator generated, as a comma-separated list of label=perms=secret (perms itself is +-separated), e.g. “admin=admin=genroc_sk_…,evaluator=worker=genroc_sk_…” ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.</p>
+<h3 id="seed-tokens-file">—seed-tokens-file<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#seed-tokens-file"><span></span></a></h3>
+<p><code>path</code></p>
+<p>Read —seed-tokens from the file at path instead ($GENROC_SEED_TOKENS_FILE), one label=perms=secret per line or comma-separated. A file rather than a flag keeps a credential out of the process list and out of <code>docker inspect</code>, and is the shape a mounted secret already has.</p>
+<h3 id="jwt-secret-file">—jwt-secret-file<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#jwt-secret-file"><span></span></a></h3>
+<p><code>string</code></p>
+<p>Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.</p>
+<h3 id="jwt-issuer">—jwt-issuer<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#jwt-issuer"><span></span></a></h3>
+<p><code>string</code></p>
+<p>The iss claim a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.</p>
+<h3 id="jwt-audience">—jwt-audience<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#jwt-audience"><span></span></a></h3>
+<p><code>string</code></p>
+<p>The aud claim a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.</p>
+<h3 id="jwt-leeway">—jwt-leeway<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#jwt-leeway"><span></span></a></h3>
+<p><code>string</code></p>
+<p>Clock skew allowed on exp/nbf ($GENROC_JWT_LEEWAY); default 30s. A fixed zero fails on real clusters.</p>
+<h2 id="engine">Engine<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#engine"><span></span></a></h2>
+<p>How instances are claimed and advanced.</p>
+<h3 id="poll">—poll<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#poll"><span></span></a></h3>
+<p><code>int</code> · default <code>500</code></p>
+<p>Engine poll interval in milliseconds</p>
+<h3 id="max-concurrent">—max-concurrent<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#max-concurrent"><span></span></a></h3>
+<p><code>int</code> · default <code>200</code></p>
+<p>Max instances advanced concurrently. Too high overwhelms the DB/lease renewer and in-flight work starts losing its leases (lease_lost audit entries); raise —lease-duration or the DB connection pool before raising this much further.</p>
+<h3 id="lease-duration">—lease-duration<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#lease-duration"><span></span></a></h3>
+<p><code>duration</code> · default <code>10s</code></p>
+<p>How long a claimed instance is leased to a worker before another worker may reclaim it on crash</p>
+<h3 id="lease-renew-interval">—lease-renew-interval<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#lease-renew-interval"><span></span></a></h3>
+<p><code>duration</code> · default <code>3s</code></p>
+<p>How often a worker re-stamps its leases; must be comfortably shorter than —lease-duration</p>
+<h3 id="immediate-retries">—immediate-retries<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#immediate-retries"><span></span></a></h3>
+<p><code>boolean</code></p>
+<p>Disable retry backoff (retries fire instantly); for testing only</p>
+<h2 id="logging">Logging<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#logging"><span></span></a></h2>
+<p>Console output and the per-instance audit trail.</p>
+<h3 id="log">—log<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#log"><span></span></a></h3>
+<p><code>string</code> · default <code>info</code></p>
+<p>Log level: debug, info, warn, error</p>
+<h3 id="log-mode">—log-mode<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#log-mode"><span></span></a></h3>
+<p><code>string</code> · default <code>basic</code></p>
+<p>Console output: basic (no data body), detail (+ data body), or json (one JSON object per line); same modes as genctl logs. Times are UTC, so a fleet’s logs collate; genctl renders the reader’s local zone</p>
+<h3 id="log-payloads">—log-payloads<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#log-payloads"><span></span></a></h3>
+<p><code>boolean</code> · default <code>true</code></p>
+<p>Record the payload an audit event is about (process/task input and output, request/response bodies) on its log row. Stored whole: —log-payload-bytes moves a large value out of line, it does not cut it.</p>
+<h3 id="log-payload-bytes">—log-payload-bytes<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#log-payload-bytes"><span></span></a></h3>
+<p><code>int</code> · default <code>2048</code></p>
+<p>Inline budget for one audit payload. Above it the largest values move into the object store, fetchable by the reference the row carries and retained with it; it is also the width of the console excerpt.</p>
+<h3 id="log-retention">—log-retention<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#log-retention"><span></span></a></h3>
+<p><code>duration</code> · default <code>168h0m0s</code></p>
+<p>Delete per-instance audit logs older than this; 0 = keep forever</p>
+<h2 id="objects">Objects<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#objects"><span></span></a></h2>
+<p>Large values kept out of the instance row.</p>
+<h3 id="object-grace">—object-grace<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#object-grace"><span></span></a></h3>
+<p><code>duration</code> · default <code>1h0m0s</code></p>
+<p>How long a released large value stays fetchable by a reference already handed out. A read hands out references and fetching them is a second call, so the data can move on in between; this is the window in which that cannot lose. Raise it for slow consumers, lower it for processes that churn big values in a loop.</p>
+<h2 id="other">Other<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#other"><span></span></a></h2>
+<h3 id="version">—version<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#version"><span></span></a></h3>
+<p><code>boolean</code></p>
+<p>Print the version and exit.</p>
+<h2 id="genroc-token">genroc token<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#genroc-token"><span></span></a></h2>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>genroc token — credential management against the database.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>  genroc token create --perms &#x3C;list> [--label &#x3C;name>] [--db path | --pg dsn]</span></span>
+<span class="line"><span>  genroc token list                                   [--db path | --pg dsn]</span></span>
+<span class="line"><span>  genroc token revoke &#x3C;id>...                         [--db path | --pg dsn]</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Permissions: admin, deploy, operate, read, worker.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>This works without the server running and without a credential — it needs only access to the</span></span>
+<span class="line"><span>database, which is the correct root of trust for a break-glass path. Day to day, use</span></span>
+<span class="line"><span>`genctl token`, which goes over the API.</span></span></code></pre>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/definition/errors/"> <span>previous</span> <strong>Task errors</strong> </a> <a class="next" href="/reference/project-file/"> <span>next</span> <strong>Project file</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#listening">Listening</a></li><li class="depth-3"><a href="#http">—http</a></li><li class="depth-3"><a href="#pprof">—pprof</a></li><li class="depth-2"><a href="#database">Database</a></li><li class="depth-3"><a href="#db">—db</a></li><li class="depth-3"><a href="#pg">—pg</a></li><li class="depth-3"><a href="#pg-max-open-conns">—pg-max-open-conns</a></li><li class="depth-2"><a href="#durability">Durability</a></li><li class="depth-3"><a href="#durability-1">—durability</a></li><li class="depth-3"><a href="#sqlite-synchronous">—sqlite-synchronous</a></li><li class="depth-3"><a href="#sqlite-fullfsync">—sqlite-fullfsync</a></li><li class="depth-3"><a href="#pg-commit-delay">—pg-commit-delay</a></li><li class="depth-2"><a href="#authentication">Authentication</a></li><li class="depth-3"><a href="#auth">—auth</a></li><li class="depth-3"><a href="#bootstrap-token">—bootstrap-token</a></li><li class="depth-3"><a href="#seed-tokens">—seed-tokens</a></li><li class="depth-3"><a href="#seed-tokens-file">—seed-tokens-file</a></li><li class="depth-3"><a href="#jwt-secret-file">—jwt-secret-file</a></li><li class="depth-3"><a href="#jwt-issuer">—jwt-issuer</a></li><li class="depth-3"><a href="#jwt-audience">—jwt-audience</a></li><li class="depth-3"><a href="#jwt-leeway">—jwt-leeway</a></li><li class="depth-2"><a href="#engine">Engine</a></li><li class="depth-3"><a href="#poll">—poll</a></li><li class="depth-3"><a href="#max-concurrent">—max-concurrent</a></li><li class="depth-3"><a href="#lease-duration">—lease-duration</a></li><li class="depth-3"><a href="#lease-renew-interval">—lease-renew-interval</a></li><li class="depth-3"><a href="#immediate-retries">—immediate-retries</a></li><li class="depth-2"><a href="#logging">Logging</a></li><li class="depth-3"><a href="#log">—log</a></li><li class="depth-3"><a href="#log-mode">—log-mode</a></li><li class="depth-3"><a href="#log-payloads">—log-payloads</a></li><li class="depth-3"><a href="#log-payload-bytes">—log-payload-bytes</a></li><li class="depth-3"><a href="#log-retention">—log-retention</a></li><li class="depth-2"><a href="#objects">Objects</a></li><li class="depth-3"><a href="#object-grace">—object-grace</a></li><li class="depth-2"><a href="#other">Other</a></li><li class="depth-3"><a href="#version">—version</a></li><li class="depth-2"><a href="#genroc-token">genroc token</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
