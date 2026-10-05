@@ -44,7 +44,7 @@ func ResolveStructuralPass(docs []Doc, cfg Config, stack []string) (int, error) 
 
 // StructuralValueAt returns the value the site at path would be filled or spread with, without
 // applying it; doc is the text as written and is not mutated. structural is false, with no
-// error, where path holds no directive or a code-phase one.
+// error, where path holds no directive or a typed-phase one.
 func StructuralValueAt(doc Doc, cfg Config, path string) (value any, structural bool, err error) {
 	docs := []sourceDoc{doc}
 	sites, i, err := siteAt(docs, cfg, path)
@@ -87,9 +87,13 @@ func pointerAddress(p []any) string {
 	return strings.Join(parts, ".")
 }
 
-// ResolveCode runs the code phase: every phase-2 resolver, shelling out to the command each
-// one names. mode is the resolver protocol's mode ("build" or "types").
-func ResolveCode(docs []Doc, mode string) (int, error) { return resolveDocs(docs, mode) }
+// Resolve runs both phases and splices every answer, leaving no directive behind. It returns the
+// number of typed sites.
+func Resolve(docs []Doc) (int, error) { return resolveDocs(docs, modeResolve) }
+
+// Generate runs both phases for the files typed resolvers write, and discards their answers: the
+// docs keep a placeholder at each typed site, so they are not for applying.
+func Generate(docs []Doc) (int, error) { return resolveDocs(docs, modeGenerate) }
 
 // DecodeDefinition decodes one document into a definition.
 func DecodeDefinition(d Doc) (*model.ProcessDefinition, error) { return decodeDefinition(d) }

@@ -87,6 +87,6 @@ test("the scaffold's $import directive says it resolves at apply", async () => {
   const path = join(defs, "hello.genroc.yaml");
   const doc: Doc = { uri: `file://${path}`, text: readFileSync(path, "utf8") };
   expect(await lsp.hover(at('        code: "$import: <^./greet.ts>"', doc))).toBe(
-    "`import` runs at apply, in the code phase, and fills this slot with a string.",
+    "`import` runs at apply, in the typed phase, and fills this slot with a string.",
   );
 });

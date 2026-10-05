@@ -134,7 +134,7 @@ test("the eval-node scaffold's script typechecks against the declarations it gen
       `command: [node, ${join(REPO, "eval-node/import.ts")}]`,
     ),
   );
-  const r = runCli(bin, ["types", "-f", join(dir, "definitions/hello.genroc.yaml")], OFFLINE);
+  const r = runCli(bin, ["generate", "-f", join(dir, "definitions/hello.genroc.yaml")], OFFLINE);
   expect(r.exitCode, r.stderr).toBe(0);
   const decls = readFileSync(join(dir, "definitions/greet.genroc.d.ts"), "utf8");
   expect(decls).toContain("who: string");

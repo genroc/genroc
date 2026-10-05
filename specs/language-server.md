@@ -87,7 +87,7 @@ dependency of its own that the engine has no use for.
 **The editor runs the structural phase, through `internal/sources`**, the same code genctl runs. A
 `<<` spread changes which keys a document has, so skipping it reports `unknown field "<<"` on text
 that applies. `document.resolve` is the one place text becomes a document and resolution runs, and
-a handler must not parse for itself. The code phase never runs in the editor.
+a handler must not parse for itself. The typed phase never runs in the editor.
 
 **Cross-file navigation searches the `workspaceFolders` sent in `initialize`**, open buffers before
 disk. It does not use `.genroc`'s `definitions:`, which says what an apply deploys rather than what

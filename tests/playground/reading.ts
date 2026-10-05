@@ -1,5 +1,5 @@
 // `Input` is what genroc INFERRED process.genroc.yaml passes, `Output` its result_schema; both come
-// from `genctl types` (or apply). The sandbox is a worker realm with node's globals and no DOM
+// from `genctl generate` (or apply). The sandbox is a worker realm with node's globals and no DOM
 // (specs/script-tasks.md); genctl doubles every `$` on splice, so `${…}` here is JavaScript.
 import type { Input, Output } from "./reading.genroc";
 

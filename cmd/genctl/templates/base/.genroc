@@ -1,2 +1,2 @@
-# What `genctl apply|types` reads when given no paths, resolved against this file.
+# What `genctl apply|generate` reads when given no paths, resolved against this file.
 definitions: ["./definitions/**/*.genroc.yaml"]

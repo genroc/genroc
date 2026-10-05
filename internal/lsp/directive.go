@@ -48,7 +48,7 @@ func directiveHover(d *document, path string) string {
 	if structural {
 		return yamlBlock(renderValue(value, overriddenKeys(d.Doc, path)))
 	}
-	return "`" + name + "` runs at apply, in the code phase, and fills this slot with a string."
+	return "`" + name + "` runs at apply, in the typed phase, and fills this slot with a string."
 }
 
 // overriddenKeys is what the mapping around a spread already writes, which the spread does not

@@ -2,7 +2,7 @@
 
 TypeScript script tasks for [genroc](https://genroc.org). The package provides two binaries:
 
-* **`genroc-import`**: the bundler. `genctl` runs it on every `apply` and `types` to turn
+* **`genroc-import`**: the bundler. `genctl` runs it on every `apply` and `generate` to turn
   `$import: ./script.ts` into one typechecked, self-contained module string.
 * **`genroc-eval-node`**: the worker. It claims script tasks from genroc's queue and runs each
   one in a fresh worker thread.
@@ -27,7 +27,7 @@ Register the resolver in the `.genroc` beside your definitions:
 ```yaml
 resolvers:
   - name: import
-    phase: code
+    phase: typed
     ext: [.ts]
     command: [npx, genroc-import]
     types:
@@ -65,7 +65,7 @@ export default function (input: Input): Output {
 }
 ```
 
-* `genctl types` writes `greet.genroc.d.ts` beside the script. `Input` and `Output` come from
+* `genctl generate` writes `greet.genroc.d.ts` beside the script. `Input` and `Output` come from
   the definition, so a mismatch fails the typecheck.
 * `genctl apply` typechecks and bundles. **A type error or a missing default export fails the
   apply.**

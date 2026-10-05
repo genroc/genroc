@@ -56,8 +56,8 @@ func main() {
 	switch cmd {
 	case "apply":
 		runApplyCmd(server, args)
-	case "types":
-		runTypesCmd(args)
+	case "generate":
+		runGenerateCmd(args)
 	case "schema":
 		runSchemaCmd(args)
 	case "lsp":

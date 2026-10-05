@@ -39,9 +39,9 @@ var commandDocs = map[string]commandDoc{
 			"`current` (nothing moved). Resolvers (`$<resolver>:`) run first, with --check-only too.\n\n" +
 			definitionFiles,
 	},
-	"types": {
+	"generate": {
 		summary: "write the type declarations a resolver's scripts import",
-		usage:   []string{"types [-f <path|glob> ...]"},
+		usage:   []string{"generate [-f <path|glob> ...]"},
 		detail: `Writes the declarations each resolver generates, so an editor has them before the first
 apply. Needs no server.
 
@@ -233,7 +233,7 @@ var helpGroups = []struct {
 	title string
 	names []string
 }{
-	{"Definitions", []string{"apply", "types", "schema", "compat", "definitions"}},
+	{"Definitions", []string{"apply", "generate", "schema", "compat", "definitions"}},
 	{"Instances", []string{"run", "instances", "get", "detail", "logs", "pause", "resume", "cancel", "retry", "upgrade", "signal", "object"}},
 	{"Channels", []string{"channel"}},
 	{"Setup", []string{"init", "config", "token", "lsp"}},

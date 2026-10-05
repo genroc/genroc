@@ -107,9 +107,9 @@ func runApplyCmd(server string, args []string) {
 	}
 }
 
-// runTypesCmd contacts no server: it runs on every edit, whether or not one is reachable.
-func runTypesCmd(args []string) {
-	fs := newFlagSet("types", args)
+// runGenerateCmd contacts no server: it runs on every edit, whether or not one is reachable.
+func runGenerateCmd(args []string) {
+	fs := newFlagSet("generate", args)
 	fs.String("f", "", "definition file or glob; takes several, and repeats")
 	files, rest := takeFileValues(args)
 	if pos := parseArgs(fs, rest); len(pos) > 0 {
@@ -129,7 +129,7 @@ func runTypesCmd(args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-	n, err := sources.ResolveCode(docs, "types")
+	n, err := sources.Generate(docs)
 	if err != nil {
 		fatal("%v", err)
 	}

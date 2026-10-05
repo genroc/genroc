@@ -1,4 +1,4 @@
-// `Input` and `Output` are written beside this file by `genctl types`, and by every apply.
+// `Input` and `Output` are written beside this file by `genctl generate`, and by every apply.
 import type { Input, Output } from "./greet.genroc";
 
 export default function (input: Input): Output {

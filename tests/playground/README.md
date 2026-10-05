@@ -30,7 +30,7 @@ run would compete with it for the evaluator:
 
 `reading.ts` is pulled in by `$import`; `.genroc` registers the resolver that does it, and an
 apply typechecks the script against the Input/Output genroc inferred before the string exists.
-`genctl types` writes those declarations on their own, which is what an editor wants between
+`genctl generate` writes those declarations on their own, which is what an editor wants between
 applies:
 
-    genctl types -f script-node.genroc.yaml -f process.genroc.yaml
+    genctl generate -f script-node.genroc.yaml -f process.genroc.yaml

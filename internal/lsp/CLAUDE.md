@@ -28,7 +28,7 @@ has no node there. Three things bound it. Resolution is the CLIENT's, so editor-
 holds while both disagree with `apply` -- `TestTheEditorAgreesWithTheServerOnWhatIsRejected`
 compares the two halves that never resolve, and the spread suite is the reference point it
 lacks. A buffer with **no path on disk** is analysed as written, a directive's argument being
-relative to the file holding it. And the **code phase is not run** -- it shells out, and a string
+relative to the file holding it. And the **typed phase is not run** -- it shells out, and a string
 splice cannot move a type -- the same line `genctl schema` draws (cmd/genctl/schema.go).
 
 **`file` is the document on disk; `path` is a slot address.** Both are strings and both travel
@@ -80,9 +80,9 @@ the key fallback left hover silent on ten lines out of twelve.
 
 **The one block is a STRUCTURAL directive** (`directive.go`) — `$process` or a registered
 command — showing what it YIELDS, from `sources.StructuralValueAt`, the pass's own call for one
-site, over the text as WRITTEN (the site is a node there; resolving removes it). A code directive
+site, over the text as WRITTEN (the site is a node there; resolving removes it). A typed directive
 is never run here and says only that it resolves at apply: showing the types its resolver would
-be handed was built and removed, since it reproduced `genctl types` under a hover. Keys follow
+be handed was built and removed, since it reproduced `genctl generate` under a hover. Keys follow
 `schema.KeywordOrder` (names under
 `properties`, `$defs` and `raises` sort), and a mapping of short scalars prints inline, the way
 these files are written. A key the mapping around a spread writes itself is kept with a note

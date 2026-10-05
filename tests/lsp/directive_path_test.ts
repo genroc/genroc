@@ -19,11 +19,11 @@ beforeAll(async () => {
     [
       "resolvers:",
       "  - name: bundle",
-      "    phase: code",
+      "    phase: typed",
       "    ext: ['.ts']",
       "    command: ['true']",
       "  - name: open",
-      "    phase: code",
+      "    phase: typed",
       "    command: ['true']",
       "",
     ].join("\n"),

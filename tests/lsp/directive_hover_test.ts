@@ -30,11 +30,11 @@ const REGISTRY = [
   "resolvers:",
   "  - { name: frag, phase: structural, ext: [.json], command: [node, frag.mjs] }",
   "  - name: import",
-  "    phase: code",
+  "    phase: typed",
   "    ext: [.ts]",
   "    command: ['true']",
   "    types: { Input: task.action.input.input, Output: task.action.result }",
-  "  - { name: raw, phase: code, command: ['true'] }",
+  "  - { name: raw, phase: typed, command: ['true'] }",
   "",
 ].join("\n");
 
@@ -102,11 +102,11 @@ test("hover on a spread directive shows the mapping it fills in", async () => {
   );
 });
 
-test("hover on a code directive says it resolves at apply, and computes nothing", async () => {
+test("hover on a typed directive says it resolves at apply, and computes nothing", async () => {
   const doc = project();
-  const line = (name: string) => `\`${name}\` runs at apply, in the code phase, and fills this slot with a string.`;
+  const line = (name: string) => `\`${name}\` runs at apply, in the typed phase, and fills this slot with a string.`;
   expect(await lsp.hover(at('        code: "$import: <^./x.ts>"', doc))).toBe(line("import"));
-  // With or without `types` in its entry: the editor is not `genctl types`.
+  // With or without `types` in its entry: the editor is not `genctl generate`.
   expect(await lsp.hover(at('        note: "$raw: <^./notes.md>"', doc))).toBe(line("raw"));
 });
 

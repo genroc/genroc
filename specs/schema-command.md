@@ -16,7 +16,7 @@ Built.
   (`newTaskScopes` reads what `Check` managed).
 - **Not an editor protocol.** It has no positions and no lenient parse of a half-typed expression.
   The language server ([language-server.md](language-server.md)) adds those over the same APIs.
-- **Not a code resolver.** See §5.
+- **Not a typed resolver.** See §5.
 
 ## 2. The address
 
@@ -151,10 +151,10 @@ output   on the path ending at task "left":  input, outputs{left, right=null}
          on the path ending at task "right": input, outputs{left=null, right}
 ```
 
-## 5. No code resolver runs
+## 5. No typed resolver runs
 
 A query never shells out. It runs the structural phase only, because a structural resolver moves the
-types reported and a code resolver does not (source-resolution.md §Built-in, and overridable). An
+types reported and a typed resolver does not (source-resolution.md §Built-in, and overridable). An
 unresolved `$import: ./fee.ts` leaf types as `string`, exactly what `apply`'s placeholder types as
 (source-resolution.md §"Why the placeholder is sound").
 

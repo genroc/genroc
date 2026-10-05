@@ -82,7 +82,7 @@ func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack [
 		if err != nil {
 			return nil, err
 		}
-		m := manifest{Mode: phaseStructural, Processes: processes}
+		m := manifest{Mode: modeResolve, Processes: processes}
 		values, err := runStructuralResolver(cfg, rc, m)
 		if err != nil {
 			return nil, err
@@ -261,7 +261,7 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 		return nil, err
 	}
 
-	// No code phase runs on a child, so the document is final once its own spreads are in.
+	// No typed phase runs on a child, so the document is final once its own spreads are in.
 	unescapeDocs(docs)
 
 	def, err := decodeDefinition(docs[0])

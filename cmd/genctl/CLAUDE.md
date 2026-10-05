@@ -22,7 +22,7 @@ Keep new list/get commands consistent so the surface stays predictable.
   item takes its id/key as the first positional (`get <id>`). Add a `get` only when there
   is something to show beyond the row.
 - **Server & errors.** Every command that TALKS to one takes `--server` (overrides
-  `$GENROC_SERVER` and the config file). `types` and `schema` do not: genctl infers the types
+  `$GENROC_SERVER` and the config file). `generate` and `schema` do not: genctl infers the types
   itself, so they answer offline, and a flag that reaches nothing would only imply otherwise.
   All failures go through `fatal()` ("genctl: …"); surface a server-side validation message via
   `serverErrorDetail` / `resultValidationError`.
@@ -97,7 +97,7 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 
 ## Which files a command reads
 
-`definitionPaths` is the one place that answers it, for `apply`, `types`, `schema` and `compat`
+`definitionPaths` is the one place that answers it, for `apply`, `generate`, `schema` and `compat`
 alike. Exactly two sources:
 
 - **`-f`**, which takes several values and stops at the next flag. It is literal FIRST: a value

@@ -4,7 +4,7 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
-// A registered structural resolver: the code phase's manifest minus types, answered with one value
+// A registered structural resolver: the typed phase's manifest minus types, answered with one value
 // per site. specs/source-resolution.md §Registered structural resolvers.
 
 let bin: string;
@@ -73,7 +73,7 @@ test("a slot directive is filled with the value the resolver answers", () => {
   );
 });
 
-test("the manifest is the code phase's, in structural mode and with no types", () => {
+test("the manifest is the typed phase's, with no types", () => {
   const p = project();
   p.write("input.json", INPUT);
   const def = p.write(
@@ -82,13 +82,26 @@ test("the manifest is the code phase's, in structural mode and with no types", (
   );
   expect(runCli(bin, ["schema", "type", "frag-manifest", "input", "-f", def], OFFLINE).ok).toBe(true);
   const m = p.manifest();
-  expect(m.mode).toBe("structural");
+  expect(Object.keys(m).sort(), "a resolver's phase is its own entry's, so the manifest does not repeat it")
+    .toEqual(["mode", "processes"]);
+  expect(m.mode).toBe("resolve");
   expect(m.processes).toHaveLength(1);
   expect(m.processes[0]).toMatchObject({ name: "frag-manifest", dir: p.dir, file: "proc.genroc.yaml" });
   expect(m.processes[0].sites).toEqual([
     { level: "process", pointer: ["input_schema"], argument: "./input.json" },
   ]);
   expect(m.processes[0], "there is nothing to type before inference has run").not.toHaveProperty("$defs");
+});
+
+test("generate still asks a structural resolver to resolve", () => {
+  const p = project();
+  p.write("input.json", INPUT);
+  const def = p.write(
+    "proc.genroc.yaml",
+    ['name: frag-generate', 'input_schema: "$frag: ./input.json"', "tasks: []", "output: { ok: true }", ""].join("\n"),
+  );
+  expect(runCli(bin, ["generate", "-f", def], OFFLINE).ok).toBe(true);
+  expect(p.manifest().mode, "inference needs the structural answer, so generate cannot discard it").toBe("resolve");
 });
 
 test("a spread directive pre-fills the mapping around it", () => {

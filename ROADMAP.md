@@ -71,7 +71,7 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [x] external tasks, and the queue a worker fleet pulls from — claim / renew / release /
   resolve, `external.lost`, outcome-as-signal (specs/external-task-queue.md)
 - [x] script tasks — user TypeScript on the claim queue, no new engine capability
-- [x] source resolution, code phase — `$import` resolved client-side, typecheck as exit code
+- [x] source resolution, typed phase — `$import` resolved client-side, typecheck as exit code
 - [x] lease fencing — frozen-worker repair, per-grant `lease_epoch`
 - [x] durability levels — `--durability`, `--pg-commit-delay`, `--sqlite-fullfsync`
 - [x] object store — content-addressed, ref-owned, grace window on collection

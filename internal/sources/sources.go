@@ -33,10 +33,17 @@ const projectConfigName = ".genroc"
 const legacyProjectConfigName = "genroc.yaml"
 
 // The two phases, named by PERMISSION: structural may change what the typechecker sees and runs
-// before validation; code may not, and runs after it. specs/source-resolution.md §The two phases.
+// before validation; typed may not, and runs after it. specs/source-resolution.md §The two phases.
 const (
 	phaseStructural = "structural"
-	phaseCode       = "code"
+	phaseTyped      = "typed"
+)
+
+// The manifest's `mode`: whether genctl uses the answer. A resolver's phase is its entry's, so the
+// manifest does not repeat it.
+const (
+	modeResolve  = "resolve"
+	modeGenerate = "generate"
 )
 
 // builtinProcess spreads another definition's name/result_schema/raises into a child task.
@@ -56,9 +63,9 @@ func builtins() []resolverConfig {
 // Both must spell a key the same -- TestConfigTagsAgree.
 type resolverConfig struct {
 	Name string `yaml:"name" json:"name" description:"What a directive names: \"$<name>: <argument>\"."`
-	// Phase is "code" or "structural" -- what the resolver MAY do, never what it contains.
+	// Phase is "typed" or "structural" -- what the resolver MAY do, never what it contains.
 	// specs/source-resolution.md §The two phases.
-	Phase string `yaml:"phase" json:"phase" enum:"code,structural" description:"What the resolver may do. \"code\" fills a slot with text and runs after inference, with types in hand; \"structural\" fills a slot or spreads a mapping with any value and runs before it, so it is handed no types."`
+	Phase string `yaml:"phase" json:"phase" enum:"typed,structural" description:"What the resolver may do. \"typed\" fills a slot with text and runs after inference, with types in hand; \"structural\" fills a slot or spreads a mapping with any value and runs before it, so it is handed no types."`
 	// Ext is a list of accepted SUFFIXES, not extensions: `.genroc.yaml` has to be
 	// expressible and filepath.Ext answers `.yaml` for it. Empty accepts anything.
 	Ext []string `yaml:"ext" json:"ext,omitempty" description:"Argument suffixes this resolver accepts (\".ts\", \".genroc.yaml\"). Whole suffixes, not extensions; empty accepts anything."`
@@ -206,13 +213,9 @@ func (m manifest) flatten() []site {
 	return out
 }
 
+// resolverReply is either phase's answer: one value per site, parallel to the manifest. Raw so a
+// structural splice keeps a number exact (specs/number-precision.md).
 type resolverReply struct {
-	Code []string `json:"code"`
-}
-
-// structuralReply is a structural resolver's answer: one value per site, any JSON, parallel to
-// the manifest like `code` is. Raw so the splice keeps a number exact (specs/number-precision.md).
-type structuralReply struct {
 	Values []json.RawMessage `json:"values"`
 }
 
@@ -246,9 +249,9 @@ func findProjectConfig(dir string) (projectConfig, error) {
 				if r.Name == "" {
 					return projectConfig{}, fmt.Errorf("%s: resolver %d has no name", path, i)
 				}
-				if r.Phase != phaseCode && r.Phase != phaseStructural {
+				if r.Phase != phaseTyped && r.Phase != phaseStructural {
 					return projectConfig{}, fmt.Errorf("%s: resolver %q has phase %q - it is %q or %q",
-						path, r.Name, r.Phase, phaseStructural, phaseCode)
+						path, r.Name, r.Phase, phaseStructural, phaseTyped)
 				}
 				if len(r.Command) == 0 {
 					return projectConfig{}, fmt.Errorf("%s: resolver %q has no command", path, r.Name)
@@ -497,35 +500,14 @@ func execResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]byte, err
 	return stdout.Bytes(), nil
 }
 
-func runResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]string, error) {
+// runResolver returns one value per site, in the manifest's order. In generate mode the answer is
+// not read at all: the resolver ran for the files it writes.
+func runResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]json.RawMessage, error) {
 	stdout, err := execResolver(cfg, rc, m)
-	if err != nil {
+	if err != nil || m.Mode == modeGenerate {
 		return nil, err
-	}
-	if m.Mode == "types" {
-		println(string(stdout))
-		return nil, nil
 	}
 	var reply resolverReply
-	if err := json.Unmarshal(stdout, &reply); err != nil {
-		return nil, fmt.Errorf("resolver %q: stdout is not the expected {\"code\": [...]}: %w",
-			strings.Join(rc.Command, " "), err)
-	}
-	if want := len(m.flatten()); len(reply.Code) != want {
-		return nil, fmt.Errorf("resolver %q returned %d strings for %d sites",
-			strings.Join(rc.Command, " "), len(reply.Code), want)
-	}
-	return reply.Code, nil
-}
-
-// runStructuralResolver is runResolver for phase 1: the same manifest, minus types, answered
-// with one value per site rather than one string.
-func runStructuralResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]any, error) {
-	stdout, err := execResolver(cfg, rc, m)
-	if err != nil {
-		return nil, err
-	}
-	var reply structuralReply
 	if err := json.Unmarshal(stdout, &reply); err != nil {
 		return nil, fmt.Errorf("resolver %q: stdout is not the expected {\"values\": [...]}: %w",
 			strings.Join(rc.Command, " "), err)
@@ -534,8 +516,33 @@ func runStructuralResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]
 		return nil, fmt.Errorf("resolver %q returned %d values for %d sites",
 			strings.Join(rc.Command, " "), len(reply.Values), want)
 	}
-	out := make([]any, len(reply.Values))
-	for i, raw := range reply.Values {
+	return reply.Values, nil
+}
+
+// runTypedResolver holds a typed resolver to strings: a string cannot change what inference saw.
+func runTypedResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]string, error) {
+	values, err := runResolver(cfg, rc, m)
+	if err != nil || values == nil {
+		return nil, err
+	}
+	out := make([]string, len(values))
+	for i, raw := range values {
+		if err := json.Unmarshal(raw, &out[i]); err != nil {
+			return nil, fmt.Errorf("resolver %q: value %d is not a string, and a typed resolver may "+
+				"return only strings: %s", strings.Join(rc.Command, " "), i, raw)
+		}
+	}
+	return out, nil
+}
+
+// runStructuralResolver decodes each value exactly: a structural answer may be any JSON.
+func runStructuralResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]any, error) {
+	values, err := runResolver(cfg, rc, m)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]any, len(values))
+	for i, raw := range values {
 		if err := numeric.Decode(raw, &out[i]); err != nil {
 			return nil, fmt.Errorf("resolver %q: value %d: %w", strings.Join(rc.Command, " "), i, err)
 		}
@@ -545,9 +552,9 @@ func runStructuralResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]
 
 // ── the pass ───────────────────────────────────────────────────────────────────
 
-// resolveDocs resolves every code-phase directive in docs, mutating them in place. mode "build"
-// splices the returned strings; mode "types" stops after the resolver has written its
-// declarations. It returns the number of sites resolved, so zero means nothing was imported.
+// resolveDocs resolves every directive in docs, mutating them in place. In generate mode the typed
+// sites keep their placeholder: the resolvers ran for the files they write. It returns the number
+// of typed sites, so zero means nothing was imported.
 func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	if len(docs) == 0 {
 		return 0, nil
@@ -570,7 +577,7 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	}
 	var sites []site
 	for _, s := range all {
-		if cfg.Resolvers[s.resolverIdx].Phase == phaseCode {
+		if cfg.Resolvers[s.resolverIdx].Phase == phaseTyped {
 			sites = append(sites, s)
 		}
 	}
@@ -579,7 +586,7 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 		return 0, nil
 	}
 
-	// The placeholder pass. A code string is opaque to inference, so an empty string types
+	// The placeholder pass. A typed string is opaque to inference, so an empty string types
 	// identically to the real one and the schemas below are the schemas of what is applied.
 	for _, s := range sites {
 		if err := splice(docs, s, ""); err != nil {
@@ -614,17 +621,17 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 			return 0, err
 		}
 		m := manifest{Mode: mode, Processes: processes}
-		code, err := runResolver(cfg, cfg.Resolvers[idx], m)
+		values, err := runTypedResolver(cfg, cfg.Resolvers[idx], m)
 		if err != nil {
 			return 0, err
 		}
-		if mode == "types" {
+		if mode == modeGenerate {
 			continue
 		}
 		// By the manifest's own order, not the group's: nesting sites under their process may
-		// interleave two files differently, and `code` answers what the resolver was shown.
+		// interleave two files differently, and `values` answers what the resolver was shown.
 		for i, s := range m.flatten() {
-			if err := splice(docs, s, escapeDollars(code[i])); err != nil {
+			if err := splice(docs, s, escapeDollars(values[i])); err != nil {
 				return 0, err
 			}
 		}

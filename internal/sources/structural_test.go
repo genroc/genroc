@@ -17,7 +17,7 @@ func fakeStructural(t *testing.T, reply string) projectConfig {
 	}
 	return projectConfig{Root: root, Resolvers: append([]resolverConfig{
 		{Name: "gen", Phase: phaseStructural, Command: []string{"sh", "-c", "cat >/dev/null; cat reply.json"}},
-		{Name: "imp", Phase: phaseCode, Ext: []string{".ts"}, Command: []string{"false"}},
+		{Name: "imp", Phase: phaseTyped, Ext: []string{".ts"}, Command: []string{"false"}},
 	}, builtins()...)}
 }
 
@@ -65,6 +65,6 @@ func TestStructuralPass_AReturnedCodeDirectiveOrEscapeIsKept(t *testing.T) {
 	docs := taskWithAction(map[string]any{"type": "fetch", "url": "https://x", "body": "$gen: body"})
 	reply := `{"values": [{"code": "$imp: ./s.ts", "doc": "$$gen: literal"}]}`
 	if _, err := resolveStructuralPass(docs, fakeStructural(t, reply), nil); err != nil {
-		t.Fatalf("a code directive is the code phase's to resolve and an escaped one is a literal; neither may be refused: %v", err)
+		t.Fatalf("a typed directive is the typed phase's to resolve and an escaped one is a literal; neither may be refused: %v", err)
 	}
 }

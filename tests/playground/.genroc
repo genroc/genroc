@@ -4,7 +4,7 @@
 definitions: ["./**/*.genroc.yaml"]
 resolvers:
   - name: import
-    phase: code
+    phase: typed
     ext: [.ts]
     command: [node, ../../eval-node/import.ts]
     types:

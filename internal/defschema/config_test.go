@@ -32,7 +32,7 @@ func TestConfigSchemaRefusesWhatTheReaderRefuses(t *testing.T) {
 	}
 	for name, doc := range map[string]string{
 		"a misspelled key":        strings.Replace(string(scaffold), "definitions:", "definitons:", 1),
-		"a phase that is not one": strings.Replace(string(scaffold), "phase: code", "phase: structrual", 1),
+		"a phase that is not one": strings.Replace(string(scaffold), "phase: typed", "phase: structrual", 1),
 		"a resolver with no name": strings.Replace(string(scaffold), "  - name: import\n", "", 1),
 		// The reader refuses an EMPTY command, and YAML's null decodes to one; a reflected slice
 		// is nullable unless the schema says otherwise.

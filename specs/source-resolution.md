@@ -21,8 +21,8 @@ reads as a broken server.
 
 Hover on a structural directive shows the value it yields, as YAML, from
 `sources.StructuralValueAt` (the pass's own call), marking keys the surrounding mapping writes
-itself as the ones that win. A code directive is never run by the editor (it shells out). Its hover
-says only that, and does not show the types its resolver would get: that is `genctl types`
+itself as the ones that win. A typed directive is never run by the editor (it shells out). Its hover
+says only that, and does not show the types its resolver would get: that is `genctl generate`
 (`internal/lsp/directive.go`).
 
 ## Thesis
@@ -50,22 +50,22 @@ Named by permission, never by content:
 
 - **`structural`** may change what the typechecker sees. It runs before inference and may return
   any value.
-- **`code`** may not. It runs after inference, with types in hand, and **must return a string**.
+- **`typed`** may not. It runs after inference, with types in hand, and **must return a string**.
   genctl enforces that, which makes "cannot invalidate phase 1" structural rather than a promise.
 
 `genctl apply`: (1) parse, and resolve structural directives; (2) splice an empty-string
-placeholder at each code site and type the definitions that carry one; (3) call each code resolver
+placeholder at each typed site and type the definitions that carry one; (3) call each typed resolver
 entry once, with every site that named it; (4) splice each string, `$`-escaped; (5)
-`POST /definitions`. `genctl types` stops after step 3 in `types` mode. `apply --check-only` and
+`POST /definitions`. `genctl generate` stops after step 3 in `generate` mode. `apply --check-only` and
 `compat -f` run steps 1–4: a stored version holds the resolved string, so an unresolved directive
 would compare as changed.
 
 ### One roundtrip: genctl computes the types, the server decides validity
 
-Step 2 runs in genctl (`Generate` is pure), so `genctl types` needs no server and can run on every
+Step 2 runs in genctl (`Generate` is pure), so `genctl generate` needs no server and can run on every
 edit. It runs neither the strict decode, nor `Validate`, nor `ValidateChildProcessRefs`. Step 5 is
 the only verdict, and a second gatekeeper in genctl would be a pair to keep in agreement. It types
-only the definitions that carry a code directive, so one broken file cannot stop generation for the
+only the definitions that carry a typed directive, so one broken file cannot stop generation for the
 rest. The cost: types follow genctl's build, so a genctl older than its server infers from older
 rules, and the apply refuses the result loudly.
 
@@ -89,7 +89,7 @@ builds a repo belongs to the repo, and the server URL belongs to the operator.
 ```yaml
 resolvers:
   - name: import
-    phase: code
+    phase: typed
     ext: [.ts]
     command: [node, tools/genroc-import.ts]
     types: { Input: task.action.input.input, Output: task.action.result }
@@ -186,7 +186,7 @@ schema is not a Shape, so the template layer's `$$` collapse never reaches it. `
 is the inverse by construction (drop one `$`; the leaf was escaped iff the rest is a directive),
 never a second regexp.
 
-**Unescaping runs last, after every walk that looks for a directive.** The code phase re-walks the
+**Unescaping runs last, after every walk that looks for a directive.** The typed phase re-walks the
 document after the structural one, so a leaf unescaped earlier would be claimed. That is why the
 pass does not finalise and its callers do: the exported `ResolveStructuralPass`, the end of
 `resolveDocs`, and `resolveProcessDirective`. `tests/cli/imports_test.ts` holds both halves.
@@ -210,7 +210,7 @@ stdin:
 
 ```jsonc
 {
-  "mode": "build",                       // or "types"
+  "mode": "resolve",                     // or "generate"
   "processes": [
     {
       "name": "weather-logger",
@@ -236,9 +236,12 @@ stdin:
 }
 ```
 
-stdout is `{"code": ["<string>", …]}`, in the manifest's own site order (processes as listed, then
+stdout is `{"values": ["<string>", …]}`, in the manifest's own site order (processes as listed, then
 sites within each). A non-zero exit aborts the apply, with stderr as the diagnostic.
 
+- **`mode` is whether genctl uses the answer**, never the phase, which the resolver's own entry
+  fixes. A structural resolver always gets `resolve`, even under `genctl generate`, because
+  inference needs its answer.
 - **`argument` is verbatim.** It is not a path, since a resolver may take a URL or a package name.
   `dir` is absolute because one call spans directories, and it is what a relative argument joins
   to. A missing file is the resolver's to report; genctl checks only `ext`. There is no `root`,
@@ -264,21 +267,22 @@ sites within each). A non-zero exit aborts the apply, with stderr as the diagnos
 The reason is drift, not difficulty. Two parsers for one syntax eventually disagree, and the
 disagreement presents as a `tsconfig` fault.
 
-### `mode: "types"`
+### `mode: "generate"`
 
-This mode writes the type files and returns no code; `genctl types` is that call. It exists because
-the editor needs the declarations before any apply, and it reaches no server. It uses the same
-binary and manifest as `build`, so there is no second `tsc` over the project.
+genctl reads no answer in this mode, so a resolver may skip the work behind one; one that ignores
+`mode` and always answers is still correct. `genctl generate` is that call. It exists because the editor needs the declarations before any apply, and it reaches no
+server. It uses the same binary and manifest as `resolve`, so there is no second `tsc` over the project.
 
 ## Registered structural resolvers — phase 1's interface
 
-A `.genroc` entry with `phase: structural` and a `command` gets the same manifest with
-`mode: "structural"`, minus `types` and `$defs`. It runs before inference, so an entry that asks for
-`types` is refused when the config is read. It answers `{"values": [<any>, …]}`, parallel to the
-sites. A slot site takes the value whole, and a spread site requires a mapping. Values decode exactly
-([number-precision.md](number-precision.md)). Calls are batched like phase 2.
+A `.genroc` entry with `phase: structural` and a `command` gets the same manifest, minus `types`
+and `$defs`. It runs before inference, so an entry that asks for
+`types` is refused when the config is read. It answers `{"values": [<any>, …]}` like the typed
+phase, minus the string rule. A slot site takes the value whole, and a spread site requires a
+mapping. Values decode exactly ([number-precision.md](number-precision.md)). Calls are batched like
+phase 2.
 
-There is one pass and no fixpoint. A `$import` inside a returned value is found by the code phase's
+There is one pass and no fixpoint. A `$import` inside a returned value is found by the typed phase's
 re-walk, but **a structural directive inside one is refused** (`refuseNestedStructural`), naming the
 resolver and the path; left alone it would reach the server as a literal string. `genctl schema` and
 the editor run this phase. `tests/cli/structural_test.ts`, `tests/lsp/directive_hover_test.ts`,
@@ -323,8 +327,8 @@ It has no `command` because it runs in genctl. `.genroc.yaml` is what `genctl in
 every example uses, so the assertion catches a path to a script, or to YAML that is not a
 definition.
 
-**`genctl schema` and the editor run the structural phase and not the code phase.** A structural
-resolver moves the types they report. A code resolver splices a string, which moves nothing, and
+**`genctl schema` and the editor run the structural phase and not the typed phase.** A structural
+resolver moves the types they report. A typed resolver splices a string, which moves nothing, and
 shells out, which the editor loop cannot afford.
 
 **Built-ins are appended after everything in `.genroc`**, so first-match lets a local entry override
@@ -395,7 +399,7 @@ file in the author's repo, and the bytes they produce reach the wire as ordinary
 
     result_schema: "$infer: ./summarize.ts"
 
-A registered structural resolver, called with `mode: "infer"`, that extracts a script's return type
+A registered structural resolver that extracts a script's return type
 into a JSON Schema, so the definition picks the type *up* instead of handing it *down*:
 [unknown-type.md](unknown-type.md)'s **Infer**, reached at author time. The stored definition
 carries the result, so [`genctl compat`](../internal/validation/compat.go#L456) still sees a changed

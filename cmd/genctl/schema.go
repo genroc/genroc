@@ -1,7 +1,7 @@
 package main
 
 // `genctl schema`: a piece of a definition's inferred view, answered locally with no server. Runs
-// the structural phase, never the code phase, so an unresolved `$import` types as a string.
+// the structural phase, never the typed phase, so an unresolved `$import` types as a string.
 // specs/schema-command.md.
 
 import (
@@ -203,7 +203,7 @@ func unwrapHint(expr string) string {
 	return fmt.Sprintf("\n-e takes the expression itself: -e '%s'", strings.TrimSpace(inner))
 }
 
-// loadDefinition leaves code directives in place: a code string is opaque to inference.
+// loadDefinition leaves typed directives in place: a resolved string is opaque to inference.
 // specs/source-resolution.md §"Why the placeholder is sound".
 func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	files, err := definitionPaths(files)
@@ -218,7 +218,7 @@ func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	if err != nil {
 		fatal("%v", err)
 	}
-	// The STRUCTURAL phase moves types, so it must run; the code phase shells out and moves none.
+	// The STRUCTURAL phase moves types, so it must run; the typed phase shells out and moves none.
 	// A malformed config is fatal: swallowed, it surfaces as a decode error in the definition.
 	cfg, err := sources.FindProjectConfig(filepath.Dir(files[0]))
 	if err != nil {

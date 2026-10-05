@@ -79,7 +79,7 @@ so it can't drift.
 
 ## Generated types
 
-Run `genctl types` and this setup will also generate `Input` and `Output` types for the `greet.ts` script.
+Run `genctl generate` and this setup will also write `Input` and `Output` types for the `greet.ts` script.
 
 This way the script input and output is tied to the current `input` and `result_schema` defined in process.
 Genroc will fail if those types don't match.
@@ -90,7 +90,7 @@ Genroc expects default import to be function and it will pass input as a first a
 It will take it's output as a result.
 
 ```ts
-// `Input` and `Output` are written beside this file by `genctl types`, and by every apply.
+// `Input` and `Output` are written beside this file by `genctl generate`, and by every apply.
 import type { Input, Output } from "./greet.genroc";
 
 export default function (input: Input): Output {
@@ -110,7 +110,7 @@ definitions: ["./definitions/**/*.genroc.yaml"]
 
 resolvers:
   - name: import
-    phase: code
+    phase: typed
     ext: [.ts]
     command: [npx, genroc-import]
     # Slot addresses the generated `Input` and `Output` are typed from, relative to the task.
