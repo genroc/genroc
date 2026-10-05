@@ -14,7 +14,6 @@ interface Props {
 }
 
 const { title, description, slug, headings } = Astro.props
-const hasToc = headings.some((h) => h.depth === 2 || h.depth === 3)
 const trail = await crumbs(slug)
 const { prev, next } = await neighbours(slug)
 ---
@@ -24,7 +23,7 @@ const { prev, next } = await neighbours(slug)
     <summary>navigation</summary>
     <Sidebar current={slug} />
   </details>
-  <div class={`shell${hasToc ? '' : ' no-toc'}`}>
+  <div class="shell">
     <Sidebar current={slug} />
     {/* Runs before first paint so the view transition's incoming snapshot is already scrolled.
         Recentering on every load would jump the menu under a click, so the previous scroll is

@@ -280,10 +280,6 @@ summary:focus-visible {
   align-items: start;
 }
 
-.shell.no-toc {
-  grid-template-columns: var(--sidebar) minmax(0, 1fr);
-}
-
 .sidebar,
 .toc {
   position: sticky;
@@ -1013,7 +1009,8 @@ footer {
   .shell {
     grid-template-columns: var(--sidebar) minmax(0, 1fr);
   }
-  .toc {
+  .toc,
+  .toc-space {
     display: none;
   }
 }

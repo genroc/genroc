@@ -9,8 +9,10 @@ const { headings } = Astro.props
 const shown = headings.filter((h) => h.depth === 2 || h.depth === 3)
 ---
 
+{/* An empty page keeps the column so the content sits where it does elsewhere; it is not a
+    .toc, so the view transition still slides the real one in. */}
 {
-  shown.length > 0 && (
+  shown.length > 0 ? (
     <aside class="toc">
       <h2>on this page</h2>
       <ul>
@@ -82,5 +84,7 @@ const shown = headings.filter((h) => h.depth === 2 || h.depth === 3)
         })()
       </script>
     </aside>
+  ) : (
+    <div class="toc-space" />
   )
 }
