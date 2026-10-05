@@ -68,7 +68,7 @@ type resolverConfig struct {
 	Phase string `yaml:"phase" json:"phase" enum:"typed,structural" description:"What the resolver may do. \"typed\" fills a slot with text and runs after inference, with types in hand; \"structural\" fills a slot or spreads a mapping with any value and runs before it, so it is handed no types."`
 	// Ext is a list of accepted SUFFIXES, not extensions: `.genroc.yaml` has to be
 	// expressible and filepath.Ext answers `.yaml` for it. Empty accepts anything.
-	Ext []string `yaml:"ext" json:"ext,omitempty" description:"Argument suffixes this resolver accepts (\".ts\", \".genroc.yaml\"). Whole suffixes, not extensions; empty accepts anything."`
+	Ext []string `yaml:"ext" json:"ext,omitempty" description:"Suffixes the argument's first word may end with (\".ts\", \".genroc.yaml\"). Whole suffixes, not extensions; empty accepts anything, no argument included."`
 	// Command is absent exactly for a built-in, which runs inside genctl. A file entry
 	// without one is refused when the config is read.
 	Command []string `yaml:"command" json:"command" description:"The resolver binary and its arguments, run from this file's directory with the manifest on stdin."`
@@ -87,10 +87,9 @@ type projectConfig struct {
 	Resolvers []resolverConfig `yaml:"resolvers" json:"resolvers,omitempty" description:"Source resolvers, tried in order and taken first-match on name and suffix; the built-in \"process\" is appended last, so listing one under that name overrides it."`
 }
 
-// matchResolver returns the first entry accepting this name and argument. nameKnown separates the
+// matchResolver returns the first entry accepting this name and first word. nameKnown separates the
 // two failures a caller words differently: an unknown name, or no entry accepting the suffix.
-func (c projectConfig) matchResolver(name, argument string) (idx int, nameKnown, ok bool) {
-	lower := strings.ToLower(argument)
+func (c projectConfig) matchResolver(name string, args []string) (idx int, nameKnown, ok bool) {
 	for i, r := range c.Resolvers {
 		if r.Name != name {
 			continue
@@ -99,6 +98,10 @@ func (c projectConfig) matchResolver(name, argument string) (idx int, nameKnown,
 		if len(r.Ext) == 0 {
 			return i, true, true
 		}
+		if len(args) == 0 {
+			continue
+		}
+		lower := strings.ToLower(args[0])
 		for _, ext := range r.Ext {
 			if strings.HasSuffix(lower, strings.ToLower(ext)) {
 				return i, true, true
@@ -172,8 +175,9 @@ type site struct {
 	// Pointer is keys and indices, not an RFC 6901 string: no `~0`/`~1` to unescape, and key
 	// "0" stays distinct from index 0.
 	Pointer []any `json:"pointer"`
-	// Argument is everything after `$<resolver>:`, verbatim; genctl does not interpret it.
-	Argument string `json:"argument"`
+	// Args is the argument's words (defdoc.SplitArgs). genctl reads only the first, for `ext`, and
+	// never as a path: a resolver may take a URL, a package or nothing.
+	Args []string `json:"args"`
 	// Types are the fragments this resolver asked for, keyed by the name it chose.
 	Types map[string]any `json:"types,omitempty"`
 
@@ -284,8 +288,8 @@ func findProjectConfig(dir string) (projectConfig, error) {
 
 // ── finding sites ──────────────────────────────────────────────────────────────
 
-// findSites walks every document for directive leaves. The argument passes on VERBATIM: genctl
-// neither resolves nor stats it.
+// findSites walks every document for directive leaves. An argument passes on as its words: genctl
+// neither resolves nor stats them.
 func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	var out []site
 	for i, sd := range docs {
@@ -312,23 +316,31 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 				if !isDirective {
 					return nil
 				}
-				// `ext` asserts a suffix on the ARGUMENT, so a `.py` handed to the TypeScript
+				at := renderPointer(slotPointer(sd.Value, loc))
+				args, err := defdoc.ArgValues(argument)
+				if err != nil {
+					return fmt.Errorf("%s: %s: %q: %w", sd.File, at, v, err)
+				}
+				// `ext` asserts a suffix on the FIRST word, so a `.py` handed to the TypeScript
 				// toolchain fails here with a sentence rather than inside `tsc`.
-				idx, nameKnown, ok := cfg.matchResolver(resolver, argument)
+				idx, nameKnown, ok := cfg.matchResolver(resolver, args)
 				if !nameKnown {
 					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s (write $$%s: to keep it as text)",
-						sd.File, renderPointer(slotPointer(sd.Value, loc)), resolver, projectConfigName, resolver)
+						sd.File, at, resolver, projectConfigName, resolver)
+				}
+				if !ok && len(args) == 0 {
+					return fmt.Errorf("%s: %s: resolver %q takes a %s file, and the directive names none",
+						sd.File, at, resolver, cfg.acceptedBy(resolver))
 				}
 				if !ok {
 					return fmt.Errorf("%s: %s: resolver %q accepts %s files, but %q is not one",
-						sd.File, renderPointer(slotPointer(sd.Value, loc)), resolver,
-						cfg.acceptedBy(resolver), argument)
+						sd.File, at, resolver, cfg.acceptedBy(resolver), args[0])
 				}
 				s := site{
 					Resolver:    resolver,
 					Process:     name,
 					Pointer:     slotPointer(sd.Value, loc),
-					Argument:    argument,
+					Args:        args,
 					loc:         append([]any(nil), loc...),
 					docIdx:      i,
 					resolverIdx: idx,

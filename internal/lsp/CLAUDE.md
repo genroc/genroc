@@ -295,9 +295,14 @@ gave it. Four things to keep:
   left UNFILTERED: an empty list while someone is typing reads as a server that does not work.
 - **A directory that does not exist yet still claims the position** (an empty list, not a
   miss). Falling through would offer the action's remaining KEYS in the middle of a path.
-- **An EMPTY argument is offered paths**, which `looksLikePath` alone cannot cover: there is
+- **An EMPTY first word is offered paths**, which `looksLikePath` alone cannot cover: there is
   no meaning yet to invent, and without it the first keystroke has to be guessed blind —
-  `$process: ` answered with nothing at all. Type a name and the offer stops.
+  `$process: ` answered with nothing at all. Type a name and the offer stops. A later empty
+  word is not: it is a parameter as often as a path.
+- **The word is `defdoc.SplitArgs`'s**, over the RAW line up to the cursor, so the editor
+  completes what genctl will hand over. What it inserts must split back to the name: quoted
+  where it holds a blank, and a file closes a `'` left open. The range starts after the last
+  `/` (and a `'` there), or the editor filters `'./my` against `my file.ts` and shows nothing.
 - **A relative insert carries its `./`.** Explicit is clearer, and a bare name is the one
   spelling a resolver may read as something that is not a path — so what is offered must not
   produce one. Only where the typed text has no directory part; `./` already written is not

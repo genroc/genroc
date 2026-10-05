@@ -25,9 +25,9 @@ type Site = {
   child?: string;
   // The slot as a path of keys and indices, so nothing has to unescape a JSON Pointer.
   pointer: (string | number)[];
-  // Everything after `$<resolver>:`, verbatim. genctl does not read it as a path — that is
-  // this resolver's reading of it.
-  argument: string;
+  // The argument's words, split as sh splits single quotes. genctl does not read them as paths —
+  // that is this resolver's reading of them.
+  args: string[];
   // What .genroc asked genctl to type, keyed by the name it chose. This resolver reads Input
   // and Output; which ADDRESS each came from is the config's business, not ours.
   types?: Record<string, Schema>;
@@ -400,11 +400,16 @@ function address(pointer: (string | number)[]): string {
     .replace(/^\./, "");
 }
 const located: Located[] = manifest.processes.flatMap((where) =>
-  where.sites.map((site) => ({
-    site,
-    where,
-    file: resolve(where.dir, site.argument),
-  })),
+  where.sites.map((site) => {
+    const [script, ...rest] = site.args;
+    if (script === undefined || rest.length > 0) {
+      die(
+        `${join(where.dir, where.file)}: ${address(site.pointer)}: $import takes one script, ` +
+          `and is given ${site.args.length} arguments`,
+      );
+    }
+    return { site, where, file: resolve(where.dir, script) };
+  }),
 );
 
 // The `code`-field contract is this resolver's, not genctl's, so it checks the directive landed
@@ -427,7 +432,7 @@ for (const at of located) {
   if (!existsSync(at.file)) {
     die(
       `${join(at.where.dir, at.where.file)}: ${address(at.site.pointer)}: ` +
-        `"$import: ${at.site.argument}" names no file (looked at ${at.file})`,
+        `"$import: ${at.site.args[0]}" names no file (looked at ${at.file})`,
     );
   }
 }

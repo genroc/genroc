@@ -125,6 +125,23 @@ test("a spread cycle is refused by path, though a recursive CALL is ordinary", (
   expect(r.stderr).toContain("self.genroc.yaml");
 });
 
+test("$process takes exactly one file, and a second word is refused by name", () => {
+  const { parent: path } = project(['      <<: "$process: ./child.genroc.yaml extra"', "      input: { n: '$: input.n' }"]);
+  const r = runCli(bin, ["schema", "type", "spread-parent", "output", "--json", "-f", path], OFFLINE);
+  expect(r.ok, "a word $process does not read must not be dropped in silence").toBe(false);
+  expect(r.stderr).toContain("$process takes one file, and is given 2 arguments");
+});
+
+test("$process reads a quoted path as one word", () => {
+  const { dir } = project([]);
+  writeFileSync(join(dir, "my child.genroc.yaml"), CHILD, "utf8");
+  const p = join(dir, "quoted.genroc.yaml");
+  writeFileSync(p, parent([`      <<: "$process: './my child.genroc.yaml'"`, "      input: { n: '$: input.n' }"]), "utf8");
+  const r = runCli(bin, ["schema", "type", "spread-parent", "tasks.call.action.result", "--json", "-f", p], OFFLINE);
+  expect(r.stderr).toBe("");
+  expect(JSON.parse(r.stdout).properties).toHaveProperty("doubled");
+});
+
 test("`<<` with a value that is not a directive stays the parse error it always was", () => {
   const { parent: path } = project(["      <<: nope", "      name: spread-child"]);
   const r = runCli(bin, ["schema", "type", "spread-parent", "output", "--json", "-f", path], OFFLINE);

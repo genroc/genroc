@@ -32,7 +32,7 @@ const m = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 writeFileSync(new URL("./manifest.json", import.meta.url), JSON.stringify(m, null, 2));
 const values = [];
 for (const p of m.processes)
-  for (const s of p.sites) values.push(readFileSync(resolve(p.dir, s.argument), "utf8").trim());
+  for (const s of p.sites) values.push(readFileSync(resolve(p.dir, s.args[0]), "utf8").trim());
 process.stdout.write('{"values":[' + values.join(",") + "]}");
 `;
 
@@ -88,7 +88,7 @@ test("the manifest is the typed phase's, with no types", () => {
   expect(m.processes).toHaveLength(1);
   expect(m.processes[0]).toMatchObject({ name: "frag-manifest", dir: p.dir, file: "proc.genroc.yaml" });
   expect(m.processes[0].sites).toEqual([
-    { level: "process", pointer: ["input_schema"], argument: "./input.json" },
+    { level: "process", pointer: ["input_schema"], args: ["./input.json"] },
   ]);
   expect(m.processes[0], "there is nothing to type before inference has run").not.toHaveProperty("$defs");
 });
@@ -179,7 +179,7 @@ test("one call carries every site that named the resolver, and each is filled", 
   expect(resolved(JSON.parse(r.stdout)).properties).toHaveProperty("n");
   const sites = p.manifest().processes[0].sites;
   expect(sites).toHaveLength(2);
-  expect(sites.map((s: { argument: string }) => s.argument).sort()).toEqual(["./config.json", "./input.json"]);
+  expect(sites.map((s: { args: string[] }) => s.args[0]).sort()).toEqual(["./config.json", "./input.json"]);
 });
 
 test("an answer with the wrong number of values is refused, not spliced by position", () => {

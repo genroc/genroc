@@ -33,6 +33,8 @@ beforeAll(async () => {
   writeFileSync(join(dir, "notes.md"), "# notes\n", "utf8");
   // A dotfile that DOES pass the suffix filter, so only the dot rule can hide it.
   writeFileSync(join(dir, ".hidden.genroc.yaml"), "name: hidden\ntasks: []\n", "utf8");
+  mkdirSync(join(dir, "quoted", "my dir"), { recursive: true });
+  writeFileSync(join(dir, "quoted", "my dir", "my script.ts"), "export const x = 1\n", "utf8");
   mkdirSync(join(dir, "sub"), { recursive: true });
   writeFileSync(join(dir, "sub", "nested.genroc.yaml"), "name: nested\ntasks: []\n", "utf8");
   lsp = await Lsp.start();
@@ -222,4 +224,63 @@ test("a path naming no file is not clickable", async () => {
 test("a non-path argument is not clickable", async () => {
   const d = doc('      <<: "$process: lodash"');
   expect(await lsp.definition(at('      <<: "$process: <^lodash>"', d))).toBe("");
+});
+
+// The argument is split as sh splits single quotes (defdoc.SplitArgs): the editor completes the
+// word the resolver will be given, and writes what splits back to the name it offered.
+
+test("a later word that is a path is completed too, but unfiltered: ext reads the first only", async () => {
+  const d = doc('      result_schema: "$bundle: ./worker.ts ./"');
+  const labels = await lsp.completions(at('      result_schema: "$bundle: ./worker.ts ./<|>"', d));
+  expect(labels).toContain("notes.md");
+});
+
+test("a later EMPTY word offers nothing: it is a parameter as often as a path", async () => {
+  const d = doc('      result_schema: "$bundle: ./worker.ts "');
+  const labels = await lsp.completions(at('      result_schema: "$bundle: ./worker.ts <|>"', d));
+  expect(labels).not.toContain("notes.md");
+});
+
+test("a name with a space is written quoted, so it stays one word", async () => {
+  const d = doc('      result_schema: "$bundle: ./quoted/"');
+  const items = await lsp.completionItems(at('      result_schema: "$bundle: ./quoted/<|>"', d));
+  expect(inserted(items, "my dir/")).toBe("'my dir'/");
+});
+
+test("inside an open quote a folder is written as it is, and the quote stays open", async () => {
+  const d = doc(`      result_schema: "$bundle: './quoted/my"`);
+  const items = await lsp.completionItems(at(`      result_schema: "$bundle: './quoted/<^my>"`, d));
+  expect(inserted(items, "my dir/")).toBe("my dir/");
+});
+
+test("inside an open quote a file closes it", async () => {
+  const d = doc(`      result_schema: "$bundle: './quoted/my dir/"`);
+  const items = await lsp.completionItems(at(`      result_schema: "$bundle: './quoted/my dir/<|>"`, d));
+  expect(inserted(items, "my script.ts"), "the open ' must close, or the next word joins this one").toBe("my script.ts'");
+});
+
+test("a quote already closed after the cursor is not closed twice", async () => {
+  const d = doc(`      result_schema: "$bundle: './quoted/my dir/'"`);
+  const items = await lsp.completionItems(at(`      result_schema: "$bundle: './quoted/my dir/<|>'"`, d));
+  expect(inserted(items, "my script.ts")).toBe("my script.ts");
+});
+
+test("an open quote with nothing typed starts the path inside it", async () => {
+  const d = doc(`      result_schema: "$bundle: '"`);
+  const items = await lsp.completionItems(at(`      result_schema: "$bundle: '<|>"`, d));
+  expect(inserted(items, "worker.ts")).toBe("./worker.ts'");
+});
+
+test("in a YAML single-quoted directive, nothing that needs our quotes is offered", async () => {
+  const d = doc("      result_schema: '$bundle: ./quoted/'");
+  const labels = await lsp.completions(at("      result_schema: '$bundle: ./quoted/<|>'", d));
+  // YAML writes our ' as '' there; a completion inserting one would end the scalar.
+  expect(labels).not.toContain("my dir/");
+});
+
+test("a quoted path with words after it is clickable", async () => {
+  const d = doc(`      result_schema: "$bundle: './quoted/my dir/my script.ts' --dry"`);
+  const target = await lsp.definition(at(`      result_schema: "$bundle: './quoted/my dir/<^my> script.ts' --dry"`, d));
+  // A URI percent-encodes the space; the file is the same.
+  expect(decodeURIComponent(target)).toBe("my script.ts:1");
 });

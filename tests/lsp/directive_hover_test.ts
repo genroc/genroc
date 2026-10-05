@@ -22,7 +22,7 @@ for await (const c of process.stdin) chunks.push(c);
 const m = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 const values = [];
 for (const p of m.processes)
-  for (const s of p.sites) values.push(JSON.parse(readFileSync(resolve(p.dir, s.argument), "utf8")));
+  for (const s of p.sites) values.push(JSON.parse(readFileSync(resolve(p.dir, s.args[0]), "utf8")));
 process.stdout.write(JSON.stringify({ values }));
 `;
 

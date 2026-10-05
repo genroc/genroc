@@ -65,11 +65,15 @@ func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack [
 				return nil, fmt.Errorf("structural resolver %q has no command and is not one genctl answers itself", rc.Name)
 			}
 			for _, s := range group {
+				if len(s.Args) != 1 {
+					return nil, fmt.Errorf("%s: %s: $%s takes one file, and is given %d arguments",
+						docs[s.docIdx].File, renderPointer(s.Pointer), builtinProcess, len(s.Args))
+				}
 				here, err := filepath.Abs(docs[s.docIdx].File)
 				if err != nil {
 					return nil, err
 				}
-				value, err := resolveProcessDirective(docs[s.docIdx].File, s.Argument, append(stack, here))
+				value, err := resolveProcessDirective(docs[s.docIdx].File, s.Args[0], append(stack, here))
 				if err != nil {
 					return nil, fmt.Errorf("%s: %s: %w", docs[s.docIdx].File, renderPointer(s.Pointer), err)
 				}
@@ -124,7 +128,12 @@ func refuseNestedStructural(file string, cfg projectConfig, rc resolverConfig, s
 			if !ok {
 				return nil
 			}
-			if idx, _, ok := cfg.matchResolver(name, argument); ok && cfg.Resolvers[idx].Phase == phaseStructural {
+			args, err := defdoc.ArgValues(argument)
+			if err != nil {
+				return fmt.Errorf("%s: %s: resolver %q answered with the directive %q: %w",
+					file, renderPointer(path), rc.Name, t, err)
+			}
+			if idx, _, ok := cfg.matchResolver(name, args); ok && cfg.Resolvers[idx].Phase == phaseStructural {
 				return fmt.Errorf("%s: %s: resolver %q answered with the structural directive %q, which is never "+
 					"resolved: structural resolution is one pass, so return the resolved value instead",
 					file, renderPointer(path), rc.Name, t)

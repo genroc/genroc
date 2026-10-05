@@ -5,6 +5,7 @@ package lsp
 // changes what a resolver accepts. specs/source-resolution.md.
 
 import (
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,18 +20,44 @@ import (
 // two rules, which keep `$:`, `${` and a `$a:b` routing target out.
 var directiveArgRe = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_-]*):[ \t]+`)
 
-// directiveArgAt reads the directive argument the cursor sits in: the resolver's name, the text
-// typed so far, and the 1-based byte column that text starts at.
-func directiveArgAt(src string, col int) (name, typed string, from int, ok bool) {
+// argWord is the word of a directive's argument the cursor is in, as typed up to the cursor.
+type argWord struct {
+	name  string // the resolver
+	index int    // which word: `ext` filters only the first
+	value string // after quote removal
+	raw   string // as written, quotes included
+	col   int    // 1-based byte column where raw starts
+	open  bool   // inside a ' that is not closed yet
+	// yamlSingle: the directive is a YAML single-quoted scalar, where a ' of ours is written ''.
+	yamlSingle bool
+}
+
+// directiveWordAt splits the argument up to the cursor with defdoc.SplitArgs, the rule genctl
+// splits by, so the word offered is the word a resolver will be given.
+func directiveWordAt(src string, col int) (argWord, bool) {
 	for _, m := range directiveArgRe.FindAllStringSubmatchIndex(src, -1) {
 		start := m[1] // just past `$name:` and its spaces
 		end := argEnd(src)
 		if end < start || col-1 < start || col-1 > end {
 			continue
 		}
-		return src[m[2]:m[3]], src[start : col-1], start + 1, true
+		typed := src[start : col-1]
+		words, err := defdoc.SplitArgs(typed)
+		var argErr *defdoc.ArgError
+		if err != nil && !(errors.As(err, &argErr) && argErr.Unterminated) {
+			return argWord{}, false
+		}
+		w := argWord{name: src[m[2]:m[3]], open: err != nil, yamlSingle: m[0] > 0 && src[m[0]-1] == '\''}
+		if !w.open && (len(words) == 0 || words[len(words)-1].End < len(typed)) {
+			// The cursor is past a blank: a new word starts here.
+			w.index, w.col = len(words), col
+			return w, true
+		}
+		last := words[len(words)-1]
+		w.index, w.value, w.raw, w.col = len(words)-1, last.Value, typed[last.Start:], start+last.Start+1
+		return w, true
 	}
-	return "", "", 0, false
+	return argWord{}, false
 }
 
 // argEnd is where a directive's argument stops on the raw line: before trailing space, and
@@ -52,19 +79,23 @@ func looksLikePath(typed string) bool {
 		strings.HasPrefix(typed, "../")
 }
 
-// offersPaths adds an EMPTY argument to looksLikePath: there is no meaning yet to invent.
-func offersPaths(typed string) bool {
-	return typed == "" || looksLikePath(typed)
+// offersPaths adds an EMPTY first word to looksLikePath: there is no meaning yet to invent. A
+// later empty word is a parameter as often as a path, so it waits for one.
+func offersPaths(w argWord) bool {
+	return (w.index == 0 && w.value == "") || looksLikePath(w.value)
 }
+
+// needsQuote: what SplitArgs would split or refuse unquoted.
+func needsQuote(name string) bool { return strings.ContainsAny(name, " \t\"\\") }
 
 // directivePathValues offers the files and folders that could continue the path being typed.
 func directivePathValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
-	name, typed, from, ok := directiveArgAt(src, col)
-	if !ok || !offersPaths(typed) {
+	w, ok := directiveWordAt(src, col)
+	if !ok || !offersPaths(w) || (w.yamlSingle && strings.Contains(w.raw, "'")) {
 		return nil, false
 	}
-	dir, base := path.Split(typed)
+	dir, base := path.Split(w.value)
 	// Offer `./name`, never a bare name: a resolver may read that as something other than a path.
 	prefix := ""
 	if dir == "" {
@@ -76,8 +107,22 @@ func directivePathValues(text, file string, line, col int) ([]completionItem, bo
 		// different answer — claim the position so the key list is not offered instead.
 		return []completionItem{}, true
 	}
-	suffixes, known := suffixesFor(file, name)
-	replaceFrom := from + len(dir)
+	var suffixes []string
+	known := false
+	if w.index == 0 {
+		suffixes, known = suffixesFor(file, w.name)
+	}
+	// The name part begins after the last `/`, which is literal quoted or not, and after a quote
+	// opening there; the range starts there so the editor filters by the name alone.
+	nameAt := 0
+	if i := strings.LastIndexByte(w.raw, '/'); i >= 0 {
+		nameAt = i + 1
+	}
+	if nameAt < len(w.raw) && w.raw[nameAt] == '\'' {
+		nameAt++
+	}
+	replaceFrom := w.col + nameAt
+	closed := col-1 < len(src) && src[col-1] == '\''
 
 	out := []completionItem{}
 	for _, e := range entries {
@@ -85,11 +130,16 @@ func directivePathValues(text, file string, line, col int) ([]completionItem, bo
 		if strings.HasPrefix(e.Name(), ".") && !strings.HasPrefix(base, ".") {
 			continue
 		}
+		// A ' cannot be written inside our quotes, nor any quote inside YAML's single ones.
+		if strings.Contains(e.Name(), "'") || (w.yamlSingle && needsQuote(e.Name())) {
+			continue
+		}
 		if e.IsDir() {
 			out = append(out, completionItem{
 				Label: e.Name() + "/", Kind: kindFolder, Detail: "folder",
 				// No trailing space and no colon: a folder is a step, not an answer.
-				insert: prefix + e.Name() + "/", SortText: "0" + e.Name(), replaceFrom: replaceFrom,
+				insert: prefix + quoted(e.Name(), w.open, true, closed) + "/", SortText: "0" + e.Name(),
+				replaceFrom: replaceFrom,
 			})
 			continue
 		}
@@ -97,11 +147,26 @@ func directivePathValues(text, file string, line, col int) ([]completionItem, bo
 			continue
 		}
 		out = append(out, completionItem{
-			Label: e.Name(), Kind: kindFile, Detail: name,
-			insert: prefix + e.Name(), SortText: "1" + e.Name(), replaceFrom: replaceFrom,
+			Label: e.Name(), Kind: kindFile, Detail: w.name,
+			insert: prefix + quoted(e.Name(), w.open, false, closed), SortText: "1" + e.Name(),
+			replaceFrom: replaceFrom,
 		})
 	}
 	return out, true
+}
+
+// quoted writes a name so SplitArgs reads it back: inside an open quote as it is, closed after a
+// file unless the quote is closed already; outside one, quoted only if it must be. A folder stays
+// open, since the path goes on.
+func quoted(name string, open, folder, closed bool) string {
+	switch {
+	case open && !folder && !closed:
+		return name + "'"
+	case open || !needsQuote(name):
+		return name
+	default:
+		return "'" + name + "'"
+	}
 }
 
 // suffixesFor reads the accepted suffixes from the project's `.genroc`. A name no resolver carries
@@ -146,10 +211,14 @@ func directiveFileAt(doc *defdoc.Doc, docPath, file string) (string, bool) {
 		return "", false
 	}
 	_, argument, ok := defdoc.Directive(leaf)
-	if !ok || !looksLikePath(argument) {
+	if !ok {
 		return "", false
 	}
-	target := resolveDir(argument, file)
+	args, err := defdoc.ArgValues(argument)
+	if err != nil || len(args) == 0 || !looksLikePath(args[0]) {
+		return "", false
+	}
+	target := resolveDir(args[0], file)
 	if _, err := os.Stat(target); err != nil {
 		return "", false
 	}

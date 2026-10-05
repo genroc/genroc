@@ -10,13 +10,14 @@ namespace.
 
 ## The editor's guess about a path
 
-An argument reaches its resolver **verbatim**; genroc never treats it as a path. The editor guesses,
-shell-style (`internal/lsp/paths.go`): an argument that is empty or begins `/`, `./` or `../` is
-offered files and folders, inserted with a `./` prefix where no directory is typed (a bare name may
+An argument reaches its resolver **as words** (§Directive syntax); genroc never treats one as a
+path. The editor guesses, shell-style (`internal/lsp/paths.go`), word by word: an empty first word,
+or one that begins `/`, `./` or `../`, is offered files and folders, inserted with a `./` prefix where no directory is typed (a bare name may
 be read as something that is not a path). Anything else may be a package, URL or key, and is left
 alone. A lone `.` does not qualify: it is a completion trigger, so every typed dot would list a
-directory. The suffix filter is the registry's own (`sources.Suffixes`), so it cannot disagree with
-`matchResolver`. A name the registry lacks is left unfiltered, because an empty list mid-typing
+directory. The suffix filter is the registry's own (`sources.Suffixes`), applied to the first word as
+`matchResolver` applies it. A name is written so it splits back to itself: quoted where it holds a
+blank, and closing a `'` left open. A name the registry lacks is left unfiltered, because an empty list mid-typing
 reads as a broken server.
 
 Hover on a structural directive shows the value it yields, as YAML, from
@@ -97,9 +98,10 @@ resolvers:
 ```
 
 - **`resolvers` is ordered.** A directive takes the first entry whose name matches AND whose `ext`
-  accepts the argument. Order is what lets a local entry override a built-in with no rule of its
+  accepts the first word. Order is what lets a local entry override a built-in with no rule of its
   own (§Built-in, and overridable).
-- **`ext` is a list of whole suffixes**, and an empty list accepts anything. They are suffixes
+- **`ext` is a list of whole suffixes on the FIRST word**, and an empty list accepts anything,
+  no words included. Words after the first are the resolver's parameters. They are suffixes
   rather than extensions because `filepath.Ext` answers `.yaml` for `x.genroc.yaml`.
 - **The name dispatches; `ext` only narrows within it.** `import` and `infer` both take `.ts`, so
   suffix-first dispatch would have no answer. `ext` is an assertion: a `.py` handed to a name that
@@ -125,8 +127,16 @@ resolvers:
     code: "$import: ./summarize.ts"
 
 The form is `"$<resolver>: <argument>"`, where the name starts with a letter (`defdoc.Directive`).
-A relative argument is relative to the file the directive is in. `$$import: …` is a literal
-(§Escaping on the way IN).
+The argument may be empty (`"$now:"`). A relative path is relative to the file the directive is in.
+`$$import: …` is a literal (§Escaping on the way IN).
+
+**The argument is split into words as sh splits single quotes, and nothing else**
+(`defdoc.SplitArgs`): blanks separate, `'…'` is literal and joins what touches it, so
+`'./my file.sql' dialect=pg` is two words. `"` and `\` are refused outside single quotes rather
+than read as text, so moving to sh's full quoting later changes no directive's meaning. Nothing
+expands: `$`, `~`, `*` and `#` are ordinary. A literal `'` cannot be written. In YAML, quote the
+directive with `"…"`, since inside `'…'` YAML spells our `'` as `''`. `TestSplitArgsAgreesWithSh`
+checks the split against `/bin/sh`.
 
 **The space after the colon is part of the form.** `$` is also the routing sigil, so without it
 `goto: $a:b` reads as a directive named `a`. It also keeps `$scheme://host` a string. Task ids are C
@@ -221,7 +231,7 @@ stdin:
           "level": "action",                 // process | task | action
           "task": "summarize", "action": "child", "child": "script-node",
           "pointer": ["tasks", "summarize", "action", "input", "code"],
-          "argument": "./summarize.ts",                        // verbatim
+          "args": ["./summarize.ts"],                          // the argument's words
           "types": {                                           // what `types` in .genroc asked for
             "Input":  { "$ref": "#/$defs/input" },
             "Output": { "type": "object", "properties": { "fee": { "type": "number" } },
@@ -242,7 +252,8 @@ sites within each). A non-zero exit aborts the apply, with stderr as the diagnos
 - **`mode` is whether genctl uses the answer**, never the phase, which the resolver's own entry
   fixes. A structural resolver always gets `resolve`, even under `genctl generate`, because
   inference needs its answer.
-- **`argument` is verbatim.** It is not a path, since a resolver may take a URL or a package name.
+- **`args` are words, never paths**, since a resolver may take a URL, a package name or nothing
+  (`[]`, never `null`).
   `dir` is absolute because one call spans directories, and it is what a relative argument joins
   to. A missing file is the resolver's to report; genctl checks only `ext`. There is no `root`,
   because the cwd is the root.
@@ -325,7 +336,7 @@ Registered as if `.genroc` ended with:
 
 It has no `command` because it runs in genctl. `.genroc.yaml` is what `genctl init` writes and
 every example uses, so the assertion catches a path to a script, or to YAML that is not a
-definition.
+definition. It takes exactly one word, and refuses a second rather than drop it.
 
 **`genctl schema` and the editor run the structural phase and not the typed phase.** A structural
 resolver moves the types they report. A typed resolver splices a string, which moves nothing, and

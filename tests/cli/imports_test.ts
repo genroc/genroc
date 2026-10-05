@@ -47,7 +47,7 @@ const REPO = new URL("../../", import.meta.url).pathname;
 const OFFLINE = { GENROC_SERVER: "http://127.0.0.1:1" };
 
 /** A resolver that echoes each site's file and dumps the manifest for inspection. It JOINS the
- *  argument to its process's directory, because genctl passes the argument verbatim. */
+ *  first arg to its process's directory, because genctl does not read args as paths. */
 const ECHO_RESOLVER = `
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -61,7 +61,7 @@ if (m.mode === "generate") {
 }
 const code = [];
 for (const p of m.processes)
-  for (const s of p.sites) code.push(readFileSync(resolve(p.dir, s.argument), "utf8"));
+  for (const s of p.sites) code.push(readFileSync(resolve(p.dir, s.args[0]), "utf8"));
 process.stdout.write(JSON.stringify({ values: code }));
 `;
 
@@ -178,7 +178,7 @@ test("apply — the manifest carries the inferred input type and the declared ou
   expect(site.pointer).toEqual(["tasks", "call", "action", "body", "code"]);
   expect(site.level, "which namespace it sits in").toBe("action");
   expect(site.action, "what the site IS, beside where it is").toBe("fetch");
-  expect(site.argument, "verbatim: genctl does not read it as a path").toBe("./body.txt");
+  expect(site.args, "as written: genctl does not read it as a path").toEqual(["./body.txt"]);
 
   // `Action` is inferred (`amount` from the input schema); `Output` is responses.200 verbatim.
   const defs = m.processes[0].$defs;
@@ -323,7 +323,7 @@ test("apply — a relative -f path still leaves the resolver a base it can join"
   // `dir` travels absolute: the resolver's cwd is the project root, not what -f was relative to.
   expect(runCli(bin, ["apply", "-f", relative(process.cwd(), def)]).ok).toBe(true);
   const proc = p.manifest().processes[0];
-  expect(proc.sites[0].argument).toBe("./snippet.txt");
+  expect(proc.sites[0].args).toEqual(["./snippet.txt"]);
   expect(proc.dir).toBe(p.dir);
   expect(proc.file).toBe("proc.yaml");
 
@@ -410,6 +410,73 @@ test("apply — a missing file is the resolver's to refuse", () => {
   expect(existsSync(join(p.dir, "manifest.json"))).toBe(true);
   const rows = JSON.parse(runCli(bin, ["definitions", "--json"]).stdout) as { name: string }[];
   expect(rows.some((r) => r.name === name)).toBe(false);
+});
+
+/** One task whose output slot holds the directive leaf given, written as a YAML double-quoted scalar. */
+function oneSlot(p: Project, leaf: string): string {
+  return p.write(
+    "proc.yaml",
+    [`name: ${uid("import")}`, "tasks:", "  - id: t", "    output:", `      code: "${leaf}"`, "    switch: [{ goto: end }]", ""].join("\n"),
+  );
+}
+
+test("args — a quoted word is one arg, and the words after it reach the resolver too", () => {
+  const p = echoProject();
+  p.write("my body.txt", "spaced");
+  const def = oneSlot(p, "$import: './my body.txt' mode=raw");
+  const r = runCli(bin, ["apply", "--check-only", "-f", def]);
+  expect(r.ok, r.stderr).toBe(true);
+  expect(p.manifest().processes[0].sites[0].args).toEqual(["./my body.txt", "mode=raw"]);
+});
+
+test("args — ext checks the first word, so parameters after the file pass it", () => {
+  const p = project(`resolvers:\n  - { name: import, phase: typed, ext: [.txt], command: [node, echo.mjs] }\n`);
+  p.write("body.txt", "x");
+  expect(runCli(bin, ["apply", "--check-only", "-f", oneSlot(p, "$import: ./body.txt mode=raw")]).ok).toBe(true);
+
+  const swapped = runCli(bin, ["apply", "--check-only", "-f", oneSlot(p, "$import: mode=raw ./body.txt")]);
+  expect(swapped.ok, "ext must read the first word, not any word").toBe(false);
+  expect(swapped.stderr).toContain('accepts .txt files, but "mode=raw" is not one');
+});
+
+test("args — a malformed argument is refused where it is written", () => {
+  const p = echoProject();
+  p.write("body.txt", "x");
+  for (const [leaf, says] of [
+    ["$import: './body.txt", "unterminated ' quote"],
+    ["$import: ./my\\\\ body.txt", "reserved outside single quotes"],
+  ]) {
+    const r = runCli(bin, ["apply", "--check-only", "-f", oneSlot(p, leaf)]);
+    expect(r.ok, `${leaf} must be refused, not split some other way`).toBe(false);
+    expect(r.stderr).toContain(says);
+    expect(r.stderr).toContain("tasks.t.output.code");
+  }
+});
+
+test("args — a directive with no argument reaches its resolver as args: []", () => {
+  const p = project(`resolvers:\n  - { name: now, phase: typed, command: [node, now.mjs] }\n`);
+  p.write(
+    "now.mjs",
+    [
+      'import { writeFileSync } from "node:fs";',
+      "const chunks = [];",
+      "for await (const c of process.stdin) chunks.push(c);",
+      'const m = JSON.parse(Buffer.concat(chunks).toString("utf8"));',
+      'writeFileSync(new URL("./manifest.json", import.meta.url), JSON.stringify(m));',
+      'process.stdout.write(JSON.stringify({ values: m.processes.flatMap((p) => p.sites.map(() => "NOW")) }));',
+      "",
+    ].join("\n"),
+  );
+  const r = runCli(bin, ["apply", "--check-only", "-f", oneSlot(p, "$now:")]);
+  expect(r.ok, r.stderr).toBe(true);
+  expect(p.manifest().processes[0].sites[0].args, "never null: a resolver indexes it").toEqual([]);
+});
+
+test("args — an entry with ext refuses a directive that names no file", () => {
+  const p = project(`resolvers:\n  - { name: import, phase: typed, ext: [.txt], command: [node, echo.mjs] }\n`);
+  const r = runCli(bin, ["apply", "--check-only", "-f", oneSlot(p, "$import:")]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain('resolver "import" takes a .txt file, and the directive names none');
 });
 
 test("apply — a typed resolver that answers a non-string is refused", () => {
@@ -875,6 +942,20 @@ test("evaluator importer — generates declarations keyed by the script's path",
   expect(decls).toContain("amount");
   expect(decls).toContain("export type Output =");
   expect(decls).toContain("fee: number");
+}, 60_000);
+
+test("evaluator importer — takes one script: a quoted path works, a second word is refused", () => {
+  const p = tsProject();
+  p.write("my fee.ts", "export default async () => ({ fee: 1 });\n");
+  const quoted = p.write("quoted.yaml", scriptDef(uid("script"), "'./my fee.ts'"));
+  const ok = runCli(bin, ["generate", "-f", quoted]);
+  expect(ok.ok, ok.stderr).toBe(true);
+  expect(readFileSync(join(p.dir, "my fee.genroc.d.ts"), "utf8")).toContain("export type Input =");
+
+  const extra = p.write("extra.yaml", scriptDef(uid("script"), "'./my fee.ts' --minify"));
+  const r = runCli(bin, ["generate", "-f", extra]);
+  expect(r.ok, "a word the importer does not read must not be dropped in silence").toBe(false);
+  expect(r.stderr).toContain("$import takes one script, and is given 2 arguments");
 }, 60_000);
 
 test("evaluator importer — a nested object is indented at its depth", () => {

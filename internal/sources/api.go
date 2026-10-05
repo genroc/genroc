@@ -120,7 +120,7 @@ func CollapseAliases(pool map[string]any, docs ...any) { collapseAliases(pool, d
 
 // Suffixes reports the argument suffixes a resolver accepts, and whether any entry has the name;
 // an empty list with ok=true accepts anything. For editor suggestions only, never for acceptance:
-// the resolver still takes the argument verbatim.
+// the resolver still takes whatever words it is given.
 func Suffixes(c Config, name string) ([]string, bool) {
 	var out []string
 	known := false
