@@ -26,6 +26,29 @@ const { prev, next } = await neighbours(slug)
   </details>
   <div class={`shell${hasToc ? '' : ' no-toc'}`}>
     <Sidebar current={slug} />
+    {/* Runs before first paint so the view transition's incoming snapshot is already scrolled.
+        Recentering on every load would jump the menu under a click, so the previous scroll is
+        kept while the current item stays in view. */}
+    <script is:inline>
+      ;(function () {
+        const side = document.querySelector('.shell > .sidebar')
+        const cur = side && side.querySelector('a[aria-current="page"]')
+        if (!side || !cur || !side.clientHeight) return
+        try {
+          side.scrollTop = Number(sessionStorage.getItem('sidebar-scroll')) || 0
+        } catch (_) {}
+        const s = side.getBoundingClientRect()
+        const c = cur.getBoundingClientRect()
+        if (c.top < s.top || c.bottom > s.bottom) {
+          side.scrollTop += c.top - s.top - (side.clientHeight - c.height) / 2
+        }
+        addEventListener('pagehide', function () {
+          try {
+            sessionStorage.setItem('sidebar-scroll', String(side.scrollTop))
+          } catch (_) {}
+        })
+      })()
+    </script>
     <main>
       <div class="prose">
         <div class="page-head">

@@ -53,6 +53,16 @@ const shown = headings.filter((h) => h.depth === 2 || h.depth === 3)
             if (current) current.a.removeAttribute('aria-current')
             active.a.setAttribute('aria-current', 'location')
             current = active
+            follow(active.a)
+          }
+
+          // Scrolls the toc box itself; scrollIntoView would also move the page being read.
+          const toc = document.querySelector('.toc')
+          function follow(a) {
+            const t = toc.getBoundingClientRect()
+            const r = a.getBoundingClientRect()
+            if (r.top >= t.top && r.bottom <= t.bottom) return
+            toc.scrollTop += r.top - t.top - (toc.clientHeight - r.height) / 2
           }
 
           let queued = false

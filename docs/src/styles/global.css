@@ -290,7 +290,7 @@ summary:focus-visible {
   top: 3.5rem;
   max-height: calc(100vh - 4rem);
   overflow-y: auto;
-  padding: 1.75rem 0;
+  padding: 1.75rem 0 4rem;
   font-size: 0.9em;
 }
 
