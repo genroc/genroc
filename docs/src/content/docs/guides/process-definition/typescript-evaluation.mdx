@@ -35,7 +35,7 @@ tasks. You can take this as an example implementation of
 
 
 
-## Example process
+### Example process
 
 The example process will look something like this:
 
@@ -74,23 +74,13 @@ output: "$: outputs.greet"
 We are using two kinds of resolvers. `$process:` is build in documented in [child process section](./child-processes.mdx#importing-child-process).
 Then we have `$import: ./greet.ts`, this is a special resolver intended for importing typescript files.
 
-The content of the file is bundled with rollup into one string and included directly into the process definition,
-so it can't drift.
-
-## Generated types
-
-Run `genctl generate` and this setup will also write `Input` and `Output` types for the `greet.ts` script.
-
-This way the script input and output is tied to the current `input` and `result_schema` defined in process.
-Genroc will fail if those types don't match.
-
-## The script format
+### The script format
 
 Genroc expects default import to be function and it will pass input as a first argument.
 It will take it's output as a result.
 
 ```ts
-// `Input` and `Output` are written beside this file by `genctl generate`, and by every apply.
+// greet.ts
 import type { Input, Output } from "./greet.genroc";
 
 export default function (input: Input): Output {
@@ -99,6 +89,40 @@ export default function (input: Input): Output {
 ```
 
 The bundler will also include any imported files and imported libraries.
+
+### How does it work?
+
+The content of the `.ts` file is bundled with rollup into one string and included directly into the process definition,
+so it can't drift.
+
+The `script-node` child process exposes external task `eval_node`, which is then picked up by `node-eval` worker.
+`node-eval` is running in a separate container and it uses genroc worker API to poll for work.
+
+### What if the script fails
+
+`script-node` child process raises different errors in different situations.
+
+| Code | Kind | When | `error.data` |
+| --- | --- | --- | --- |
+| `script_threw` | raise | the script threw or its promise rejected | `{name, stack?}` |
+| `script_timeout` | raise | the script ran past `timeout_ms` (default 5000) | `{budget_ms}` |
+| `script_unknown` | raise | no worker answered within 30s: none is running, or one died holding the task | — |
+| `script_broken` | panic | the script does not compile, returns a value that is not JSON, or calls `process.exit()` | `{name, stack?}` |
+
+The raises are copied into your task by `<<: "$process: ./script-node.genroc.yaml"`, so `on_error`
+can match them directly. `script_broken` is a panic and cannot be caught: it fails the caller and
+every process above it, because the only fix is editing the script.
+
+Set `e.name` on an error you throw (`e.name = "LimitExceeded"`) to tell your own failures apart by
+`error.data.name`.
+
+
+### Generated types
+
+Run `genctl generate` and this setup will also write `Input` and `Output` types for the `greet.ts` script.
+
+This way the script input and output is tied to the current `input` and `result_schema` defined in process.
+Genroc will fail if those types don't match.
 
 ## Custom resolvers
 
