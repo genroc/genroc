@@ -145,9 +145,9 @@ for really long tasks).
 ### Resolving the task
 
 After the work is finished, use the `/resolve` endpoint with the token
-from the claim. The resolve endpoint is different from a signal, because it can only
-be used with a previously claimed task, and it requires the instance to be waiting for
-the result.
+from the claim. Unlike a signal, which waits in a queue until a task asks for it, a resolve
+answers exactly the task its token names, so it is refused once that task is answered or the
+instance has moved past it. It is accepted while the instance is running, paused or pausing.
 
 ### Releasing the lease
 

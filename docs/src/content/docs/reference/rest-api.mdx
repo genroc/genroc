@@ -14,7 +14,7 @@ not move when the API namespace does.
 ## The document
 
 The endpoint list is generated from the server's own action registry, so it cannot drift from
-what is served. This site publishes it at [`/openapi.json`](/openapi.json), and a running
+what is served. This site publishes it at [`openapi.json`](../../openapi.json), and a running
 server serves the same document at `/public/openapi.json` with a browsable UI at
 `/public/docs`.
 
@@ -44,9 +44,10 @@ genroc accepts exactly two credentials, both on `Authorization: Bearer`:
 | an opaque `genroc_sk_*` | machines — CI, workers, apps, `genctl` | issues it, and verifies it |
 | a signed JWT | people, through genroc-ui | verifies only — never issues, never refreshes |
 
-Nothing else is an identity: no trusted headers, no cookies, no client certificates. A
-deployment configures genroc to accept its identity provider's tokens, and that configuration
-is the whole integration.
+Nothing else is an identity: no trusted headers, no cookies, no client certificates. genroc
+never talks to an identity provider: genroc-ui signs people in and mints the JWT, and genroc
+only checks it against the secret the two share (`--jwt-secret-file`, see the
+[server reference](server.md)).
 
 The default is `--auth none`, which handles no `Authorization` at all and leaves every endpoint
 open. That is fine on a laptop and nowhere else — `PUT /definitions` is arbitrary code

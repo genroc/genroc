@@ -151,8 +151,10 @@ You can call it from `on_error` and `switch` blocks.
 
 ## Raise
 
-Raise is similar to panic, but it sends the process into the non-retryable `raised` state.
-A process which raised an error cannot be retried.
+Raise is similar to panic, but it ends the process in the `raised` state: a condition for the
+caller to decide about, not a defect. A raised process is never retried itself. Under a parent,
+`retry` on the parent re-spawns it from scratch; a raised root is answered by starting a new
+instance.
 
 ```genroc
   on_error:

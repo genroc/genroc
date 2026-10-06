@@ -106,8 +106,8 @@ genctl pause @last
 
 This will pause the instance if it's running. The instance can then be resumed by the `resume` command with the same syntax.
 
-The `pause` command waits for running workers in the `pausing` status, so no worker is forcefully
-interrupted and no work is repeated.
+`pause` returns at once. An instance a worker is executing goes to `pausing` and becomes `paused`
+when that task finishes, so no worker is forcefully interrupted and no work is repeated.
 
 Pause/resume operates strictly within the definition boundaries (they never add a retry),
 so you can use them as you like without changing the instance's behavior. The only caveat is that timers

@@ -48,14 +48,17 @@ that is not an identifier. Navigating through a null yields null rather than fai
 
 ## What a slot can read
 
-Four names are in scope everywhere in a task:
+Three names are in scope everywhere in a task, and a fourth only where an error edge leads:
 
 | Name | Holds |
 | --- | --- |
 | `input` | the instance's input, conformed once at creation |
 | `outputs.<task id>` | what a task published, for every task on the path taken |
 | `config` | the config variables, re-resolved from the environment on every tick |
-| `last_error` | the error that routed control here from another task's `on_error` |
+| `last_error` | the error that routed control here from another task's `on_error` — only in a task an error edge enters, and gone once it moves on |
+
+Reading `last_error` anywhere else is refused at registration. To carry the failure further,
+put it in the handler's output.
 
 `self` names the task itself, and its three members come into existence at different points
 along the task's own timeline — so a slot may only read the ones that exist by the time it is
