@@ -14,6 +14,12 @@ import (
 // Config is a project's resolver registry, read from the nearest `.genroc`.
 type Config = projectConfig
 
+// Manifest is what a resolver reads on stdin, and Reply what it writes to stdout.
+type (
+	Manifest = manifest
+	Reply    = resolverReply
+)
+
 // Doc is one definition document with the file it came from -- a directive's path resolves
 // against that file, and an error has to name it.
 type Doc = sourceDoc

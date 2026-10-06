@@ -215,6 +215,9 @@ genroc's interpolation applied to it.
 
 genctl makes one call per resolver entry per apply, carrying every site that named it: N scripts
 must not mean N `tsc` runs. The subprocess runs in the project root (the `.genroc` directory).
+Field by field, the contract is the generated Resolver protocol reference page and
+`resolver-manifest.json` / `resolver-reply.json` (`make docs-reference`, `make docs-schema`), from
+the `description` tags in `internal/sources`. This section keeps the reasons.
 
 stdin:
 
@@ -264,7 +267,6 @@ sites within each). A non-zero exit aborts the apply, with stderr as the diagnos
 - **`level`, plus `action` and `child` only at `level: "action"`.** A `switch` case belongs to the
   task, so naming the action's type there would describe a slot the directive is not in. `task` is
   absent at `level: "process"`.
-- **Sites nest under their process**, and only processes that have sites appear.
 - **`$defs` is narrowed to what the fragments reach.** Refs survive because a task output may
   reference itself, but a definition that is only a `$ref` collapses into what it names
   (schema-command.md §4).

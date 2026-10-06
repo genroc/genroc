@@ -13,6 +13,8 @@ func main() {
 	out := flag.String("o", "openapi.json", `OpenAPI output path ("-" for stdout, "" to skip)`)
 	schemaOut := flag.String("schema", "", `process-definition JSON Schema output path ("-" for stdout, "" to skip)`)
 	configOut := flag.String("config-schema", "", `.genroc project-config JSON Schema output path ("-" for stdout, "" to skip)`)
+	manifestOut := flag.String("manifest-schema", "", `resolver manifest JSON Schema output path ("-" for stdout, "" to skip)`)
+	replyOut := flag.String("reply-schema", "", `resolver reply JSON Schema output path ("-" for stdout, "" to skip)`)
 	cliRef := flag.String("cli-reference", "", `directory to write the genctl reference pages into ("" to skip)`)
 	httpRef := flag.String("http-reference", "", `directory to write the HTTP endpoint reference pages into ("" to skip)`)
 	defRef := flag.String("definition-reference", "", `directory to write the definition-language reference pages into ("" to skip)`)
@@ -28,6 +30,8 @@ func main() {
 	write(*out, api.Spec)
 	write(*schemaOut, api.ProcessSchema)
 	write(*configOut, defschema.Config)
+	write(*manifestOut, defschema.Manifest)
+	write(*replyOut, defschema.Reply)
 
 	if *cliRef != "" {
 		if err := writeCLIReference(*cliRef, *genctl); err != nil {

@@ -17,16 +17,18 @@ import (
 // The names an author knows these by. A schema `$def` is named after the Go type that produced
 // it, which is an implementation detail nobody writing YAML has any reason to learn.
 var defTitles = map[string]string{
-	"ModelTask":             "Task",
-	"ModelAction":           "Action",
-	"ModelShape":            "Shape",
-	"ModelSwitchMap":        "Switch",
-	"ModelErrorCase":        "Error rule",
-	"ModelFault":            "Fault",
-	"ModelRetry":            "Retry",
-	"SchemaSchema":          "JSON Schema",
-	"SchemaDefs":            "JSON Schema map",
-	"SourcesResolverConfig": "Resolver",
+	"ModelTask":              "Task",
+	"ModelAction":            "Action",
+	"ModelShape":             "Shape",
+	"ModelSwitchMap":         "Switch",
+	"ModelErrorCase":         "Error rule",
+	"ModelFault":             "Fault",
+	"ModelRetry":             "Retry",
+	"SchemaSchema":           "JSON Schema",
+	"SchemaDefs":             "JSON Schema map",
+	"SourcesResolverConfig":  "Resolver",
+	"SourcesManifestProcess": "Process",
+	"SourcesSite":            "Site",
 }
 
 const processSchemaNote = "the process-definition schema"
@@ -362,37 +364,75 @@ func cell(s string) string {
 }
 
 // writeConfigReference renders `.genroc` under Configuration, not beside the language: it
-// configures the tooling, and nothing in it reaches a definition.
+// configures the tooling, and nothing in it reaches a definition. The resolver protocol goes
+// beside it, being what a `command` there is run with.
 func writeConfigReference(dir string) error {
-	var root jsonSchema
-	if err := json.Unmarshal(defschema.Config(), &root); err != nil {
-		return fmt.Errorf("parse the generated config schema: %w", err)
+	config, err := parseSchema(defschema.Config(), "config")
+	if err != nil {
+		return err
 	}
-	defs, _ := root["$defs"].(map[string]any)
-	resolver, _ := defs["SourcesResolverConfig"].(map[string]any)
-	if len(resolver) == 0 {
-		return fmt.Errorf("the config schema carries no resolver definition")
+	manifest, err := parseSchema(defschema.Manifest(), "manifest")
+	if err != nil {
+		return err
 	}
-
-	page := defPage{
-		title: "Project file", slug: "project-file", order: 5,
-		blurb: "`.genroc`, a project's configuration file.",
-		from:  "the .genroc config schema",
-		sections: []defSection{
-			{title: "Keys", fields: fieldsOf(root)},
-			{title: "Resolver", intro: "One entry of `resolvers`.", fields: fieldsOf(resolver)},
+	reply, err := parseSchema(defschema.Reply(), "reply")
+	if err != nil {
+		return err
+	}
+	pages := []defPage{
+		{
+			title: "Project file", slug: "project-file", order: 5,
+			blurb: "`.genroc`, a project's configuration file.",
+			from:  "the .genroc config schema",
+			sections: []defSection{
+				{title: "Keys", fields: fieldsOf(config)},
+				{title: "Resolver", intro: "One entry of `resolvers`.", fields: fieldsOf(defOf(config, "SourcesResolverConfig"))},
+			},
 		},
-	}
-	if len(page.sections[0].fields) == 0 || len(page.sections[1].fields) == 0 {
-		return fmt.Errorf("the project-file page came out empty; the config schema's shape changed")
+		{
+			title: "Resolver protocol", slug: "resolver-protocol", order: 6,
+			blurb: "What genctl sends a resolver on stdin, and what it reads back.",
+			from:  "the resolver manifest and reply schemas",
+			sections: []defSection{
+				{title: "Manifest", intro: "genctl runs a resolver's `command` once per entry, from the `.genroc` directory, " +
+					"with every site naming it in one manifest on stdin. A non-zero exit fails the command, " +
+					"with stderr as the message. As JSON Schema: [resolver-manifest.json](../../resolver-manifest.json).",
+					fields: fieldsOf(manifest)},
+				{title: "Process", intro: "One entry of `processes`.", fields: fieldsOf(defOf(manifest, "SourcesManifestProcess"))},
+				{title: "Site", intro: "One entry of `sites`: a directive naming this resolver.", fields: fieldsOf(defOf(manifest, "SourcesSite"))},
+				{title: "Reply", intro: "What the resolver writes to stdout on success. As JSON Schema: " +
+					"[resolver-reply.json](../../resolver-reply.json).", fields: fieldsOf(reply)},
+			},
+		},
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, page.slug+".md")
-	if err := os.WriteFile(path, []byte(renderDefPage(page, page.order)), 0644); err != nil {
-		return err
+	for _, page := range pages {
+		for _, sec := range page.sections {
+			if len(sec.fields) == 0 {
+				return fmt.Errorf("%s: section %q came out empty; its schema's shape changed", page.slug, sec.title)
+			}
+		}
+		path := filepath.Join(dir, page.slug+".md")
+		if err := os.WriteFile(path, []byte(renderDefPage(page, page.order)), 0644); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "wrote %s (%d)\n", path, len(page.sections))
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s (%d)\n", path, len(page.sections))
 	return nil
+}
+
+func parseSchema(b []byte, what string) (jsonSchema, error) {
+	var root jsonSchema
+	if err := json.Unmarshal(b, &root); err != nil {
+		return nil, fmt.Errorf("parse the generated %s schema: %w", what, err)
+	}
+	return root, nil
+}
+
+func defOf(root jsonSchema, name string) jsonSchema {
+	defs, _ := root["$defs"].(map[string]any)
+	def, _ := defs[name].(map[string]any)
+	return def
 }

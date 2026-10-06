@@ -156,6 +156,7 @@ type sourceDoc struct {
 
 // site is one directive occurrence. The exported fields are the manifest's; loc is how
 // splice finds the slot again, and is why nothing re-walks the document to apply the result.
+// The `description` tags are the resolver protocol's reference page -- genrocspec TestEveryFieldIsDescribed.
 type site struct {
 	// Off the wire: the manifest goes only to that resolver and nests sites under their
 	// process. The pass still needs both, to group sites and pick their types.
@@ -163,23 +164,19 @@ type site struct {
 	Process  string `json:"-"`
 	// resolverIdx is the ENTRY that matched, not just its name: one name may carry several
 	// entries with different suffixes and different commands, and each is its own batch.
-	resolverIdx int `json:"-"`
-	// Level is which namespace the directive sits in — `process`, `task` or `action` — so a
-	// resolver that must know where it landed does not parse the pointer for it.
-	Level string `json:"level"`
-	Task  string `json:"task,omitempty"`
-	// Facts about the site, not steps in its address, set only AT action level: a switch case
-	// is not in the action, so naming its type would describe the wrong thing.
-	Action string `json:"action,omitempty"`
-	Child  string `json:"child,omitempty"`
-	// Pointer is keys and indices, not an RFC 6901 string: no `~0`/`~1` to unescape, and key
-	// "0" stays distinct from index 0.
-	Pointer []any `json:"pointer"`
-	// Args is the argument's words (defdoc.SplitArgs). genctl reads only the first, for `ext`, and
-	// never as a path: a resolver may take a URL, a package or nothing.
-	Args []string `json:"args"`
-	// Types are the fragments this resolver asked for, keyed by the name it chose.
-	Types map[string]any `json:"types,omitempty"`
+	resolverIdx int    `json:"-"`
+	Level       string `json:"level" enum:"process,task,action" description:"Which namespace the directive sits in, so a resolver need not parse pointer to know where it landed."`
+	Task        string `json:"task,omitempty" description:"The id of the task the directive is in. Absent at level process."`
+	// Set only AT action level: a switch case is not in the action, so naming its type would
+	// describe the wrong thing.
+	Action string `json:"action,omitempty" description:"The action's type. Only at level action."`
+	Child  string `json:"child,omitempty" description:"The process the action spawns. Only at level action, on an action that names one."`
+	// Keys and indices, not an RFC 6901 string: no `~0`/`~1` to unescape, and key "0" stays
+	// distinct from index 0.
+	Pointer []any `json:"pointer" description:"Where the directive is: keys and array indices from the definition's root, a task named by its id rather than its index. Where the slot has a type, this is its genctl schema type address."`
+	// genctl reads only the first word, for `ext`, and never as a path.
+	Args  []string       `json:"args" description:"The argument's words (blanks separate them, '...' quotes one literally). Not paths: a resolver may take a URL, a package name or nothing, which is []."`
+	Types map[string]any `json:"types,omitempty" description:"What this resolver's types entry asked for, by the name it gave each: a JSON Schema whose $ref points into the process's $defs, or null where nothing is at that address. Absent for a structural resolver."`
 
 	loc    []any
 	docIdx int
@@ -188,23 +185,23 @@ type site struct {
 	ord int
 }
 
+// manifest is what a resolver reads on stdin. specs/source-resolution.md §The manifest.
 type manifest struct {
-	Mode string `json:"mode"`
-	// One entry per process that has a site, in the order the files were read. Sites nest under
-	// the process they are in, so nothing has to be joined by name.
-	Processes []manifestProcess `json:"processes"`
+	Mode string `json:"mode" enum:"resolve,generate" description:"Whether genctl uses the reply. \"generate\" (genctl generate, typed resolvers only) reads none, so a resolver may skip the work behind it and only write its files; answering anyway is still correct."`
+	// Sites nest under their process, so nothing has to be joined by name.
+	Processes []manifestProcess `json:"processes" description:"One entry per definition with a site for this resolver, in the order the files were read. The reply answers every site, in this order."`
 }
 
 // manifestProcess is one definition's sites, with `$defs` narrowed to what their fragments reach;
 // a `$ref` survives because a task output may reference itself.
 type manifestProcess struct {
-	Name string `json:"name"`
-	// Dir and File are the definition's own location, split because a relative argument is
-	// relative to the DIRECTORY: joining is the resolver's to do, and it needs the base.
-	Dir   string         `json:"dir"`
-	File  string         `json:"file"`
-	Sites []site         `json:"sites"`
-	Defs  map[string]any `json:"$defs,omitempty"`
+	Name string `json:"name" description:"The definition's name."`
+	// Split from File because a relative argument is relative to the DIRECTORY: joining is the
+	// resolver's to do, and it needs the base.
+	Dir   string         `json:"dir" description:"The definition's directory, absolute: what a relative argument joins to. One call can span several directories, so the resolver's working directory (the .genroc directory) is not it."`
+	File  string         `json:"file" description:"The definition's file name, within dir."`
+	Sites []site         `json:"sites" description:"The directives in this definition that name this resolver."`
+	Defs  map[string]any `json:"$defs,omitempty" description:"The definitions the sites' types reach, and no others. Absent when they reach none, and for a structural resolver."`
 }
 
 // flatten is the order `code` answers in: processes as they appear, sites within each as they
@@ -220,7 +217,7 @@ func (m manifest) flatten() []site {
 // resolverReply is either phase's answer: one value per site, parallel to the manifest. Raw so a
 // structural splice keeps a number exact (specs/number-precision.md).
 type resolverReply struct {
-	Values []json.RawMessage `json:"values"`
+	Values []json.RawMessage `json:"values" description:"One value per site, in the manifest's order: processes as listed, then sites within each. A typed resolver answers strings; a structural one answers any JSON value, and a mapping where the directive is a spread."`
 }
 
 // ── project config ─────────────────────────────────────────────────────────────

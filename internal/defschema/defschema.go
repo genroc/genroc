@@ -45,8 +45,13 @@ func Config() []byte {
 	return withoutNull(reflectSchema(sources.Config{}, "configSchema"))
 }
 
+// Manifest returns the JSON Schema of what a resolver reads on stdin; Reply, of what it writes.
+func Manifest() []byte { return withoutNull(reflectSchema(sources.Manifest{}, "manifestSchema")) }
+
+func Reply() []byte { return withoutNull(reflectSchema(sources.Reply{}, "replySchema")) }
+
 // The reflector makes a non-omitempty slice nullable, and nothing in a `.genroc` may be null.
-// Config only: the process schema's nullability is pinned against the server by its own tests.
+// Not the process schema: its nullability is pinned against the server by its own tests.
 func withoutNull(b []byte) []byte {
 	var root map[string]any
 	if err := json.Unmarshal(b, &root); err != nil {

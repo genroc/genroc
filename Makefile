@@ -126,7 +126,8 @@ script-runner:
 # `# yaml-language-server: $schema=` comment resolves with no genroc running. Generated,
 # never committed: it is a projection of internal/model.
 docs-schema:
-	$(BUILD_FLAGS) go run ./cmd/genrocspec -o docs/public/openapi.json --schema docs/public/process-schema.json --config-schema docs/public/config-schema.json
+	$(BUILD_FLAGS) go run ./cmd/genrocspec -o docs/public/openapi.json --schema docs/public/process-schema.json --config-schema docs/public/config-schema.json \
+		--manifest-schema docs/public/resolver-manifest.json --reply-schema docs/public/resolver-reply.json
 
 # The generated half of the reference. Needs built genctl and genroc binaries: their help text is
 # the source, and a genctl flag is only registered once its command is running. Generated pages are gitignored --

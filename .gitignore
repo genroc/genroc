@@ -28,6 +28,8 @@ openapi.json
 /docs/public/swagger/swagger-ui*.css
 /docs/public/process-schema.json
 /docs/public/config-schema.json
+/docs/public/resolver-manifest.json
+/docs/public/resolver-reply.json
 /docs/src/content/docs/reference/cli/
 /docs/src/content/docs/reference/rest-api/
 /docs/src/content/docs/reference/*.md
