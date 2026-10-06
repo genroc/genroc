@@ -133,6 +133,29 @@ test("script task — a throw is caught by its own code, and the definition rais
   expect(data?.error_code).toBe("limit_exceeded");
 });
 
+test("script task — error.data.name is the error's class unless the script names it", async () => {
+  for (const [label, thrown, want] of [
+    ["a custom class", "class LimitExceeded extends Error {}; throw new LimitExceeded('x');", "LimitExceeded"],
+    ["a set name over the class", "class A extends Error { name = 'Chosen' }; throw new A('x');", "Chosen"],
+    ["a set name on a plain Error", "const e = new Error('x'); e.name = 'Tagged'; throw e;", "Tagged"],
+    ["a plain Error", "throw new Error('x');", "Error"],
+    ["a built-in", "null.x;", "TypeError"],
+    ["a non-Error", "throw { code: 'x' };", "Thrown"],
+  ] as const) {
+    const tasks = [
+      {
+        ...scriptTask(`export default function () { ${thrown} }`),
+        on_error: [{ code: ["threw"], goto: "$failed" }],
+        switch: [{ goto: "end" }],
+      },
+      { id: "failed", output: { name: "$: last_error.data.name" }, switch: [{ goto: "end" }] },
+    ];
+    const { status, data } = await run(`script_name_${crypto.randomUUID()}`, tasks);
+    expect(status, label).toBe("completed");
+    expect((data?.state?.outputs as any)?.failed?.name, `${label}: a caller matches on this name`).toBe(want);
+  }
+});
+
 // No default export is compile_error too: nothing ran, and only editing the script helps.
 test("script task — compile_error, nonserializable and exited are distinct codes", async () => {
   for (const [label, code, want] of [

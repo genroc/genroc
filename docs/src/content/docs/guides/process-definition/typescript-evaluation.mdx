@@ -113,8 +113,9 @@ The raises are copied into your task by `<<: "$process: ./script-node.genroc.yam
 can match them directly. `script_broken` is a panic and cannot be caught: it fails the caller and
 every process above it, because the only fix is editing the script.
 
-Set `e.name` on an error you throw (`e.name = "LimitExceeded"`) to tell your own failures apart by
-`error.data.name`.
+`error.data.name` is the thrown error's class name (`class LimitExceeded extends Error {}` gives
+`LimitExceeded`), unless the script sets `e.name = "MyName"` to override it. Throwing something
+that is not an `Error` gives `Thrown`.
 
 
 ### Generated types

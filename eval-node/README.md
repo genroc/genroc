@@ -114,8 +114,9 @@ match. Retrying does not help with any of them, because the same code fails the 
 | `nonserializable` | the return value cannot be serialized to JSON (a cycle, a `BigInt`) |
 | `exited` | the script called `process.exit()` |
 
-`error.data` is `{name, stack?}`. Set `e.name = "LimitExceeded"` in the script to tell your
-own failures apart. The stack is mapped back to your source lines.
+`error.data` is `{name, stack?}`. `name` is the error's class name, so throwing your own
+`class LimitExceeded extends Error {}` tells your failures apart; setting `e.name` overrides it,
+and a thrown non-`Error` is `Thrown`. The stack is mapped back to your source lines.
 
 If the worker itself faults, it releases the task for another worker and reports no error.
 

@@ -35,7 +35,10 @@ function scriptStack(err: unknown): string | undefined {
 
 function describe(err: unknown, kind: FailureKind): EvalFailure {
   if (err instanceof Error) {
-    return { kind, name: err.name, message: err.message, stack: scriptStack(err) };
+    // A subclass inherits `name` from Error.prototype, so `class LimitExceeded extends Error {}`
+    // would report "Error"; a name the script set still wins.
+    const name = err.name === "Error" && err.constructor.name ? err.constructor.name : err.name;
+    return { kind, name, message: err.message, stack: scriptStack(err) };
   }
   // A script may throw a non-Error (`throw {code: "x"}`), so name/message must not assume one.
   return { kind, name: "Thrown", message: safeText(err) };
