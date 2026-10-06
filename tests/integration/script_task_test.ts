@@ -57,8 +57,7 @@ function scriptTask(code: string, extra: Record<string, unknown> = {}) {
       input: { code, ...extra } as Record<string, unknown>,
       result_schema: {} as Record<string, unknown>,
       raises: ALL_KINDS as Record<string, unknown>,
-      // Above the evaluator's own budget, so an overrun comes back classified rather than as
-      // external.timeout — which is unknowable, and so never retryable.
+      // The script's budget too: the worker runs it against this deadline.
       timeout: 20_000,
     },
   };
@@ -175,8 +174,10 @@ test("script task — compile_error, nonserializable and exited are distinct cod
   }
 }, 60_000);
 
-test("script task — a script over its budget reports `timeout`, not external.timeout", async () => {
-  const t = scriptTask("export default () => { while (true) {} };", { timeout_ms: 400 });
+test("script task — a script over the task's timeout reports `timeout`, not external.timeout", async () => {
+  const t = scriptTask("export default () => { while (true) {} };");
+  // Below the evaluator's 5000 default: only a worker budgeting by the deadline answers in time.
+  t.action.timeout = 1_500;
   const tasks = [
     { ...t, on_error: [{ code: ["timeout"], goto: "$slow" }], switch: [{ goto: "end" }] },
     { id: "slow", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },

@@ -109,7 +109,7 @@ match. Retrying does not help with any of them, because the same code fails the 
 | code | when |
 |---|---|
 | `threw` | the script threw or rejected |
-| `timeout` | it ran past `timeout_ms` (default 5000) |
+| `timeout` | it ran past the task's `timeout` (5000 ms when the task has none) |
 | `compile_error` | the module does not parse, or has no default-export function |
 | `nonserializable` | the return value cannot be serialized to JSON (a cycle, a `BigInt`) |
 | `exited` | the script called `process.exit()` |
@@ -120,9 +120,9 @@ and a thrown non-`Error` is `Thrown`. The stack is mapped back to your source li
 
 If the worker itself faults, it releases the task for another worker and reports no error.
 
-Keep the task's `timeout` above `timeout_ms`. Otherwise a slow script ends with
-`external.timeout`, and you cannot tell it from having no worker at all. The `script-node`
-template already does this.
+The task's `timeout` is the script's budget, waiting in the queue included. The worker stops
+the script just before it and answers `timeout`, so `external.timeout` means no worker answered
+at all. With `script-node`, set it through the `timeout_ms` input.
 
 ## Limits
 

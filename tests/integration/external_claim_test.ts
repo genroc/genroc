@@ -333,6 +333,24 @@ test("a lost-claim row does not strand the rest of the batch, and filters isolat
   expect((await outputsOf(lostId)).checked?.code).toBe("external.lost");
 });
 
+test("a claim carries its deadline relative to now, so a worker budgets without the server's clock", async () => {
+  const name = `claim_deadline_${crypto.randomUUID()}`;
+  const tasks = workThenFailed();
+  (tasks[0] as any).action.timeout = "10s";
+  await define(name, tasks);
+  await startInstance(name);
+
+  const [job] = await claimWhenReady("worker-1", name);
+  expect(job.deadline_in_ms, "the task has a timeout, so the claim must say how much of it is left").toBeGreaterThan(0);
+  expect(job.deadline_in_ms).toBeLessThanOrEqual(10_000);
+
+  const plain = `claim_no_deadline_${crypto.randomUUID()}`;
+  await define(plain);
+  await startInstance(plain);
+  const [none] = await claimWhenReady("worker-1", plain);
+  expect(none.deadline_in_ms, "absent means the task waits forever; 0 would read as already due").toBeUndefined();
+});
+
 test("claim filters by process — one worker fleet does not take another's work", async () => {
   const mine = `filter_mine_${crypto.randomUUID()}`;
   const theirs = `filter_theirs_${crypto.randomUUID()}`;

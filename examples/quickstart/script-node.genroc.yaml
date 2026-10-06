@@ -21,7 +21,6 @@ tasks:
       input:
         code: "$: input.code"
         input: "$: input.input"
-        timeout_ms: "$: input.timeout_ms"
       result_schema: {}
       # The codes an evaluator may answer with (eval-node/eval.ts), one arm each below; any
       # other code is refused at submission.
@@ -31,9 +30,9 @@ tasks:
         compile_error: { $ref: "#/$defs/script_error" }
         nonserializable: { $ref: "#/$defs/script_error" }
         exited: { $ref: "#/$defs/script_error" }
-      # Above the evaluator's own budget, so a script that overruns comes back as a classified
-      # `timeout` rather than external.timeout — which is unknowable, and so never retryable.
-      timeout: 30s
+      # The one budget: the worker runs the script against this deadline and answers `timeout`
+      # just before it, so external.timeout means no worker answered at all.
+      timeout: "$: input.timeout_ms"
     output: "$: self.result"
     on_error:
       # Every arm below is a code the worker sent, so the script ran. No retry arm: a faulting

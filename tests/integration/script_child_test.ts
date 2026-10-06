@@ -79,6 +79,18 @@ test("script child — a return value comes back through the wrapper, narrowed b
   expect((data?.state?.outputs as any)?.call).toEqual({ fee: 25 });
 });
 
+test("script child — the caller's timeout_ms is the one budget, and an overrun is script_timeout", async () => {
+  const { status, data } = await callScript(
+    `script_child_timeout_${crypto.randomUUID()}`,
+    "export default () => { while (true) {} };",
+    // Below the evaluator's 5000 default, so a worker ignoring the deadline answers too late and
+    // the caller sees script_unknown instead.
+    { result_schema: {}, input: { code: "export default () => { while (true) {} };", input: {}, timeout_ms: 1_500 } },
+  );
+  expect(status).toBe("failed");
+  expect(data?.error_code, `an overrun must be told apart from no worker at all: ${data?.error_message}`).toBe("script_timeout");
+});
+
 // `script_threw` carries {name, stack} and puts the text on error.message; a declaration that reads
 // the wrong slot yields null rather than the message.
 test("script child — script_threw's name and text both reach a caller that declares it", async () => {

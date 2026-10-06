@@ -95,8 +95,8 @@ The bundler will also include any imported files and imported libraries.
 The content of the `.ts` file is bundled with rollup into one string and included directly into the process definition,
 so it can't drift.
 
-The `script-node` child process exposes external task `eval_node`, which is then picked up by `node-eval` worker.
-`node-eval` is running in a separate container and it uses genroc worker API to poll for work.
+The `script-node` child process exposes external task `eval_node`, which is then picked up by `eval-node` worker.
+`eval-node` is running in a separate container and it uses genroc worker API to poll for work.
 
 ### What if the script fails
 
@@ -106,7 +106,7 @@ The `script-node` child process exposes external task `eval_node`, which is then
 | --- | --- | --- | --- |
 | `script_threw` | raise | the script threw or its promise rejected | `{name, stack?}` |
 | `script_timeout` | raise | the script ran past `timeout_ms` (default 5000) | `{budget_ms}` |
-| `script_unknown` | raise | no worker answered within 30s: none is running, or one died holding the task | — |
+| `script_unknown` | raise | no worker answered within `timeout_ms`: none is running, all are busy, or one died holding the task | — |
 | `script_broken` | panic | the script does not compile, returns a value that is not JSON, or calls `process.exit()` | `{name, stack?}` |
 
 The raises are copied into your task by `<<: "$process: ./script-node.genroc.yaml"`, so `on_error`
@@ -123,7 +123,31 @@ that is not an `Error` gives `Thrown`.
 Run `genctl generate` and this setup will also write `Input` and `Output` types for the `greet.ts` script.
 
 This way the script input and output is tied to the current `input` and `result_schema` defined in process.
-Genroc will fail if those types don't match.
+`genctl apply` will fail if those types don't match.
+
+### Timeouts
+
+You can set timeout for the script:
+
+```genroc
+  - id: greet
+    action:
+      type: child
+      # `name`, `input_schema` and `raises` come from the child
+      <<: "$process: ./script-node.genroc.yaml"
+      input:
+        # script code
+        code: "$import: ./greet.ts"
+        # script input
+        input:
+          who: "$: input.who"
+        timeout_ms: 10_000
+```
+
+`timeout_ms` (default 5000) is the deadline of the whole script task, and the `eval-node` worker
+runs the script against that same deadline. It stops the script just before it and reports
+`script_timeout`; if no worker picks the task up in time, the result is `script_unknown`. Time
+spent waiting in the queue counts toward the budget.
 
 ## Custom resolvers
 

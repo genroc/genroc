@@ -218,14 +218,15 @@ type ExternalTaskResp struct {
 	Process      string         `json:"process"`
 	Version      int            `json:"version"`
 	TaskID       string         `json:"task"`
-	Input        any            `json:"external_input"`          // the task's evaluated input snapshot, under the one name every view spells it
-	ResultSchema *schema.Schema `json:"result_schema,omitempty"` // JSON Schema the submitted result must satisfy
-	Raises       model.Raises   `json:"raises,omitempty"`        // the codes this task accepts on the error channel -> the payload each carries (null = none)
-	WaitingSince string         `json:"waiting_since"`           // RFC3339 park time
-	Objects      []ObjectEntry  `json:"objects,omitempty"`       // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
-	Deadline     string         `json:"deadline,omitempty"`      // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
-	ClaimedBy    string         `json:"claimed_by,omitempty"`    // worker holding a live claim; absent = claimable
-	ClaimExpires string         `json:"claim_expires,omitempty"` // RFC3339 visibility timeout of that claim
+	Input        any            `json:"external_input"`           // the task's evaluated input snapshot, under the one name every view spells it
+	ResultSchema *schema.Schema `json:"result_schema,omitempty"`  // JSON Schema the submitted result must satisfy
+	Raises       model.Raises   `json:"raises,omitempty"`         // the codes this task accepts on the error channel -> the payload each carries (null = none)
+	WaitingSince string         `json:"waiting_since"`            // RFC3339 park time
+	Objects      []ObjectEntry  `json:"objects,omitempty"`        // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
+	Deadline     string         `json:"deadline,omitempty"`       // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
+	DeadlineInMs *int64         `json:"deadline_in_ms,omitempty"` // the same deadline as ms from now, 0 once past: what a worker budgets by, free of clock skew and second rounding
+	ClaimedBy    string         `json:"claimed_by,omitempty"`     // worker holding a live claim; absent = claimable
+	ClaimExpires string         `json:"claim_expires,omitempty"`  // RFC3339 visibility timeout of that claim
 }
 
 // FailureReq is a pointer field, so its PRESENCE discriminates: `result: null` stays an

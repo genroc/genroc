@@ -32,8 +32,11 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		claimExpires = inst.ExternalLeaseExpiresAt.Format(time.RFC3339)
 	}
 	var deadline string
+	var deadlineIn *int64
 	if inst.WakeAt != nil {
 		deadline = inst.WakeAt.Format(time.RFC3339)
+		ms := max(inst.WakeAt.Sub(db.Now()).Milliseconds(), 0)
+		deadlineIn = &ms
 	}
 	// The task input can hold externalized values (a bundle embedded in a definition, once
 	// those become objects), so a queue entry lists them the same way a log entry does.
@@ -52,6 +55,7 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		Raises:       raises,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
 		Deadline:     deadline,
+		DeadlineInMs: deadlineIn,
 		ClaimedBy:    claimedBy,
 		ClaimExpires: claimExpires,
 	}

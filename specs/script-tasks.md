@@ -7,9 +7,10 @@ is [external-task-queue.md](external-task-queue.md) and resolution
 ## Thesis
 
 Running user TypeScript needs **no new engine capability**. A script task is a plain `external`
-task whose input carries a code string (`{code, input, timeout_ms}`); a worker (`eval-node`)
-claims it off the queue, evaluates it, and resolves it with JSON. Lease, retry, `on_error` and
-timeout are the ones already there. The engine gained only `external.lost`; the larger half was
+task whose input carries a code string (`{code, input}`); a worker (`eval-node`) claims it off
+the queue, evaluates it, and resolves it with JSON. Lease, retry, `on_error` and timeout are the
+ones already there: the task's `timeout` is also the script's budget (the claim's
+`deadline_in_ms`), so there is no second one to keep below it. The engine gained only `external.lost`; the larger half was
 the queue under it — claim, visibility timeout, error channel.
 
 - **Not a distinct action type**: plain `external` adds nothing to the engine, at the cost of the

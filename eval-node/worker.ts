@@ -22,6 +22,9 @@ const POLL_MS = Number(process.env.POLL_MS ?? 250);
 // should return its task quickly rather than holding it for the whole budget.
 const LEASE_MS = Number(process.env.LEASE_MS ?? 30_000);
 const RENEW_MS = Math.max(1_000, Math.floor(LEASE_MS / 3));
+// The answer has to land before the task's deadline fires, or a script that overran surfaces as
+// external.timeout ("nobody answered") rather than as its own `timeout`.
+const ANSWER_MARGIN_MS = 250;
 const PROCESS_FILTER = process.env.PROCESS ?? "";
 const TASK_FILTER = process.env.TASK ?? "";
 
@@ -34,6 +37,7 @@ type QueueTask = {
   external_input: unknown;
   objects?: ObjectEntry[];
   raises?: Record<string, unknown>;
+  deadline_in_ms?: number;
 };
 
 // Large values arrive as refs; a bundle is one object per definition version, fetched once.
@@ -106,15 +110,11 @@ async function call(path: string, body: unknown): Promise<{ ok: boolean; status:
 
 /** A task input that is not an EvalRequest is the definition's fault, reported as compile_error:
  *  the nearest permanent kind, since no retry fixes the definition. */
-function asEvalRequest(input: unknown): EvalRequest | string {
+function asEvalRequest(input: unknown, timeoutMs: number | undefined): EvalRequest | string {
   if (typeof input !== "object" || input === null) return "the task input is not an object";
   const r = input as Record<string, unknown>;
   if (typeof r.code !== "string") return "the task input has no `code` string";
-  return {
-    code: r.code,
-    input: r.input,
-    timeout_ms: typeof r.timeout_ms === "number" ? r.timeout_ms : undefined,
-  };
+  return { code: r.code, input: r.input, timeout_ms: timeoutMs };
 }
 
 /** genroc cannot call us, so a cancellation arrives on our own heartbeat and reaches the
@@ -183,6 +183,9 @@ async function answer(token: string, outcome: Record<string, unknown>): Promise<
 }
 
 async function run(job: QueueTask, signal: AbortSignal): Promise<void> {
+  // The task's own timeout is the script's budget. Taken on arrival, because fetching the
+  // objects below spends the same deadline.
+  const due = job.deadline_in_ms === undefined ? undefined : performance.now() + job.deadline_in_ms;
   let resolved: unknown;
   try {
     resolved = await resolveObjects(job);
@@ -193,7 +196,16 @@ async function run(job: QueueTask, signal: AbortSignal): Promise<void> {
     await release(job.token);
     return;
   }
-  const req = asEvalRequest(resolved);
+  let timeoutMs: number | undefined;
+  if (due !== undefined) {
+    timeoutMs = Math.floor(due - performance.now() - ANSWER_MARGIN_MS);
+    if (timeoutMs <= 0) {
+      // Too late to run anything: the deadline fires as external.timeout, which is the truth.
+      await release(job.token);
+      return;
+    }
+  }
+  const req = asEvalRequest(resolved, timeoutMs);
   if (typeof req === "string") {
     await answer(job.token, {
       error: { code: "compile_error", message: req, data: { name: "BadTaskInput" } },

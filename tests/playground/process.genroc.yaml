@@ -31,7 +31,6 @@ tasks:
       <<: "$process: ./script-node.genroc.yaml"
       input:
         code: "$import: ./reading.ts"
-        # Under script-node's 30s, so an overrun arrives as script_timeout, not external.timeout.
         timeout_ms: 20000
         input:
           geo: >
