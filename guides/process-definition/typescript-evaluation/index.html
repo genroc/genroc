@@ -229,8 +229,8 @@ It will take it&#39;s output as a result.</p>
 <h3 id="how-does-it-work">How does it work?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#how-does-it-work"><span></span></a></h3>
 <p>The content of the <code>.ts</code> file is bundled with rollup into one string and included directly into the process definition,
 so it can&#39;t drift.</p>
-<p>The <code>script-node</code> child process exposes external task <code>eval_node</code>, which is then picked up by <code>node-eval</code> worker.
-<code>node-eval</code> is running in a separate container and it uses genroc worker API to poll for work.</p>
+<p>The <code>script-node</code> child process exposes external task <code>eval_node</code>, which is then picked up by <code>eval-node</code> worker.
+<code>eval-node</code> is running in a separate container and it uses genroc worker API to poll for work.</p>
 <h3 id="what-if-the-script-fails">What if the script fails<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-if-the-script-fails"><span></span></a></h3>
 <p><code>script-node</code> child process raises different errors in different situations.</p>
 
@@ -268,7 +268,7 @@ so it can&#39;t drift.</p>
 
 
 
-<table><thead><tr><th>Code</th><th>Kind</th><th>When</th><th><code>error.data</code></th></tr></thead><tbody><tr><td><code>script_threw</code></td><td>raise</td><td>the script threw or its promise rejected</td><td><code>{name, stack?}</code></td></tr><tr><td><code>script_timeout</code></td><td>raise</td><td>the script ran past <code>timeout_ms</code> (default 5000)</td><td><code>{budget_ms}</code></td></tr><tr><td><code>script_unknown</code></td><td>raise</td><td>no worker answered within 30s: none is running, or one died holding the task</td><td>—</td></tr><tr><td><code>script_broken</code></td><td>panic</td><td>the script does not compile, returns a value that is not JSON, or calls <code>process.exit()</code></td><td><code>{name, stack?}</code></td></tr></tbody></table>
+<table><thead><tr><th>Code</th><th>Kind</th><th>When</th><th><code>error.data</code></th></tr></thead><tbody><tr><td><code>script_threw</code></td><td>raise</td><td>the script threw or its promise rejected</td><td><code>{name, stack?}</code></td></tr><tr><td><code>script_timeout</code></td><td>raise</td><td>the script ran past <code>timeout_ms</code> (default 5000)</td><td><code>{budget_ms}</code></td></tr><tr><td><code>script_unknown</code></td><td>raise</td><td>no worker answered within <code>timeout_ms</code>: none is running, all are busy, or one died holding the task</td><td>—</td></tr><tr><td><code>script_broken</code></td><td>panic</td><td>the script does not compile, returns a value that is not JSON, or calls <code>process.exit()</code></td><td><code>{name, stack?}</code></td></tr></tbody></table>
 <p>The raises are copied into your task by <code>&lt;&lt;: &quot;$process: ./script-node.genroc.yaml&quot;</code>, so <code>on_error</code>
 can match them directly. <code>script_broken</code> is a panic and cannot be caught: it fails the caller and
 every process above it, because the only fix is editing the script.</p>
@@ -278,7 +278,25 @@ that is not an <code>Error</code> gives <code>Thrown</code>.</p>
 <h3 id="generated-types">Generated types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#generated-types"><span></span></a></h3>
 <p>Run <code>genctl generate</code> and this setup will also write <code>Input</code> and <code>Output</code> types for the <code>greet.ts</code> script.</p>
 <p>This way the script input and output is tied to the current <code>input</code> and <code>result_schema</code> defined in process.
-Genroc will fail if those types don&#39;t match.</p>
+<code>genctl apply</code> will fail if those types don&#39;t match.</p>
+<h3 id="timeouts">Timeouts<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#timeouts"><span></span></a></h3>
+<p>You can set timeout for the script:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> greet</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> child</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">      # `name`, `input_schema` and `raises` come from the child</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      &lt;&lt;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$process: ./script-node.genroc.yaml</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # script code</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$import: ./greet.ts</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # script input</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          who</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">who</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        timeout_ms</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 10_000</span></span></code></pre>
+<p><code>timeout_ms</code> (default 5000) is the deadline of the whole script task, and the <code>eval-node</code> worker
+runs the script against that same deadline. It stops the script just before it and reports
+<code>script_timeout</code>; if no worker picks the task up in time, the result is <code>script_unknown</code>. Time
+spent waiting in the queue counts toward the budget.</p>
 <h2 id="custom-resolvers">Custom resolvers<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#custom-resolvers"><span></span></a></h2>
 <p>If you open <code>.genroc</code> file, you can see it contains entry for <code>import</code> resolver.
 It executes <code>genroc-import</code> script which is a part of <code>@genroc/eval-node</code> package (installed in node_modules).</p>
@@ -304,7 +322,7 @@ and resolves external task from <code>script-node</code> process.</p>
 <h3 id="npm-package">npm package<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#npm-package"><span></span></a></h3>
 <p>Resolver in .genroc file calls <a href="https://www.npmjs.com/package/@genroc/eval-node">eval-node npm package</a>
 binary, which uses rollup to bundle the requested file into a single string (also strips types).
-It also inlines dependencies so you can use javascript/typescript packages as well.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/external-tasks/"> <span>previous</span> <strong>External tasks</strong> </a> <a class="next" href="/guides/operating/managing-instances/"> <span>next</span> <strong>Managing instances</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-3"><a href="#example-process">Example process</a></li><li class="depth-3"><a href="#the-script-format">The script format</a></li><li class="depth-3"><a href="#how-does-it-work">How does it work?</a></li><li class="depth-3"><a href="#what-if-the-script-fails">What if the script fails</a></li><li class="depth-3"><a href="#generated-types">Generated types</a></li><li class="depth-2"><a href="#custom-resolvers">Custom resolvers</a></li><li class="depth-2"><a href="#eval-node">eval-node</a></li><li class="depth-3"><a href="#npm-package">npm package</a></li></ul><script>
+It also inlines dependencies so you can use javascript/typescript packages as well.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/external-tasks/"> <span>previous</span> <strong>External tasks</strong> </a> <a class="next" href="/guides/operating/managing-instances/"> <span>next</span> <strong>Managing instances</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-3"><a href="#example-process">Example process</a></li><li class="depth-3"><a href="#the-script-format">The script format</a></li><li class="depth-3"><a href="#how-does-it-work">How does it work?</a></li><li class="depth-3"><a href="#what-if-the-script-fails">What if the script fails</a></li><li class="depth-3"><a href="#generated-types">Generated types</a></li><li class="depth-3"><a href="#timeouts">Timeouts</a></li><li class="depth-2"><a href="#custom-resolvers">Custom resolvers</a></li><li class="depth-2"><a href="#eval-node">eval-node</a></li><li class="depth-3"><a href="#npm-package">npm package</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
