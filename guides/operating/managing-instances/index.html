@@ -414,8 +414,8 @@ tree. They are refused on children.</p>
 <h3 id="pause-and-resume">Pause (and resume)<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pause-and-resume"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> pause</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
 <p>This will pause the instance if it&#39;s running. The instance can then be resumed by the <code>resume</code> command with the same syntax.</p>
-<p>The <code>pause</code> command waits for running workers in the <code>pausing</code> status, so no worker is forcefully
-interrupted and no work is repeated.</p>
+<p><code>pause</code> returns at once. An instance a worker is executing goes to <code>pausing</code> and becomes <code>paused</code>
+when that task finishes, so no worker is forcefully interrupted and no work is repeated.</p>
 <p>Pause/resume operates strictly within the definition boundaries (they never add a retry),
 so you can use them as you like without changing the instance&#39;s behavior. The only caveat is that timers
 keep running even when the instance is paused, so a timeout (e.g. on an external task)

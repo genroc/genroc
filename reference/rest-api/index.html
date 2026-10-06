@@ -169,7 +169,7 @@ whatever you write. The pages below list every endpoint, grouped by what it acts
 not move when the API namespace does.</p>
 <h2 id="the-document">The document<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-document"><span></span></a></h2>
 <p>The endpoint list is generated from the server&#39;s own action registry, so it cannot drift from
-what is served. This site publishes it at <a href="/openapi.json"><code>/openapi.json</code></a>, and a running
+what is served. This site publishes it at <a href="../../openapi.json"><code>openapi.json</code></a>, and a running
 server serves the same document at <code>/public/openapi.json</code> with a browsable UI at
 <code>/public/docs</code>.</p>
 <p>A client generator takes it as-is — the base path is declared once in <code>servers</code>, so generated
@@ -205,9 +205,10 @@ start-instance body:</p>
 
 
 <table><thead><tr><th>credential</th><th>who holds it</th><th>genroc&#39;s role</th></tr></thead><tbody><tr><td>an opaque <code>genroc_sk_*</code></td><td>machines — CI, workers, apps, <code>genctl</code></td><td>issues it, and verifies it</td></tr><tr><td>a signed JWT</td><td>people, through genroc-ui</td><td>verifies only — never issues, never refreshes</td></tr></tbody></table>
-<p>Nothing else is an identity: no trusted headers, no cookies, no client certificates. A
-deployment configures genroc to accept its identity provider&#39;s tokens, and that configuration
-is the whole integration.</p>
+<p>Nothing else is an identity: no trusted headers, no cookies, no client certificates. genroc
+never talks to an identity provider: genroc-ui signs people in and mints the JWT, and genroc
+only checks it against the secret the two share (<code>--jwt-secret-file</code>, see the
+<a href="/reference/server/">server reference</a>).</p>
 <p>The default is <code>--auth none</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
 open. That is fine on a laptop and nowhere else — <code>PUT /definitions</code> is arbitrary code
 execution on the server — so genroc warns at startup when it is also bound beyond loopback.</p>

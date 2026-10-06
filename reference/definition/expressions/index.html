@@ -240,7 +240,7 @@ unbracketed, so the fix is spelled <code>(x ?? 0) &lt; 1</code>.</p>
 that is not an identifier. Navigating through a null yields null rather than failing, so
 <code>outputs.maybe.field</code> is safe to read and safe to guard with <code>??</code>.</p>
 <h2 id="what-a-slot-can-read">What a slot can read<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-a-slot-can-read"><span></span></a></h2>
-<p>Four names are in scope everywhere in a task:</p>
+<p>Three names are in scope everywhere in a task, and a fourth only where an error edge leads:</p>
 
 
 
@@ -266,7 +266,9 @@ that is not an identifier. Navigating through a null yields null rather than fai
 
 
 
-<table><thead><tr><th>Name</th><th>Holds</th></tr></thead><tbody><tr><td><code>input</code></td><td>the instance&#39;s input, conformed once at creation</td></tr><tr><td><code>outputs.&lt;task id&gt;</code></td><td>what a task published, for every task on the path taken</td></tr><tr><td><code>config</code></td><td>the config variables, re-resolved from the environment on every tick</td></tr><tr><td><code>last_error</code></td><td>the error that routed control here from another task&#39;s <code>on_error</code></td></tr></tbody></table>
+<table><thead><tr><th>Name</th><th>Holds</th></tr></thead><tbody><tr><td><code>input</code></td><td>the instance&#39;s input, conformed once at creation</td></tr><tr><td><code>outputs.&lt;task id&gt;</code></td><td>what a task published, for every task on the path taken</td></tr><tr><td><code>config</code></td><td>the config variables, re-resolved from the environment on every tick</td></tr><tr><td><code>last_error</code></td><td>the error that routed control here from another task&#39;s <code>on_error</code> — only in a task an error edge enters, and gone once it moves on</td></tr></tbody></table>
+<p>Reading <code>last_error</code> anywhere else is refused at registration. To carry the failure further,
+put it in the handler&#39;s output.</p>
 <p><code>self</code> names the task itself, and its three members come into existence at different points
 along the task&#39;s own timeline — so a slot may only read the ones that exist by the time it is
 evaluated.</p>

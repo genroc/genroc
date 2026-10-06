@@ -275,8 +275,10 @@ You can call it from <code>on_error</code> and <code>switch</code> blocks.</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        message</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">Not authenticated to access the API</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> &lt;optional data&gt;</span></span></code></pre>
 <h2 id="raise">Raise<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#raise"><span></span></a></h2>
-<p>Raise is similar to panic, but it sends the process into the non-retryable <code>raised</code> state.
-A process which raised an error cannot be retried.</p>
+<p>Raise is similar to panic, but it ends the process in the <code>raised</code> state: a condition for the
+caller to decide about, not a defect. A raised process is never retried itself. Under a parent,
+<code>retry</code> on the parent re-spawns it from scratch; a raised root is answered by starting a new
+instance.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      raise</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
