@@ -76,8 +76,8 @@ Then we have `$import: ./greet.ts`, this is a special resolver intended for impo
 
 ### The script format
 
-Genroc expects default import to be function and it will pass input as a first argument.
-It will take it's output as a result.
+Genroc expects default export to be function and it will pass input as a first argument.
+It will take it's output as a result. The function may also be async.
 
 ```ts
 // greet.ts
@@ -89,6 +89,8 @@ export default function (input: Input): Output {
 ```
 
 The bundler will also include any imported files and imported libraries.
+
+Node built-ins stay as imports and need `"types": ["node"]` in `tsconfig.json`.
 
 ### How does it work?
 
@@ -172,7 +174,7 @@ The resolver can define what types it needs and genroc will provide json schema 
 fields. Here we need `task.action.input.input` which is the `input` slot next to the `code`. And then
 we also take `result` as a output.
 
-You can create your custom resolvers in the similar fashion.
+You can create your custom resolvers in the similar fashion ([check project file reference](../../reference/project-file.mdx)).
 
 ## eval-node
 
