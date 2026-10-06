@@ -363,14 +363,9 @@ func cell(s string) string {
 	return strings.ReplaceAll(escapeProse(s), "|", `\|`)
 }
 
-// writeConfigReference renders `.genroc` under Configuration, not beside the language: it
-// configures the tooling, and nothing in it reaches a definition. The resolver protocol goes
-// beside it, being what a `command` there is run with.
+// writeConfigReference renders the resolver protocol: what a `.genroc` resolver's `command` is run
+// with. The project file itself is a hand-written page around writeConfigTables' fragments.
 func writeConfigReference(dir string) error {
-	config, err := parseSchema(defschema.Config(), "config")
-	if err != nil {
-		return err
-	}
 	manifest, err := parseSchema(defschema.Manifest(), "manifest")
 	if err != nil {
 		return err
@@ -379,46 +374,62 @@ func writeConfigReference(dir string) error {
 	if err != nil {
 		return err
 	}
-	pages := []defPage{
-		{
-			title: "Project file", slug: "project-file", order: 5,
-			blurb: "`.genroc`, a project's configuration file.",
-			from:  "the .genroc config schema",
-			sections: []defSection{
-				{title: "Keys", fields: fieldsOf(config)},
-				{title: "Resolver", intro: "One entry of `resolvers`.", fields: fieldsOf(defOf(config, "SourcesResolverConfig"))},
-			},
+	page := defPage{
+		title: "Resolver protocol", slug: "resolver-protocol", order: 6,
+		blurb: "What genctl sends a resolver on stdin, and what it reads back.",
+		from:  "the resolver manifest and reply schemas",
+		sections: []defSection{
+			{title: "Manifest", intro: "genctl runs a resolver's `command` once per entry, from the `.genroc` directory, " +
+				"with every site naming it in one manifest on stdin. A non-zero exit fails the command, " +
+				"with stderr as the message. As JSON Schema: [resolver-manifest.json](../../resolver-manifest.json).",
+				fields: fieldsOf(manifest)},
+			{title: "Process", intro: "One entry of `processes`.", fields: fieldsOf(defOf(manifest, "SourcesManifestProcess"))},
+			{title: "Site", intro: "One entry of `sites`: a directive naming this resolver.", fields: fieldsOf(defOf(manifest, "SourcesSite"))},
+			{title: "Reply", intro: "What the resolver writes to stdout on success. As JSON Schema: " +
+				"[resolver-reply.json](../../resolver-reply.json).", fields: fieldsOf(reply)},
 		},
-		{
-			title: "Resolver protocol", slug: "resolver-protocol", order: 6,
-			blurb: "What genctl sends a resolver on stdin, and what it reads back.",
-			from:  "the resolver manifest and reply schemas",
-			sections: []defSection{
-				{title: "Manifest", intro: "genctl runs a resolver's `command` once per entry, from the `.genroc` directory, " +
-					"with every site naming it in one manifest on stdin. A non-zero exit fails the command, " +
-					"with stderr as the message. As JSON Schema: [resolver-manifest.json](../../resolver-manifest.json).",
-					fields: fieldsOf(manifest)},
-				{title: "Process", intro: "One entry of `processes`.", fields: fieldsOf(defOf(manifest, "SourcesManifestProcess"))},
-				{title: "Site", intro: "One entry of `sites`: a directive naming this resolver.", fields: fieldsOf(defOf(manifest, "SourcesSite"))},
-				{title: "Reply", intro: "What the resolver writes to stdout on success. As JSON Schema: " +
-					"[resolver-reply.json](../../resolver-reply.json).", fields: fieldsOf(reply)},
-			},
-		},
+	}
+	for _, sec := range page.sections {
+		if len(sec.fields) == 0 {
+			return fmt.Errorf("%s: section %q came out empty; its schema's shape changed", page.slug, sec.title)
+		}
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	for _, page := range pages {
-		for _, sec := range page.sections {
-			if len(sec.fields) == 0 {
-				return fmt.Errorf("%s: section %q came out empty; its schema's shape changed", page.slug, sec.title)
-			}
+	path := filepath.Join(dir, page.slug+".md")
+	if err := os.WriteFile(path, []byte(renderDefPage(page, page.order)), 0644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s (%d)\n", path, len(page.sections))
+	return nil
+}
+
+// writeConfigTables writes the `.genroc` field tables as bare fragments, which
+// reference/project-file.mdx imports: the prose around them is hand-written, the fields are not.
+func writeConfigTables(dir string) error {
+	config, err := parseSchema(defschema.Config(), "config")
+	if err != nil {
+		return err
+	}
+	tables := map[string][]defField{
+		"project-file-keys.md":     fieldsOf(config),
+		"project-file-resolver.md": fieldsOf(defOf(config, "SourcesResolverConfig")),
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	for name, fields := range tables {
+		if len(fields) == 0 {
+			return fmt.Errorf("%s came out empty; the config schema's shape changed", name)
 		}
-		path := filepath.Join(dir, page.slug+".md")
-		if err := os.WriteFile(path, []byte(renderDefPage(page, page.order)), 0644); err != nil {
+		b := &strings.Builder{}
+		fieldTable(b, fields)
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(b.String()), 0644); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wrote %s (%d)\n", path, len(page.sections))
+		fmt.Fprintf(os.Stderr, "wrote %s (%d)\n", path, len(fields))
 	}
 	return nil
 }

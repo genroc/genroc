@@ -1,0 +1,111 @@
+---
+title: Project file
+description: "`.genroc`, a project's configuration file."
+order: 5
+---
+
+import { Content as Keys } from '~/generated/project-file-keys.md'
+import { Content as ResolverFields } from '~/generated/project-file-resolver.md'
+
+`.genroc` sits at the root of a project. genctl finds it by walking up from a definition file, and
+its directory is where resolvers run and what `definitions` is resolved against.
+
+```genroc
+definitions: ["./definitions/**/*.genroc.yaml"]
+
+resolvers:
+  - name: import
+    phase: typed
+    ext: [.ts]
+    command: [npx, genroc-import]
+    types:
+      Input: task.action.input.input
+      Output: task.action.result
+```
+
+## Keys
+
+<Keys />
+
+## Resolvers
+
+A resolver turns a directive such as `"$import: ./greet.ts"` into a value before the definition
+is sent. Each entry registers one.
+
+<ResolverFields />
+
+### Which entry a directive uses
+
+A directive takes the **first** entry whose `name` matches and whose `ext` accepts its first word,
+so order matters. `ext` lists whole suffixes (`.genroc.yaml`, not `.yaml`); an empty list accepts
+anything, including no argument at all. A directive whose name no entry carries, or whose file
+no entry with that name accepts, fails with a message saying which.
+
+The built-in `process` resolver
+([importing a child process](../guides/process-definition/child-processes.mdx#importing-child-process))
+comes after your entries, so an entry named `process` overrides it for the suffixes it accepts.
+
+### Phases
+
+| | `typed` | `structural` |
+| --- | --- | --- |
+| runs | after type inference | before it |
+| may return | a string | any JSON value, and a mapping where the directive is a `<<` spread |
+| may request `types` | yes | no — refused when `.genroc` is read |
+| run by `genctl schema` and the editor | no | yes |
+
+Use `structural` when the value changes what the definition means, such as spreading a child's
+`name` and `raises` into a task. Use `typed` when it fills a slot whose type is already known,
+such as a script's code.
+
+## Requesting types
+
+A typed resolver can ask genctl for the types around each directive. `types` maps a name of your
+choosing to an address, and the resolver receives each as a JSON Schema
+([resolver protocol](resolver-protocol.md)). What it does with them is its own business:
+`@genroc/eval-node` writes each name as an exported TypeScript type
+([TypeScript evaluation](../guides/process-definition/typescript-evaluation.mdx)).
+
+An address starts with its **frame**:
+
+| Frame | Resolves against |
+| --- | --- |
+| `task.` | the task the directive sits in |
+| `process.` | the whole definition |
+
+An address with no frame is refused when `.genroc` is read: both a task's action and the process
+have an `input`, and the frame says which one is meant.
+
+### Finding an address
+
+`genctl schema type <process>` lists every typed slot of a definition. Replace `tasks.<id>.` with
+`task.`, or put `process.` in front of a top-level slot:
+
+```sh
+> genctl schema type pricing
+input                     object{amount}
+output                    object{ok}
+tasks.call.action.body    object{amount}
+tasks.call.action.result  object{ok}
+tasks.call.output         object{ok}
+```
+
+| `genctl schema type` | in `types` |
+| --- | --- |
+| `tasks.call.action.body` | `task.action.body` |
+| `tasks.call.action.result` | `task.action.result` |
+| `tasks.call.output` | `task.output` |
+| `input` | `process.input` |
+| `output` | `process.output` |
+
+An address keeps going into the schema, as `task.action.input.input` does: the `input` property
+of the action's `input`.
+
+### When there is no type
+
+A requested type the directive's site does not have arrives as `null`, not as an error, since
+whether that matters is the resolver's call. That happens when:
+
+- a `task.` address is requested by a directive outside any task, or
+- the slot does not exist at that site — a script that takes no `input` has no
+  `task.action.input.input`.

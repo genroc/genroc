@@ -139,6 +139,7 @@ docs-reference: build
 		--definition-reference docs/src/content/docs/reference/definition \
 		--error-reference \
 		--config-reference docs/src/content/docs/reference \
+		--config-tables docs/src/generated \
 		--server-reference docs/src/content/docs/reference \
 		--status-table docs/src/generated/instance-statuses.md
 

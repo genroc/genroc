@@ -20,6 +20,9 @@ func generatedDefinitionPages(t *testing.T) map[string]string {
 	if err := writeConfigReference(dir); err != nil {
 		t.Fatalf("writeConfigReference: %v", err)
 	}
+	if err := writeConfigTables(dir); err != nil {
+		t.Fatalf("writeConfigTables: %v", err)
+	}
 	pages := map[string]string{}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
