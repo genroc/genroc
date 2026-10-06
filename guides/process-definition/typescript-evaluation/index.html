@@ -272,8 +272,9 @@ so it can&#39;t drift.</p>
 <p>The raises are copied into your task by <code>&lt;&lt;: &quot;$process: ./script-node.genroc.yaml&quot;</code>, so <code>on_error</code>
 can match them directly. <code>script_broken</code> is a panic and cannot be caught: it fails the caller and
 every process above it, because the only fix is editing the script.</p>
-<p>Set <code>e.name</code> on an error you throw (<code>e.name = &quot;LimitExceeded&quot;</code>) to tell your own failures apart by
-<code>error.data.name</code>.</p>
+<p><code>error.data.name</code> is the thrown error&#39;s class name (<code>class LimitExceeded extends Error {}</code> gives
+<code>LimitExceeded</code>), unless the script sets <code>e.name = &quot;MyName&quot;</code> to override it. Throwing something
+that is not an <code>Error</code> gives <code>Thrown</code>.</p>
 <h3 id="generated-types">Generated types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#generated-types"><span></span></a></h3>
 <p>Run <code>genctl generate</code> and this setup will also write <code>Input</code> and <code>Output</code> types for the <code>greet.ts</code> script.</p>
 <p>This way the script input and output is tied to the current <code>input</code> and <code>result_schema</code> defined in process.
