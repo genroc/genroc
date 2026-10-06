@@ -217,8 +217,8 @@ tasks. You can take this as an example implementation of
 <p>We are using two kinds of resolvers. <code>$process:</code> is build in documented in <a href="/guides/process-definition/child-processes/#importing-child-process">child process section</a>.
 Then we have <code>$import: ./greet.ts</code>, this is a special resolver intended for importing typescript files.</p>
 <h3 id="the-script-format">The script format<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-script-format"><span></span></a></h3>
-<p>Genroc expects default import to be function and it will pass input as a first argument.
-It will take it&#39;s output as a result.</p>
+<p>Genroc expects default export to be function and it will pass input as a first argument.
+It will take it&#39;s output as a result. The function may also be async.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="ts"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">// greet.ts</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">import</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> Input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> Output </span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> from</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">./greet.genroc</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">;</span></span>
 <span class="line"></span>
@@ -226,6 +226,7 @@ It will take it&#39;s output as a result.</p>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">  return</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> greeting</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> `</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">hello, </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">who</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">`</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> at</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> new</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> Date</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">().</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">toISOString</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">()</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> };</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
 <p>The bundler will also include any imported files and imported libraries.</p>
+<p>Node built-ins stay as imports and need <code>&quot;types&quot;: [&quot;node&quot;]</code> in <code>tsconfig.json</code>.</p>
 <h3 id="how-does-it-work">How does it work?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#how-does-it-work"><span></span></a></h3>
 <p>The content of the <code>.ts</code> file is bundled with rollup into one string and included directly into the process definition,
 so it can&#39;t drift.</p>
@@ -314,7 +315,7 @@ It executes <code>genroc-import</code> script which is a part of <code>@genroc/e
 <p>The resolver can define what types it needs and genroc will provide json schema types for the specified
 fields. Here we need <code>task.action.input.input</code> which is the <code>input</code> slot next to the <code>code</code>. And then
 we also take <code>result</code> as a output.</p>
-<p>You can create your custom resolvers in the similar fashion.</p>
+<p>You can create your custom resolvers in the similar fashion (<a href="/reference/project-file/">check project file reference</a>).</p>
 <h2 id="eval-node">eval-node<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#eval-node"><span></span></a></h2>
 <p>Typescript support is enabled by <a href="https://hub.docker.com/r/genroc/eval-node">eval-node docker image</a>
 which runs as a separate service. It is a node worker which expects the genroc server on port <code>8448</code>
