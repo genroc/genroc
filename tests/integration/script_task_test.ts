@@ -18,8 +18,9 @@ let worker: ChildProcess;
 beforeAll(async () => {
   worker = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
     // TASK scopes the worker to this file's tasks; unfiltered, it would claim every parked
-    // external task on the server, including other suites' approvals.
-    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "run", WORKER_ID: `test-${process.pid}` },
+    // external task on the server, including other suites' approvals. They are not in
+    // script-node, so the default PROCESS is cleared.
+    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", PROCESS: "", TASK: "run", WORKER_ID: `test-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise<void>((resolve, reject) => {

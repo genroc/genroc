@@ -78,9 +78,9 @@ export default function (input: Input): Output {
 ## Running the worker
 
 ```sh
-docker run -e GENROC_SERVER=http://host:8448 -e TASK=eval_node ghcr.io/genroc/eval-node:preview
+docker run -e GENROC_SERVER=http://host:8448 ghcr.io/genroc/eval-node:preview
 # or
-GENROC_SERVER=http://localhost:8448 TASK=eval_node npx genroc-eval-node
+GENROC_SERVER=http://localhost:8448 npx genroc-eval-node
 ```
 
 The worker connects to genroc, not the other way round, so it only needs outbound access.
@@ -89,7 +89,7 @@ The worker connects to genroc, not the other way round, so it only needs outboun
 |---|---|---|
 | `GENROC_SERVER` | `http://localhost:8448` | the genroc server |
 | `GENROC_TOKEN` / `GENROC_TOKEN_FILE` | *(none)* | token, or a file holding it, when the server uses `--auth token` |
-| `TASK` / `PROCESS` | *(none)* | claim only this task id / process. **Without one, the worker claims every external task.** |
+| `PROCESS` / `TASK` | `script-node` / `eval_node` | claim only this process / task id; the defaults are script-node's. Set `PROCESS` for a renamed copy, or `""` to drop a filter; **with both `""`, the worker claims every external task.** |
 | `CONCURRENCY` | `4` | scripts run at once |
 | `LEASE_MS` | `30000` | claim lease, renewed every third of it |
 | `POLL_MS` | `250` | idle poll interval |

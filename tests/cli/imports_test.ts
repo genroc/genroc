@@ -23,8 +23,9 @@ async function startRunner(): Promise<void> {
   if (runner) return runnerReady;
   runner = spawn("node", [join(REPO, "eval-node/worker.ts")], {
     // TASK scopes this worker to the script tasks below; an unfiltered one would claim every
-    // parked external task on the shared test server.
-    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "price", WORKER_ID: `imports-${process.pid}` },
+    // parked external task on the shared test server. They are not in script-node, so the
+    // default PROCESS is cleared.
+    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", PROCESS: "", TASK: "price", WORKER_ID: `imports-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });
   runnerReady = new Promise<void>((resolve, reject) => {

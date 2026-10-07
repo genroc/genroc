@@ -25,8 +25,10 @@ const RENEW_MS = Math.max(1_000, Math.floor(LEASE_MS / 3));
 // The answer has to land before the task's deadline fires, or a script that overran surfaces as
 // external.timeout ("nobody answered") rather than as its own `timeout`.
 const ANSWER_MARGIN_MS = 250;
-const PROCESS_FILTER = process.env.PROCESS ?? "";
-const TASK_FILTER = process.env.TASK ?? "";
+// script-node's names. A renamed copy needs PROCESS set; an explicit "" drops that filter, and
+// both "" claims every external task, other runtimes' included.
+const PROCESS_FILTER = process.env.PROCESS ?? "script-node";
+const TASK_FILTER = process.env.TASK ?? "eval_node";
 
 type ObjectEntry = { path: (string | number)[]; ref: string; size: number };
 

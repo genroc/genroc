@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "path";
 import { load as loadYaml } from "js-yaml";
 import { client, waitForInstance } from "../helpers/client.ts";
+import { claimInProcess, waitForParkedInProcess } from "../helpers/external.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // The `script` child process (custom-tasks.md's middle tier), applied verbatim from the playground
@@ -13,30 +14,35 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 const script: any = loadYaml(readFileSync(join(ROOT, "tests/playground/script-node.genroc.yaml"), "utf8"));
 
 let worker: ChildProcess;
+const extraWorkers: ChildProcess[] = [];
 
-beforeAll(async () => {
-  const { error } = await client.PUT("/definitions", { body: script });
-  expect(error, `the playground's script.yaml no longer registers: ${JSON.stringify(error)}`).toBeUndefined();
-
-  // TASK scopes the fleet to script.yaml's own task id; an unfiltered worker would claim
-  // every parked external task on the shared test server.
-  worker = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
-    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "eval_node", WORKER_ID: `child-${process.pid}` },
+async function startWorker(env: Record<string, string | undefined>): Promise<ChildProcess> {
+  const w = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
+    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", ...env },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("evaluator worker did not start within 10s")), 10_000);
-    worker.stdout!.on("data", (c: Buffer) => {
+    w.stdout!.on("data", (c: Buffer) => {
       if (c.toString().includes("polling")) {
         clearTimeout(timer);
         resolve();
       }
     });
-    worker.on("error", reject);
+    w.on("error", reject);
   });
+  return w;
+}
+
+beforeAll(async () => {
+  const { error } = await client.PUT("/definitions", { body: script });
+  expect(error, `the playground's script.yaml no longer registers: ${JSON.stringify(error)}`).toBeUndefined();
+
+  // TASK and PROCESS are left to their defaults on purpose: the tests at the end check them.
+  worker = await startWorker({ TASK: undefined, PROCESS: undefined, WORKER_ID: `child-${process.pid}` });
 }, 30_000);
 
-afterAll(() => worker?.kill());
+afterAll(() => [worker, ...extraWorkers].forEach((w) => w?.kill()));
 
 async function callScript(name: string, code: string, caller: Record<string, unknown>) {
   // The catch task exists only where the caller declared `raises`: undeclared, reading error.data
@@ -158,3 +164,44 @@ test("script child — a broken script panics rather than raising something catc
   expect(status).toBe("failed");
   expect(data?.error_code).toBe("script_broken");
 });
+
+async function parkOne(name: string, taskId: string): Promise<string> {
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: taskId,
+          action: { type: "external" as const, input: { code: "export default () => 1;", input: {} }, result_schema: {} },
+          switch: [{ goto: "end" }],
+        },
+      ],
+    } as never,
+  });
+  expect(error, `put ${name} failed: ${JSON.stringify(error)}`).toBeUndefined();
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  await waitForParkedInProcess(name);
+  return started!.id;
+}
+
+async function expectStillParked(name: string, id: string, why: string) {
+  // Twenty of the worker's polls.
+  await new Promise((r) => setTimeout(r, 1_000));
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  expect(data?.status, why).toBe("running");
+  expect(await claimInProcess(name), "the task must still be free to claim, not held by a worker").toHaveLength(1);
+}
+
+test("script child — a worker with no PROCESS set leaves eval_node in another process parked", async () => {
+  const name = `script_child_other_process_${crypto.randomUUID()}`;
+  const id = await parkOne(name, "eval_node");
+  await expectStillParked(name, id, "without the script-node default, the worker would have run this task");
+}, 30_000);
+
+test("script child — a worker with no TASK set leaves another task id parked", async () => {
+  const name = `script_child_other_task_${crypto.randomUUID()}`;
+  // PROCESS names this process, so only the TASK default stands between the worker and the task.
+  extraWorkers.push(await startWorker({ PROCESS: name, TASK: undefined, WORKER_ID: `child-task-${process.pid}` }));
+  const id = await parkOne(name, "not_eval_node");
+  await expectStillParked(name, id, "without the eval_node default, the worker would have run this task");
+}, 30_000);

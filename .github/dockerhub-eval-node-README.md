@@ -7,7 +7,7 @@ script tasks from a genroc server's queue and runs each one in a fresh worker th
 > does not exist yet.
 
 ```sh
-docker run -e GENROC_SERVER=http://genroc:8448 -e TASK=eval_node genroc/eval-node:preview
+docker run -e GENROC_SERVER=http://genroc:8448 genroc/eval-node:preview
 ```
 
 The worker connects to genroc, not the other way round, so it needs only outbound access and
@@ -25,7 +25,6 @@ services:
     image: genroc/eval-node:preview
     environment:
       GENROC_SERVER: http://genroc:8448
-      TASK: eval_node
     restart: unless-stopped
 ```
 
@@ -38,7 +37,7 @@ To run more scripts at once, scale the service or raise `CONCURRENCY`.
 | `GENROC_SERVER` | `http://localhost:8448` | the genroc server |
 | `GENROC_TOKEN_FILE` | *(none)* | file holding the token, when the server uses `--auth token` |
 | `GENROC_TOKEN` | *(none)* | the token inline; wins over the file |
-| `TASK` / `PROCESS` | *(none)* | claim only this task id / process. **Without one, the worker claims every external task.** |
+| `PROCESS` / `TASK` | `script-node` / `eval_node` | claim only this process / task id; the defaults are script-node's. Set `PROCESS` for a renamed copy, or `""` to drop a filter; **with both `""`, the worker claims every external task.** |
 | `CONCURRENCY` | `4` | scripts run at once |
 | `LEASE_MS` | `30000` | claim lease, renewed every third of it |
 | `POLL_MS` | `250` | idle poll interval |
@@ -49,7 +48,7 @@ so it stays out of `docker inspect`:
 
 ```sh
 genctl token create --perms worker --label evaluator -q > worker-token
-docker run -e GENROC_SERVER=http://genroc:8448 -e TASK=eval_node \
+docker run -e GENROC_SERVER=http://genroc:8448 \
   -e GENROC_TOKEN_FILE=/run/worker-token -v "$PWD/worker-token:/run/worker-token:ro" \
   genroc/eval-node:preview
 ```

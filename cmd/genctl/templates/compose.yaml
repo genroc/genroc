@@ -82,8 +82,6 @@ services:
     image: {{.WorkerImage}}
     environment:
       GENROC_SERVER: http://genroc:8448
-      # Without a filter a worker claims EVERY external task, including another runtime's.
-      TASK: eval_node
 {{- if .Auth}}
       # A file, not a variable: the environment shows in `docker inspect` and in every child process.
       GENROC_TOKEN_FILE: /data/worker-token
