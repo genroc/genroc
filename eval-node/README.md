@@ -78,7 +78,7 @@ export default function (input: Input): Output {
 ## Running the worker
 
 ```sh
-docker run -e GENROC_SERVER=http://host:8448 ghcr.io/genroc/eval-node:preview
+docker run -e GENROC_SERVER=http://host:8448 ghcr.io/genroc/eval-node:latest
 # or
 GENROC_SERVER=http://localhost:8448 npx genroc-eval-node
 ```

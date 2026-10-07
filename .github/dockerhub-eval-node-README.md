@@ -3,11 +3,10 @@
 The script-task worker for [genroc](https://genroc.org). It claims TypeScript and JavaScript
 script tasks from a genroc server's queue and runs each one in a fresh worker thread.
 
-> **Prototype.** Anything may change between versions. `:preview` is the moving tag; `:latest`
-> does not exist yet.
+> **Prototype.** Anything may change between versions; pin a version tag for anything you keep.
 
 ```sh
-docker run -e GENROC_SERVER=http://genroc:8448 genroc/eval-node:preview
+docker run -e GENROC_SERVER=http://genroc:8448 genroc/eval-node:latest
 ```
 
 The worker connects to genroc, not the other way round, so it needs only outbound access and
@@ -22,7 +21,7 @@ This image only runs scripts. Bundling and typechecking happen on your machine, 
 ```yaml
 services:
   eval-node:
-    image: genroc/eval-node:preview
+    image: genroc/eval-node:latest
     environment:
       GENROC_SERVER: http://genroc:8448
     restart: unless-stopped
@@ -50,7 +49,7 @@ so it stays out of `docker inspect`:
 genctl token create --perms worker --label evaluator -q > worker-token
 docker run -e GENROC_SERVER=http://genroc:8448 \
   -e GENROC_TOKEN_FILE=/run/worker-token -v "$PWD/worker-token:/run/worker-token:ro" \
-  genroc/eval-node:preview
+  genroc/eval-node:latest
 ```
 
 If the token is rejected, the container exits instead of retrying.
@@ -59,8 +58,8 @@ If the token is rejected, the container exits instead of retrying.
 
 | tag | what |
 |---|---|
-| `preview` | newest prerelease, the one to try |
-| `0.1.0-rc.1` | pinned and reproducible |
+| `latest` | newest release |
+| `0.20.0`, `0.20`, `0` (for example) | a release, pinned to its version, minor or major |
 | `edge` | every commit on main |
 
 A release tags the genroc server, this image and the `@genroc/eval-node` package with the same
