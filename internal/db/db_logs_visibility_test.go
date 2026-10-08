@@ -59,3 +59,36 @@ func TestListLogs_WaitsForAnInFlightFlush(t *testing.T) {
 		t.Fatalf("read that flushed for the appended row returned %d rows, want 1", len(r.logs))
 	}
 }
+
+func TestAppendLog_LandsWithoutARead(t *testing.T) {
+	db, err := OpenSQLite(filepath.Join(t.TempDir(), "logs.db"), "OFF")
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	defer db.Close()
+
+	// Several rounds, each starting from an empty buffer: every one needs its own wake.
+	for round := 1; round <= 3; round++ {
+		if err := db.AppendLog(&model.LogEntry{
+			InstanceID: "inst-1",
+			Level:      model.LogInfo,
+			Event:      model.EventActionStarted,
+		}); err != nil {
+			t.Fatalf("AppendLog: %v", err)
+		}
+		var n int
+		for deadline := time.Now().Add(time.Second); ; {
+			// Straight to the table: any DB read flushes first and would hide a lost wake.
+			if err := db.sqldb.QueryRow(`SELECT COUNT(*) FROM process_logs WHERE instance_id = 'inst-1'`).Scan(&n); err != nil {
+				t.Fatalf("count: %v", err)
+			}
+			if n == round || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if n != round {
+			t.Fatalf("round %d: %d rows in the table after 1s, want %d -- the flusher never woke for a buffered row, which then waits for a read or is lost on crash", round, n, round)
+		}
+	}
+}

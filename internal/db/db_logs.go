@@ -55,11 +55,19 @@ func (db *DB) AppendLog(entry *model.LogEntry) error {
 		return err
 	}
 	db.logMu.Lock()
+	first := len(db.logBuf) == 0
 	db.logBuf = append(db.logBuf, params)
 	full := len(db.logBuf) >= logBatchRows
 	db.logMu.Unlock()
 	if full {
 		return db.flushLogs()
+	}
+	// Only the empty-to-non-empty append wakes the flusher; any later row rides that wake.
+	if first {
+		select {
+		case db.logWake <- struct{}{}:
+		default:
+		}
 	}
 	return nil
 }
@@ -162,19 +170,24 @@ func (db *DB) buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, erro
 }
 
 // logFlusher drops errors: a transient failure costs at most that batch, the loss the schema
-// tolerates.
+// tolerates. It sleeps until a wake, so an idle server pays no timer.
 func (db *DB) logFlusher() {
-	ticker := time.NewTicker(logFlushInterval)
-	defer ticker.Stop()
+	defer close(db.logStopped)
 	for {
 		select {
 		case <-db.logStop:
 			_ = db.flushLogs()
-			close(db.logStopped)
 			return
-		case <-ticker.C:
-			_ = db.flushLogs()
+		case <-db.logWake:
 		}
+		// The window opens at the first row, so an advance's rows share one INSERT.
+		select {
+		case <-db.logStop:
+			_ = db.flushLogs()
+			return
+		case <-time.After(logFlushInterval):
+		}
+		_ = db.flushLogs()
 	}
 }
 

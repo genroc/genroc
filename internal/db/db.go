@@ -54,6 +54,7 @@ type DB struct {
 	// for that batch instead of finding the buffer empty and querying without it.
 	logFlushMu sync.Mutex
 	logBuf     []dbgen.InsertLogParams
+	logWake    chan struct{} // cap 1: AppendLog's empty-to-non-empty signal, kept if sent mid-flush
 	logStop    chan struct{} // closed by Close() to stop the flusher
 	logStopped chan struct{} // closed by the flusher after its final flush
 
@@ -254,6 +255,7 @@ func open(sqldb *sql.DB, dialect string) (*DB, error) {
 		q:          dbgen.New(dbtx),
 		exec:       dbtx,
 		dialect:    dialect,
+		logWake:    make(chan struct{}, 1),
 		logStop:    make(chan struct{}),
 		logStopped: make(chan struct{}),
 	}
