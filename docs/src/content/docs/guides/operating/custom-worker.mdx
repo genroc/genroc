@@ -1,0 +1,56 @@
+---
+title: Custom worker
+description: Learn how to connect an external worker to genroc.
+order: 2
+---
+
+Expose task as `external`, genroc will create a queue of waiting tasks,
+which you can poll and process with your own worker.
+
+## When to use
+
+The queue + worker architecture is suitable for resource intensive processing.
+It protects your system from overwhelming - if there is too many tasks at once,
+they simply wait in queue on genroc side.
+
+If the work is lightweight and it's more about timing/providing the data,
+it's better to expose simple rest endpoint and use `fetch` action.
+
+## Basic concept
+
+Genroc doesn't know about your worker, you simply mark a task as `external`
+and your worker needs to ask genroc "Do you have any work, if yes, I claim it".
+
+For this, there is [`/api/external-tasks/claim`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksclaim)
+endpoint. You can specify which process and task you want to claim.
+
+Example:
+
+```json
+{
+  "worker_id": "worker-1",
+  "limit": 5,
+  "process": "expense-approval",
+  "task": "approval"
+  "lease_ms": 30000,
+}
+```
+
+Each worker has to have an unique id, so the genroc can distinguish who
+claimed what. So we are sending an id, `limit` is how many tasks I want
+to claim, so here I can recieve up to 5 tasks per claim. `process` is
+the process name and `task` is the task id.
+
+### What you recieve
+
+
+
+### Reusable tasks tied to workers
+
+Genroc doesn't have any explicit way how to tell which worker should
+recieve a task, so if you want to make this reusable, create a child
+process and make the other processes call it. This allows you to specify
+a typed API. This is also the way how the 
+[typescript evaluation](../process-definition/typescript-evaluation.mdx) works.
+
+## 

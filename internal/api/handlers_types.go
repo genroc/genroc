@@ -6,7 +6,6 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
-	"genroc/internal/schema"
 	"genroc/internal/validation"
 )
 
@@ -211,22 +210,20 @@ type RetryInstanceReq struct {
 	Force bool `json:"force"` // override only_once retry protection
 }
 
-// ExternalTaskResp exposes the input snapshot, result_schema and token, never the process
-// context.
+// ExternalTaskResp exposes the input snapshot and token, never the process context. The answer's
+// contract (result_schema, raises) is the definition's: fixed per version, enforced at resolve.
 type ExternalTaskResp struct {
-	Token        string         `json:"token"` // pass back to /external-tasks/resolve
-	Process      string         `json:"process"`
-	Version      int            `json:"version"`
-	TaskID       string         `json:"task"`
-	Input        any            `json:"external_input"`           // the task's evaluated input snapshot, under the one name every view spells it
-	ResultSchema *schema.Schema `json:"result_schema,omitempty"`  // JSON Schema the submitted result must satisfy
-	Raises       model.Raises   `json:"raises,omitempty"`         // the codes this task accepts on the error channel -> the payload each carries (null = none)
-	WaitingSince string         `json:"waiting_since"`            // RFC3339 park time
-	Objects      []ObjectEntry  `json:"objects,omitempty"`        // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
-	Deadline     string         `json:"deadline,omitempty"`       // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
-	DeadlineInMs *int64         `json:"deadline_in_ms,omitempty"` // the same deadline as ms from now, 0 once past: what a worker budgets by, free of clock skew and second rounding
-	ClaimedBy    string         `json:"claimed_by,omitempty"`     // worker holding a live claim; absent = claimable
-	ClaimExpires string         `json:"claim_expires,omitempty"`  // RFC3339 visibility timeout of that claim
+	Token        string        `json:"token"` // pass back to /external-tasks/resolve
+	Process      string        `json:"process"`
+	Version      int           `json:"version"`
+	TaskID       string        `json:"task"`
+	Input        any           `json:"external_input"`           // the task's evaluated input snapshot, under the one name every view spells it
+	WaitingSince string        `json:"waiting_since"`            // RFC3339 park time
+	Objects      []ObjectEntry `json:"objects,omitempty"`        // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
+	Deadline     string        `json:"deadline,omitempty"`       // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
+	DeadlineInMs *int64        `json:"deadline_in_ms,omitempty"` // the same deadline as ms from now, 0 once past: what a worker budgets by, free of clock skew and second rounding
+	ClaimedBy    string        `json:"claimed_by,omitempty"`     // worker holding a live claim; absent = claimable
+	ClaimExpires string        `json:"claim_expires,omitempty"`  // RFC3339 visibility timeout of that claim
 }
 
 // FailureReq is a pointer field, so its PRESENCE discriminates: `result: null` stays an
@@ -345,8 +342,7 @@ type InstanceStatusResp struct {
 	// collects as its result -- so this answers "what did it produce" without exposing state.
 	Output any `json:"output,omitempty"`
 	// ExternalInput is the parked external task's `input:` snapshot, present only while parked.
-	// Reading it takes no claim; the work contract (result_schema, raises) is the claim's.
-	// specs/external-task-queue.md.
+	// Reading it takes no claim. specs/external-task-queue.md.
 	ExternalInput any    `json:"external_input,omitempty"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`

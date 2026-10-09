@@ -253,8 +253,7 @@ test("state can be rebuilt from what the detail view lists", async () => {
   expect(server!.state, "the caller's rebuild and the server's must agree").toEqual(rebuilt!.state);
 });
 
-// external_input is on the outward view because reading a parked request takes no claim; the
-// full work contract (result_schema, raises) stays with the claim. specs/external-task-queue.md.
+// external_input is on the outward view because reading a parked request takes no claim.
 async function parkedOnExternal(extra: Record<string, unknown> = {}): Promise<{ id: string; name: string }> {
   const name = `views_ext_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {

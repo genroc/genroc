@@ -10,20 +10,11 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
-	"genroc/internal/schema"
 )
 
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
 	// Derived from the row, not read back from a column — the epoch IS the occurrence.
 	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
-	var resultSchema *schema.Schema
-	if task.Action != nil {
-		resultSchema = task.Action.ResultSchema
-	}
-	var raises model.Raises
-	if task.Action != nil {
-		raises = task.Action.Raises
-	}
 	var claimedBy, claimExpires string
 	// A lapsed holder is not reported: the row is claimable again. The column keeps the id
 	// regardless — it is the evidence a lost claim is recognised by.
@@ -51,8 +42,6 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		TaskID:       task.ID,
 		Input:        input,
 		Objects:      objects,
-		ResultSchema: resultSchema,
-		Raises:       raises,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
 		Deadline:     deadline,
 		DeadlineInMs: deadlineIn,

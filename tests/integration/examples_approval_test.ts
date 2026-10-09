@@ -1,4 +1,3 @@
-import { claimInProcess } from "../helpers/external.ts";
 import { parkedInProcess } from "../helpers/external.ts";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
@@ -139,10 +138,6 @@ test("examples/expense-approval: an approval submitted by queue token resumes th
       amount_cents: 4200,
       purpose: "conference ticket",
     });
-    // The shape a worker must answer with is published by the CLAIM, not by discovery.
-    const [claimed] = await claimInProcess(approval.name);
-    expect(claimed.result_schema?.required).toEqual(["approved", "reviewer"]);
-
     const { error } = await client.POST("/external-tasks/resolve", {
       body: { token: queued.token, result: { approved: true, reviewer: "alice" } },
     });

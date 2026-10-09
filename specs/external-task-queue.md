@@ -10,8 +10,7 @@ its own, plus an error channel. The motivating consumer is [`eval-node/`](../eva
 **There is no listing endpoint.** Polling a list is not a queue: two readers see one row and
 nothing leases. Nothing else needs one either — a token is derived from the row
 (`<instance>.<task_epoch>`, `model.ExternalToken`), discovery is `GET /instances?phase=external`,
-and the work contract (`result_schema`, `raises`, `objects`) travels with the claim, which is what
-hands out the work.
+and the work itself (input and its `objects`) travels with the claim, which is what hands it out.
 
 ## Why move off `fetch`
 
@@ -88,9 +87,10 @@ select-then-grant in one transaction):
 
 FIFO by park time (`updated_at ASC`). It must **not** touch `task_epoch` (every handed-out token
 would die), the engine's lease columns, or clear `external_worker_id` on expiry (the evidence
-`external.lost` reads). The response carries input and `objects`, `result_schema`, `raises`, the
-task deadline and `renew_before_ms`, so a worker can decline work it cannot finish and knows which
-codes it may report. `status = 'running'` excludes paused and cancelled trees: no new work for a
+`external.lost` reads). The response carries input and `objects`, the task deadline and
+`renew_before_ms`, so a worker can decline work it cannot finish in time. Not `result_schema` or
+`raises`: they are the definition's, fixed per version and enforced at resolve, so a worker is
+written against them rather than reading them per claim. `status = 'running'` excludes paused and cancelled trees: no new work for a
 suspended tree, though an answer to work already out is always accepted (§Pause).
 
 **Addressing is the `(process, version, task)` filters**, not a `queue:` name: a definition already

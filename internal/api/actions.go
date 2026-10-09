@@ -660,15 +660,12 @@ var registry = func() []actionDef {
 			Path:    "/external-tasks/claim",
 			Summary: "Lease parked external tasks to a worker (FIFO by park time); the returned token is the only handle accepted while the claim is live",
 			Tags:    []string{"External Tasks"},
-			Req:     ClaimExternalTasksReq{WorkerID: "worker-1", Limit: 5, LeaseMs: 30000, Process: "expense-approval"},
+			Req:     ClaimExternalTasksReq{WorkerID: "worker-1", Limit: 5, LeaseMs: 30000, Process: "expense-approval", Task: "approval"},
 			Resp: map[string]any{
 				"items": []ExternalTaskResp{{
 					Token:   "550e8400-e29b-41d4-a716-446655440000.6.1",
 					Process: "expense-approval", Version: 2, TaskID: "approval",
-					Input: map[string]any{"amount": 420, "submitter": "alice"},
-					ResultSchema: schemaPtr(schema.Object().
-						WithProperty("approved", schema.Type("boolean"), true)),
-					Raises:       model.Raises{"over_budget": nil},
+					Input:        map[string]any{"amount": 420, "submitter": "alice"},
 					WaitingSince: "2026-09-25T09:12:00Z",
 					Deadline:     "2026-09-26T09:12:00Z",
 					ClaimedBy:    "worker-1",

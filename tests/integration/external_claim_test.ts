@@ -57,7 +57,6 @@ test("a claim leases the task, and the granted token answers it", async () => {
   expect(job.token.split(".").length).toBe(3);
   expect(job.task).toBe("work");
   expect(job.external_input).toEqual({ job: "compute" });
-  expect(job.raises).toHaveProperty("worker_failed");
 
   const { error } = await client.POST("/external-tasks/resolve", {
     body: { token: job.token, result: { priced: 42 } },

@@ -38,7 +38,6 @@ type QueueTask = {
   task: string;
   external_input: unknown;
   objects?: ObjectEntry[];
-  raises?: Record<string, unknown>;
   deadline_in_ms?: number;
 };
 

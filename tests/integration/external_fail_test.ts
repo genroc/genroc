@@ -1,4 +1,3 @@
-import { claimInProcess } from "../helpers/external.ts";
 import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
@@ -63,10 +62,6 @@ test("a declared code routes through on_error and carries its payload as error.d
   await define(name);
   const id = await startInstance(name);
   const queued = await waitForQueued(name);
-
-  // The CLAIM publishes the shapes a worker may answer with, on both channels.
-  const [claimed] = await claimInProcess(name);
-  expect(claimed.raises?.limit_exceeded).toBeTruthy();
 
   const { error } = await client.POST("/external-tasks/resolve", {
     body: {
