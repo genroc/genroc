@@ -15,8 +15,7 @@ not move when the API namespace does.
 
 The endpoint list is generated from the server's own action registry, so it cannot drift from
 what is served. This site publishes it at [`openapi.json`](../../openapi.json), and a running
-server serves the same document at `/public/openapi.json` with a browsable UI at
-`/public/docs`.
+server serves the same document at `/public/openapi.json`.
 
 A client generator takes it as-is — the base path is declared once in `servers`, so generated
 calls prepend `/api` and the documented paths stay the ones the server routes.
