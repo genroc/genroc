@@ -41,18 +41,89 @@ claimed what. So we are sending an id, `limit` is how many tasks I want
 to claim, so here I can recieve up to 5 tasks per claim. `process` is
 the process name and `task` is the task id.
 
-### What you recieve
+### Leasing
 
+Task is leased to you for the time you've requested. If the worker
+doesn't provide result in that time or doesn't renew the release,
+genroc considered it as lost and assigns the task to a different worker.
 
+### Claim response
 
+```json
+{
+  "items": [
+    {
+      "token": "550e8400-e29b-41d4-a716-446655440000.6.1",
+      "process": "expense-approval",
+      "version": 2,
+      "task": "approval",
+      "external_input": {
+        "amount": 420,
+        "submitter": "alice"
+      },
+      "waiting_since": "2026-09-25T09:12:00Z",
+      "deadline": "2026-09-26T09:12:00Z",
+      "claimed_by": "worker-1",
+      "claim_expires": "2026-09-25T09:30:30Z"
+    }
+  ],
+  "renew_before_ms": 10000
+}
+```
 
+Most important fields are `external_input`, which is an input passed into the external action
+and a unique token which you need to use when submitting the result.
 
-### Reusable tasks tied to workers
+### Resolving the task
+
+Once your worker finished the work. You need to use [`/api/external-tasks/resolve`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksresolve)
+endpoint to submit finished work:
+
+```json
+{
+  "token": "550e8400-e29b-41d4-a716-446655440000.6.1",
+  "result": {
+    "approved": true
+  }
+}
+```
+
+If the work ended up with error, you can submit the error this way:
+
+```json
+{
+  "token": "550e8400-e29b-41d4-a716-446655440000.6.1",
+  "error": {
+    "code": "over_budget",
+    "message": "Amount exceeds the submitter's limit",
+    "data": { "limit": 300 }
+  }
+}
+```
+
+Result is validated against `result_schema` and error code and data
+are validated against `raises` field.
+
+### Renewing leases
+
+If your worker can run for a longer time, you should use genroc lease/renew system.
+Make leases e.g. 30s and then renew the leases every e.g. 10s, this is basically letting
+genroc know that the worker is alive and the work is advancing (a bit like heartbeat).
+
+For renewing there is [`/api/external-tasks/renew`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksrenew)
+endpoint, which accepts a list of tokens for tasks you want to renew.
+
+### Cancelled/lost leases
+
+Renew enpdoint lets you know if the tasks is no longer worth working on.
+This can happen when the process is `cancelled` or the lease is `lost`.
+
+You can use this to kill workers before they finish to avoid wasting resources.
+
+## Reusable tasks tied to workers
 
 Genroc doesn't have any explicit way how to tell which worker should
 recieve a task, so if you want to make this reusable, create a child
 process and make the other processes call it. This allows you to specify
 a typed API. This is also the way how the 
 [typescript evaluation](../process-definition/typescript-evaluation.mdx) works.
-
-## 
