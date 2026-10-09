@@ -184,18 +184,18 @@ async function parkOne(name: string, taskId: string): Promise<string> {
   return started!.id;
 }
 
-async function expectStillParked(name: string, id: string, why: string) {
+async function expectStillParked(name: string, task: string, id: string, why: string) {
   // Twenty of the worker's polls.
   await new Promise((r) => setTimeout(r, 1_000));
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
   expect(data?.status, why).toBe("running");
-  expect(await claimInProcess(name), "the task must still be free to claim, not held by a worker").toHaveLength(1);
+  expect(await claimInProcess(name, task), "the task must still be free to claim, not held by a worker").toHaveLength(1);
 }
 
 test("script child — a worker with no PROCESS set leaves eval_node in another process parked", async () => {
   const name = `script_child_other_process_${crypto.randomUUID()}`;
   const id = await parkOne(name, "eval_node");
-  await expectStillParked(name, id, "without the script-node default, the worker would have run this task");
+  await expectStillParked(name, "eval_node", id, "without the script-node default, the worker would have run this task");
 }, 30_000);
 
 test("script child — a worker with no TASK set leaves another task id parked", async () => {
@@ -203,5 +203,5 @@ test("script child — a worker with no TASK set leaves another task id parked",
   // PROCESS names this process, so only the TASK default stands between the worker and the task.
   extraWorkers.push(await startWorker({ PROCESS: name, TASK: undefined, WORKER_ID: `child-task-${process.pid}` }));
   const id = await parkOne(name, "not_eval_node");
-  await expectStillParked(name, id, "without the eval_node default, the worker would have run this task");
+  await expectStillParked(name, "not_eval_node", id, "without the eval_node default, the worker would have run this task");
 }, 30_000);

@@ -1,4 +1,4 @@
-import { parkedInProcess, parkedTask } from "../helpers/external.ts";
+import { parkedInProcess, parkedTask, waitForParked } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
 
@@ -29,7 +29,7 @@ async function define(name: string, tasks: unknown[] = workThenFailed()) {
 
 async function claim(worker: string, process: string, opts: Record<string, unknown> = {}) {
   const { data, error } = await client.POST("/external-tasks/claim", {
-    body: { worker_id: worker, process, ...opts } as never,
+    body: { worker_id: worker, process, task: "work", ...opts } as never,
   });
   if (error) throw new Error(`claim failed: ${JSON.stringify(error)}`);
   return ((data as any)?.items ?? []) as any[];
@@ -178,16 +178,26 @@ test("claim filters by task, and takes a batch", async () => {
   for (const job of got) expect(job.task).toBe("work");
 });
 
-test("claim rejects a missing worker_id, and renew rejects a non-claim token", async () => {
+test("claim rejects a missing worker_id, process or task, and renew rejects a non-claim token", async () => {
   const name = `claim_badreq_${crypto.randomUUID()}`;
   await define(name);
   await startInstance(name);
   const [job] = await claimWhenReady("worker-1", name);
 
   const { error: noWorker } = await client.POST("/external-tasks/claim", {
-    body: { worker_id: "", process: name } as never,
+    body: { worker_id: "", process: name, task: "work" } as never,
   });
   expect(noWorker, "worker_id is the claim's holder and cannot be blank").toBeTruthy();
+
+  for (const body of [{ task: "work" }, { process: name }]) {
+    const { error } = await client.POST("/external-tasks/claim", {
+      body: { worker_id: "worker-1", ...body } as never,
+    });
+    expect(
+      (error as { code?: string } | undefined)?.code,
+      `a claim of ${JSON.stringify(body)} names no single task, so it could hand out work whose answer the worker cannot shape`,
+    ).toBe("invalid");
+  }
 
   // The two-part token names no grant, so there is nothing for renew to extend.
   const twoPart = job.token.split(".").slice(0, 2).join(".");
@@ -291,40 +301,32 @@ test("a lapsed claim on an ordinary task just returns to the queue", async () =>
   expect((await outputsOf(id)).work).toEqual({ priced: 7 });
 });
 
-test("a lost-claim row does not strand the rest of the batch, and filters isolate processes", async () => {
-  const lostName = `batch_lost_${crypto.randomUUID()}`;
-  const okName = `batch_ok_${crypto.randomUUID()}`;
-  // Shared by both processes and nothing else on the server, so the claim below spans both while
-  // naming no process. Unfiltered, it took other files' parked tasks and failed their resolves.
-  const task = `batch_${crypto.randomUUID().replaceAll("-", "_")}`;
-  await defineOnlyOnce(lostName, { id: task, on_error: [{ code: ["external.lost"], goto: "$checked" }] });
-  await define(okName, workThenFailed(task));
-  const lostId = await startInstance(lostName);
-  const okId = await startInstance(okName);
+test("a lost-claim row does not strand the rest of the batch", async () => {
+  const name = `batch_${crypto.randomUUID()}`;
+  await defineOnlyOnce(name, { on_error: [{ code: ["external.lost"], goto: "$checked" }] });
 
-  // Let the only_once task's holder lapse, so the next claim has to mark it lost.
-  await claimWhenReady("worker-1", lostName, { lease_ms: 300 });
+  // Let the first holder lapse, so the next claim has to mark that row lost. The second instance
+  // starts only after the first is held, so the short-lease claim cannot take it instead.
+  const lostId = await startInstance(name);
+  const [lapsing] = await claimWhenReady("worker-1", name, { lease_ms: 300 });
+  expect(lapsing.token.split(".")[0]).toBe(lostId);
+  const okId = await startInstance(name);
+  await waitForParked(okId);
   await new Promise((r) => setTimeout(r, 500));
 
-  // The lapsed row is skipped, not fatal: failing the request would leave the other task's grant
+  // The lapsed row is skipped, not fatal: failing the request would leave the other row's grant
   // written and never handed to anyone.
-  const deadline = Date.now() + 20_000;
-  let got: any[] = [];
-  while (Date.now() < deadline) {
-    const { data, error } = await client.POST("/external-tasks/claim", {
-      body: { worker_id: "worker-2", task, limit: 10 } as never,
-    });
-    expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
-    got = ((data as any)?.items ?? []) as any[];
-    if (got.length) break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  expect(got.map((j) => j.process), "only the claimable task in the batch is handed out").toEqual([okName]);
+  const { data, error } = await client.POST("/external-tasks/claim", {
+    body: { worker_id: "worker-2", process: name, task: "work", limit: 10 },
+  });
+  expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
+  const got = ((data as any)?.items ?? []) as any[];
+  expect(got.map((j) => j.token.split(".")[0]), "only the claimable row in the batch is handed out").toEqual([okId]);
 
-  const { error } = await client.POST("/external-tasks/resolve", {
+  const { error: resolveErr } = await client.POST("/external-tasks/resolve", {
     body: { token: got[0].token, result: { priced: 11 } },
   });
-  expect(error, `the batch's good row could not be answered: ${JSON.stringify(error)}`).toBeUndefined();
+  expect(resolveErr, `the batch's good row could not be answered: ${JSON.stringify(resolveErr)}`).toBeUndefined();
   expect(await waitForInstance(okId)).toBe("completed");
 
   // And the lapsed one still reported itself rather than going quiet.

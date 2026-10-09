@@ -25,10 +25,14 @@ const RENEW_MS = Math.max(1_000, Math.floor(LEASE_MS / 3));
 // The answer has to land before the task's deadline fires, or a script that overran surfaces as
 // external.timeout ("nobody answered") rather than as its own `timeout`.
 const ANSWER_MARGIN_MS = 250;
-// script-node's names. A renamed copy needs PROCESS set; an explicit "" drops that filter, and
-// both "" claims every external task, other runtimes' included.
+// script-node's names; a renamed copy sets PROCESS. The claim requires both: this worker answers
+// one task's contract, so it must never be handed another's.
 const PROCESS_FILTER = process.env.PROCESS ?? "script-node";
 const TASK_FILTER = process.env.TASK ?? "eval_node";
+if (!PROCESS_FILTER || !TASK_FILTER) {
+  console.error("PROCESS and TASK must both name the queue this worker serves; neither may be empty.");
+  process.exit(1);
+}
 
 type ObjectEntry = { path: (string | number)[]; ref: string; size: number };
 
@@ -134,8 +138,8 @@ async function claim(n: number): Promise<QueueTask[]> {
     worker_id: WORKER_ID,
     limit: n,
     lease_ms: LEASE_MS,
-    ...(PROCESS_FILTER ? { process: PROCESS_FILTER } : {}),
-    ...(TASK_FILTER ? { task: TASK_FILTER } : {}),
+    process: PROCESS_FILTER,
+    task: TASK_FILTER,
   });
   if (!ok) {
     // A credential problem is not transient, and polling through it looks like a healthy idle

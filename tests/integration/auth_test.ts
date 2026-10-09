@@ -63,7 +63,7 @@ test("auth — a worker token reaches the inbound zone and nothing else", async 
 
   const claim = await req("/api/external-tasks/claim", worker, {
     method: "POST",
-    body: JSON.stringify({ worker_id: "w1", limit: 1 }),
+    body: JSON.stringify({ worker_id: "w1", process: "auth_none", task: "none", limit: 1 }),
   });
   expect(claim.status, "a worker must be able to claim").toBe(200);
 

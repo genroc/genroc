@@ -79,15 +79,16 @@ export async function waitForParkedInProcess(
   throw new Error(`${process}: ${count} parked external task(s) not seen within ${timeoutMs}ms`);
 }
 
-/** Claims and releases at once: only a claim publishes `result_schema`, `raises` and `objects`. */
+/** Claims and releases at once: only a claim publishes `objects`. */
 export async function claimInProcess(
   process: string,
+  task: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   opts: { client?: any; worker?: string; limit?: number } = {},
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
   const { client: c = defaultClient, worker = `probe-${Math.random().toString(36).slice(2, 8)}`, limit = 10 } = opts;
-  const { data } = await c.POST("/external-tasks/claim", { body: { worker_id: worker, limit, process } });
+  const { data } = await c.POST("/external-tasks/claim", { body: { worker_id: worker, limit, process, task } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const items = ((data as any)?.items ?? []) as any[];
   // Hand them straight back: a claim taken only to inspect must not hold work away from a

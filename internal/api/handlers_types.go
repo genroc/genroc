@@ -244,9 +244,9 @@ type ClaimExternalTasksReq struct {
 	WorkerID string `json:"worker_id"`          // who is claiming; recorded as the holder and required to renew
 	Limit    int    `json:"limit,omitempty"`    // max tasks to claim (default 1, cap 100)
 	LeaseMs  int64  `json:"lease_ms,omitempty"` // visibility timeout in ms (default 30000)
-	Process  string `json:"process,omitempty"`  // filter: process name
+	Process  string `json:"process"`            // the queue: a worker is written against one task's contract
+	Task     string `json:"task"`               // the queue's other half: a process's tasks answer different shapes
 	Version  int    `json:"version,omitempty"`  // filter: process version (0 = any)
-	Task     string `json:"task,omitempty"`     // filter: task id
 }
 
 type RenewExternalClaimsReq struct {

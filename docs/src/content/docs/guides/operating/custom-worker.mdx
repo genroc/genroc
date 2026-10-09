@@ -22,7 +22,7 @@ Genroc doesn't know about your worker, you simply mark a task as `external`
 and your worker needs to ask genroc "Do you have any work, if yes, I claim it".
 
 For this, there is [`/api/external-tasks/claim`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksclaim)
-endpoint. You can specify which process and task you want to claim.
+endpoint. You must specify which process and task you want to claim.
 
 Example:
 
@@ -31,8 +31,8 @@ Example:
   "worker_id": "worker-1",
   "limit": 5,
   "process": "expense-approval",
-  "task": "approval"
-  "lease_ms": 30000,
+  "task": "approval",
+  "lease_ms": 30000
 }
 ```
 
@@ -42,6 +42,8 @@ to claim, so here I can recieve up to 5 tasks per claim. `process` is
 the process name and `task` is the task id.
 
 ### What you recieve
+
+
 
 
 

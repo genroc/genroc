@@ -94,8 +94,9 @@ written against them rather than reading them per claim. `status = 'running'` ex
 suspended tree, though an answer to work already out is always accepted (§Pause).
 
 **Addressing is the `(process, version, task)` filters**, not a `queue:` name: a definition already
-names its work three ways, and an unfiltered worker claims every parked task on the server,
-other fleets' included.
+names its work three ways. `process` and `task` are required: the claim carries no result
+contract, so a worker may only take the task it was written to answer. `version` stays optional,
+so a redeployed definition does not need redeployed workers (`genctl compat` guards the contract).
 
 ### Renew and release
 

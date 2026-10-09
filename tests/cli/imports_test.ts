@@ -16,31 +16,27 @@ beforeAll(() => {
   bin = buildGenctlBinary();
 }, 60_000);
 
-// The evaluator, started lazily: only the tests that RUN an imported script need it.
-let runner: ChildProcess | undefined;
-let runnerReady: Promise<void>;
-async function startRunner(): Promise<void> {
-  if (runner) return runnerReady;
-  runner = spawn("node", [join(REPO, "eval-node/worker.ts")], {
-    // TASK scopes this worker to the script tasks below; an unfiltered one would claim every
-    // parked external task on the shared test server. They are not in script-node, so the
-    // default PROCESS is cleared.
-    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", PROCESS: "", TASK: "price", WORKER_ID: `imports-${process.pid}` },
+// An evaluator per test that RUNS an imported script: a claim names its process, and each test's is
+// its own.
+const runners: ChildProcess[] = [];
+async function startRunner(processName: string): Promise<void> {
+  const runner = spawn("node", [join(REPO, "eval-node/worker.ts")], {
+    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", PROCESS: processName, TASK: "price", WORKER_ID: `imports-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });
-  runnerReady = new Promise<void>((resolve, reject) => {
+  runners.push(runner);
+  await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("evaluator worker did not start within 10s")), 10_000);
-    runner!.stdout!.on("data", (chunk: Buffer) => {
+    runner.stdout!.on("data", (chunk: Buffer) => {
       if (chunk.toString().includes("polling")) {
         clearTimeout(timer);
         resolve();
       }
     });
-    runner!.on("error", reject);
+    runner.on("error", reject);
   });
-  return runnerReady;
 }
-afterAll(() => runner?.kill());
+afterAll(() => runners.forEach((r) => r.kill()));
 
 const REPO = new URL("../../", import.meta.url).pathname;
 
@@ -1243,7 +1239,8 @@ test("evaluator importer — the author's tsconfig cannot widen the sandbox or t
 }, 60_000);
 
 test("evaluator importer — a data file imported as JSON is inlined and reaches the realm", async () => {
-  await startRunner();
+  const name = uid("script");
+  await startRunner(name);
   const p = tsProject();
   // The bundler must be told to parse `.json` as data. Running it proves the value was inlined:
   // the realm has no file to read.
@@ -1260,7 +1257,6 @@ test("evaluator importer — a data file imported as JSON is inlined and reaches
       "",
     ].join("\n"),
   );
-  const name = uid("script");
   const def = p.write(
     "proc.yaml",
     [
@@ -1353,7 +1349,8 @@ test("evaluator importer — a package dependency resolves and is bundled in", (
 }, 60_000);
 
 test("evaluator importer — a node builtin survives the bundle and runs in the realm", async () => {
-  await startRunner();
+  const name = uid("script");
+  await startRunner(name);
   const p = tsProject();
   // `types: [node]` is the author's opt-in to node globals; the stub keeps the test off the
   // repo's own @types/node.
@@ -1379,7 +1376,6 @@ test("evaluator importer — a node builtin survives the bundle and runs in the 
     ].join("\n"),
   );
   const secret = p.write("secret.txt", "the realm reaches the host\n");
-  const name = uid("script");
   const def = p.write(
     "proc.yaml",
     [

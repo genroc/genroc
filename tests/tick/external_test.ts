@@ -186,7 +186,7 @@ test("pausing an externally-waiting instance takes it out of the queue", async (
 
   // Out of the queue: a claim does not offer it.
   const claimed = await ctx.env.client.POST("/external-tasks/claim", {
-    body: { worker_id: "w-pause", limit: 10 },
+    body: { worker_id: "w-pause", process: "ext_pause", task: "approval", limit: 10 },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const claimedIds = ((claimed.data as any)?.items ?? []).map((t: any) => t.token.split(".")[0]);
@@ -203,7 +203,7 @@ test("pausing an externally-waiting instance takes it out of the queue", async (
   await ctx.env.resume(id);
   expect(await ctx.env.status(id)).toBe("running external");
   const again = await ctx.env.client.POST("/external-tasks/claim", {
-    body: { worker_id: "w-resume", limit: 10 },
+    body: { worker_id: "w-resume", process: "ext_pause", task: "approval", limit: 10 },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expect(((again.data as any)?.items ?? []).map((t: any) => t.token.split(".")[0])).toContain(id);

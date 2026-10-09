@@ -14,13 +14,14 @@ import { evaluate } from "../../eval-node/eval.ts";
 const ROOT = new URL("../../", import.meta.url).pathname;
 
 let worker: ChildProcess;
+// One process for every test the worker serves: a claim names its process, so the worker cannot
+// follow per-test names. Each test registers its own version, and an instance runs the one it
+// started on.
+const PROCESS = `script_task_${crypto.randomUUID()}`;
 
 beforeAll(async () => {
   worker = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
-    // TASK scopes the worker to this file's tasks; unfiltered, it would claim every parked
-    // external task on the server, including other suites' approvals. They are not in
-    // script-node, so the default PROCESS is cleared.
-    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", PROCESS: "", TASK: "run", WORKER_ID: `test-${process.pid}` },
+    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", PROCESS, TASK: "run", WORKER_ID: `test-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise<void>((resolve, reject) => {
@@ -88,7 +89,7 @@ test("script task — the return value is self.result, typed by result_schema", 
   t.action.result_schema = { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] };
 
   const { status, data } = await run(
-    `script_ok_${crypto.randomUUID()}`,
+    PROCESS,
     [{ ...t, output: { fee: "$: self.result.fee" }, switch: [{ goto: "end" }] }],
     { amount: 250 },
     AMOUNT_SCHEMA,
@@ -128,7 +129,7 @@ test("script task — a throw is caught by its own code, and the definition rais
     },
   ];
 
-  const { status, data } = await run(`script_throw_${crypto.randomUUID()}`, tasks, { amount: 250 }, AMOUNT_SCHEMA);
+  const { status, data } = await run(PROCESS, tasks, { amount: 250 }, AMOUNT_SCHEMA);
   expect(status).toBe("raised");
   expect(data?.error_code).toBe("limit_exceeded");
 });
@@ -150,7 +151,7 @@ test("script task — error.data.name is the error's class unless the script nam
       },
       { id: "failed", output: { name: "$: last_error.data.name" }, switch: [{ goto: "end" }] },
     ];
-    const { status, data } = await run(`script_name_${crypto.randomUUID()}`, tasks);
+    const { status, data } = await run(PROCESS, tasks);
     expect(status, label).toBe("completed");
     expect((data?.state?.outputs as any)?.failed?.name, `${label}: a caller matches on this name`).toBe(want);
   }
@@ -169,7 +170,7 @@ test("script task — compile_error, nonserializable and exited are distinct cod
       { ...t, on_error: [{ code: ["compile_error", "nonserializable", "exited"], goto: "$broken" }], switch: [{ goto: "end" }] },
       { id: "broken", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
     ];
-    const { status, data } = await run(`script_${want}_${crypto.randomUUID()}`, tasks);
+    const { status, data } = await run(PROCESS, tasks);
     expect(status, `${label} should complete via the handler`).toBe("completed");
     expect((data?.state?.outputs as any)?.broken, label).toEqual({ code: want });
   }
@@ -183,7 +184,7 @@ test("script task — a script over the task's timeout reports `timeout`, not ex
     { ...t, on_error: [{ code: ["timeout"], goto: "$slow" }], switch: [{ goto: "end" }] },
     { id: "slow", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
   ];
-  const { status, data } = await run(`script_timeout_${crypto.randomUUID()}`, tasks);
+  const { status, data } = await run(PROCESS, tasks);
   expect(status).toBe("completed");
   expect((data?.state?.outputs as any)?.slow).toEqual({ code: "timeout" });
 }, 30_000);
@@ -201,7 +202,7 @@ const TEMPLATE_SCRIPT = (dollars: string) =>
 test("script task — a template literal in the code escapes ${ as $${", async () => {
   const t = withInput(scriptTask(TEMPLATE_SCRIPT("$$")));
   const { status, data } = await run(
-    `script_escape_${crypto.randomUUID()}`,
+    PROCESS,
     [{ ...t, output: "$: self.result", switch: [{ goto: "end" }] }],
     { name: "ada" },
     { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
@@ -224,7 +225,7 @@ test("script task — the unescaped ${ is read by genroc and refused at registra
 });
 
 test("script task — a backlog drains", async () => {
-  const name = `script_backlog_${crypto.randomUUID()}`;
+  const name = PROCESS;
   const t = withInput(scriptTask("export default (input) => ({ doubled: input.n * 2 });"));
   await client.PUT("/definitions", {
     body: {
@@ -383,7 +384,7 @@ test("realm — a script can import a node builtin", async () => {
 });
 
 test("script task — a large script is shared, not copied, and still runs", async () => {
-  const name = `script_big_${crypto.randomUUID()}`;
+  const name = PROCESS;
   // Past the 2 KiB cutoff, and identical across instances so it is stored as one object.
   const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
   const t = withInput(scriptTask(`${pad}\nexport default (input) => ({ doubled: input.n * 2 });`));
@@ -439,7 +440,7 @@ test("script task — a large script leaves the instance and is listed, not carr
   while (Date.now() < deadline) {
     if ((await parkedInProcess(name, client)).length === 2) {
       // The externalized-value list rides on the claim, not on discovery.
-      entries = await claimInProcess(name);
+      entries = await claimInProcess(name, "parked");
       if (entries.length === 2) break;
     }
     await new Promise((r) => setTimeout(r, 50));

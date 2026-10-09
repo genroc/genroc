@@ -36,7 +36,7 @@ async function claimWhenReady(worker: string, process: string) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     const { data } = await client.POST("/external-tasks/claim", {
-      body: { worker_id: worker, process, lease_ms: 30_000 } as never,
+      body: { worker_id: worker, process, task: "work", lease_ms: 30_000 } as never,
     });
     const items = ((data as any)?.items ?? []) as any[];
     if (items.length) return items;

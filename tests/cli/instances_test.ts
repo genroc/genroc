@@ -244,7 +244,7 @@ test("detail — an external task reads as unclaimed, claimed, or its claim expi
   };
   const claim = async (worker: string, lease_ms: number) => {
     const { data } = await client.POST("/external-tasks/claim", {
-      body: { worker_id: worker, process: name, lease_ms } as never,
+      body: { worker_id: worker, process: name, task: "approval", lease_ms } as never,
     });
     expect((data as { items: unknown[] }).items, "the parked task must be claimable").toHaveLength(1);
   };

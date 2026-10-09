@@ -252,6 +252,10 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 	if req.WorkerID == "" {
 		return invalid("worker_id is required — it is the claim's holder, and what renew is scoped to").reply()
 	}
+	if req.Process == "" || req.Task == "" {
+		return invalid("process and task are both required — the claim carries no result contract, " +
+			"so a worker may only take the task it was written to answer").reply()
+	}
 	lease, bad := claimLease(req.LeaseMs)
 	if bad != nil {
 		return bad.reply()

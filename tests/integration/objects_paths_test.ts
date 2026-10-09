@@ -118,7 +118,7 @@ test("every objects path on a parked task names a place — on both views and on
 
   // The claim is the fourth listing, and the only one whose paths address an ENTRY rather than
   // the instance -- so it is the one a change to the instance views can silently skew.
-  const [entry] = await claimInProcess(name);
+  const [entry] = await claimInProcess(name, "hold");
   await assertListingIsPlaceable("POST /external-tasks/claim", entry);
   expect((entry.external_input as Record<string, unknown>).payload).toBe(BLOB);
 });
