@@ -170,8 +170,7 @@ not move when the API namespace does.</p>
 <h2 id="the-document">The document<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-document"><span></span></a></h2>
 <p>The endpoint list is generated from the server&#39;s own action registry, so it cannot drift from
 what is served. This site publishes it at <a href="../../openapi.json"><code>openapi.json</code></a>, and a running
-server serves the same document at <code>/public/openapi.json</code> with a browsable UI at
-<code>/public/docs</code>.</p>
+server serves the same document at <code>/public/openapi.json</code>.</p>
 <p>A client generator takes it as-is — the base path is declared once in <code>servers</code>, so generated
 calls prepend <code>/api</code> and the documented paths stay the ones the server routes.</p>
 <p>To browse it as an API explorer rather than as JSON, there is a
