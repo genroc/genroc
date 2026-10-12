@@ -176,6 +176,9 @@ it&#39;s better to expose simple rest endpoint and use <code>fetch</code> action
 and your worker needs to ask genroc &quot;Do you have any work, if yes, I claim it&quot;.</p>
 <p>For this, there is <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksclaim"><code>/api/external-tasks/claim</code></a>
 endpoint. You must specify which process and task you want to claim.</p>
+<blockquote>
+<p>Give your worker <code>worker</code> permission - that&#39;s all it needs</p>
+</blockquote>
 <p>Example:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">worker_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">worker-1</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span></span>
@@ -212,7 +215,9 @@ in this case).</p>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  ]</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
 <p>Most important fields are <code>external_input</code>, which is an input passed into the external action
-and a unique token which you need to use when submitting the result.</p>
+and a unique token which you need to use when submitting the result (also for renewal).</p>
+<p>Deadline tells the worker when the work needs to be finished - it comes from
+<code>timeout</code> field (timeout also includes time spent in the queue).</p>
 <h3 id="resolving-the-task">Resolving the task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#resolving-the-task"><span></span></a></h3>
 <p>Once your worker finished the work. You need to use <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksresolve"><code>/api/external-tasks/resolve</code></a>
 endpoint to submit finished work:</p>
@@ -232,7 +237,7 @@ endpoint to submit finished work:</p>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  }</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
 <p>Result is validated against <code>result_schema</code> and error code and data
-are validated against <code>raises</code> field.</p>
+are validated against <code>raises</code> field (<code>code</code> and <code>message</code> are always required).</p>
 <h3 id="renewing-leases">Renewing leases<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#renewing-leases"><span></span></a></h3>
 <p>If your worker can run for a longer time, you should use genroc lease/renew system.
 Make leases e.g. 30s and then renew the leases every e.g. 10s, this is basically letting
@@ -243,12 +248,16 @@ endpoint, which accepts a list of tokens for tasks you want to renew.</p>
 <p>Renew enpdoint lets you know if the tasks is no longer worth working on.
 This can happen when the process is <code>cancelled</code> or the lease is <code>lost</code>.</p>
 <p>You can use this to kill workers before they finish to avoid wasting resources.</p>
+<h3 id="relasing-task">Relasing task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#relasing-task"><span></span></a></h3>
+<p>If your worker is not able to finish the task and you want it to be picked up
+by different worker as soon as possible, you can explicitly release the task
+by <code>/release</code> endpoint.</p>
 <h2 id="reusable-tasks-tied-to-workers">Reusable tasks tied to workers<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#reusable-tasks-tied-to-workers"><span></span></a></h2>
 <p>Workers are tied to specific process and task,
 so if you want to make this reusable, create a child
 process and make the other processes call it. This allows you to specify
 a typed API. This is also the way how the
-<a href="/guides/process-definition/typescript-evaluation/">typescript evaluation</a> works.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/managing-instances/"> <span>previous</span> <strong>Managing instances</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#when-to-use">When to use</a></li><li class="depth-2"><a href="#basic-concept">Basic concept</a></li><li class="depth-3"><a href="#leasing">Leasing</a></li><li class="depth-3"><a href="#claim-response">Claim response</a></li><li class="depth-3"><a href="#resolving-the-task">Resolving the task</a></li><li class="depth-3"><a href="#renewing-leases">Renewing leases</a></li><li class="depth-3"><a href="#cancelledlost-leases">Cancelled/lost leases</a></li><li class="depth-2"><a href="#reusable-tasks-tied-to-workers">Reusable tasks tied to workers</a></li></ul><script>
+<a href="/guides/process-definition/typescript-evaluation/">typescript evaluation</a> works.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/managing-instances/"> <span>previous</span> <strong>Managing instances</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#when-to-use">When to use</a></li><li class="depth-2"><a href="#basic-concept">Basic concept</a></li><li class="depth-3"><a href="#leasing">Leasing</a></li><li class="depth-3"><a href="#claim-response">Claim response</a></li><li class="depth-3"><a href="#resolving-the-task">Resolving the task</a></li><li class="depth-3"><a href="#renewing-leases">Renewing leases</a></li><li class="depth-3"><a href="#cancelledlost-leases">Cancelled/lost leases</a></li><li class="depth-3"><a href="#relasing-task">Relasing task</a></li><li class="depth-2"><a href="#reusable-tasks-tied-to-workers">Reusable tasks tied to workers</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
