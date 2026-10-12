@@ -1,0 +1,73 @@
+---
+title: Large values
+description: How genroc manages large values in process instances.
+order: 3
+---
+
+Genroc stores large values separately and doesn't return them 
+directly when you communicate with the API.
+
+## What is large value?
+
+Genroc limits size of a json fields to a certain size and if the value
+is exceeded it moves parts of the value into `objects`.
+
+## What it looks like
+
+Say a task downloads a web page and keeps the HTML (about 180 KB) in its output.
+The instance detail doesn't contain the HTML. The `body` field is `null`,
+and the `objects` section says where it was and how to get it:
+
+```json
+{
+  "id": "5fy765kh",
+  "status": "completed",
+  "state": {
+    "outputs": {
+      "download": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": null
+      }
+    }
+  },
+  "objects": [
+    {
+      "path": ["state", "outputs", "download", "body"],
+      "ref": "9f2ac1b4e7d05f38a61c0d2e4b7f9a13",
+      "size": 184320
+    }
+  ]
+}
+```
+
+`path` points to the `null` field, `ref` is the id of the stored value
+and `size` is its size in bytes. Only the large parts are moved out:
+`status` and `content_type` stay where they are.
+
+To get the value, use the `ref`:
+
+```sh
+> curl http://localhost:8448/api/objects/9f2ac1b4e7d05f38a61c0d2e4b7f9a13
+{"data": "\"<!doctype html><html>...\""}
+```
+
+`data` is the value encoded as JSON text, so parse it once more to get the original value.
+
+The CLI does this for you: `genctl detail` shows `{ref, size}` in place of the `null`,
+`genctl detail --resolve` fills it in and `genctl object <ref>` prints one value.
+
+## Which endpoints
+
+| Endpoint | What can be moved out | Paths start at |
+|---|---|---|
+| `GET /api/instances/{id}` | `output`, `error_data`, `external_input` | the response |
+| `GET /api/instances/{id}/detail` | anything in `state` | the response |
+| `GET /api/instances/{id}/logs` | each entry's `data` | the log entry |
+| `POST /api/external-tasks/claim` | each item's `external_input` | the item |
+
+No endpoint fills the values in for you; fetch each one with `GET /api/objects/{ref}`.
+
+Fetching an object needs the `read` or `worker` permission.
+
+
