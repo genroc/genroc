@@ -15,10 +15,9 @@ import (
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
 	// Derived from the row, not read back from a column — the epoch IS the occurrence.
 	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
-	var deadlineIn *int64
+	var deadline string
 	if inst.WakeAt != nil {
-		ms := max(inst.WakeAt.Sub(db.Now()).Milliseconds(), 0)
-		deadlineIn = &ms
+		deadline = inst.WakeAt.Format(time.RFC3339Nano)
 	}
 	// The task input can hold externalized values (a bundle embedded in a definition, once
 	// those become objects), so a queue entry lists them the same way a log entry does.
@@ -34,7 +33,7 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		Input:        input,
 		Objects:      objects,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
-		DeadlineInMs: deadlineIn,
+		Deadline:     deadline,
 	}
 }
 

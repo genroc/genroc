@@ -217,10 +217,10 @@ type ExternalTaskResp struct {
 	Process      string        `json:"process"`
 	Version      int           `json:"version"`
 	TaskID       string        `json:"task"`
-	Input        any           `json:"external_input"`           // the task's evaluated input snapshot, under the one name every view spells it
-	WaitingSince string        `json:"waiting_since"`            // RFC3339 park time
-	Objects      []ObjectEntry `json:"objects,omitempty"`        // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
-	DeadlineInMs *int64        `json:"deadline_in_ms,omitempty"` // task timeout as ms from now, 0 once past; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
+	Input        any           `json:"external_input"`     // the task's evaluated input snapshot, under the one name every view spells it
+	WaitingSince string        `json:"waiting_since"`      // RFC3339 park time
+	Objects      []ObjectEntry `json:"objects,omitempty"`  // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
+	Deadline     string        `json:"deadline,omitempty"` // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
 }
 
 // FailureReq is a pointer field, so its PRESENCE discriminates: `result: null` stays an

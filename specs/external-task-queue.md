@@ -87,7 +87,7 @@ select-then-grant in one transaction):
 
 FIFO by park time (`updated_at ASC`). It must **not** touch `task_epoch` (every handed-out token
 would die), the engine's lease columns, or clear `external_worker_id` on expiry (the evidence
-`external.lost` reads). The response carries input, `objects` and `deadline_in_ms`, so a worker can decline work it
+`external.lost` reads). The response carries input, `objects` and `deadline`, so a worker can decline work it
 cannot finish in time. Nothing the caller already knows (its own id, its lease) is echoed back. Not `result_schema` or
 `raises`: they are the definition's, fixed per version and enforced at resolve, so a worker is
 written against them rather than reading them per claim. `status = 'running'` excludes paused and cancelled trees: no new work for a

@@ -139,8 +139,6 @@ func (a actionDef) envelope(r *http.Request) (Envelope, error) {
 
 func schemaPtr(s schema.Schema) *schema.Schema { return &s }
 
-func int64Ptr(n int64) *int64 { return &n }
-
 // registry is the authoritative list of all actions.
 // Order here determines order in Swagger.
 var registry = func() []actionDef {
@@ -669,7 +667,7 @@ var registry = func() []actionDef {
 					Process: "expense-approval", Version: 2, TaskID: "approval",
 					Input:        map[string]any{"amount": 420, "submitter": "alice"},
 					WaitingSince: "2026-09-25T09:12:00Z",
-					DeadlineInMs: int64Ptr(86_400_000),
+					Deadline:     "2026-09-26T09:12:00Z",
 				}},
 			},
 			handle: func(h *Handlers, env Envelope) Reply { return h.claimExternalTasks(env.Payload) },

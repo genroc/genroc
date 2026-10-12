@@ -10,7 +10,7 @@ Running user TypeScript needs **no new engine capability**. A script task is a p
 task whose input carries a code string (`{code, input}`); a worker (`eval-node`) claims it off
 the queue, evaluates it, and resolves it with JSON. Lease, retry, `on_error` and timeout are the
 ones already there: the task's `timeout` is also the script's budget (the claim's
-`deadline_in_ms`), so there is no second one to keep below it. The engine gained only `external.lost`; the larger half was
+`deadline`), so there is no second one to keep below it. The engine gained only `external.lost`; the larger half was
 the queue under it — claim, visibility timeout, error channel.
 
 - **Not a distinct action type**: plain `external` adds nothing to the engine, at the cost of the

@@ -42,7 +42,7 @@ type QueueTask = {
   task: string;
   external_input: unknown;
   objects?: ObjectEntry[];
-  deadline_in_ms?: number;
+  deadline?: string;
 };
 
 // Large values arrive as refs; a bundle is one object per definition version, fetched once.
@@ -188,9 +188,9 @@ async function answer(token: string, outcome: Record<string, unknown>): Promise<
 }
 
 async function run(job: QueueTask, signal: AbortSignal): Promise<void> {
-  // The task's own timeout is the script's budget. Taken on arrival, because fetching the
-  // objects below spends the same deadline.
-  const due = job.deadline_in_ms === undefined ? undefined : performance.now() + job.deadline_in_ms;
+  // The task's own timeout is the script's budget, moved onto the monotonic clock so a wall-clock
+  // step mid-run cannot stretch it. Fetching the objects below spends the same deadline.
+  const due = job.deadline === undefined ? undefined : performance.now() + (Date.parse(job.deadline) - Date.now());
   let resolved: unknown;
   try {
     resolved = await resolveObjects(job);
