@@ -78,6 +78,15 @@ and the unique token, which you need when submitting the result (and when renewi
 `deadline` tells the worker when the work needs to be finished. It comes from
 the `timeout` field (the timeout also includes time spent in the queue).
 
+### `objects` field
+
+If `external_input` contained large values, they are `null` in it and listed in the item's
+`objects` field, with paths starting at `external_input`. Fetch each one with
+`GET /api/objects/{ref}`, parse its `data` (it is JSON text) and put it back at its path.
+
+Read more in the [next chapter](large-values.mdx).
+
+
 ### Resolving the task
 
 Once your worker has finished, use the [`/api/external-tasks/resolve`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksresolve)
