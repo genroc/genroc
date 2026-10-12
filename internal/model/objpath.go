@@ -1,6 +1,7 @@
 package model
 
-// Extract removes every *ObjectRef from v and reports each one's path from v; Place inverts it.
+// Extract replaces every *ObjectRef in v with null and reports each one's path from v; Place
+// inverts it.
 // Three callers (the API's objects section, the DB's external-task refs, a client putting values
 // back) must agree exactly on paths. specs/object-store.md.
 func Extract(v any, at []any, out *[]*ObjectRef) any {
@@ -12,7 +13,7 @@ func Extract(v any, at []any, out *[]*ObjectRef) any {
 		for k, val := range t {
 			if ref, isRef := val.(*ObjectRef); isRef {
 				*out = append(*out, &ObjectRef{Ref: ref.Ref, Size: ref.Size, Path: childPath(at, k)})
-				delete(t, k)
+				t[k] = nil
 				continue
 			}
 			t[k] = Extract(val, childPath(at, k), out)

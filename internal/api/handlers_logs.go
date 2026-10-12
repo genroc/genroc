@@ -9,11 +9,13 @@ import (
 	"genroc/internal/numeric"
 )
 
-// logObjects re-roots the stored payload-rooted paths at the ENTRY: ["data", …].
+// logObjects re-roots the stored payload-rooted paths at the ENTRY: ["data", …], and nulls each
+// one in data. Storage drops the key, so this is where a log matches every other view.
 // specs/object-store.md §The wire.
-func logObjects(refs []*model.ObjectRef) []ObjectEntry {
+func logObjects(data any, refs []*model.ObjectRef) []ObjectEntry {
 	var out []ObjectEntry
 	for _, r := range refs {
+		model.Place(data, r.Path, nil)
 		out = append(out, ObjectEntry{Path: childPath([]any{"data"}, r.Path), Ref: r.Ref, Size: r.Size})
 	}
 	return out
@@ -64,7 +66,8 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	// Never inlined, and no preview: a trail is scanned, not read, so an entry lists its
 	// handle and `genctl object <ref>` fetches the one that matters.
 	for i, l := range logs {
-		data, objects := logData(l.Data), logObjects(l.Objects)
+		data := logData(l.Data)
+		objects := logObjects(data, l.Objects)
 		resp[i] = LogEntryResp{
 			Time:     l.CreatedAt.Format(time.RFC3339Nano),
 			Instance: l.InstanceID,

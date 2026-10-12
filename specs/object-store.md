@@ -148,20 +148,20 @@ release for the next orphan pass, not a leak.
 
 ## The wire: an objects section, not markers in the data
 
-Every response carrying values lists what it could not inline, and the data holds only real
-values:
+Every response carrying values lists what it could not inline, and the data holds `null` there:
 
 ```jsonc
 {
   "id": "…", "status": "completed",
-  "state": { "outputs": { "price": { "fee": 25 } } },   // no markers anywhere
+  "state": { "outputs": { "price": { "fee": 25 }, "render": null } },   // no markers anywhere
   "objects": [ { "path": ["state", "outputs", "render"], "ref": "9f2a…", "size": 221110 } ]
 }
 ```
 
-- **The slot is ABSENT**, not a `{ref, size}` marker, which would be indistinguishable from output
-  that legitimately has those keys. A client ignoring the section sees a missing value rather
-  than plausible data.
+- **The slot is `null`**, not a `{ref, size}` marker, which would be indistinguishable from output
+  that legitimately has those keys. Not absent either: the shape stays readable, and an array
+  element cannot be absent. A whole top-level field (`output`, `external_input`) is still omitted.
+  Storage drops the key; the log view nulls it on read (`logObjects`).
 - **`path` is an array of keys**, not a JSON Pointer: no RFC 6901 unescaping in every client, and
   an index is a number where a key is a string, so `"0"` is never ambiguous.
 - **No `url`** — the ref is the address; a second field could disagree with it.

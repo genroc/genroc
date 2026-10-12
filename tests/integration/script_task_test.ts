@@ -448,7 +448,7 @@ test("script task — a large script leaves the instance and is listed, not carr
   expect(entries.length, "both instances parked").toBe(2);
 
   for (const e of entries) {
-    expect(e.external_input?.code, "the bundle must not be carried in the task input").toBeUndefined();
+    expect(e.external_input?.code, "the bundle must not be carried in the task input").toBeNull();
     const listed = (e.objects ?? []).find(
       (o: any) => o.path.length === 2 && o.path[0] === "external_input" && o.path[1] === "code",
     );

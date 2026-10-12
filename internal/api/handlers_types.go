@@ -398,7 +398,7 @@ type InstanceDetailResp struct {
 	ExternalClaimEpoch     int64  `json:"external_claim_epoch"`
 
 	// Objects lists values too large to inline, at their path in this response; the slot is
-	// ABSENT, not a marker. Omitted when empty, like every section. specs/object-store.md.
+	// null, not a marker. Omitted when empty, like every section. specs/object-store.md.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 
@@ -415,7 +415,7 @@ type LogEntryResp struct {
 	// Actor is who caused this entry, as `source:subject` -- an operator, or `engine:self` for
 	// the engine's own advance. specs/api-auth.md section 7.
 	Actor string         `json:"actor,omitempty"`
-	Data  any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
+	Data  any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are null here and listed in Objects
 	Meta  map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
 	// Objects paths are rooted at the ENTRY (["data"]), not the page, so the section travels
 	// with its owner. specs/object-store.md §The wire.

@@ -22,7 +22,7 @@ type objectEntry struct {
 }
 
 // withObjectRefs marks every `objects` path relative to at, where v sits in the response. The
-// wire leaves the slot absent (specs/object-store.md §The wire); a reader needs the marker.
+// wire leaves the slot null (specs/object-store.md §The wire); a reader needs the marker.
 func withObjectRefs(v any, objects []objectEntry, at ...any) any {
 	if len(objects) == 0 {
 		return v

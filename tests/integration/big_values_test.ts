@@ -36,8 +36,8 @@ test("big values are returned as references by default", async () => {
   expect(error).toBeUndefined();
   // The LEAF is cut, not the slot: cutting the slot would fold siblings in with it and stop
   // identical values sharing one object.
-  expect((data!.state as any).input.blob).toBeUndefined();
-  expect((data!.output as any).echo).toBeUndefined();
+  expect((data!.state as any).input.blob).toBeNull();
+  expect((data!.output as any).echo).toBeNull();
   const input = objectAt(data, ["state", "input", "blob"]);
   expect(input, "the big input leaf is listed").toBeDefined();
   expect(input!.size).toBeGreaterThan(BLOB.length - 10);
@@ -56,8 +56,8 @@ test("big values are spliced back by the recipient, not by the server", async ()
 
   const { data, error } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(error).toBeUndefined();
-  // The slots are ABSENT, not markers: nothing in the data can be mistaken for a reference.
-  expect((data!.state as any).input?.blob).toBeUndefined();
+  // The slots are null, not markers: nothing in the data can be mistaken for a reference.
+  expect((data!.state as any).input?.blob).toBeNull();
   expect(objectAt(data, ["state", "input", "blob"]), "the input's big leaf is listed").toBeDefined();
 
   await spliceObjects(data);
@@ -85,7 +85,7 @@ test("large log payloads are cut per-leaf and share the instance's object", asyn
   expect(completed).toBeDefined();
   // The shell is carried, the leaf is listed -- at a path rooted at the ENTRY, so accumulating
   // pages or reversing rows cannot invalidate it.
-  expect(completed!.data, "the shell around the cut leaf is still carried").toEqual({});
+  expect(completed!.data, "the shell around the cut leaf is still carried, the leaf null").toEqual({ echo: null });
   const listed = objectAt(completed, ["data", "echo"]);
   expect(listed, "the oversized log LEAF is listed by its entry").toBeDefined();
   expect(await fetchObject(listed!.ref)).toBe(JSON.stringify(BLOB));
@@ -125,7 +125,7 @@ test("only oversized slots become references; small ones stay inline", async () 
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  expect((data!.state as any).input.blob).toBeUndefined();
+  expect((data!.state as any).input.blob).toBeNull();
   expect(objectAt(data, ["state", "input", "blob"])).toBeDefined();
   expect((data!.output as any)).toEqual({ ok: "done" });
   expect(objectAt(data, ["output"])).toBeUndefined();
@@ -148,7 +148,7 @@ test("an externalized value is listed, and comes back whole when fetched", async
   await waitForInstance(started!.id);
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect((data!.state as any).input.token).toBeUndefined();
+  expect((data!.state as any).input.token).toBeNull();
   expect(objectAt(data, ["state", "input", "token"])).toBeDefined();
   expect(JSON.stringify(data)).not.toContain("SSSSSSSSSS");
 
@@ -215,7 +215,7 @@ test("a subtree log lists a child instance's externalized payload", async () => 
 
   const { entry: found } = await childCreated();
   expect(found, "the child's inst_created entry is present").toBeDefined();
-  expect(found!.data, "the shell around the cut leaf is carried inline").toEqual({});
+  expect(found!.data, "the shell around the cut leaf is carried inline, the leaf null").toEqual({ blob: null });
   const childListed = objectAt(found, ["data", "blob"]);
   expect(childListed, "and the entry lists the oversized leaf instead").toBeDefined();
   expect(await fetchObject(childListed!.ref)).toBe(JSON.stringify(BLOB));

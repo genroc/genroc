@@ -58,14 +58,13 @@ func TestExtract_SiblingsGetDistinctPaths(t *testing.T) {
 	}
 }
 
-// A client ignoring the section must see a MISSING value, not plausible data.
-func TestExtract_RemovesRatherThanMarks(t *testing.T) {
+func TestExtract_NullsRatherThanMarks(t *testing.T) {
 	ctx := map[string]any{"input": ref("aaa", 10), "small": "kept"}
 	var got []*ObjectRef
 	out := Extract(ctx, []any{"context"}, &got).(map[string]any)
 
-	if _, present := out["input"]; present {
-		t.Fatalf("the externalized slot is still present: %+v", out["input"])
+	if v, present := out["input"]; !present || v != nil {
+		t.Fatalf("the externalized slot must stay as null, so the shape stays readable: present=%v value=%+v", present, v)
 	}
 	if out["small"] != "kept" {
 		t.Fatalf("an inline sibling was disturbed: %+v", out["small"])

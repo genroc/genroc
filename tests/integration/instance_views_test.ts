@@ -106,7 +106,7 @@ test("an oversized error_data is listed, not inlined and not leaked as a marker"
   const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
   const payload = data!.error_data as Record<string, unknown>;
   expect(payload.small, "a small sibling is not dragged out with the big leaf").toBe("inline");
-  expect(payload.blob, "the oversized leaf is absent, not a marker").toBeUndefined();
+  expect(payload.blob, "the oversized leaf is null, not a marker").toBeNull();
   expect(JSON.stringify(payload), "no reference may sit where a value goes").not.toContain("ref");
 
   const listed = (data!.objects ?? []).find(
@@ -143,7 +143,7 @@ test("an oversized output is listed at its own path, not inlined and not leaked 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
   const output = data!.output as Record<string, unknown>;
   expect(output.small, "a small sibling is not dragged out with the big leaf").toBe("inline");
-  expect(output.echo, "the oversized leaf is absent, not a marker").toBeUndefined();
+  expect(output.echo, "the oversized leaf is null, not a marker").toBeNull();
   expect(JSON.stringify(output), "no reference may sit where a value goes").not.toContain("ref");
 
   const listed = (data!.objects ?? []).find((o) => o.path?.[1] === "echo");
@@ -241,7 +241,7 @@ test("state can be rebuilt from what the detail view lists", async () => {
 
   const { data: listed } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(listed!.objects?.length, "the fixture must externalize, or this proves nothing").toBeGreaterThan(0);
-  expect((listed!.state as any).input.blob, "an externalized slot is absent, not a marker").toBeUndefined();
+  expect((listed!.state as any).input.blob, "an externalized slot is null, not a marker").toBeNull();
 
   const rebuilt = await spliceObjects(structuredClone(listed));
   expect((rebuilt!.state as any).input.blob).toBe(blob);
@@ -326,7 +326,7 @@ test("an oversized external input is listed at its own path, not inlined and not
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
   const asked = data!.external_input as Record<string, unknown>;
   expect(asked.note, "a small sibling is not dragged out with the big leaf").toBe("please review");
-  expect(asked.blob, "the oversized leaf is absent, not a marker").toBeUndefined();
+  expect(asked.blob, "the oversized leaf is null, not a marker").toBeNull();
   expect(JSON.stringify(asked), "no reference may sit where a value goes").not.toContain("ref");
 
   // Rooted at the response field: the outward view has no state for a path to point into.

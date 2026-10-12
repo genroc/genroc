@@ -36,10 +36,8 @@ async function assertListingIsPlaceable(where: string, body: unknown) {
     expect(parent, `${where}: ${printed} names a location this response does not have`).toBeDefined();
     expect(typeof parent, `${where}: ${printed} — the parent is not a container`).toBe("object");
 
-    // The leaf must be ABSENT rather than a marker: a reference sitting where a value goes is
-    // what the listing exists to avoid.
     const leaf = (parent as Record<string, unknown>)[e.path[e.path.length - 1]];
-    expect(leaf, `${where}: ${printed} still holds something inline`).toBeUndefined();
+    expect(leaf, `${where}: ${printed} must be null — not absent, not a marker`).toBeNull();
 
     const value = JSON.parse(await fetchObject(e.ref));
     (parent as Record<string, unknown>)[e.path[e.path.length - 1]] = value;
