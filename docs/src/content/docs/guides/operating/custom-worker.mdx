@@ -4,27 +4,27 @@ description: Learn how to connect an external worker to genroc.
 order: 2
 ---
 
-Expose task as `external`, genroc will create a queue of waiting tasks,
+Mark a task as `external` and genroc will create a queue of waiting tasks,
 which you can poll and process with your own worker.
 
 ## When to use
 
-The queue + worker architecture is suitable for resource intensive processing.
-It protects your system from overwhelming - if there is too many tasks at once,
-they simply wait in queue on genroc side.
+The queue + worker architecture is suitable for resource-intensive processing.
+It protects your system from being overwhelmed: if there are too many tasks at once,
+they simply wait in the queue on genroc's side.
 
-If the work is lightweight and it's more about timing/providing the data,
-it's better to expose simple rest endpoint and use `fetch` action.
+If the work is lightweight and it's more about timing or providing data,
+it's better to expose a simple REST endpoint and use the `fetch` action.
 
 ## Basic concept
 
-Genroc doesn't know about your worker, you simply mark a task as `external`
-and your worker needs to ask genroc "Do you have any work, if yes, I claim it".
+Genroc doesn't know about your worker. You simply mark a task as `external`,
+and your worker asks genroc: "Do you have any work? If yes, I claim it."
 
-For this, there is [`/api/external-tasks/claim`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksclaim)
+For this, there is the [`/api/external-tasks/claim`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksclaim)
 endpoint. You must specify which process and task you want to claim.
 
-> Give your worker `worker` permission - that's all it needs
+> Give your worker the `worker` permission. That's all it needs.
 
 Example:
 
@@ -38,17 +38,17 @@ Example:
 }
 ```
 
-Each worker has to have an unique id, so the genroc can distinguish who
-claimed what. So we are sending an id, `limit` is how many tasks I want
-to claim, so here I can recieve up to 5 tasks per claim. `process` is
-the process name and `task` is the task id.
+Each worker has to have a unique id, so genroc can distinguish who
+claimed what. `limit` is how many tasks you want to claim, so here you can
+receive up to 5 tasks per claim. `process` is the process name and `task`
+is the task id.
 
 ### Leasing
 
-Task is leased to you for the time you've requested. If your worker
-doesn't provide result in that time or doesn't renew the release,
+A task is leased to you for the time you've requested. If your worker
+doesn't provide a result in that time or doesn't renew the lease,
 genroc allows a different worker to claim it instead
-(`only_once` tasks will fail with `external.lost` 
+(`only_once` tasks will fail with `external.lost`
 in this case).
 
 ### Claim response
@@ -72,16 +72,16 @@ in this case).
 }
 ```
 
-Most important fields are `external_input`, which is an input passed into the external action
-and a unique token which you need to use when submitting the result (also for renewal).
+The most important fields are `external_input`, which is the input passed into the external action,
+and the unique token, which you need when submitting the result (and when renewing).
 
-Deadline tells the worker when the work needs to be finished - it comes from
-`timeout` field (timeout also includes time spent in the queue).
+`deadline` tells the worker when the work needs to be finished. It comes from
+the `timeout` field (the timeout also includes time spent in the queue).
 
 ### Resolving the task
 
-Once your worker finished the work. You need to use [`/api/external-tasks/resolve`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksresolve)
-endpoint to submit finished work:
+Once your worker has finished, use the [`/api/external-tasks/resolve`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksresolve)
+endpoint to submit the result:
 
 ```json
 {
@@ -92,7 +92,7 @@ endpoint to submit finished work:
 }
 ```
 
-If the work ended up with error, you can submit the error this way:
+If the work ended with an error, you can submit the error this way:
 
 ```json
 {
@@ -105,35 +105,35 @@ If the work ended up with error, you can submit the error this way:
 }
 ```
 
-Result is validated against `result_schema` and error code and data
-are validated against `raises` field (`code` and `message` are always required).
+The result is validated against `result_schema`, and the error code and data
+are validated against the `raises` field (`code` and `message` are always required).
 
 ### Renewing leases
 
-If your worker can run for a longer time, you should use genroc lease/renew system.
-Make leases e.g. 30s and then renew the leases every e.g. 10s, this is basically letting
-genroc know that the worker is alive and the work is advancing (a bit like heartbeat).
+If your worker can run for a longer time, you should use genroc's lease renewal.
+Make leases e.g. 30s and renew them e.g. every 10s. This lets genroc know
+that the worker is alive and the work is advancing (a bit like a heartbeat).
 
-For renewing there is [`/api/external-tasks/renew`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksrenew)
-endpoint, which accepts a list of tokens for tasks you want to renew.
+For renewing, there is the [`/api/external-tasks/renew`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksrenew)
+endpoint, which accepts a list of tokens for the tasks you want to renew.
 
 ### Cancelled/lost leases
 
-Renew enpdoint lets you know if the tasks is no longer worth working on.
+The renew endpoint lets you know if a task is no longer worth working on.
 This can happen when the process is `cancelled` or the lease is `lost`.
 
-You can use this to kill workers before they finish to avoid wasting resources.
+You can use this to stop the work before it finishes to avoid wasting resources.
 
-### Relasing task
+### Releasing a task
 
 If your worker is not able to finish the task and you want it to be picked up
-by different worker as soon as possible, you can explicitly release the task
-by `/release` endpoint.
+by a different worker as soon as possible, you can explicitly release the task
+with the `/release` endpoint.
 
 ## Reusable tasks tied to workers
 
-Workers are tied to specific process and task,
+Workers are tied to a specific process and task,
 so if you want to make this reusable, create a child
 process and make the other processes call it. This allows you to specify
-a typed API. This is also the way how the 
-[typescript evaluation](../process-definition/typescript-evaluation.mdx) works.
+a typed API. This is also how
+[TypeScript evaluation](../process-definition/typescript-evaluation.mdx) works.
