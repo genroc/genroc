@@ -517,13 +517,7 @@ func runDetailCmd(server string, args []string) {
 	resolveFlag := fs.Bool("resolve", false, "inline large values instead of printing their refs")
 	id := instanceIDAndFlags(fs, args)
 
-	u := "/api/instances/" + url.PathEscape(id) + "/detail"
-	if *resolveFlag {
-		// The server splices what fits and lists the rest, which fetchInstance then fetches: the
-		// big values never pass through a response nobody sized.
-		u += "?resolve=true"
-	}
-	inst, raw := fetchInstance(*serverFlag, u, *resolveFlag)
+	inst, raw := fetchInstance(*serverFlag, "/api/instances/"+url.PathEscape(id)+"/detail", *resolveFlag)
 	if *jsonFlag {
 		printIndented(raw)
 		return

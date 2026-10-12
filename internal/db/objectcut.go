@@ -75,11 +75,25 @@ func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject,
 func selectNodes(byDepth map[int][]*node, maxDepth int, chosen map[*node]bool, data, objects *int64, target int64) {
 	for depth := maxDepth; depth >= 0 && *data+*objects > target; depth-- {
 		level := byDepth[depth]
+		// Ranked by what is still inline, not the original size: a parent of a chosen leaf still
+		// LOOKS big, and taking it would fold per-instance siblings into the leaf's object.
+		rank := make(map[*node]int64, len(level))
+		holdsChosen := make(map[*node]bool, len(level))
+		for _, n := range level {
+			r := n.size
+			for _, d := range collect(n)[1:] {
+				if chosen[d] {
+					r -= d.size - entrySize(d.path)
+					holdsChosen[n] = true
+				}
+			}
+			rank[n] = r
+		}
 		// The path tie-break is not cosmetic: two instances must choose the SAME cut to share
 		// objects, and map iteration is randomized.
 		sort.Slice(level, func(i, j int) bool {
-			if level[i].size != level[j].size {
-				return level[i].size > level[j].size
+			if rank[level[i]] != rank[level[j]] {
+				return rank[level[i]] > rank[level[j]]
 			}
 			return pathLess(level[i].path, level[j].path)
 		})
@@ -96,8 +110,12 @@ func selectNodes(byDepth map[int][]*node, maxDepth int, chosen map[*node]bool, d
 			if holdsAlready(n) {
 				continue
 			}
-			if n.size < minExternalizeBytes {
+			if rank[n] < minExternalizeBytes {
 				break // nothing smaller at this level can help; coarsen instead
+			}
+			// What the row actually loses after paying this node's own entry.
+			if holdsChosen[n] && rank[n]-entrySize(n.path) < minExternalizeBytes {
+				continue
 			}
 			for _, d := range collect(n)[1:] { // drop descendants this node now contains
 				if chosen[d] {

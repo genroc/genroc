@@ -215,8 +215,6 @@ test("the detail view returns every field the status view does", async () => {
   }
 });
 
-// Checked against both the input value and the server's own ?resolve=true, so a mis-pathed listing
-// fails, as does one where both routes agree on the same wrong answer.
 test("state can be rebuilt from what the detail view lists", async () => {
   const name = `views_rebuild_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "R".repeat(4 * 1024);
@@ -246,11 +244,6 @@ test("state can be rebuilt from what the detail view lists", async () => {
   const rebuilt = await spliceObjects(structuredClone(listed));
   expect((rebuilt!.state as any).input.blob).toBe(blob);
   expect((rebuilt!.state as any).input.small, "an inline sibling is untouched by the rebuild").toBe(7);
-
-  const { data: server } = await client.GET("/instances/{id}/detail", {
-    params: { path: { id }, query: { resolve: true } },
-  });
-  expect(server!.state, "the caller's rebuild and the server's must agree").toEqual(rebuilt!.state);
 });
 
 // external_input is on the outward view because reading a parked request takes no claim.

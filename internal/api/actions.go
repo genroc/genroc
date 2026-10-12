@@ -438,8 +438,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID      string `path:"id" description:"The instance id"`
-				Resolve bool   `query:"resolve" description:"Splice externalized values into the state where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
+				ID string `path:"id" description:"The instance id"`
 			}{},
 			Resp: InstanceDetailResp{
 				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
@@ -452,20 +451,7 @@ var registry = func() []actionDef {
 				TaskEpoch: 3,
 				Objects:   []ObjectEntry{{Path: []any{"state", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
 			},
-			fromHTTP: func(r *http.Request) (Envelope, error) {
-				resolve, _ := strconv.ParseBool(r.URL.Query().Get("resolve"))
-				b, _ := json.Marshal(map[string]bool{"resolve": resolve})
-				return Envelope{Action: "get_instance_detail", ID: r.PathValue("id"), Payload: b}, nil
-			},
-			handle: func(h *Handlers, env Envelope) Reply {
-				p, err := decodeOptionalBody[struct {
-					Resolve bool `json:"resolve"`
-				}](env.Payload)
-				if err != nil {
-					return errReply(err)
-				}
-				return h.getInstanceDetail(env.ID, p.Resolve)
-			},
+			handle: func(h *Handlers, env Envelope) Reply { return h.getInstanceDetail(env.ID) },
 		},
 		{
 			Name:    "get_instance",

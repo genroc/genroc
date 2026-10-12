@@ -11,7 +11,6 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
-	"genroc/internal/numeric"
 )
 
 func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
@@ -138,10 +137,6 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	return okReply(PageResp[InstanceSummaryResp]{Items: resp, Page: info})
 }
 
-// maxInlineResolveBytes is per OBJECT, not per response: a larger object stays listed for the
-// caller to fetch, so ?resolve=true stays bounded and degrades rather than fails.
-const maxInlineResolveBytes = 1 << 20
-
 func (h *Handlers) getInstance(id string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
@@ -166,7 +161,7 @@ func reportedPayload(inst *model.ProcessInstance) (any, []ObjectEntry) {
 
 // getInstanceDetail hides nothing: its state is what an upgrade validates and a migration
 // rewrites.
-func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
+func (h *Handlers) getInstanceDetail(id string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
@@ -186,40 +181,6 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 			continue
 		}
 		state[k] = extractObjects(v, []any{"state", k}, &objects)
-	}
-	// One tree to splice into, so a path rooted at `state` and one rooted at a flat field are
-	// placed by the same walk.
-	root := map[string]any{"state": state}
-	for f, v := range flat {
-		root[f] = v
-	}
-	if resolve {
-		kept := objects[:0]
-		for _, e := range objects {
-			if e.Size > maxInlineResolveBytes {
-				kept = append(kept, e) // too big to splice; the caller fetches this one
-				continue
-			}
-			content, _, err := h.db.GetObjectContent(e.Ref)
-			if err != nil {
-				kept = append(kept, e)
-				continue
-			}
-			var value any
-			if err := numeric.Decode([]byte(content), &value); err != nil {
-				kept = append(kept, e)
-				continue
-			}
-			// Paths are rooted at this response, and so is `root`.
-			if !model.Place(root, e.Path, value) {
-				kept = append(kept, e)
-			}
-		}
-		objects = kept
-		state, _ = root["state"].(map[string]any)
-		for f := range flat {
-			flat[f] = root[f]
-		}
 	}
 	kids, err := h.db.ChildrenOfInstance(id)
 	if err != nil {

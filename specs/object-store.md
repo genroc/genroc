@@ -202,20 +202,16 @@ paths are references. API and storage share one traversal, `model.Extract` / `mo
 
 ### Resolution is automatic while it is small
 
-Materialize what fits; make the consumer fetch the rest.
-
-- **A fetch body always resolves**: its reader cannot call genroc. Past 8 MiB of referenced
-  content the instance fails (`engine.expression`) rather than building an enormous request.
-- **`?resolve=true`** on the instance detail splices each object up to 1 MiB and leaves larger
-  ones listed, so the response stays bounded and degrades rather than fails.
-
-The caps are safety limits, not tuning knobs: past them, change what the definition sends.
+Only where the consumer cannot fetch: **a fetch body always resolves**, since its reader cannot
+call genroc. Past 8 MiB of referenced content the instance fails (`engine.expression`) rather than
+building an enormous request — a safety limit, not a tuning knob. No API response resolves: every
+caller can fetch `GET /objects/{ref}`, so one way to read a value beats two that must agree.
 
 ### What the CLI does instead, and where it declines to help
 
 | | |
 |---|---|
-| `genctl get` / `detail --resolve` | splice client-side (`detail` asks the server's `?resolve=true` first) |
+| `genctl get` / `detail --resolve` | splice client-side, one `GET /objects/{ref}` per entry |
 | `genctl logs` | **never resolves**: a trail is scanned, and its payloads are large by definition; it prints the handle |
 | `genctl object <ref>` | fetches one object — the escape hatch that makes printing a handle enough |
 
@@ -229,7 +225,9 @@ output cut on its own) and log payloads.
 Externalize the **fewest, largest** pieces that bring `data + objects list` under the target.
 Sizes are computed once, bottom-up. Candidates are taken deepest level first, largest first within
 a level; only when a level is exhausted, or its largest remaining candidate is under the floor,
-does the cut coarsen a level up — and choosing a parent un-chooses its descendants. Each round's
+does the cut coarsen a level up — and choosing a parent un-chooses its descendants. A level is
+ranked by what is still inline (size minus chosen descendants, plus their entries), not original
+size: otherwise the parent of a chosen leaf still looks big and replaces it for a few bytes. Each round's
 selection is spliced and measured, and re-selected if still over.
 
 **Leaves first preserves sharing**: cutting the bundle alone makes every instance hash it the

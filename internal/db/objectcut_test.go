@@ -61,6 +61,39 @@ func TestCut_TakesTheBigLeafAndLeavesItsSibling(t *testing.T) {
 	}
 }
 
+// One subtree that must coarsen (`many`: every leaf under the floor) used to drag every other
+// cut up with it, because a parent of a chosen leaf still ranked by its original size.
+func TestCut_CoarseningOneSubtreeKeepsTheOthersAtTheirLeaves(t *testing.T) {
+	many := map[string]any{}
+	for i := range 100 {
+		many[fmt.Sprintf("k%02d", i)] = big(100)
+	}
+	v := map[string]any{
+		"small":   1,
+		"deep":    map[string]any{"a": map[string]any{"b": map[string]any{"c": big(4096)}}},
+		"list":    []any{"x", big(4096)},
+		"matrix":  []any{[]any{"y", big(4096)}},
+		"records": []any{map[string]any{"id": 1, "body": big(4096)}},
+		"many":    many,
+	}
+	out, refs, _, err := cutForSize(v, 2048)
+	if err != nil {
+		t.Fatalf("cut: %v", err)
+	}
+	var got []string
+	for _, r := range refs {
+		got = append(got, fmt.Sprint(r.Path))
+	}
+	want := []string{"[deep a b c]", "[list 1]", "[many]", "[matrix 0 1]", "[records 0 body]"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("cut at %v, want %v: a coarser cut folds per-instance siblings (records[0].id) "+
+			"into the object, and instances sharing the leaf stop sharing it", got, want)
+	}
+	if got := encoded(t, out, refs); got > 2048 {
+		t.Fatalf("stored size %d is still over the 2048 target", got)
+	}
+}
+
 // The failure the per-leaf threshold has: many pieces, none individually large, adding up to far
 // more than the target. Every one is under the old 2 KiB line, so nothing moved.
 func TestCut_ManySmallLeavesStillGetUnderTarget(t *testing.T) {

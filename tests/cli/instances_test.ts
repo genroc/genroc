@@ -331,8 +331,8 @@ test("detail — an externalized value shows its ref where the value belongs", a
   const state = text.stdout.slice(text.stdout.indexOf("State:"));
   expect(
     state,
-    "the slot is absent on the wire, so a reader who cannot see the key cannot tell a value "
-      + "that was cut from one that was never there",
+    "the slot is null on the wire, so a reader without the ref cannot tell a value that was "
+      + "cut from a real null",
   ).toMatch(/blob:\s+ref: [0-9a-f]{32}\s+size: \d+/);
   expect(state).not.toContain("BBBBBBBBBB");
 
@@ -394,6 +394,94 @@ test("get — an externalized array element is marked and spliced at its index",
   expect(resolved.ok, resolved.stderr).toBe(true);
   expect(JSON.parse(resolved.stdout).output.items, "--resolve puts each element back in place")
     .toEqual([first, second]);
+}, 15_000);
+
+test("get/detail --resolve — a value cut at any depth is put back at its path", async () => {
+  const big = (c: string) => c.repeat(4 * 1024);
+  const input = {
+    d: big("D"), l: big("L"), m: big("M"), r: big("R"), w: big("W"),
+    // Every leaf is under the externalize floor, so the cut has to take the object around them.
+    many: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`k${i}`, "v".repeat(100)])),
+  };
+  // Each task output is cut on its own, so each one puts its big value at a depth of its own.
+  const def = {
+    name: uid("depths"),
+    input_schema: {
+      type: "object",
+      properties: {
+        d: { type: "string" }, l: { type: "string" }, m: { type: "string" },
+        r: { type: "string" }, w: { type: "string" }, many: {},
+      },
+      required: ["d", "l", "m", "r", "w", "many"],
+    },
+    tasks: [
+      { id: "deep", output: { a: { b: { c: { d: "$: input.d" } } } }, switch: "next" },
+      { id: "list", output: { items: ["x", "$: input.l"] }, switch: "next" },
+      { id: "matrix", output: { rows: [["y", "$: input.m"]] }, switch: "next" },
+      { id: "records", output: { rows: [{ id: 1, body: "$: input.r" }] }, switch: "next" },
+      { id: "wrapped", output: { tag: "t", wrap: "$: input.many" }, switch: "next" },
+      { id: "whole", output: "$: input.w", switch: [{ goto: "end" }] },
+    ],
+    output: "$: outputs.matrix",
+  };
+  const name = apply(def);
+  const id = runCli(bin, ["run", name, "--input", JSON.stringify(input), "-q"]).stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const raw = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
+  expect(
+    raw.objects.map((o: { path: unknown[] }) => o.path),
+    "the premise: cuts at several depths, through arrays, of a whole object and of a whole slot",
+  ).toEqual(expect.arrayContaining([
+    ["state", "outputs", "deep", "a", "b", "c", "d"],
+    ["state", "outputs", "list", "items", 1],
+    ["state", "outputs", "matrix", "rows", 0, 1],
+    ["state", "outputs", "records", "rows", 0, "body"],
+    ["state", "outputs", "wrapped", "wrap"],
+    ["state", "outputs", "whole"],
+    ["output", "rows", 0, 1],
+  ]));
+
+  const detail = JSON.parse(runCli(bin, ["detail", id, "--resolve", "--json"]).stdout);
+  expect(detail.state.input, "detail --resolve must rebuild the input exactly").toEqual(input);
+  expect(detail.state.outputs, "detail --resolve must put every cut back at its own path").toEqual({
+    deep: { a: { b: { c: { d: input.d } } } },
+    list: { items: ["x", input.l] },
+    matrix: { rows: [["y", input.m]] },
+    records: { rows: [{ id: 1, body: input.r }] },
+    wrapped: { tag: "t", wrap: input.many },
+    whole: input.w,
+  });
+  expect(detail.objects, "every listed object was put back").toBeUndefined();
+
+  const got = JSON.parse(runCli(bin, ["get", id, "--resolve", "--json"]).stdout);
+  expect(got.output, "get --resolve must rebuild the output exactly").toEqual({ rows: [["y", input.m]] });
+
+  // Without --resolve, the text view shows one marker per object, each where its value was.
+  const text = runCli(bin, ["detail", id]).stdout;
+  expect(text.match(/ref: [0-9a-f]{32}/g)?.length, "one {ref, size} marker per listed object")
+    .toBe(raw.objects.length);
+}, 15_000);
+
+test("get --resolve — an output cut whole is put back as the output", async () => {
+  const blob = "W".repeat(8 * 1024);
+  const def = {
+    name: uid("wholeout"),
+    input_schema: { type: "object", properties: { blob: { type: "string" } }, required: ["blob"] },
+    tasks: [{ id: "t", switch: [{ goto: "end" }] }],
+    output: "$: input.blob",
+  };
+  const name = apply(def);
+  const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob }), "-q"]).stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const raw = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  expect(raw.objects.map((o: { path: unknown[] }) => o.path), "the premise: the whole field is cut")
+    .toEqual([["output"]]);
+  expect(raw.output, "a field cut whole is omitted, not null").toBeUndefined();
+
+  const got = JSON.parse(runCli(bin, ["get", id, "--resolve", "--json"]).stdout);
+  expect(got.output, "the path is the field itself, so the value becomes the field").toBe(blob);
 }, 15_000);
 
 // ── instances: displayed fields ─────────────────────────────────────────────────
