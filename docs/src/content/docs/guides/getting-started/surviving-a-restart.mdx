@@ -24,7 +24,7 @@ tasks:
       - goto: end
 
 output:
-  ticks: "$: outputs.tick.count ?? 0"
+  ticks: "$: outputs.tick.count"
 ```
 
 Copy this yaml and put it into `definitions/ticker.genroc.yaml` (we are still working with project produced by `genctl init` from previous sections).
