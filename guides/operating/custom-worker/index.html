@@ -218,6 +218,11 @@ in this case).</p>
 and the unique token, which you need when submitting the result (and when renewing).</p>
 <p><code>deadline</code> tells the worker when the work needs to be finished. It comes from
 the <code>timeout</code> field (the timeout also includes time spent in the queue).</p>
+<h3 id="objects-field"><code>objects</code> field<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#objects-field"><span></span></a></h3>
+<p>If <code>external_input</code> contained large values, they are <code>null</code> in it and listed in the item&#39;s
+<code>objects</code> field, with paths starting at <code>external_input</code>. Fetch each one with
+<code>GET /api/objects/{ref}</code>, parse its <code>data</code> (it is JSON text) and put it back at its path.</p>
+<p>Read more in the <a href="/guides/operating/large-values/">next chapter</a>.</p>
 <h3 id="resolving-the-task">Resolving the task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#resolving-the-task"><span></span></a></h3>
 <p>Once your worker has finished, use the <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksresolve"><code>/api/external-tasks/resolve</code></a>
 endpoint to submit the result:</p>
@@ -257,7 +262,7 @@ with the <code>/release</code> endpoint.</p>
 so if you want to make this reusable, create a child
 process and make the other processes call it. This allows you to specify
 a typed API. This is also how
-<a href="/guides/process-definition/typescript-evaluation/">TypeScript evaluation</a> works.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/managing-instances/"> <span>previous</span> <strong>Managing instances</strong> </a> <a class="next" href="/guides/operating/large-values/"> <span>next</span> <strong>Large values</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#when-to-use">When to use</a></li><li class="depth-2"><a href="#basic-concept">Basic concept</a></li><li class="depth-3"><a href="#leasing">Leasing</a></li><li class="depth-3"><a href="#claim-response">Claim response</a></li><li class="depth-3"><a href="#resolving-the-task">Resolving the task</a></li><li class="depth-3"><a href="#renewing-leases">Renewing leases</a></li><li class="depth-3"><a href="#cancelledlost-leases">Cancelled/lost leases</a></li><li class="depth-3"><a href="#releasing-a-task">Releasing a task</a></li><li class="depth-2"><a href="#reusable-tasks-tied-to-workers">Reusable tasks tied to workers</a></li></ul><script>
+<a href="/guides/process-definition/typescript-evaluation/">TypeScript evaluation</a> works.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/managing-instances/"> <span>previous</span> <strong>Managing instances</strong> </a> <a class="next" href="/guides/operating/large-values/"> <span>next</span> <strong>Large values</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#when-to-use">When to use</a></li><li class="depth-2"><a href="#basic-concept">Basic concept</a></li><li class="depth-3"><a href="#leasing">Leasing</a></li><li class="depth-3"><a href="#claim-response">Claim response</a></li><li class="depth-3"><a href="#objects-field">objects field</a></li><li class="depth-3"><a href="#resolving-the-task">Resolving the task</a></li><li class="depth-3"><a href="#renewing-leases">Renewing leases</a></li><li class="depth-3"><a href="#cancelledlost-leases">Cancelled/lost leases</a></li><li class="depth-3"><a href="#releasing-a-task">Releasing a task</a></li><li class="depth-2"><a href="#reusable-tasks-tied-to-workers">Reusable tasks tied to workers</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
