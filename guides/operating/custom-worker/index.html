@@ -163,21 +163,21 @@
           } catch (_) {}
         })
       })()
-    </script> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Custom worker</h1> <p>Learn how to connect an external worker to genroc.</p> </div>  <p>Expose task as <code>external</code>, genroc will create a queue of waiting tasks,
+    </script> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Custom worker</h1> <p>Learn how to connect an external worker to genroc.</p> </div>  <p>Mark a task as <code>external</code> and genroc will create a queue of waiting tasks,
 which you can poll and process with your own worker.</p>
 <h2 id="when-to-use">When to use<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#when-to-use"><span></span></a></h2>
-<p>The queue + worker architecture is suitable for resource intensive processing.
-It protects your system from overwhelming - if there is too many tasks at once,
-they simply wait in queue on genroc side.</p>
-<p>If the work is lightweight and it&#39;s more about timing/providing the data,
-it&#39;s better to expose simple rest endpoint and use <code>fetch</code> action.</p>
+<p>The queue + worker architecture is suitable for resource-intensive processing.
+It protects your system from being overwhelmed: if there are too many tasks at once,
+they simply wait in the queue on genroc&#39;s side.</p>
+<p>If the work is lightweight and it&#39;s more about timing or providing data,
+it&#39;s better to expose a simple REST endpoint and use the <code>fetch</code> action.</p>
 <h2 id="basic-concept">Basic concept<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#basic-concept"><span></span></a></h2>
-<p>Genroc doesn&#39;t know about your worker, you simply mark a task as <code>external</code>
-and your worker needs to ask genroc &quot;Do you have any work, if yes, I claim it&quot;.</p>
-<p>For this, there is <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksclaim"><code>/api/external-tasks/claim</code></a>
+<p>Genroc doesn&#39;t know about your worker. You simply mark a task as <code>external</code>,
+and your worker asks genroc: &quot;Do you have any work? If yes, I claim it.&quot;</p>
+<p>For this, there is the <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksclaim"><code>/api/external-tasks/claim</code></a>
 endpoint. You must specify which process and task you want to claim.</p>
 <blockquote>
-<p>Give your worker <code>worker</code> permission - that&#39;s all it needs</p>
+<p>Give your worker the <code>worker</code> permission. That&#39;s all it needs.</p>
 </blockquote>
 <p>Example:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span></span>
@@ -187,13 +187,13 @@ endpoint. You must specify which process and task you want to claim.</p>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">task</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">approval</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">lease_ms</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 30000</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
-<p>Each worker has to have an unique id, so the genroc can distinguish who
-claimed what. So we are sending an id, <code>limit</code> is how many tasks I want
-to claim, so here I can recieve up to 5 tasks per claim. <code>process</code> is
-the process name and <code>task</code> is the task id.</p>
+<p>Each worker has to have a unique id, so genroc can distinguish who
+claimed what. <code>limit</code> is how many tasks you want to claim, so here you can
+receive up to 5 tasks per claim. <code>process</code> is the process name and <code>task</code>
+is the task id.</p>
 <h3 id="leasing">Leasing<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#leasing"><span></span></a></h3>
-<p>Task is leased to you for the time you&#39;ve requested. If your worker
-doesn&#39;t provide result in that time or doesn&#39;t renew the release,
+<p>A task is leased to you for the time you&#39;ve requested. If your worker
+doesn&#39;t provide a result in that time or doesn&#39;t renew the lease,
 genroc allows a different worker to claim it instead
 (<code>only_once</code> tasks will fail with <code>external.lost</code>
 in this case).</p>
@@ -214,20 +214,20 @@ in this case).</p>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    }</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  ]</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
-<p>Most important fields are <code>external_input</code>, which is an input passed into the external action
-and a unique token which you need to use when submitting the result (also for renewal).</p>
-<p>Deadline tells the worker when the work needs to be finished - it comes from
-<code>timeout</code> field (timeout also includes time spent in the queue).</p>
+<p>The most important fields are <code>external_input</code>, which is the input passed into the external action,
+and the unique token, which you need when submitting the result (and when renewing).</p>
+<p><code>deadline</code> tells the worker when the work needs to be finished. It comes from
+the <code>timeout</code> field (the timeout also includes time spent in the queue).</p>
 <h3 id="resolving-the-task">Resolving the task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#resolving-the-task"><span></span></a></h3>
-<p>Once your worker finished the work. You need to use <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksresolve"><code>/api/external-tasks/resolve</code></a>
-endpoint to submit finished work:</p>
+<p>Once your worker has finished, use the <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksresolve"><code>/api/external-tasks/resolve</code></a>
+endpoint to submit the result:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">550e8400-e29b-41d4-a716-446655440000.6.1</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">approved</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> true</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  }</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
-<p>If the work ended up with error, you can submit the error this way:</p>
+<p>If the work ended with an error, you can submit the error this way:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">550e8400-e29b-41d4-a716-446655440000.6.1</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span></span>
@@ -236,28 +236,28 @@ endpoint to submit finished work:</p>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">limit</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 300</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  }</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span></code></pre>
-<p>Result is validated against <code>result_schema</code> and error code and data
-are validated against <code>raises</code> field (<code>code</code> and <code>message</code> are always required).</p>
+<p>The result is validated against <code>result_schema</code>, and the error code and data
+are validated against the <code>raises</code> field (<code>code</code> and <code>message</code> are always required).</p>
 <h3 id="renewing-leases">Renewing leases<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#renewing-leases"><span></span></a></h3>
-<p>If your worker can run for a longer time, you should use genroc lease/renew system.
-Make leases e.g. 30s and then renew the leases every e.g. 10s, this is basically letting
-genroc know that the worker is alive and the work is advancing (a bit like heartbeat).</p>
-<p>For renewing there is <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksrenew"><code>/api/external-tasks/renew</code></a>
-endpoint, which accepts a list of tokens for tasks you want to renew.</p>
+<p>If your worker can run for a longer time, you should use genroc&#39;s lease renewal.
+Make leases e.g. 30s and renew them e.g. every 10s. This lets genroc know
+that the worker is alive and the work is advancing (a bit like a heartbeat).</p>
+<p>For renewing, there is the <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksrenew"><code>/api/external-tasks/renew</code></a>
+endpoint, which accepts a list of tokens for the tasks you want to renew.</p>
 <h3 id="cancelledlost-leases">Cancelled/lost leases<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#cancelledlost-leases"><span></span></a></h3>
-<p>Renew enpdoint lets you know if the tasks is no longer worth working on.
+<p>The renew endpoint lets you know if a task is no longer worth working on.
 This can happen when the process is <code>cancelled</code> or the lease is <code>lost</code>.</p>
-<p>You can use this to kill workers before they finish to avoid wasting resources.</p>
-<h3 id="relasing-task">Relasing task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#relasing-task"><span></span></a></h3>
+<p>You can use this to stop the work before it finishes to avoid wasting resources.</p>
+<h3 id="releasing-a-task">Releasing a task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#releasing-a-task"><span></span></a></h3>
 <p>If your worker is not able to finish the task and you want it to be picked up
-by different worker as soon as possible, you can explicitly release the task
-by <code>/release</code> endpoint.</p>
+by a different worker as soon as possible, you can explicitly release the task
+with the <code>/release</code> endpoint.</p>
 <h2 id="reusable-tasks-tied-to-workers">Reusable tasks tied to workers<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#reusable-tasks-tied-to-workers"><span></span></a></h2>
-<p>Workers are tied to specific process and task,
+<p>Workers are tied to a specific process and task,
 so if you want to make this reusable, create a child
 process and make the other processes call it. This allows you to specify
-a typed API. This is also the way how the
-<a href="/guides/process-definition/typescript-evaluation/">typescript evaluation</a> works.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/managing-instances/"> <span>previous</span> <strong>Managing instances</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#when-to-use">When to use</a></li><li class="depth-2"><a href="#basic-concept">Basic concept</a></li><li class="depth-3"><a href="#leasing">Leasing</a></li><li class="depth-3"><a href="#claim-response">Claim response</a></li><li class="depth-3"><a href="#resolving-the-task">Resolving the task</a></li><li class="depth-3"><a href="#renewing-leases">Renewing leases</a></li><li class="depth-3"><a href="#cancelledlost-leases">Cancelled/lost leases</a></li><li class="depth-3"><a href="#relasing-task">Relasing task</a></li><li class="depth-2"><a href="#reusable-tasks-tied-to-workers">Reusable tasks tied to workers</a></li></ul><script>
+a typed API. This is also how
+<a href="/guides/process-definition/typescript-evaluation/">TypeScript evaluation</a> works.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/managing-instances/"> <span>previous</span> <strong>Managing instances</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#when-to-use">When to use</a></li><li class="depth-2"><a href="#basic-concept">Basic concept</a></li><li class="depth-3"><a href="#leasing">Leasing</a></li><li class="depth-3"><a href="#claim-response">Claim response</a></li><li class="depth-3"><a href="#resolving-the-task">Resolving the task</a></li><li class="depth-3"><a href="#renewing-leases">Renewing leases</a></li><li class="depth-3"><a href="#cancelledlost-leases">Cancelled/lost leases</a></li><li class="depth-3"><a href="#releasing-a-task">Releasing a task</a></li><li class="depth-2"><a href="#reusable-tasks-tied-to-workers">Reusable tasks tied to workers</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
