@@ -15,17 +15,8 @@ import (
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
 	// Derived from the row, not read back from a column — the epoch IS the occurrence.
 	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
-	var claimedBy, claimExpires string
-	// A lapsed holder is not reported: the row is claimable again. The column keeps the id
-	// regardless — it is the evidence a lost claim is recognised by.
-	if inst.ExternalWorkerID != nil && inst.ExternalLeaseExpiresAt != nil && inst.ExternalLeaseExpiresAt.After(db.Now()) {
-		claimedBy = *inst.ExternalWorkerID
-		claimExpires = inst.ExternalLeaseExpiresAt.Format(time.RFC3339)
-	}
-	var deadline string
 	var deadlineIn *int64
 	if inst.WakeAt != nil {
-		deadline = inst.WakeAt.Format(time.RFC3339)
 		ms := max(inst.WakeAt.Sub(db.Now()).Milliseconds(), 0)
 		deadlineIn = &ms
 	}
@@ -43,10 +34,7 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		Input:        input,
 		Objects:      objects,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
-		Deadline:     deadline,
 		DeadlineInMs: deadlineIn,
-		ClaimedBy:    claimedBy,
-		ClaimExpires: claimExpires,
 	}
 }
 
@@ -151,7 +139,7 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	// A cancelled instance gets its own sentence: the generic one reads as a race the worker
 	// should retry, and this is the one case where it must stop instead.
 	if inst.Status == model.StatusCancelled || inst.Status == model.StatusCancelling {
-		return conflict("instance was cancelled; stop the work and release the claim").reply()
+		return conflict("instance was cancelled; stop the work").reply()
 	}
 	if !inst.Status.AcceptsExternalOutcome() || inst.Phase != model.PhaseExternal || task == nil {
 		return conflict("task is not waiting for an external result").reply()
@@ -228,10 +216,6 @@ const (
 	maxClaimLimit       = 100
 )
 
-// renewBefore is a third of the lease, leaving room for two failed renewals. Reported on every
-// grant so the worker never guesses it. specs/external-task-queue.md.
-func renewBefore(lease time.Duration) int64 { return lease.Milliseconds() / 3 }
-
 func claimLease(ms int64) (time.Duration, *Error) {
 	if ms == 0 {
 		return defaultClaimLeaseMs * time.Millisecond, nil
@@ -293,7 +277,7 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 		entry.Token = model.ClaimToken(inst.ID, inst.TaskEpoch, inst.ExternalClaimEpoch)
 		resp = append(resp, entry)
 	}
-	return okReply(map[string]any{"items": resp, "renew_before_ms": renewBefore(lease)})
+	return okReply(map[string]any{"items": resp})
 }
 
 // renewExternalClaims must not bump the claim epoch, which would fence the worker out of its own
@@ -338,7 +322,6 @@ func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	}
 	return okReply(map[string]any{
 		"renewed": renewed, "lost": lost, "cancelled": cancelled,
-		"renew_before_ms": renewBefore(lease),
 	})
 }
 

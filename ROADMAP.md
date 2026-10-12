@@ -55,8 +55,8 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [x] cancel — `cancelling`/`cancelled` as a terminal stop BESIDE `failed`, not a mode of
       `paused`: root-only, mirroring pause's leased/parked split, refused by retry
       (specs/pause-resume.md)
-- [x] renew as a heartbeat — per-token `renewed`/`lost`/`cancelled` and `renew_before_ms`, which
-      is what carries a cancel to work already in flight (specs/external-task-queue.md)
+- [x] renew as a heartbeat — per-token `renewed`/`lost`/`cancelled`, which is
+      what carries a cancel to work already in flight (specs/external-task-queue.md)
 - [x] auth — permissions on every action, `token` and `jwt` modes composing in one chain, and a
       default that warns when it is exposed (specs/api-auth.md)
 - [x] attribution — `actor` as `source:subject` on definitions, channels, tokens and audit rows,

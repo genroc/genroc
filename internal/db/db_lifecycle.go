@@ -443,8 +443,8 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 }
 
 // CancelProcess stops a root's tree for good: every LIVE row, paused and draining included, goes
-// terminal. It must not clear external_worker_id: a cleared id renews as "lost", which stops the
-// worker WITHOUT releasing. specs/external-task-queue.md.
+// terminal. It must not clear external_worker_id: renew reads it to answer "cancelled" rather
+// than "lost". specs/external-task-queue.md.
 func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {

@@ -1,7 +1,7 @@
 import { client as defaultClient } from "./client.ts";
 
 // A resolve token is `<instance-id>.<task_epoch>` (model.ExternalToken); the rest of a parked
-// task is on GET /instances/{id}/detail, except `result_schema`, which only a claim publishes.
+// task is on GET /instances/{id}/detail.
 
 export type ParkedTask = {
   token: string;

@@ -87,8 +87,8 @@ select-then-grant in one transaction):
 
 FIFO by park time (`updated_at ASC`). It must **not** touch `task_epoch` (every handed-out token
 would die), the engine's lease columns, or clear `external_worker_id` on expiry (the evidence
-`external.lost` reads). The response carries input and `objects`, the task deadline and
-`renew_before_ms`, so a worker can decline work it cannot finish in time. Not `result_schema` or
+`external.lost` reads). The response carries input, `objects` and `deadline_in_ms`, so a worker can decline work it
+cannot finish in time. Nothing the caller already knows (its own id, its lease) is echoed back. Not `result_schema` or
 `raises`: they are the definition's, fixed per version and enforced at resolve, so a worker is
 written against them rather than reading them per claim. `status = 'running'` excludes paused and cancelled trees: no new work for a
 suspended tree, though an answer to work already out is always accepted (§Pause).
@@ -121,16 +121,16 @@ the task's next answer would lose to the buffered one under FIFO.
 ### Renew is the heartbeat
 
 Renew extends the visibility timeout and tells the holder whether the work is still wanted. It is
-the *only* channel for the second — a worker dials genroc, never the reverse — so renewal is
-mandatory, and claim and renew state `renew_before_ms` (a third of the lease). It answers **per
-token**:
+the *only* channel for the second — a worker dials genroc, never the reverse. It is optional: a
+worker whose lease outlasts its work never needs it, and gives up only an early stop. It answers
+**per token**:
 
 - `renewed`;
 - `lost` — the claim is someone else's: stop, and **do not** release (that would bump the new
   holder's epoch out from under it);
-- `cancelled` — still yours and nobody wants it: stop and **must** release, or the row waits out a
-  lease nobody serves. A cancelled claim is not renewed, and cancel leaves `external_worker_id`
-  set — cleared, the next renewal would answer `lost`, exactly the wrong instruction.
+- `cancelled` — nobody wants it: stop. Nothing to release — the row is terminal and never
+  claimable again. A cancelled claim is not renewed, and cancel leaves `external_worker_id` set so
+  renewal can tell this apart from `lost`.
 
 The classifying read shares the renewal's transaction: a row turning cancelled in between would
 come back `renewed`. An `on_cancel` hook in the definition was rejected: the statuses are needed

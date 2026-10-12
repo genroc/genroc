@@ -139,6 +139,8 @@ func (a actionDef) envelope(r *http.Request) (Envelope, error) {
 
 func schemaPtr(s schema.Schema) *schema.Schema { return &s }
 
+func int64Ptr(n int64) *int64 { return &n }
+
 // registry is the authoritative list of all actions.
 // Order here determines order in Swagger.
 var registry = func() []actionDef {
@@ -667,11 +669,8 @@ var registry = func() []actionDef {
 					Process: "expense-approval", Version: 2, TaskID: "approval",
 					Input:        map[string]any{"amount": 420, "submitter": "alice"},
 					WaitingSince: "2026-09-25T09:12:00Z",
-					Deadline:     "2026-09-26T09:12:00Z",
-					ClaimedBy:    "worker-1",
-					ClaimExpires: "2026-09-25T09:30:30Z",
+					DeadlineInMs: int64Ptr(86_400_000),
 				}},
-				"renew_before_ms": 10000,
 			},
 			handle: func(h *Handlers, env Envelope) Reply { return h.claimExternalTasks(env.Payload) },
 		},
@@ -680,14 +679,13 @@ var registry = func() []actionDef {
 			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/renew",
-			Summary: "Extend this worker's claims. Answers per token: `renewed` is still yours, `lost` is already someone else's (stop, do not release), `cancelled` is yours but no longer wanted (stop and release). Renewal is mandatory, not an optimisation — it is the only channel that reaches a running worker",
+			Summary: "Extend this worker's claims. Answers per token: `renewed` is still yours, `lost` is already someone else's (stop, do not release), `cancelled` is no longer wanted (stop; nothing to release). Optional, but the only channel that tells a running worker to stop",
 			Tags:    []string{"External Tasks"},
 			Req:     RenewExternalClaimsReq{WorkerID: "worker-1", Tokens: []string{"550e8400-e29b-41d4-a716-446655440000.6.1"}, LeaseMs: 30000},
 			Resp: map[string]any{
-				"renewed":         []string{"550e8400-e29b-41d4-a716-446655440000.6.1"},
-				"lost":            []string{},
-				"cancelled":       []string{},
-				"renew_before_ms": 10000,
+				"renewed":   []string{"550e8400-e29b-41d4-a716-446655440000.6.1"},
+				"lost":      []string{},
+				"cancelled": []string{},
 			},
 			handle: func(h *Handlers, env Envelope) Reply { return h.renewExternalClaims(env.Payload) },
 		},

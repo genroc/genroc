@@ -133,8 +133,6 @@ test("renew answers per token, not with a count", async () => {
   expect((data as any)?.renewed).toEqual([job.token]);
   expect((data as any)?.lost).toEqual([]);
   expect((data as any)?.cancelled).toEqual([]);
-  // The interval is a value the worker reads rather than one it guesses.
-  expect((data as any)?.renew_before_ms).toBeGreaterThan(0);
 
   // Scoped to the holder: a stranger renews nothing rather than stealing the lease, and is
   // told so in the terms it asked -- the token it named comes back as lost.
