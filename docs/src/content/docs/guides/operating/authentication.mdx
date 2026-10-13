@@ -1,0 +1,108 @@
+---
+title: Authentication
+description: How auth works and how it connect with the UI.
+order: 4
+---
+
+When auth is enabled, genroc supports two kinds of authentication
+classic tokens and jwt tokens (UI).
+
+## Classic tokens
+
+These are tokens managed by genroc server, you can create them through the
+API or CLI.
+
+```sh
+> genctl token create --perms read --label "Read only token"
+
+created 9eezcgww  perms=read
+  shown once:
+genroc_sk_q8EoJ2uf9e76uc4TRvCocGOX9wDZ1B9f0qO9ByeoPC0
+```
+
+Genroc store SHA-256 hash of the token and the content is only shown once,
+so you need to make sure it's safely stored.
+
+## Initialization
+
+The API can't create the first token, because you need a token to call it.
+Instead you create the first admin token directly in the database, and use it to create the rest.
+
+### First admin token
+
+Run the `genroc` binary (not `genctl`) against the database. It needs no token
+and no running server, only access to the database. If the database doesn't exist
+yet, it's created:
+
+```sh
+> genroc token create --perms admin --label admin --db genroc.db
+```
+
+Use `--pg <dsn>` instead of `--db` for PostgreSQL. With docker:
+
+```sh
+> docker compose run --rm genroc token create --perms admin --db /data/genroc.db
+```
+
+The same command gets you back in if you lose the admin token.
+Genroc also warns at startup when there is no admin token.
+
+### Seed tokens
+
+Some tokens have to exist before anything starts: a worker that starts together
+with genroc, a CI environment that is created from scratch, or a secret
+that already lives in your platform's secret manager. For these, give genroc
+a file with the tokens and it stores them at startup.
+
+Generate a token. This runs offline, no server or token needed:
+
+```sh
+> genctl token generate
+genroc_sk_QUbqpu_q9k4fTbCN2J7RRPUYXTzae0mRXcC2CIF_ftY
+```
+
+Put it in a file, one token per line as `label=perms=token`.
+Separate several permissions with commas, lines starting with `#` are comments:
+
+```
+# workers
+evaluator=worker=genroc_sk_QUbqpu_q9k4fTbCN2J7RRPUYXTzae0mRXcC2CIF_ftY
+ci=deploy,read=genroc_sk_...
+```
+
+And point genroc at the file, with the flag or `GENROC_SEED_TOKENS_FILE`:
+
+```sh
+> genroc --auth token --seed-tokens-file ./seed-tokens
+```
+
+On every start genroc stores the tokens it doesn't have yet and skips the rest,
+so restarting is safe. A revoked token stays revoked, even if it's still in the file.
+
+## JWT tokens
+
+Genroc can also accept JWTs that someone else mints. Give genroc a shared secret
+(at least 32 characters) with `--jwt-secret-file` or `GENROC_JWT_SECRET`,
+and it accepts any HS256 token signed with it. Genroc UI works this way,
+but your own service can mint the tokens too.
+
+The token has to carry:
+
+```json
+{
+  "iss": "genroc-ui",
+  "aud": "genroc",
+  "sub": "ada@example.com",
+  "perms": ["deploy", "operate", "read"],
+  "exp": 1788000060
+}
+```
+
+`perms` are the same permissions as for genroc tokens, `sub` is who is calling
+and shows up in logs as `jwt:ada@example.com`. `exp` is required, so keep the tokens short-lived.
+`iss` and `aud` default to the values above, change them with `--jwt-issuer` and `--jwt-audience`.
+
+JWTs work together with `--auth token`, so people can come through the UI
+while `genctl` and workers keep using their genroc tokens.
+
+> Anyone with the secret can mint a token with any permissions, so keep it as safe as an admin token.
