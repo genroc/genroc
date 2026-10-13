@@ -220,7 +220,41 @@ it&#39;s forgotten.</p>
 to some groups and then the groups have permissions (the <code>roles</code> section).</p>
 <h2 id="using-auth-provider">Using auth provider<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#using-auth-provider"><span></span></a></h2>
 <p>Genroc UI doesn&#39;t have any user management system, but it allows you to
-connect to an external provider through oidc (OpenID Connect).</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/authentication/"> <span>previous</span> <strong>Authentication</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#current-state">Current state</a></li><li class="depth-2"><a href="#how-to-install">How to install</a></li><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-2"><a href="#with-authentication-enabled">With authentication enabled</a></li><li class="depth-2"><a href="#user-groups-and-roles">User groups and roles</a></li><li class="depth-2"><a href="#using-auth-provider">Using auth provider</a></li></ul><script>
+connect to an external provider through oidc (OpenID Connect).</p>
+<p>Add the provider under <code>login.providers</code> in <code>ui.yaml</code>. Any OIDC provider works,
+for example Okta, Entra, Auth0 or Keycloak:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#D6D6D2">login</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#D6D6D2">  providers</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#8A8A84">    -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> okta</span></span>
+<span class="line"><span style="color:#D6D6D2">      name</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> Okta</span></span>
+<span class="line"><span style="color:#D6D6D2">      issuer</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> https://example.okta.com</span></span>
+<span class="line"><span style="color:#D6D6D2">      client_id</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span>
+<span class="line"><span style="color:#D6D6D2">      client_secret</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span></code></pre>
+<p>Register <code>http://localhost:8448/auth/callback</code> as the redirect URL of the client
+in your provider. Each provider becomes one button on the sign-in page.</p>
+<p>Groups are read from the <code>groups</code> claim of the provider&#39;s token and matched against
+<code>roles</code>. Some providers don&#39;t send groups at all, Google for example. Then you can give
+permissions to each user by email in the <code>users</code> section:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#D6D6D2">login</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#D6D6D2">  providers</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#8A8A84">    -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> google</span></span>
+<span class="line"><span style="color:#D6D6D2">      name</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> Google</span></span>
+<span class="line"><span style="color:#D6D6D2">      issuer</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> https://accounts.google.com</span></span>
+<span class="line"><span style="color:#D6D6D2">      client_id</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span>
+<span class="line"><span style="color:#D6D6D2">      client_secret</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span>
+<span class="line"><span style="color:#D6D6D2">      scopes</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">openid</span><span style="color:#8A8A84">,</span><span style="color:#8FB996"> email</span><span style="color:#8A8A84">,</span><span style="color:#8FB996"> profile</span><span style="color:#8A8A84">]</span><span style="color:#8A8A84;font-style:italic"> # Google refuses the default `groups` scope</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D6D6D2">users</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#D6D6D2">  ada@example.com</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">admin</span><span style="color:#8A8A84">]</span></span></code></pre>
+<h3 id="dex">Dex<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#dex"><span></span></a></h3>
+<p>Providers that don&#39;t support OIDC (GitHub, LDAP, SAML) need a broker in between.
+<a href="https://dexidp.io">Dex</a> is a good fit: it signs the user in with the provider and
+gives Genroc UI a regular OIDC token, groups included. Dex can also read Google Workspace
+groups, which Google itself doesn&#39;t put into the token.</p>
+<p>See the <a href="https://github.com/genroc/genroc/tree/main/examples/dex">Dex example</a> for a complete
+setup with docker compose. It runs with Dex&#39;s own users, so you can try it without any
+credentials, and shows how to switch to GitHub.</p>
+<p>All <code>ui.yaml</code> options are listed in the <a href="/reference/genroc-ui/">Genroc UI reference</a>.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/authentication/"> <span>previous</span> <strong>Authentication</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#current-state">Current state</a></li><li class="depth-2"><a href="#how-to-install">How to install</a></li><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-2"><a href="#with-authentication-enabled">With authentication enabled</a></li><li class="depth-2"><a href="#user-groups-and-roles">User groups and roles</a></li><li class="depth-2"><a href="#using-auth-provider">Using auth provider</a></li><li class="depth-3"><a href="#dex">Dex</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
