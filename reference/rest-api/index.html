@@ -195,7 +195,7 @@ start-instance body:</p>
 never talks to an identity provider: genroc-ui signs people in and mints the JWT, and genroc
 only checks it against the secret the two share (<code>--jwt-secret-file</code>, see the
 <a href="/reference/server/">server reference</a>).</p>
-<p>The default is <code>--auth none</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
+<p>The default is no <code>--auth</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
 open. That is fine on a laptop and nowhere else — <code>PUT /definitions</code> is arbitrary code
 execution on the server — so genroc warns at startup when it is also bound beyond loopback.</p>
 <h2 id="permissions">Permissions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#permissions"><span></span></a></h2>

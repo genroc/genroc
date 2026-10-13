@@ -186,16 +186,16 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
 <p><code>int</code></p>
 <p>Hold each PostgreSQL WAL flush back by this many microseconds so more commits coalesce into it (PostgreSQL commit_delay, set per session). Costs no durability - every commit is still flushed before it is acknowledged - and Postgres skips the delay unless commit_siblings (default 5) transactions are open, so narrow workloads are unaffected. Throughput peaks well below the flush latency and drops past it: on a 4ms F_FULLFSYNC disk 500us was the best value measured and 10000us was 26% worse than doing nothing. The gain itself is workload- and load-dependent (measured between +3% and +33% for the same 500us on the same machine), and shows up mainly as steadier throughput under contention rather than a higher ceiling. Measure on your own storage; 0 (the default) disables. Requires a superuser connection. Ignored for SQLite.</p>
 <h2 id="authentication">Authentication<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#authentication"><span></span></a></h2>
-<p>Off by default (<code>--auth none</code>). Machines use tokens; people reach the API through genroc-ui.</p>
+<p>Off by default; <code>--auth</code> turns it on. Machines use tokens; people reach the API through genroc-ui.</p>
 <h3 id="--auth">--auth<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--auth"><span></span></a></h3>
-<p><code>string</code> · default <code>none</code></p>
-<p>How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database).</p>
+<p><code>boolean</code></p>
+<p>Require a credential on every API request ($GENROC_AUTH=true): a genroc_sk_* token in Authorization: Bearer, or a JWT when --jwt-secret-file is set. Off by default, where every request is treated as an operator.</p>
 <h3 id="--seed-tokens-file">--seed-tokens-file<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--seed-tokens-file"><span></span></a></h3>
 <p><code>path</code></p>
 <p>In token mode, credentials to store, from the file at path ($GENROC_SEED_TOKENS_FILE): one label=perms=secret per line, e.g. "ci=deploy,read=genroc_sk_..." (secrets from <code>genctl token generate</code>); lines starting with # are comments. Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive.</p>
 <h3 id="--jwt-secret-file">--jwt-secret-file<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--jwt-secret-file"><span></span></a></h3>
 <p><code>string</code></p>
-<p>Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.</p>
+<p>Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. With --auth, JWTs signed with it are accepted beside genroc_sk_* tokens: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.</p>
 <h3 id="--jwt-issuer">--jwt-issuer<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--jwt-issuer"><span></span></a></h3>
 <p><code>string</code></p>
 <p>The iss claim a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.</p>
