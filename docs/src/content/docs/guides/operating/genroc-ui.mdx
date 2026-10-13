@@ -1,0 +1,112 @@
+---
+title: Genroc UI
+description: Learn about genroc user interface.
+order: 5
+---
+
+Genroc UI offers a simple way how to see state of the processes.
+
+## Current state
+
+UI is experimental at this stage and offers minimal functionality.
+
+
+## How to install
+
+Genroc UI is distributed as a separate docker container.
+Easiest way how to start with the ui is to init
+new project with the ui option:
+
+```sh
+genctl init --ui
+```
+
+The UI is configured inside the `compose.yaml`.
+
+## The setup
+
+Your `compose.yaml` file will now have following entry:
+
+```yaml
+  genroc-ui:
+    image: ghcr.io/genroc/ui:edge
+    command: [--server, "http://genroc:8448"]
+    ports: ["8448:8448"]
+    restart: unless-stopped
+    depends_on: [genroc]
+```
+
+Notice that both UI and genroc server are available on port 8448.
+Thats because the UI uses reverse proxy to route requests to the server,
+so it doesn't have to be exposed directly.
+
+## With authentication enabled
+
+When authentication is enabled (`init` command with `--auth` flag),
+UI needs to authenticate users before letting them access genroc server.
+
+In this setup the `init` command will also add `ui.yaml` file which is then
+linked to the ui docker image. It will look something like this:
+
+```yaml
+login:
+  passwords:
+    - email: admin@localhost
+      hash: "$2a$10$DgtdyEbHuKTY/eKkNU9nJOB7Rz.j3ntkWvMncSwGhGcmaXZrTagDm"
+      groups: [admins]
+
+token:
+  secret_file: /data/jwt-secret
+
+roles:
+  admins: [admin]
+```
+
+And the `compose.yaml`:
+
+```yaml
+  genroc-ui:
+    image: ghcr.io/genroc/ui:edge
+    environment:
+      GENROC_UI_CONFIG: /etc/genroc/ui.yaml
+    ports: ["8448:8448"]
+    volumes:
+      - ./ui.yaml:/etc/genroc/ui.yaml:ro
+      - ./data/jwt-secret:/data/jwt-secret:ro
+    restart: unless-stopped
+    depends_on: [genroc]
+```
+
+The `jwt-secret` file is what allows UI to authenticate users
+to access genroc server - it's shared secret.
+
+By default UI uses static list of users from the `ui.yaml`
+to authenticate. Passwords are not kept in plain text, but
+generated and only hash is stored. You can add new user
+with following command:
+
+```sh
+> genctl init password user@localhost
+password  fvpzqXzcPdquYW66
+
+Put this under `login.passwords` in ui.yaml, replacing the entry for user@localhost if it is
+already there, then `docker compose restart genroc-ui` — sessions survive it:
+
+    - email: user@localhost
+      hash: "$2a$10$ZoNrzhck4aIUvrtt.8d1BuQFStXbIQkwJ.5wkEwr2WMTGwFoeNaFm"
+      groups: [admins]
+```
+
+This generates random password for the user and generates the record for the
+`ui.yaml` including the hash. This way you can also regenerate password if
+it's forgotten.
+
+## User groups and roles
+
+`ui.yaml` is also place where you can configure user permissions. Each user belongs
+to some groups and then the groups have permissions (the `roles` section).
+
+## Using auth provider
+
+Genroc UI doesn't have any user management system, but it allows you to
+connect to an external provider through oidc (OpenID Connect).
