@@ -1,26 +1,38 @@
 ---
 title: Authentication
-description: How auth works and how it connect with the UI.
+description: How to enable authentication and create tokens.
 order: 4
 ---
 
-When authentication is enabled, you need to attach auth token to
-every API request. Genroc supports classic tokens and jwt tokens (UI).
+Authentication is off by default. Turn it on with `--auth` (or `GENROC_AUTH=true`),
+then every API request needs a token in the `Authorization` header:
+
+```
+Authorization: Bearer genroc_sk_...
+```
+
+For `genctl`, store the token once, or set `GENROC_TOKEN`:
+
+```sh
+> genctl config set token genroc_sk_...
+```
+
+Genroc supports classic tokens and JWT tokens.
 
 ## Classic tokens
 
 These are tokens managed by genroc server, you can create them through the
-API or CLI.
+API or CLI. Creating one needs an admin token.
 
 ```sh
 > genctl token create --perms read --label "Read only token"
 
 created 9eezcgww  perms=read
   shown once:
-genroc_sk_q8EoJ2uf9e76uc4TRvCocGOX9wDZ1B9f0qO9ByeoPC0
+genroc_sk_BOdTfRofN1uEUCZnBOzU8Nybuk1Z1BzZnLF2-zdN6ko
 ```
 
-Genroc store SHA-256 hash of the token and the content is only shown once,
+Genroc stores a SHA-256 hash of the token and the content is only shown once,
 so you need to make sure it's safely stored.
 
 ## Initialization
@@ -36,16 +48,22 @@ yet, it's created:
 
 ```sh
 > genroc token create --perms admin --label admin --db genroc.db
+
+created 3kjfx4vm  perms=admin
+  shown once:
+genroc_sk_EbTqXuTJhseXWTOcZyGlwCD8USE63A8YaZ36F0mmM5s
 ```
+
+Only the token itself goes to stdout, so `TOKEN=$(genroc token create ...)` captures just the token.
 
 Use `--pg <dsn>` instead of `--db` for PostgreSQL. With docker:
 
 ```sh
-> docker compose run --rm genroc token create --perms admin --db /data/genroc.db
+docker compose run --rm genroc token create --perms admin --db /data/genroc.db
 ```
 
 The same command gets you back in if you lose the admin token.
-Genroc also warns at startup when there is no admin token.
+Genroc also warns at startup when there is no admin token (unless JWT is enabled).
 
 ### Seed tokens
 
@@ -73,7 +91,7 @@ ci=deploy,read=genroc_sk_...
 And point genroc at the file, with the flag or `GENROC_SEED_TOKENS_FILE`:
 
 ```sh
-> genroc --auth token --seed-tokens-file ./seed-tokens
+genroc --auth --seed-tokens-file ./seed-tokens
 ```
 
 On every start genroc stores the tokens it doesn't have yet and skips the rest,
@@ -81,10 +99,10 @@ so restarting is safe. A revoked token stays revoked, even if it's still in the 
 
 ## JWT tokens
 
-Genroc can also accept JWTs that someone else mints. Give genroc a shared secret
-(at least 32 characters) with `--jwt-secret-file` or `GENROC_JWT_SECRET`,
-and it accepts any HS256 token signed with it. Genroc UI works this way,
-but your own service can mint the tokens too.
+With `--auth` on, genroc can also accept JWTs that someone else mints. Give genroc a shared secret
+(at least 32 characters) with `--jwt-secret-file` (or `GENROC_JWT_SECRET_FILE`),
+or inline with `GENROC_JWT_SECRET`, and it accepts any HS256 token signed with it.
+Genroc UI works this way, but your own service can mint the tokens too.
 
 The token has to carry:
 
@@ -102,7 +120,8 @@ The token has to carry:
 and shows up in logs as `jwt:ada@example.com`. `exp` is required, so keep the tokens short-lived.
 `iss` and `aud` default to the values above, change them with `--jwt-issuer` and `--jwt-audience`.
 
-JWTs work together with `--auth token`, so people can come through the UI
-while `genctl` and workers keep using their genroc tokens.
+Genroc tokens keep working beside JWTs, so people can come through the UI
+while `genctl` and workers use their genroc tokens. A secret without `--auth`
+is refused at startup.
 
 > Anyone with the secret can mint a token with any permissions, so keep it as safe as an admin token.
