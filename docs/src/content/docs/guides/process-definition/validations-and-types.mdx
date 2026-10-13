@@ -17,7 +17,7 @@ The issue is that your API can change in the meantime. If you fetch some data, t
 pause the process for a month and resume it, it will be talking to the new API
 with assumptions from the old one.
 
-Strict validation can't prevent these issues, but makes them easy to detect.
+Strict validation helps here to detect these issues and forces the types to be clearly defined.
 
 ## Static checking and inference
 
@@ -128,9 +128,8 @@ output:
   nudged: "$: outputs.nudge.nudged ?? false"
 ```
 
-> TIP: Install the [genroc vscode extension](https://marketplace.visualstudio.com/items?itemName=genroc.genroc)
-  and copy the process above to a new definition. You can then hover any expression part and see what its type is.
-  It will also show you errors live.
+> TIP: Hover any expression and you will see it's type the same way as in 
+  [genroc vscode extension](https://marketplace.visualstudio.com/items?itemName=genroc.genroc)
 
 ### Declaring what enters the process
 
