@@ -192,7 +192,7 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
 <p>How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database).</p>
 <h3 id="--seed-tokens-file">--seed-tokens-file<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--seed-tokens-file"><span></span></a></h3>
 <p><code>path</code></p>
-<p>In token mode, credentials to store, from the file at path ($GENROC_SEED_TOKENS_FILE): one label=perms=secret per line, perms +-separated, e.g. "ci=deploy+read=genroc_sk_..." (secrets from <code>genctl token generate</code>). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive.</p>
+<p>In token mode, credentials to store, from the file at path ($GENROC_SEED_TOKENS_FILE): one label=perms=secret per line, e.g. "ci=deploy,read=genroc_sk_..." (secrets from <code>genctl token generate</code>); lines starting with # are comments. Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive.</p>
 <h3 id="--jwt-secret-file">--jwt-secret-file<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--jwt-secret-file"><span></span></a></h3>
 <p><code>string</code></p>
 <p>Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.</p>
