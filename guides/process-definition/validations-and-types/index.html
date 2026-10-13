@@ -159,7 +159,7 @@ one to fetch some information and another to mutate something.</p>
 <p>The issue is that your API can change in the meantime. If you fetch some data, then
 pause the process for a month and resume it, it will be talking to the new API
 with assumptions from the old one.</p>
-<p>Strict validation can&#39;t prevent these issues, but makes them easy to detect.</p>
+<p>Strict validation helps here to detect these issues and forces the types to be clearly defined.</p>
 <h2 id="static-checking-and-inference">Static checking and inference<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#static-checking-and-inference"><span></span></a></h2>
 <p>Because the inputs are typed, we can statically check every expression:
 that it references only properties that exist, and that its operations use the right types.</p>
@@ -244,9 +244,8 @@ You can then pass <code>null</code> explicitly and the default value is not used
 <span class="line"><span style="color:#8A8A84;font-style:italic">  # nudge task might not run, so the output can be null</span></span>
 <span class="line"><span style="color:#D6D6D2">  </span><span style="--col:2;--line:41" class="hovered">nudged<span class="tip" data-pagefind-ignore><strong>nudged</strong> — <span class="code">boolean</span></span></span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#E07A4F">$:</span><span style="color:#D6D6D2"> </span><span style="--col:14;--line:41" class="hovered">outputs<span class="tip" data-pagefind-ignore><span class="code">outputs</span> → <span class="code">object{load_user, nudge}</span></span></span><span style="color:#8A8A84">.</span><span style="--col:22;--line:41" class="hovered">nudge<span class="tip" data-pagefind-ignore><span class="code">outputs.nudge</span> → <span class="code">object{nudged}|null</span></span></span><span style="color:#8A8A84">.</span><span style="--col:28;--line:41" class="hovered">nudged<span class="tip" data-pagefind-ignore><span class="code">outputs.nudge.nudged</span> → <span class="code">boolean|null</span></span></span><span style="color:#E07A4F"> ??</span><span style="color:#D4A76A"> </span><span style="--col:38;--line:41" class="hovered">false<span class="tip" data-pagefind-ignore><span class="code">false</span> → <span class="code">boolean</span></span></span><span style="color:#8A8A84">&quot;</span></span></code></pre>
 <blockquote>
-<p>TIP: Install the <a href="https://marketplace.visualstudio.com/items?itemName=genroc.genroc">genroc vscode extension</a>
-and copy the process above to a new definition. You can then hover any expression part and see what its type is.
-It will also show you errors live.</p>
+<p>TIP: Hover any expression and you will see it&#39;s type the same way as in
+<a href="https://marketplace.visualstudio.com/items?itemName=genroc.genroc">genroc vscode extension</a></p>
 </blockquote>
 <h3 id="declaring-what-enters-the-process">Declaring what enters the process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#declaring-what-enters-the-process"><span></span></a></h3>
 <p>In the example, there are two places where outside data enter the process - <code>input_schema</code> and <code>responses</code>.</p>
