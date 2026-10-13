@@ -7,10 +7,25 @@ order: 3
 Genroc stores large values separately and doesn't return them 
 directly when you communicate with the API.
 
-## What is large value?
+## What is a large value?
 
-Genroc limits size of a json fields to a certain size and if the value
-is exceeded it moves parts of the value into `objects`.
+Genroc measures each stored value on its own. When one is over its limit, genroc moves
+its largest parts into `objects` until the rest fits.
+
+| Stored value | Where you see it | Limit |
+|---|---|---|
+| Process input | `state.input` | 2 KiB |
+| Each task's output, separately | `state.outputs.<task id>` | 2 KiB |
+| Process output | `output` | 2 KiB |
+| The last error | `state.last_error` | 2 KiB |
+| A raised error's data | `error_data` | 2 KiB |
+| External task input | `external_input` | 2 KiB |
+| A log entry's payload | the entry's `data` | 2 KiB |
+
+Ten task outputs of 1.5 KB each are therefore all kept inline: each one is under its own limit.
+
+A log entry's payload over `--log-payload-max` (default 1 MiB) is not stored at all. The entry's
+`meta.payload_omitted_bytes` says how big it was.
 
 ## What it looks like
 
