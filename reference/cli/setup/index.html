@@ -168,7 +168,8 @@ want; -y (or no terminal) takes the defaults. <code>init password</code> mints a
 <p>manage API credentials</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genctl</span><span style="color:#8FB996"> token</span><span style="color:#8FB996"> create</span><span style="color:#8FB996"> --perms</span><span style="color:#E07A4F"> &#x3C;</span><span style="color:#8FB996">lis</span><span style="color:#D6D6D2">t</span><span style="color:#E07A4F">></span><span style="color:#D6D6D2"> [--label </span><span style="color:#E07A4F">&#x3C;</span><span style="color:#8FB996">nam</span><span style="color:#D6D6D2">e</span><span style="color:#E07A4F">></span><span style="color:#8FB996">]</span><span style="color:#D6D6D2"> [-q]</span></span>
 <span class="line"><span style="color:#E07A4F">genctl</span><span style="color:#8FB996"> token</span><span style="color:#8FB996"> generate</span><span style="color:#E07A4F"> |</span><span style="color:#E07A4F"> token</span><span style="color:#8FB996"> list</span><span style="color:#D6D6D2"> [--json] </span><span style="color:#E07A4F">|</span><span style="color:#E07A4F"> token</span><span style="color:#8FB996"> revoke</span><span style="color:#E07A4F"> &#x3C;</span><span style="color:#8FB996">i</span><span style="color:#D6D6D2">d</span><span style="color:#E07A4F">></span><span style="color:#8FB996">...</span></span></code></pre>
-<p>Perms: admin, deploy, operate, read, worker.</p>
+<p>Perms, comma-separated (--perms read,operate): admin, deploy, operate, read, worker.
+Flat, not nested: only admin implies the others.</p>
 <p>create needs an admin token. generate makes a secret offline, for the first token.
 Without any token: <code>genroc token</code>, run against the database.</p>
 <h2 id="lsp">lsp<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#lsp"><span></span></a></h2>
