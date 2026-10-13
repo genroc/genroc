@@ -156,9 +156,13 @@ then every API request needs a token in the <code>Authorization</code> header:</
 <p>For <code>genctl</code>, store the token once, or set <code>GENROC_TOKEN</code>:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl config set token genroc_sk_...</span></span></code></pre>
 <p>Genroc supports classic tokens and JWT tokens.</p>
+<h2 id="permissions">Permissions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#permissions"><span></span></a></h2>
+<p>Every token carries a list of permissions: <code>read</code>, <code>operate</code>, <code>deploy</code>, <code>worker</code> and <code>admin</code>.
+Any one of them is enough for an endpoint that lists it, and <code>admin</code> is enough for everything.
+What each permission allows is in the <a href="/reference/rest-api/#permissions">REST API reference</a>.</p>
 <h2 id="classic-tokens">Classic tokens<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#classic-tokens"><span></span></a></h2>
-<p>These are tokens managed by genroc server, you can create them through the
-API or CLI. Creating one needs an admin token.</p>
+<p>These are tokens managed by the genroc server. You can create them through the
+API or CLI, which needs an admin token.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl token create --perms read --label </span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">Read only token</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#E07A4F">created</span><span style="color:#8FB996"> 9eezcgww</span><span style="color:#8FB996">  perms=read</span></span>
@@ -179,10 +183,11 @@ yet, it&#39;s created:</p>
 <span class="line"><span style="color:#E07A4F">  shown</span><span style="color:#8FB996"> once:</span></span>
 <span class="line"><span style="color:#E07A4F">genroc_sk_EbTqXuTJhseXWTOcZyGlwCD8USE63A8YaZ36F0mmM5s</span></span></code></pre>
 <p>Only the token itself goes to stdout, so <code>TOKEN=$(genroc token create ...)</code> captures just the token.</p>
-<p>Use <code>--pg &lt;dsn&gt;</code> instead of <code>--db</code> for PostgreSQL. With docker:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> run</span><span style="color:#8FB996"> --rm</span><span style="color:#8FB996"> genroc</span><span style="color:#8FB996"> token</span><span style="color:#8FB996"> create</span><span style="color:#8FB996"> --perms</span><span style="color:#8FB996"> admin</span><span style="color:#8FB996"> --db</span><span style="color:#8FB996"> /data/genroc.db</span></span></code></pre>
+<p>Use <code>--pg &lt;dsn&gt;</code> instead of <code>--db</code> for PostgreSQL. Both are also read from <code>GENROC_DB</code> and
+<code>GENROC_PG</code>, which the <code>compose.yaml</code> from <code>genctl init</code> already sets, so with docker it&#39;s just:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> run</span><span style="color:#8FB996"> --rm</span><span style="color:#8FB996"> genroc</span><span style="color:#8FB996"> token</span><span style="color:#8FB996"> create</span><span style="color:#8FB996"> --perms</span><span style="color:#8FB996"> admin</span><span style="color:#8FB996"> --label</span><span style="color:#8FB996"> admin</span></span></code></pre>
 <p>The same command gets you back in if you lose the admin token.
-Genroc also warns at startup when there is no admin token (unless JWT is enabled).</p>
+Genroc also warns at startup when there is no admin token (unless JWTs are enabled).</p>
 <h3 id="seed-tokens">Seed tokens<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#seed-tokens"><span></span></a></h3>
 <p>Some tokens have to exist before anything starts: a worker that starts together
 with genroc, a CI environment that is created from scratch, or a secret
@@ -213,7 +218,7 @@ Genroc UI works this way, but your own service can mint the tokens too.</p>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">perms</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">deploy</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">operate</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">read</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">],</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">exp</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1788000060</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
-<p><code>perms</code> are the same permissions as for genroc tokens, <code>sub</code> is who is calling
+<p><code>perms</code> are the same <a href="#permissions">permissions</a> as for genroc tokens, <code>sub</code> is who is calling
 and shows up in logs as <code>jwt:ada@example.com</code>. <code>exp</code> is required, so keep the tokens short-lived.
 <code>iss</code> and <code>aud</code> default to the values above, change them with <code>--jwt-issuer</code> and <code>--jwt-audience</code>.</p>
 <p>Genroc tokens keep working beside JWTs, so people can come through the UI
@@ -221,7 +226,7 @@ while <code>genctl</code> and workers use their genroc tokens. A secret without 
 is refused at startup.</p>
 <blockquote>
 <p>Anyone with the secret can mint a token with any permissions, so keep it as safe as an admin token.</p>
-</blockquote>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/large-values/"> <span>previous</span> <strong>Large values</strong> </a> <a class="next" href="/guides/operating/genroc-ui/"> <span>next</span> <strong>Genroc UI</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#classic-tokens">Classic tokens</a></li><li class="depth-2"><a href="#initialization">Initialization</a></li><li class="depth-3"><a href="#first-admin-token">First admin token</a></li><li class="depth-3"><a href="#seed-tokens">Seed tokens</a></li><li class="depth-2"><a href="#jwt-tokens">JWT tokens</a></li></ul><script>
+</blockquote>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/large-values/"> <span>previous</span> <strong>Large values</strong> </a> <a class="next" href="/guides/operating/genroc-ui/"> <span>next</span> <strong>Genroc UI</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#permissions">Permissions</a></li><li class="depth-2"><a href="#classic-tokens">Classic tokens</a></li><li class="depth-2"><a href="#initialization">Initialization</a></li><li class="depth-3"><a href="#first-admin-token">First admin token</a></li><li class="depth-3"><a href="#seed-tokens">Seed tokens</a></li><li class="depth-2"><a href="#jwt-tokens">JWT tokens</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
