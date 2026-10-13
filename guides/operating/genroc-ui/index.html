@@ -150,32 +150,34 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
           } catch (_) {}
         })
       })()
-    </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Operating"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Genroc UI</h1> <p>Learn about genroc user interface.</p> </div>  <p>Genroc UI offers a simple way how to see state of the processes.</p>
+    </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Operating"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Genroc UI</h1> <p>Learn about genroc user interface.</p> </div>  <p>Genroc UI offers a simple way to see the state of your processes.</p>
 <h2 id="current-state">Current state<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#current-state"><span></span></a></h2>
-<p>UI is experimental at this stage and offers minimal functionality.</p>
+<p>Genroc UI is experimental at this stage and offers minimal functionality.</p>
 <h2 id="how-to-install">How to install<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#how-to-install"><span></span></a></h2>
 <p>Genroc UI is distributed as a separate docker container.
-Easiest way how to start with the ui is to init
-new project with the ui option:</p>
+The easiest way to start is to create a new project
+with the UI option:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genctl</span><span style="color:#8FB996"> init</span><span style="color:#8FB996"> --ui</span></span></code></pre>
 <p>The UI is configured inside the <code>compose.yaml</code>.</p>
 <h2 id="the-setup">The setup<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-setup"><span></span></a></h2>
-<p>Your <code>compose.yaml</code> file will now have following entry:</p>
+<p>Your <code>compose.yaml</code> file will now have the following entry:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#D6D6D2">  genroc-ui</span><span style="color:#8A8A84">:</span></span>
 <span class="line"><span style="color:#D6D6D2">    image</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> ghcr.io/genroc/ui:edge</span></span>
 <span class="line"><span style="color:#D6D6D2">    command</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">--server</span><span style="color:#8A8A84">,</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">http://genroc:8448</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">]</span></span>
 <span class="line"><span style="color:#D6D6D2">    ports</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">8448:8448</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">]</span></span>
 <span class="line"><span style="color:#D6D6D2">    restart</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> unless-stopped</span></span>
 <span class="line"><span style="color:#D6D6D2">    depends_on</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">genroc</span><span style="color:#8A8A84">]</span></span></code></pre>
-<p>Notice that both UI and genroc server are available on port 8448.
-Thats because the UI uses reverse proxy to route requests to the server,
-so it doesn&#39;t have to be exposed directly.</p>
+<p>The UI takes port 8448, which is where genctl looks by default, and passes
+API requests on to genroc. That&#39;s why genroc itself isn&#39;t exposed.</p>
 <h2 id="with-authentication-enabled">With authentication enabled<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#with-authentication-enabled"><span></span></a></h2>
-<p>When authentication is enabled (<code>init</code> command with <code>--auth</code> flag),
-UI needs to authenticate users before letting them access genroc server.</p>
-<p>In this setup the <code>init</code> command will also add <code>ui.yaml</code> file which is then
-linked to the ui docker image. It will look something like this:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#D6D6D2">login</span><span style="color:#8A8A84">:</span></span>
+<p>When authentication is enabled, the UI signs users in before letting them
+access the genroc server. Create the project with both options:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genctl</span><span style="color:#8FB996"> init</span><span style="color:#8FB996"> --ui</span><span style="color:#8FB996"> --auth</span></span></code></pre>
+<p>In this setup the <code>init</code> command also adds a <code>ui.yaml</code> file, which is mounted
+into the <code>genroc-ui</code> container. It will look something like this:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#D6D6D2">server</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> http://genroc:8448</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D6D6D2">login</span><span style="color:#8A8A84">:</span></span>
 <span class="line"><span style="color:#D6D6D2">  passwords</span><span style="color:#8A8A84">:</span></span>
 <span class="line"><span style="color:#8A8A84">    -</span><span style="color:#D6D6D2"> email</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> admin@localhost</span></span>
 <span class="line"><span style="color:#D6D6D2">      hash</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">$2a$10$DgtdyEbHuKTY/eKkNU9nJOB7Rz.j3ntkWvMncSwGhGcmaXZrTagDm</span><span style="color:#8A8A84">&quot;</span></span>
@@ -197,12 +199,13 @@ linked to the ui docker image. It will look something like this:</p>
 <span class="line"><span style="color:#8A8A84">      -</span><span style="color:#8FB996"> ./data/jwt-secret:/data/jwt-secret:ro</span></span>
 <span class="line"><span style="color:#D6D6D2">    restart</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> unless-stopped</span></span>
 <span class="line"><span style="color:#D6D6D2">    depends_on</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">genroc</span><span style="color:#8A8A84">]</span></span></code></pre>
-<p>The <code>jwt-secret</code> file is what allows UI to authenticate users
-to access genroc server - it&#39;s shared secret.</p>
-<p>By default UI uses static list of users from the <code>ui.yaml</code>
-to authenticate. Passwords are not kept in plain text, but
-generated and only hash is stored. You can add new user
-with following command:</p>
+<p>The <code>jwt-secret</code> file is a secret shared by both containers. For every request,
+Genroc UI signs a short-lived token with it, and genroc checks the signature with
+the same file (genroc reads it through <code>GENROC_JWT_SECRET_FILE</code>).
+Both have to point at the same file.</p>
+<p>By default Genroc UI signs users in with a static list of users from <code>ui.yaml</code>.
+Passwords are generated and never kept in plain text, only their hash
+is stored. You can add a new user with the following command:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl init password user@localhost</span></span>
 <span class="line"><span style="color:#E07A4F">password</span><span style="color:#8FB996">  fvpzqXzcPdquYW66</span></span>
 <span class="line"></span>
@@ -212,15 +215,15 @@ with following command:</p>
 <span class="line"><span style="color:#E07A4F">    -</span><span style="color:#8FB996"> email:</span><span style="color:#8FB996"> user@localhost</span></span>
 <span class="line"><span style="color:#E07A4F">      hash</span><span style="color:#8FB996">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#D6D6D2">$2a$10$ZoNrzhck4aIUvrtt</span><span style="color:#8FB996">.8d1BuQFStXbIQkwJ.5wkEwr2WMTGwFoeNaFm</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"><span style="color:#E07A4F">      groups:</span><span style="color:#D6D6D2"> [admins]</span></span></code></pre>
-<p>This generates random password for the user and generates the record for the
-<code>ui.yaml</code> including the hash. This way you can also regenerate password if
-it&#39;s forgotten.</p>
+<p>This generates a random password for the user and the entry for
+<code>ui.yaml</code>, including the hash. This way you can also replace a password
+that was forgotten.</p>
 <h2 id="user-groups-and-roles">User groups and roles<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#user-groups-and-roles"><span></span></a></h2>
-<p><code>ui.yaml</code> is also place where you can configure user permissions. Each user belongs
-to some groups and then the groups have permissions (the <code>roles</code> section).</p>
+<p><code>ui.yaml</code> is also the place where you configure user permissions. Each user belongs
+to some groups, and the groups have permissions (the <code>roles</code> section).</p>
 <h2 id="using-auth-provider">Using auth provider<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#using-auth-provider"><span></span></a></h2>
 <p>Genroc UI doesn&#39;t have any user management system, but it allows you to
-connect to an external provider through oidc (OpenID Connect).</p>
+connect to an external provider through OIDC (OpenID Connect).</p>
 <p>Add the provider under <code>login.providers</code> in <code>ui.yaml</code>. Any OIDC provider works,
 for example Okta, Entra, Auth0 or Keycloak:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#D6D6D2">login</span><span style="color:#8A8A84">:</span></span>
@@ -231,7 +234,8 @@ for example Okta, Entra, Auth0 or Keycloak:</p>
 <span class="line"><span style="color:#D6D6D2">      client_id</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span>
 <span class="line"><span style="color:#D6D6D2">      client_secret</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span></code></pre>
 <p>Register <code>http://localhost:8448/auth/callback</code> as the redirect URL of the client
-in your provider. Each provider becomes one button on the sign-in page.</p>
+in your provider. Each provider becomes one button on the sign-in page. With a single
+provider and no <code>passwords</code>, the sign-in page is skipped and users go straight to the provider.</p>
 <p>Groups are read from the <code>groups</code> claim of the provider&#39;s token and matched against
 <code>roles</code>. Some providers don&#39;t send groups at all, Google for example. Then you can give
 permissions to each user by email in the <code>users</code> section:</p>
