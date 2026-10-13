@@ -132,18 +132,21 @@ func renderServerReference(flags []serverFlag, tokenUsage string) (string, error
 			fmt.Fprintf(b, "\n%s\n", g.intro)
 		}
 		for _, n := range g.flags {
-			f := byName[n]
-			kind := f.kind
-			if kind == "" {
-				kind = "boolean"
-			}
-			meta := "`" + kind + "`"
-			if f.def != "" {
-				meta += " · default `" + f.def + "`"
-			}
-			fmt.Fprintf(b, "\n### --%s\n\n%s\n\n%s\n", f.name, meta, escapeProse(f.usage))
+			flagEntry(b, byName[n])
 		}
 	}
 	fmt.Fprintf(b, "\n## genroc token\n\n```\n%s\n```\n", tokenUsage)
 	return b.String(), nil
+}
+
+func flagEntry(b *strings.Builder, f serverFlag) {
+	kind := f.kind
+	if kind == "" {
+		kind = "boolean"
+	}
+	meta := "`" + kind + "`"
+	if f.def != "" {
+		meta += " · default `" + f.def + "`"
+	}
+	fmt.Fprintf(b, "\n### --%s\n\n%s\n\n%s\n", f.name, meta, escapeProse(f.usage))
 }

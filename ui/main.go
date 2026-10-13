@@ -34,6 +34,10 @@ const (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "config-schema" {
+		os.Stdout.Write(configSchema())
+		return
+	}
 	configPath := flag.String("config", os.Getenv("GENROC_UI_CONFIG"),
 		"Path to the YAML config ($GENROC_UI_CONFIG). Without it, --server alone runs a UI with no login: requests are proxied as they arrive, which is the local shape against a server without --auth, or a pasted token.")
 	server := flag.String("server", envOr("GENROC_SERVER", "http://localhost:8449"),
@@ -476,7 +480,7 @@ func envOr(key, fallback string) string {
 // single letter. Go accepts either form; only the printing differs.
 func printFlags(fs *flag.FlagSet) {
 	w := fs.Output()
-	fmt.Fprintln(w, "Usage: genroc-ui [flags]\n\nFlags:")
+	fmt.Fprintln(w, "Usage: genroc-ui [flags]\n       genroc-ui config-schema    print ui.yaml's JSON Schema\n\nFlags:")
 	fs.VisitAll(func(f *flag.Flag) {
 		dash := "--"
 		if len(f.Name) == 1 {

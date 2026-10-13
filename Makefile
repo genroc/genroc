@@ -129,7 +129,7 @@ docs-schema:
 	$(BUILD_FLAGS) go run ./cmd/genrocspec -o docs/public/openapi.json --schema docs/public/process-schema.json --config-schema docs/public/config-schema.json \
 		--manifest-schema docs/public/resolver-manifest.json --reply-schema docs/public/resolver-reply.json
 
-# The generated half of the reference. Needs built genctl and genroc binaries: their help text is
+# The generated half of the reference. Needs built genctl, genroc and genroc-ui binaries: their help text is
 # the source, and a genctl flag is only registered once its command is running. Generated pages are gitignored --
 # a committed copy is a second thing to keep true.
 docs-reference: build
@@ -141,6 +141,7 @@ docs-reference: build
 		--config-reference docs/src/content/docs/reference \
 		--config-tables docs/src/generated \
 		--server-reference docs/src/content/docs/reference \
+		--ui-reference docs/src/content/docs/reference \
 		--status-table docs/src/generated/instance-statuses.md
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived

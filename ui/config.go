@@ -13,70 +13,60 @@ import (
 // genroc-ui's configuration (specs/ui-issued-tokens.md §5): a file, not flags, because
 // providers, roles and users are lists and maps.
 
+// The `description`, `default` and `required` tags are the published reference (configSchema):
+// write them for whoever edits ui.yaml.
 type Config struct {
-	// Server is the genroc API to proxy to.
-	Server string `yaml:"server"`
-	Listen string `yaml:"listen"`
-	// RedirectURL pins the provider callback; derived from the request otherwise. Set it behind
-	// a proxy that rewrites Host.
-	RedirectURL string `yaml:"redirect_url"`
-	// SecureCookie forces the Secure attribute on or off. Optional: it follows the request's
-	// scheme otherwise, which is right in both directions and cannot be set wrong.
-	SecureCookie *bool  `yaml:"secure_cookie"`
-	SessionTTL   string `yaml:"session_ttl"`
+	Server       string `yaml:"server" required:"true" description:"The genroc API to proxy to, e.g. http://genroc:8448."`
+	Listen       string `yaml:"listen" default:":8448" description:"Address to listen on. --http overrides it."`
+	RedirectURL  string `yaml:"redirect_url" description:"The full URL of /auth/callback that providers redirect back to. Derived from the request when omitted; set it behind a proxy that rewrites Host."`
+	SecureCookie *bool  `yaml:"secure_cookie" description:"Forces the Secure attribute of the session cookie on or off. Omitted, it follows the request's scheme."`
+	SessionTTL   string `yaml:"session_ttl" default:"12h" description:"How long a sign-in lasts, as a duration (\"30m\", \"12h\")."`
 
-	Login Login `yaml:"login"`
-	Token Token `yaml:"token"`
+	Login Login `yaml:"login" description:"How people sign in. With neither providers nor passwords there is no login, and requests are proxied as they arrive."`
+	Token Token `yaml:"token" description:"The token minted for genroc. Required once login is configured."`
 
-	// Roles maps a provider group to permissions (`*` is anyone signed in); Users maps a subject,
-	// for providers with no groups. Resolved here, before signing, because the token carries
-	// PERMISSIONS (specs/ui-issued-tokens.md §1).
-	Roles map[string][]string `yaml:"roles"`
-	Users map[string][]string `yaml:"users"`
+	// Resolved here, before signing, because the token carries PERMISSIONS
+	// (specs/ui-issued-tokens.md §1).
+	Roles map[string][]string `yaml:"roles" description:"Group -> permissions. The key \"*\" matches anyone signed in."`
+	Users map[string][]string `yaml:"users" description:"Subject -> permissions, for a provider whose tokens carry no groups. Unioned with roles."`
 }
 
 type Login struct {
-	Providers []Provider `yaml:"providers"`
-	Passwords []Password `yaml:"passwords"`
+	Providers []Provider `yaml:"providers" description:"OpenID Connect providers, one sign-in button each."`
+	Passwords []Password `yaml:"passwords" description:"Email and password logins kept in this file. genctl init password prints an entry."`
 }
 
 type Provider struct {
-	ID   string `yaml:"id"`   // stable, used in URLs and the state cookie
-	Name string `yaml:"name"` // what the button says
-	// Type names a known IdP whose quirks are encoded rather than documented -- `google` today.
-	// Empty (or `oidc`) is the generic entry, which guesses nothing.
-	Type   string `yaml:"type"`
-	Issuer string `yaml:"issuer"`
-	// DiscoveryURL, TokenURL and JWKSURL override the discovered endpoints, for an issuer whose
-	// URL resolves differently from the browser than from this process -- an IdP in Docker, or
-	// split-horizon DNS. Issuer stays the front-channel value, because that is what `iss` says.
-	DiscoveryURL string   `yaml:"discovery_url"`
-	TokenURL     string   `yaml:"token_url"`
-	JWKSURL      string   `yaml:"jwks_url"`
-	ClientID     string   `yaml:"client_id"`
-	ClientSecret string   `yaml:"client_secret"`
-	Scopes       []string `yaml:"scopes"`
-	// SubjectClaim and GroupsClaim default to `email` and `groups`.
-	SubjectClaim string `yaml:"subject_claim"`
-	GroupsClaim  string `yaml:"groups_claim"`
+	ID   string `yaml:"id" required:"true" description:"Stable and unique; it appears in URLs and in the state cookie."`
+	Name string `yaml:"name" description:"What the sign-in button says."`
+	// A type encodes VERIFIED quirks of a named IdP rather than documenting them (providerTypes).
+	Type   string `yaml:"type" default:"oidc" description:"google, or oidc for a provider configured by hand. A type fills in issuer, scopes and subject_claim; anything set explicitly wins."`
+	Issuer string `yaml:"issuer" description:"The OIDC issuer URL, exactly as the provider's tokens name it. Required unless type supplies it."`
+	// Issuer stays the front-channel value under these overrides, because that is what `iss` says.
+	DiscoveryURL string   `yaml:"discovery_url" description:"Overrides where the discovery document is fetched, for an issuer this process reaches at a different address than the browser does (an IdP in Docker, split-horizon DNS)."`
+	TokenURL     string   `yaml:"token_url" description:"Overrides the discovered token endpoint, as discovery_url."`
+	JWKSURL      string   `yaml:"jwks_url" description:"Overrides the discovered key set, as discovery_url."`
+	ClientID     string   `yaml:"client_id" required:"true" description:"The OAuth client registered with the provider."`
+	ClientSecret string   `yaml:"client_secret" required:"true" description:"That client's secret."`
+	Scopes       []string `yaml:"scopes" description:"Scopes requested at login. Defaults to the type's, else openid, email, profile and groups."`
+	SubjectClaim string   `yaml:"subject_claim" default:"email" description:"ID-token claim naming the person: the token's subject, and the key of users."`
+	GroupsClaim  string   `yaml:"groups_claim" default:"groups" description:"ID-token claim listing the person's groups, matched against roles. Refused for google, whose groups are read from its API."`
 }
 
 // Password is a local login. It is the `staticPasswords` trade -- one file, no directory, no
 // registration, no reset -- and it must not grow past that. specs/ui-issued-tokens.md §5.
 type Password struct {
-	Email  string   `yaml:"email"`
-	Hash   string   `yaml:"hash"` // bcrypt, never plaintext
-	Groups []string `yaml:"groups"`
+	Email  string   `yaml:"email" required:"true" description:"The sign-in email, and the token's subject."`
+	Hash   string   `yaml:"hash" required:"true" description:"bcrypt hash of the password; plaintext is refused."`
+	Groups []string `yaml:"groups" description:"Groups, matched against roles."`
 }
 
-// Token is what this component mints and the genroc server verifies. Issuer and Audience must
-// match the server's auth config exactly, and Secret must be the same secret.
 type Token struct {
-	Issuer     string `yaml:"issuer"`
-	Audience   string `yaml:"audience"`
-	Secret     string `yaml:"secret"`
-	SecretFile string `yaml:"secret_file"`
-	TTL        string `yaml:"ttl"`
+	Issuer     string `yaml:"issuer" default:"genroc-ui" description:"The iss of minted tokens. Must match genroc's --jwt-issuer."`
+	Audience   string `yaml:"audience" default:"genroc" description:"The aud of minted tokens. Must match genroc's --jwt-audience."`
+	Secret     string `yaml:"secret" description:"The signing secret shared with genroc, at least 32 characters. Give this or secret_file."`
+	SecretFile string `yaml:"secret_file" description:"A file holding the secret, which must be the one genroc reads with --jwt-secret-file. Surrounding whitespace is trimmed."`
+	TTL        string `yaml:"ttl" default:"1m" description:"Lifetime of a token minted for one request to genroc."`
 }
 
 const (

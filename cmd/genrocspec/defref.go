@@ -36,8 +36,8 @@ const processSchemaNote = "the process-definition schema"
 type jsonSchema = map[string]any
 
 type defField struct {
-	name, typ, desc string
-	required        bool
+	name, typ, desc, def string
+	required             bool
 }
 
 // defArm is one alternative form of a union. An arm that is an object carries its own shape,
@@ -176,7 +176,8 @@ func fieldsOf(schema jsonSchema) []defField {
 	for name, raw := range props {
 		p, _ := raw.(map[string]any)
 		desc, _ := p["description"].(string)
-		out = append(out, defField{name: name, typ: typeName(p), desc: desc, required: required[name]})
+		def, _ := p["default"].(string)
+		out = append(out, defField{name: name, typ: typeName(p), desc: desc, def: def, required: required[name]})
 	}
 	// Required first, then alphabetical: a reader writing the slot for the first time needs
 	// what they cannot leave out, and the map gives no order of its own.
@@ -354,7 +355,11 @@ func fieldTable(b *strings.Builder, fields []defField) {
 		}
 		// A union renders with pipes, and a pipe ends a table cell -- backticks do not protect
 		// it, so the escape has to go inside the code span.
-		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", f.name, strings.ReplaceAll(f.typ, "|", `\|`), req, cell(f.desc))
+		desc := cell(f.desc)
+		if f.def != "" {
+			desc += " Default `" + strings.ReplaceAll(f.def, "|", `\|`) + "`."
+		}
+		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", f.name, strings.ReplaceAll(f.typ, "|", `\|`), req, desc)
 	}
 }
 

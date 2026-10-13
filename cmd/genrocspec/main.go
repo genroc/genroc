@@ -26,6 +26,8 @@ func main() {
 	serverRef := flag.String("server-reference", "", `directory to write the server flag reference page into ("" to skip)`)
 	genctl := flag.String("genctl", "./genctl", "the genctl binary the CLI reference is read from")
 	genroc := flag.String("genroc", "./genroc", "the genroc binary the server reference is read from")
+	uiRef := flag.String("ui-reference", "", `directory to write the genroc-ui reference page into ("" to skip)`)
+	genrocUI := flag.String("genroc-ui", "./genroc-ui", "the genroc-ui binary the genroc-ui reference is read from")
 	flag.Parse()
 
 	write(*out, api.Spec)
@@ -42,6 +44,12 @@ func main() {
 	}
 	if *serverRef != "" {
 		if err := writeServerReference(*serverRef, *genroc); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if *uiRef != "" {
+		if err := writeUIReference(*uiRef, *genrocUI); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
