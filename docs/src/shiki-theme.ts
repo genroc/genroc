@@ -1,7 +1,6 @@
 import type { ThemeRegistration } from 'shiki'
 
-// Hand-written themes in the site's palette; `themes: {light, dark}` emits both colours per
-// token, so the toggle needs no JS. A rule's colour key is `foreground`: `color` is silently
+// Hand-written in the site's palette. A rule's colour key is `foreground`: `color` is silently
 // ignored.
 const scopes = (c: Record<string, string>) => [
   { scope: ['comment', 'punctuation.definition.comment'], settings: { foreground: c.muted, fontStyle: 'italic' } },
@@ -19,24 +18,8 @@ const scopes = (c: Record<string, string>) => [
   { scope: ['markup.deleted', 'meta.diff.header.from-file'], settings: { foreground: c.removed } },
 ]
 
-export const light: ThemeRegistration = {
-  name: 'genroc-light',
-  type: 'light',
-  colors: { 'editor.background': '#ececea', 'editor.foreground': '#1c1c1c' },
-  settings: scopes({
-    fg: '#1c1c1c',
-    muted: '#6b6b6b',
-    accent: '#b5532b',
-    key: '#1c1c1c',
-    string: '#3f6b4f',
-    constant: '#8a5a1e',
-    added: '#3f6b4f',
-    removed: '#b5532b',
-  }),
-}
-
-export const dark: ThemeRegistration = {
-  name: 'genroc-dark',
+export const theme: ThemeRegistration = {
+  name: 'genroc',
   type: 'dark',
   colors: { 'editor.background': '#1d1d1d', 'editor.foreground': '#d6d6d2' },
   settings: scopes({

@@ -9,7 +9,7 @@ interface Props {
 const { size = '1.4em', class: className } = Astro.props
 
 // The source logo is one hard-coded ink colour on every fill and stroke. Swapping it for
-// currentColor is what lets the mark follow the theme; the prolog and the fixed 100%
+// currentColor is what lets the mark take the accent; the prolog and the fixed 100%
 // width/height have to go with it, or the SVG sizes itself to its container instead.
 const svg = raw
   .replace(/<\?xml[\s\S]*?\?>/, '')

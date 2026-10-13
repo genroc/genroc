@@ -6,7 +6,7 @@ interface Props {
 const { src } = Astro.props
 
 // Inlined rather than an <img>: the SVG colours itself from the page's CSS variables, which
-// an <img> cannot see, so it would stay light-themed on a dark page.
+// an <img> cannot see.
 const diagrams = import.meta.glob<string>('/src/assets/diagrams/*.svg', {
   query: '?raw',
   import: 'default',

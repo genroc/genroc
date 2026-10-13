@@ -22,12 +22,7 @@ const { title, description } = Astro.props
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={asset('logo.svg')} type="image/svg+xml" />
-    <meta name="color-scheme" content="light dark" />
-    {/* Applies the stored theme before first paint; a deferred script flashes. */}
-    <script is:inline>
-      const stored = localStorage.getItem('theme')
-      if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
-    </script>
+    <meta name="color-scheme" content="dark" />
     {/* Hold first render until the footer — the last element on every page — has parsed.
         Without it, slow-arriving HTML lets a cross-document view transition activate on a
         partially parsed document, and the animation runs against a blank body: the reader

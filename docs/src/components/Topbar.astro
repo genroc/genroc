@@ -27,18 +27,4 @@ const links = (await navSections()).map((s) => ({ href: s.href, label: s.label, 
     }
   </nav>
   <Search />
-  <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle colour theme">
-    &#9681;
-  </button>
 </header>
-
-<script is:inline>
-  document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
-    const root = document.documentElement
-    const dark = root.dataset.theme
-      ? root.dataset.theme === 'dark'
-      : matchMedia('(prefers-color-scheme: dark)').matches
-    root.dataset.theme = dark ? 'light' : 'dark'
-    localStorage.setItem('theme', root.dataset.theme)
-  })
-</script>

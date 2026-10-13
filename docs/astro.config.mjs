@@ -4,7 +4,7 @@ import mdx from "@astrojs/mdx";
 import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import relativeMarkdownLinks from "astro-rehype-relative-markdown-links";
-import { light, dark } from "./src/shiki-theme.ts";
+import { theme } from "./src/shiki-theme.ts";
 import { genroc } from "./src/shiki-genroc.ts";
 import { existsSync, readFileSync } from "node:fs";
 import hoverData, { fenceKey } from "./scripts/hover-data.mjs";
@@ -145,12 +145,11 @@ export default defineConfig({
       ],
     ],
     shikiConfig: {
-      themes: { light, dark },
+      theme,
       // `genroc` is YAML plus the expression injection; `yaml` has to be named too, since
       // the grammar reaches it by scope name rather than bundling it.
       langs: [...genroc, "yaml"],
       transformers: [genrocHovers],
-      defaultColor: false,
       wrap: false,
     },
   },

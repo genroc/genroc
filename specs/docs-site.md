@@ -15,7 +15,7 @@ guides own the user-level "why" while reference stays free of it.
   extension uses (`docs/src/shiki-genroc.ts` reads `editors/vscode/syntaxes/` as-is): one grammar,
   two consumers.
 - **No theme**: when the design is the point, a theme is a dependency paid to delete its output.
-  Content collections with Zod-validated frontmatter, hand-written CSS, two Shiki themes.
+  Content collections with Zod-validated frontmatter, hand-written CSS, one Shiki theme; dark only.
 - **Pagefind search**: indexed from `dist/` after the build, no service, so an archived build
   searches itself. Only `.prose` is indexed (`data-pagefind-body`) — chrome would match every
   query — and our own `<dialog>` drives its JS API, no island: one input does not earn React.
