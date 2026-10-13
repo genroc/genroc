@@ -180,11 +180,16 @@ before rendering.
 
 ### A log payload is a value, cut like any other
 
-The engine carries `any` from the event to storage, cuts it with the same `cutForSize` a slot gets
-(target `--log-payload-bytes`, default 2048), and renders text once, for the console. A
+The engine carries `any` from the event to storage, cuts it with the same `cutForSize` and 2 KiB
+target a slot gets, and renders text once, for the console. A
 pre-rendered string has no tree, so it moved as one blob whose small per-instance fields defeated
 sharing: three runs of a 226 KB script cost 855,418 B that way and 231,376 B now (one object, six
 claims).
+
+A payload over `--log-payload-max` (default 1 MiB) is dropped whole and its size recorded in meta
+(`payload_omitted_bytes`). Fetch bodies are new storage per attempt, kept for `--log-retention`;
+without a ceiling one polling loop can fill the database. Dropped, never cut short: a truncated
+payload reads as a complete one.
 
 ### Every owner declares its references in an `objects` field
 

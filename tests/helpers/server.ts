@@ -75,6 +75,7 @@ export interface StartOptions {
   // Receives stderr as it arrives; without it stdio is ignored.
   onStderr?: (chunk: string) => void;
   bin?: string; // defaults to the run's shared binary
+  args?: string[]; // extra server flags, for a test that starts its own server
 }
 
 function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
@@ -119,7 +120,7 @@ function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
     // what every test other than the benchmark wants.
     ...(process.env.GENROC_DURABILITY ? ["--durability", process.env.GENROC_DURABILITY] : []),
   ];
-  const proc = spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", o.log ?? "error", ...pollArgs, ...concArgs, ...retryArgs, ...authArgs, ...leaseArgs, ...poolArgs, ...syncArgs], {
+  const proc = spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", o.log ?? "error", ...pollArgs, ...concArgs, ...retryArgs, ...authArgs, ...leaseArgs, ...poolArgs, ...syncArgs, ...(o.args ?? [])], {
     stdio: ["ignore", "ignore", o.onStderr ? "pipe" : "ignore"],
     // Config fixtures, on the global tier because test process names are random. One naming a
     // PORT does not belong here: such a test starts its own server with `env`.

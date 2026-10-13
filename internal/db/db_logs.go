@@ -75,11 +75,11 @@ func (db *DB) AppendLog(entry *model.LogEntry) error {
 // AppendLogValue stores an audit row whose payload is a VALUE, cut like any other. A row with
 // objects is written synchronously, row and claims in ONE transaction: a buffered row would leave
 // a claim with no owner yet, which the sweep retires.
-func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
+func (db *DB) AppendLogValue(entry *model.LogEntry, v any) error {
 	if v == nil {
 		return db.AppendLog(entry) // no payload, no envelope: the column stays empty
 	}
-	stripped, refs, objs, referenced, err := cutLogPayload(v, target)
+	stripped, refs, objs, referenced, err := cutLogPayload(v)
 	if err != nil {
 		return err
 	}

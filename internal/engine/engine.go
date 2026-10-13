@@ -19,16 +19,16 @@ import (
 const (
 	defaultLeaseDuration      = 10 * time.Second
 	defaultLeaseRenewInterval = 3 * time.Second
-	defaultPayloadBytes       = 2048
+	consoleExcerptBytes       = 2048
 )
 
 // LogConfig controls how much the engine persists to each instance's audit log
 // and for how long, plus the verbosity of the unified server console.
 type LogConfig struct {
-	Payloads     bool          // record event payloads (inputs, outputs, request/response bodies) on audit rows
-	PayloadBytes int           // inline budget per payload; larger values externalize (<=0 → defaultPayloadBytes)
-	Retention    time.Duration // prune audit logs older than this; 0 = keep forever
-	Mode         logview.Mode  // console verbosity: basic omits the data body, detail includes it
+	Payloads   bool          // record event payloads (inputs, outputs, request/response bodies) on audit rows
+	PayloadMax int           // largest payload recorded, in encoded bytes; a larger one is dropped and its size kept in meta (0 = no limit)
+	Retention  time.Duration // prune audit logs older than this; 0 = keep forever
+	Mode       logview.Mode  // console verbosity: basic omits the data body, detail includes it
 }
 
 const logPruneInterval = time.Minute

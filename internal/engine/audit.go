@@ -40,13 +40,23 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	// works because expressions have no functions. specs/object-store.md §Redaction.
 	consoleEv := ev
 	text := dataText(ev.Data)
+	size := len(text) // before redaction rewrites it
 	if secrets := e.contextSecrets(inst); len(secrets) > 0 {
 		text = redactSecrets(text, secrets)
 		consoleEv.Msg = redactSecrets(consoleEv.Msg, secrets)
 		consoleEv.Meta = redactMeta(consoleEv.Meta, secrets)
 	}
 	// Console shows a capped excerpt regardless of how the full payload is persisted.
-	e.emitWithData(consoleEv, truncateStr(text, e.payloadCap()))
+	e.emitWithData(consoleEv, truncateStr(text, consoleExcerptBytes))
+	// Dropped whole, never cut short: an incomplete payload reads as a complete one.
+	if ev.Data != nil && e.logCfg.PayloadMax > 0 && size > e.logCfg.PayloadMax {
+		meta := make(map[string]any, len(ev.Meta)+1)
+		for k, v := range ev.Meta {
+			meta[k] = v
+		}
+		meta["payload_omitted_bytes"] = size
+		ev.Data, ev.Meta = nil, meta
+	}
 	if err := e.db.AppendLogValue(&model.LogEntry{
 		InstanceID: ev.ID,
 		Level:      ev.Level,
@@ -56,7 +66,7 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 		Code:       string(ev.Code),
 		Actor:      ev.Actor,
 		Meta:       ev.Meta,
-	}, ev.Data, int64(e.payloadCap())); err != nil {
+	}, ev.Data); err != nil {
 		e.logOnly(logEvent{Level: model.LogError, ID: ev.ID, Msg: "append audit log: " + err.Error()})
 	}
 }
@@ -214,15 +224,6 @@ func (e *Engine) snippetRaw(s string) any {
 		return nil
 	}
 	return s
-}
-
-// payloadCap is the configured per-payload size — both the console truncation point and
-// the inline-vs-externalize threshold for log data.
-func (e *Engine) payloadCap() int {
-	if e.logCfg.PayloadBytes > 0 {
-		return e.logCfg.PayloadBytes
-	}
-	return defaultPayloadBytes
 }
 
 func truncateStr(s string, max int) string {

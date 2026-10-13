@@ -219,9 +219,9 @@ func (db *DB) CountObjectRefs(hash string) (int64, error) {
 }
 
 // cutLogPayload WRITES NOTHING: the claims belong to the log ROW and are written with it. Same
-// machinery as a slot, so a payload repeating externalized content shares its object.
-func cutLogPayload(v any, target int64) (any, []*model.ObjectRef, []*pendingObject, map[string]struct{}, error) {
-	stripped, refs, objs, err := cutForSize(v, target)
+// machinery and limit as a slot, so a payload repeating externalized content shares its object.
+func cutLogPayload(v any) (any, []*model.ObjectRef, []*pendingObject, map[string]struct{}, error) {
+	stripped, refs, objs, err := cutForSize(v, contextObjectThreshold)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

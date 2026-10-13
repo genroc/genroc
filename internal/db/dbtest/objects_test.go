@@ -155,7 +155,7 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 			// ...and log a payload whose cut produces the identical leaf. Same bytes, same
 			// hash, one row -- which is the whole reason the log reuses the context's cut.
 			entry := &model.LogEntry{InstanceID: "inst-shared", Level: model.LogInfo, Event: "probe"}
-			if err := b.db.AppendLogValue(entry, map[string]any{"input": val}, 128); err != nil {
+			if err := b.db.AppendLogValue(entry, map[string]any{"input": val}); err != nil {
 				t.Fatalf("AppendLogValue: %v", err)
 			}
 			if len(entry.Objects) != 1 {

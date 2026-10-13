@@ -51,7 +51,7 @@ func TestLogObjects_ContentAndClaimAreWrittenAtomically(t *testing.T) {
 		// Distinct content per write, each over the target so it cuts to its own object.
 		payload := map[string]any{"code": strings.Repeat(fmt.Sprintf("L%03d", i), 1200)}
 		entry := &model.LogEntry{InstanceID: fmt.Sprintf("inst-%d", i), Level: model.LogInfo, Event: "probe"}
-		if err := sharedPgDB.AppendLogValue(entry, payload, 128); err != nil {
+		if err := sharedPgDB.AppendLogValue(entry, payload); err != nil {
 			t.Fatalf("AppendLogValue: %v", err)
 		}
 	}
@@ -71,7 +71,7 @@ func TestLogObjects_LiveAsLongAsTheirRowThenGetGrace(t *testing.T) {
 			b.db.SetObjectGrace(24 * time.Hour)
 
 			entry := &model.LogEntry{InstanceID: "inst-grace", Level: model.LogInfo, Event: "probe"}
-			if err := b.db.AppendLogValue(entry, map[string]any{"code": strings.Repeat("G", 4096)}, 128); err != nil {
+			if err := b.db.AppendLogValue(entry, map[string]any{"code": strings.Repeat("G", 4096)}); err != nil {
 				t.Fatalf("AppendLogValue: %v", err)
 			}
 			logs, _, err := b.db.ListLogs("inst-grace", dbpkg.LogQuery{})
