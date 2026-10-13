@@ -70,7 +70,8 @@ by that restart**: the signing key lives in `./data`, so every session outlives 
 
 `passwords:` is the demo trade — one file, no directory, no registration, no reset, no MFA. A
 deployment uses `providers:` instead, and any OIDC provider connects directly: Google, Okta,
-Entra, Auth0, Keycloak. One button appears per entry, and with a single provider and no passwords
+Entra, Auth0, Keycloak. Groups come from the provider's ID token, and Google's carries none, so
+it is granted by email under `users:` or put behind a broker. One button appears per entry, and with a single provider and no passwords
 the chooser is skipped. A provider that is not OIDC (GitHub, LDAP, SAML) needs a broker such as
 Dex in front, and genroc-ui's side is unchanged.
 

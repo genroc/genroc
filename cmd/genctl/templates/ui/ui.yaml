@@ -11,19 +11,19 @@ login:
       hash: "{{.Hash}}"
       groups: [admins]
 
-  # An identity provider instead. `google` needs only a client; anything else is a generic
-  # `oidc` entry with an issuer, and a provider that is not OIDC (GitHub, LDAP, SAML) needs a
-  # broker such as Dex in front, used as a plain `oidc` entry.
+  # An OpenID Connect provider instead. One that is not OIDC (GitHub, LDAP, SAML) needs a broker
+  # such as Dex or Keycloak in front, entered the same way.
   #
   # providers:
   #   - id: google
-  #     type: google
   #     name: Google
+  #     issuer: https://accounts.google.com
   #     client_id: ...
   #     client_secret: ...
+  #     scopes: [openid, email, profile]   # Google refuses the default `groups` scope
   #
-  # A Google ID token carries no groups, so genroc-ui reads Workspace membership at login: grant
-  # the client `cloud-identity.groups.readonly` and key `roles:` on the group's email.
+  # Google's tokens carry no groups, so grant by email under `users:` below, or put a broker
+  # that supplies groups in front.
 
 token:
   # The one thing genroc and genroc-ui must agree on.

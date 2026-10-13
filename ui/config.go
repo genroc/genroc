@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -37,20 +36,18 @@ type Login struct {
 }
 
 type Provider struct {
-	ID   string `yaml:"id" required:"true" description:"Stable and unique; it appears in URLs and in the state cookie."`
-	Name string `yaml:"name" description:"What the sign-in button says."`
-	// A type encodes VERIFIED quirks of a named IdP rather than documenting them (providerTypes).
-	Type   string `yaml:"type" default:"oidc" description:"google, or oidc for a provider configured by hand. A type fills in issuer, scopes and subject_claim; anything set explicitly wins."`
-	Issuer string `yaml:"issuer" description:"The OIDC issuer URL, exactly as the provider's tokens name it. Required unless type supplies it."`
+	ID     string `yaml:"id" required:"true" description:"Stable and unique; it appears in URLs and in the state cookie."`
+	Name   string `yaml:"name" description:"What the sign-in button says."`
+	Issuer string `yaml:"issuer" required:"true" description:"The OIDC issuer URL, exactly as the provider's tokens name it."`
 	// Issuer stays the front-channel value under these overrides, because that is what `iss` says.
 	DiscoveryURL string   `yaml:"discovery_url" description:"Overrides where the discovery document is fetched, for an issuer this process reaches at a different address than the browser does (an IdP in Docker, split-horizon DNS)."`
 	TokenURL     string   `yaml:"token_url" description:"Overrides the discovered token endpoint, as discovery_url."`
 	JWKSURL      string   `yaml:"jwks_url" description:"Overrides the discovered key set, as discovery_url."`
 	ClientID     string   `yaml:"client_id" required:"true" description:"The OAuth client registered with the provider."`
 	ClientSecret string   `yaml:"client_secret" required:"true" description:"That client's secret."`
-	Scopes       []string `yaml:"scopes" description:"Scopes requested at login. Defaults to the type's, else openid, email, profile and groups."`
+	Scopes       []string `yaml:"scopes" description:"Scopes requested at login. Defaults to openid, email, profile and groups; set it for a provider that refuses groups, such as Google."`
 	SubjectClaim string   `yaml:"subject_claim" default:"email" description:"ID-token claim naming the person: the token's subject, and the key of users."`
-	GroupsClaim  string   `yaml:"groups_claim" default:"groups" description:"ID-token claim listing the person's groups, matched against roles. Refused for google, whose groups are read from its API."`
+	GroupsClaim  string   `yaml:"groups_claim" default:"groups" description:"ID-token claim listing the person's groups, matched against roles."`
 }
 
 // Password is a local login. It is the `staticPasswords` trade -- one file, no directory, no
@@ -107,9 +104,6 @@ func LoadConfig(path string) (*Config, error) {
 
 	seen := map[string]bool{}
 	for i := range c.Login.Providers {
-		if err := c.Login.Providers[i].applyType(path); err != nil {
-			return nil, err
-		}
 		p := c.Login.Providers[i]
 		switch {
 		case p.ID == "":
@@ -118,8 +112,7 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("%s: two providers share the id %q; it addresses them in URLs "+
 				"and in the state cookie, so it has to be unique", path, p.ID)
 		case p.Issuer == "":
-			return nil, fmt.Errorf("%s: provider %q needs an issuer, or a `type` that supplies "+
-				"one (%s)", path, p.ID, knownProviderTypes())
+			return nil, fmt.Errorf("%s: provider %q needs an issuer", path, p.ID)
 		case p.ClientID == "" || p.ClientSecret == "":
 			return nil, fmt.Errorf("%s: provider %q needs client_id and client_secret", path, p.ID)
 		}
@@ -194,73 +187,13 @@ func dur(s string, def time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
-// A `type` holds only VERIFIED quirks of a named IdP. Google publishes no groups claim and
-// refuses a `groups` scope, so its membership is fetched afterwards (google.go).
-type providerType struct {
-	issuer       string
-	scopes       []string
-	subjectClaim string
-	// groupsFetched: the ID token carries no groups and the type fetches them, so `groups_claim`
-	// is refused on such a provider.
-	groupsFetched bool
-}
-
-var providerTypes = map[string]providerType{
-	"google": {
-		issuer: "https://accounts.google.com",
-		// The groups scope is requested at login because the membership call is made with the
-		// person's OWN access token -- no service account, no stored Google credential.
-		scopes:        []string{"openid", "email", "profile", googleGroupsScope},
-		subjectClaim:  "email",
-		groupsFetched: true,
-	},
-}
-
 // `groups` is in the generic set because IdPs with groups emit them only when asked, and their
 // silent absence reads as a broken role map.
 var defaultScopes = []string{"openid", "email", "profile", "groups"}
 
-// applyType fills in what the type knows and refuses what it knows cannot work. Anything set
-// explicitly wins, so a type is a set of defaults rather than a cage.
-func (p *Provider) applyType(path string) error {
-	if p.Type == "" || p.Type == "oidc" {
-		return nil
-	}
-	t, ok := providerTypes[p.Type]
-	if !ok {
-		return fmt.Errorf("%s: provider %q has unknown type %q; known types are %s (omit it, or "+
-			"use `oidc`, for a provider configured by hand)", path, p.ID, p.Type, knownProviderTypes())
-	}
-	if t.groupsFetched && p.GroupsClaim != "" {
-		return fmt.Errorf("%s: provider %q is %s, whose ID token carries no groups — genroc-ui "+
-			"reads them from the provider's API instead, so `groups_claim` names a claim that "+
-			"never arrives", path, p.ID, p.Type)
-	}
-	if p.Issuer == "" {
-		p.Issuer = t.issuer
-	}
-	if p.SubjectClaim == "" {
-		p.SubjectClaim = t.subjectClaim
-	}
-	return nil
-}
-
-// scopes is what this provider is asked for: its own, else its type's, else the generic set.
 func (p Provider) scopes() []string {
 	if len(p.Scopes) > 0 {
 		return p.Scopes
 	}
-	if t, ok := providerTypes[p.Type]; ok {
-		return t.scopes
-	}
 	return defaultScopes
-}
-
-func knownProviderTypes() string {
-	names := make([]string, 0, len(providerTypes))
-	for n := range providerTypes {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }

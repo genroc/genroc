@@ -87,9 +87,10 @@ embedding service talk to the server directly, so nothing scripted ever meets a 
 
 ## 5.1 A relying party, not a broker
 
-genroc-ui logs in against any OIDC provider with discovery and a client secret (`ui/oidc`), plus
-`type: google`, whose Workspace groups it fetches at login with the person's own access token. A
-provider with no ID token — GitHub, LDAP, SAML — needs a broker such as Dex in front. genroc-ui
+genroc-ui logs in against any OIDC provider with discovery and a client secret (`ui/oidc`), and
+reads groups only from the ID token. A provider with no ID token — GitHub, LDAP, SAML — or with no
+groups in it, as Google's, needs a broker such as Dex in front, or `users:` keyed by email. Not a
+per-IdP `type` fetching groups from its API: that is a connector, and connectors are the broker's. genroc-ui
 signs only its own token for genroc (ui-issued-tokens.md); an issuer with connectors *is* Dex,
 and rebuilding it would cost auth-two-credentials.md §1 its answer that a broker covers every
 non-OIDC provider. When to reopen it is §8.

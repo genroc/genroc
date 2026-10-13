@@ -117,16 +117,9 @@ func (p *Provider) AuthCodeURL(redirectURI, state, nonce string) string {
 	return p.AuthURL + sep + q.Encode()
 }
 
-// Tokens is what the code exchange yields. Access is returned only for providers whose group
-// membership sits behind their own API; nothing stores it.
-type Tokens struct {
-	ID     string
-	Access string
-}
-
 // Exchange trades an authorization code for the ID token, verifying it before returning: the
 // nonce can only be checked at this moment.
-func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string) (Tokens, error) {
+func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string) (string, error) {
 	form := url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
@@ -134,7 +127,7 @@ func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return Tokens{}, err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	// Basic auth: the form every provider accepts from a confidential client.
@@ -142,28 +135,27 @@ func (p *Provider) Exchange(ctx context.Context, code, redirectURI, nonce string
 
 	resp, err := (&http.Client{Timeout: jwks.FetchTimeout}).Do(req)
 	if err != nil {
-		return Tokens{}, fmt.Errorf("token exchange: %w", err)
+		return "", fmt.Errorf("token exchange: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return Tokens{}, fmt.Errorf("token exchange: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("token exchange: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	var out struct {
-		IDToken     string `json:"id_token"`
-		AccessToken string `json:"access_token"`
+		IDToken string `json:"id_token"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return Tokens{}, fmt.Errorf("token exchange: %w", err)
+		return "", fmt.Errorf("token exchange: %w", err)
 	}
 	if out.IDToken == "" {
-		return Tokens{}, fmt.Errorf("token exchange: no id_token in the response — is this an OIDC " +
+		return "", fmt.Errorf("token exchange: no id_token in the response — is this an OIDC " +
 			"provider, or OAuth2 only?")
 	}
 	if _, err := p.verify(ctx, out.IDToken, nonce); err != nil {
-		return Tokens{}, err
+		return "", err
 	}
-	return Tokens{ID: out.IDToken, Access: out.AccessToken}, nil
+	return out.IDToken, nil
 }
 
 // Claims is the whole contract with an upstream provider: who someone is and their groups.

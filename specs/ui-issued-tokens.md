@@ -98,8 +98,8 @@ roles and users are lists and maps:
 server: http://genroc:8448
 login:
   providers:
-    - id: google
-      type: google                 # fills issuer and scopes; groups fetched from Workspace
+    - id: okta
+      issuer: https://example.okta.com   # any OIDC provider; groups come from the ID token
       client_id: ...
       client_secret: ...
   passwords:                       # optional; the demo affordance, not a user directory

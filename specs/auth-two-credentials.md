@@ -25,7 +25,7 @@ authentication. A signed token makes a bypass worthless instead (api-auth.md §2
 
 "My provider issues no verifiable token" is a property of the provider, not the deployment, and a
 broker answers it: Dex's GitHub connector issues a real OIDC token carrying `org:team` groups,
-and genroc-ui fetches Google Workspace groups itself (`type: google`). Mesh and mTLS identities
+and its Google connector one carrying Workspace groups. Mesh and mTLS identities
 are machines, which `token` serves. The cost is running a broker for a non-OIDC IdP — paid once,
 and visibly.
 
