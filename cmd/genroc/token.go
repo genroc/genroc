@@ -23,8 +23,9 @@ func runTokenCmd(args []string) {
 	sub, rest := args[0], args[1:]
 
 	fs := flag.NewFlagSet("token "+sub, flag.ExitOnError)
-	dbPath := fs.String("db", "genroc.db", "SQLite database file path")
-	pgDSN := fs.String("pg", "", "PostgreSQL DSN. When set, --db is ignored.")
+	// Same defaults as the server's, so inside its container this finds the server's database.
+	dbPath := fs.String("db", envOr("GENROC_DB", "genroc.db"), "SQLite database file path ($GENROC_DB)")
+	pgDSN := fs.String("pg", os.Getenv("GENROC_PG"), "PostgreSQL DSN ($GENROC_PG). When set, --db is ignored.")
 	label := fs.String("label", "", "a name for this token, shown in listings and recorded as the actor")
 	perms := fs.String("perms", "", "comma-separated permissions: admin, deploy, operate, read, worker")
 
@@ -95,12 +96,12 @@ func openTokenDB(dbPath, pgDSN string) (*db.DB, error) {
 }
 
 func parsePerms(csv string) ([]string, error) {
-	return api.ValidPerms(splitPerms(csv, ","))
+	return api.ValidPerms(splitPerms(csv))
 }
 
-func splitPerms(list, sep string) []string {
+func splitPerms(list string) []string {
 	var out []string
-	for _, p := range strings.Split(list, sep) {
+	for _, p := range strings.Split(list, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}

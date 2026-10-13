@@ -195,16 +195,16 @@ added beside it, not instead, once an organisation runs an IdP.
 deployment that ran without auth, or when the last admin token is lost. There are two ways in.
 
 1. **`--seed-tokens-file` / `$GENROC_SEED_TOKENS_FILE` — the operator generates, genroc only
-   stores.** `genctl token generate` mints offline, and genroc reads `label=perms=secret` lines
-   (perms `+`-joined, since `,` also separates entries) and stores their hashes. A secret never
-   originates inside genroc or reaches its logs. A file, not a flag or variable, so the secret
-   stays out of the process list and `docker inspect`, and it is the shape a mounted secret
-   already has. Idempotent **by secret, not label**: changing a value mints a second token, so
-   rotation is additive and a fleet rolls without refusals. Replicas seeding the same secret
-   together race on `UNIQUE(hash)`, and the loser reads it as present. An entry with an empty
-   secret is skipped and its label logged, so an admin credential deleted from the file after
-   first start reads as deliberate. A secret a revoked token holds is skipped with a warning
-   naming its label: revocation survives a restart.
+   stores.** `genctl token generate` mints offline, and genroc reads one `label=perms=secret` per
+   line (perms comma-separated as in `token create`; `#` starts a comment) and stores their
+   hashes. A secret never originates inside genroc or reaches its logs. A file, not a flag or
+   variable, so the secret stays out of the process list and `docker inspect`, and it is the
+   shape a mounted secret already has. Idempotent **by secret, not label**: changing a value
+   mints a second token, so rotation is additive and a fleet rolls without refusals. Replicas
+   seeding the same secret together race on `UNIQUE(hash)`, and the loser reads it as present.
+   An entry with an empty secret is skipped and its label logged, so an admin credential deleted
+   from the file after first start reads as deliberate. A secret a revoked token holds is skipped
+   with a warning naming its label: revocation survives a restart.
 2. **`genroc token create|list|revoke --db …` — on the server binary, against the database.** The
    root of trust is filesystem access, which already owns every secret in it, so this is the
    break-glass path and unconditional. `genctl` cannot host it: it speaks HTTP, and bypassing

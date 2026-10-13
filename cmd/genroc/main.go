@@ -46,7 +46,7 @@ func main() {
 	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The iss claim a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
 	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The aud claim a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
 	jwtLeeway := flag.String("jwt-leeway", os.Getenv("GENROC_JWT_LEEWAY"), "Clock skew allowed on exp/nbf ($GENROC_JWT_LEEWAY); default 30s. A fixed zero fails on real clusters.")
-	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "In token mode, credentials to store, from the file at `path` ($GENROC_SEED_TOKENS_FILE): one label=perms=secret per line, perms +-separated, e.g. \"ci=deploy+read=genroc_sk_...\" (secrets from `genctl token generate`). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive.")
+	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "In token mode, credentials to store, from the file at `path` ($GENROC_SEED_TOKENS_FILE): one label=perms=secret per line, e.g. \"ci=deploy,read=genroc_sk_...\" (secrets from `genctl token generate`); lines starting with # are comments. Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive.")
 	httpAddr := flag.String("http", envOr("GENROC_HTTP", ":8448"), "HTTP listen address ($GENROC_HTTP; empty to disable)")
 	pollMs := flag.Int("poll", 500, "Engine poll interval in milliseconds")
 	maxConcurrent := flag.Int("max-concurrent", 200, "Max instances advanced concurrently. Too high overwhelms the DB/lease renewer and in-flight work starts losing its leases (lease_lost audit entries); raise --lease-duration or the DB connection pool before raising this much further.")
@@ -172,9 +172,7 @@ func main() {
 				log.Error("seed-tokens-file", "err", err)
 				os.Exit(1)
 			}
-			// Newlines are the natural shape for a generated file; the parser splits on commas,
-			// so they are normalised here rather than teaching it a second separator.
-			seeds = strings.Join(strings.Fields(string(raw)), ",")
+			seeds = string(raw)
 		}
 		if seeds != "" {
 			seeded, err := seedSuppliedTokens(database, seeds)
@@ -324,8 +322,8 @@ type seedReport struct {
 	noSecret, dead []string // labels
 }
 
-// seedSuppliedTokens parses `label=perms=secret`, perms joined by `+` since `,` separates entries.
-// Token bodies are unpadded base64url, so they hold no `=`.
+// seedSuppliedTokens parses one `label=perms=secret` per line, perms comma-separated as in
+// `token create`. Token bodies are unpadded base64url, so they hold no `=`.
 func seedSuppliedTokens(database *db.DB, spec string) (seedReport, error) {
 	entries, noSecret, err := parseSeedTokens(spec)
 	if err != nil {
@@ -349,14 +347,14 @@ func seedSuppliedTokens(database *db.DB, spec string) (seedReport, error) {
 
 // parseSeedTokens checks every entry before any is stored, so a refused list writes nothing.
 func parseSeedTokens(spec string) (entries []seedEntry, noSecret []string, err error) {
-	for _, entry := range strings.Split(spec, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
+	for i, line := range strings.Split(spec, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		parts := strings.SplitN(entry, "=", 3)
+		parts := strings.SplitN(line, "=", 3)
 		if len(parts) != 3 {
-			return nil, nil, fmt.Errorf("bad entry %q: want label=perms=secret", redactSeed(entry))
+			return nil, nil, fmt.Errorf("line %d %q: want label=perms=secret", i+1, redactSeed(line))
 		}
 		label, permSpec, secret := parts[0], parts[1], parts[2]
 		// An empty SECRET is one the operator removed after first start, as intended; the row
@@ -366,14 +364,14 @@ func parseSeedTokens(spec string) (entries []seedEntry, noSecret []string, err e
 			continue
 		}
 		if label == "" {
-			return nil, nil, fmt.Errorf("bad entry %q: label is required", redactSeed(entry))
+			return nil, nil, fmt.Errorf("line %d %q: label is required", i+1, redactSeed(line))
 		}
-		perms, err := api.ValidPerms(splitPerms(permSpec, "+"))
+		perms, err := api.ValidPerms(splitPerms(permSpec))
 		if err != nil {
-			return nil, nil, fmt.Errorf("seed token %q: %w", label, err)
+			return nil, nil, fmt.Errorf("line %d, seed token %q: %w", i+1, label, err)
 		}
 		if err := db.ValidateTokenSecret(secret); err != nil {
-			return nil, nil, fmt.Errorf("seed token %q: %w", label, err)
+			return nil, nil, fmt.Errorf("line %d, seed token %q: %w", i+1, label, err)
 		}
 		entries = append(entries, seedEntry{label: label, secret: secret, perms: perms})
 	}
