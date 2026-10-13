@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authentication — genroc</title><meta name="description" content="How auth works and how it connect with the UI."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="dark"><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/actions":"00.01.02.03","/guides/process-definition/error-handling":"00.01.02.04","/guides/process-definition/validations-and-types":"00.01.02.05","/guides/process-definition/child-processes":"00.01.02.06","/guides/process-definition/versioning":"00.01.02.07","/guides/process-definition/upgrading-instances":"00.01.02.08","/guides/process-definition/external-tasks":"00.01.02.09","/guides/process-definition/typescript-evaluation":"00.01.02.10","/guides/operating":"00.01.03","/guides/operating/managing-instances":"00.01.03.01","/guides/operating/custom-worker":"00.01.03.02","/guides/operating/large-values":"00.01.03.03","/guides/operating/authentication":"00.01.03.04","/reference/rest-api":"00.02.01","/reference/rest-api/definitions":"00.02.01.01","/reference/rest-api/instances":"00.02.01.02","/reference/rest-api/channels":"00.02.01.03","/reference/rest-api/objects":"00.02.01.04","/reference/rest-api/external-tasks":"00.02.01.05","/reference/rest-api/tokens":"00.02.01.06","/reference/rest-api/debug":"00.02.01.07","/reference/rest-api/errors":"00.02.01.08","/reference/cli":"00.02.02","/reference/cli/definitions":"00.02.02.01","/reference/cli/instances":"00.02.02.02","/reference/cli/channels":"00.02.02.03","/reference/cli/setup":"00.02.02.04","/reference/definition":"00.02.03","/reference/definition/process":"00.02.03.01","/reference/definition/task":"00.02.03.02","/reference/definition/actions":"00.02.03.03","/reference/definition/expressions":"00.02.03.04","/reference/definition/delay-syntax":"00.02.03.05","/reference/definition/error-handling":"00.02.03.06","/reference/definition/errors":"00.02.03.07","/reference/server":"00.02.04","/reference/project-file":"00.02.05","/reference/resolver-protocol":"00.02.06"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authentication — genroc</title><meta name="description" content="How to enable authentication and create tokens."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="dark"><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/actions":"00.01.02.03","/guides/process-definition/error-handling":"00.01.02.04","/guides/process-definition/validations-and-types":"00.01.02.05","/guides/process-definition/child-processes":"00.01.02.06","/guides/process-definition/versioning":"00.01.02.07","/guides/process-definition/upgrading-instances":"00.01.02.08","/guides/process-definition/external-tasks":"00.01.02.09","/guides/process-definition/typescript-evaluation":"00.01.02.10","/guides/operating":"00.01.03","/guides/operating/managing-instances":"00.01.03.01","/guides/operating/custom-worker":"00.01.03.02","/guides/operating/large-values":"00.01.03.03","/guides/operating/authentication":"00.01.03.04","/reference/rest-api":"00.02.01","/reference/rest-api/definitions":"00.02.01.01","/reference/rest-api/instances":"00.02.01.02","/reference/rest-api/channels":"00.02.01.03","/reference/rest-api/objects":"00.02.01.04","/reference/rest-api/external-tasks":"00.02.01.05","/reference/rest-api/tokens":"00.02.01.06","/reference/rest-api/debug":"00.02.01.07","/reference/rest-api/errors":"00.02.01.08","/reference/cli":"00.02.02","/reference/cli/definitions":"00.02.02.01","/reference/cli/instances":"00.02.02.02","/reference/cli/channels":"00.02.02.03","/reference/cli/setup":"00.02.02.04","/reference/definition":"00.02.03","/reference/definition/process":"00.02.03.01","/reference/definition/task":"00.02.03.02","/reference/definition/actions":"00.02.03.03","/reference/definition/expressions":"00.02.03.04","/reference/definition/delay-syntax":"00.02.03.05","/reference/definition/error-handling":"00.02.03.06","/reference/definition/errors":"00.02.03.07","/reference/server":"00.02.04","/reference/project-file":"00.02.05","/reference/resolver-protocol":"00.02.06"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
   ;(function () {
     const root = document.documentElement
     const { tree, chrome } = JSON.parse(document.getElementById('vt-data').textContent)
@@ -150,17 +150,21 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
           } catch (_) {}
         })
       })()
-    </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Operating"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Authentication</h1> <p>How auth works and how it connect with the UI.</p> </div>  <p>When authentication is enabled, you need to attach auth token to
-every API request. Genroc supports classic tokens and jwt tokens (UI).</p>
+    </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Operating"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Authentication</h1> <p>How to enable authentication and create tokens.</p> </div>  <p>Authentication is off by default. Turn it on with <code>--auth</code> (or <code>GENROC_AUTH=true</code>),
+then every API request needs a token in the <code>Authorization</code> header:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>Authorization: Bearer genroc_sk_...</span></span></code></pre>
+<p>For <code>genctl</code>, store the token once, or set <code>GENROC_TOKEN</code>:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl config set token genroc_sk_...</span></span></code></pre>
+<p>Genroc supports classic tokens and JWT tokens.</p>
 <h2 id="classic-tokens">Classic tokens<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#classic-tokens"><span></span></a></h2>
 <p>These are tokens managed by genroc server, you can create them through the
-API or CLI.</p>
+API or CLI. Creating one needs an admin token.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl token create --perms read --label </span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">Read only token</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#E07A4F">created</span><span style="color:#8FB996"> 9eezcgww</span><span style="color:#8FB996">  perms=read</span></span>
 <span class="line"><span style="color:#E07A4F">  shown</span><span style="color:#8FB996"> once:</span></span>
-<span class="line"><span style="color:#E07A4F">genroc_sk_q8EoJ2uf9e76uc4TRvCocGOX9wDZ1B9f0qO9ByeoPC0</span></span></code></pre>
-<p>Genroc store SHA-256 hash of the token and the content is only shown once,
+<span class="line"><span style="color:#E07A4F">genroc_sk_BOdTfRofN1uEUCZnBOzU8Nybuk1Z1BzZnLF2-zdN6ko</span></span></code></pre>
+<p>Genroc stores a SHA-256 hash of the token and the content is only shown once,
 so you need to make sure it&#39;s safely stored.</p>
 <h2 id="initialization">Initialization<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#initialization"><span></span></a></h2>
 <p>The API can&#39;t create the first token, because you need a token to call it.
@@ -169,11 +173,16 @@ Instead you create the first admin token directly in the database, and use it to
 <p>Run the <code>genroc</code> binary (not <code>genctl</code>) against the database. It needs no token
 and no running server, only access to the database. If the database doesn&#39;t exist
 yet, it&#39;s created:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genroc token create --perms admin --label admin --db genroc.db</span></span></code></pre>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genroc token create --perms admin --label admin --db genroc.db</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#E07A4F">created</span><span style="color:#8FB996"> 3kjfx4vm</span><span style="color:#8FB996">  perms=admin</span></span>
+<span class="line"><span style="color:#E07A4F">  shown</span><span style="color:#8FB996"> once:</span></span>
+<span class="line"><span style="color:#E07A4F">genroc_sk_EbTqXuTJhseXWTOcZyGlwCD8USE63A8YaZ36F0mmM5s</span></span></code></pre>
+<p>Only the token itself goes to stdout, so <code>TOKEN=$(genroc token create ...)</code> captures just the token.</p>
 <p>Use <code>--pg &lt;dsn&gt;</code> instead of <code>--db</code> for PostgreSQL. With docker:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> docker compose run --rm genroc token create --perms admin --db /data/genroc.db</span></span></code></pre>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> run</span><span style="color:#8FB996"> --rm</span><span style="color:#8FB996"> genroc</span><span style="color:#8FB996"> token</span><span style="color:#8FB996"> create</span><span style="color:#8FB996"> --perms</span><span style="color:#8FB996"> admin</span><span style="color:#8FB996"> --db</span><span style="color:#8FB996"> /data/genroc.db</span></span></code></pre>
 <p>The same command gets you back in if you lose the admin token.
-Genroc also warns at startup when there is no admin token.</p>
+Genroc also warns at startup when there is no admin token (unless JWT is enabled).</p>
 <h3 id="seed-tokens">Seed tokens<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#seed-tokens"><span></span></a></h3>
 <p>Some tokens have to exist before anything starts: a worker that starts together
 with genroc, a CI environment that is created from scratch, or a secret
@@ -188,14 +197,14 @@ Separate several permissions with commas, lines starting with <code>#</code> are
 <span class="line"><span>evaluator=worker=genroc_sk_QUbqpu_q9k4fTbCN2J7RRPUYXTzae0mRXcC2CIF_ftY</span></span>
 <span class="line"><span>ci=deploy,read=genroc_sk_...</span></span></code></pre>
 <p>And point genroc at the file, with the flag or <code>GENROC_SEED_TOKENS_FILE</code>:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genroc --auth token --seed-tokens-file ./seed-tokens</span></span></code></pre>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genroc</span><span style="color:#8FB996"> --auth</span><span style="color:#8FB996"> --seed-tokens-file</span><span style="color:#8FB996"> ./seed-tokens</span></span></code></pre>
 <p>On every start genroc stores the tokens it doesn&#39;t have yet and skips the rest,
 so restarting is safe. A revoked token stays revoked, even if it&#39;s still in the file.</p>
 <h2 id="jwt-tokens">JWT tokens<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#jwt-tokens"><span></span></a></h2>
-<p>Genroc can also accept JWTs that someone else mints. Give genroc a shared secret
-(at least 32 characters) with <code>--jwt-secret-file</code> or <code>GENROC_JWT_SECRET</code>,
-and it accepts any HS256 token signed with it. Genroc UI works this way,
-but your own service can mint the tokens too.</p>
+<p>With <code>--auth</code> on, genroc can also accept JWTs that someone else mints. Give genroc a shared secret
+(at least 32 characters) with <code>--jwt-secret-file</code> (or <code>GENROC_JWT_SECRET_FILE</code>),
+or inline with <code>GENROC_JWT_SECRET</code>, and it accepts any HS256 token signed with it.
+Genroc UI works this way, but your own service can mint the tokens too.</p>
 <p>The token has to carry:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">iss</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">genroc-ui</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
@@ -207,8 +216,9 @@ but your own service can mint the tokens too.</p>
 <p><code>perms</code> are the same permissions as for genroc tokens, <code>sub</code> is who is calling
 and shows up in logs as <code>jwt:ada@example.com</code>. <code>exp</code> is required, so keep the tokens short-lived.
 <code>iss</code> and <code>aud</code> default to the values above, change them with <code>--jwt-issuer</code> and <code>--jwt-audience</code>.</p>
-<p>JWTs work together with <code>--auth token</code>, so people can come through the UI
-while <code>genctl</code> and workers keep using their genroc tokens.</p>
+<p>Genroc tokens keep working beside JWTs, so people can come through the UI
+while <code>genctl</code> and workers use their genroc tokens. A secret without <code>--auth</code>
+is refused at startup.</p>
 <blockquote>
 <p>Anyone with the secret can mint a token with any permissions, so keep it as safe as an admin token.</p>
 </blockquote>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/large-values/"> <span>previous</span> <strong>Large values</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#classic-tokens">Classic tokens</a></li><li class="depth-2"><a href="#initialization">Initialization</a></li><li class="depth-3"><a href="#first-admin-token">First admin token</a></li><li class="depth-3"><a href="#seed-tokens">Seed tokens</a></li><li class="depth-2"><a href="#jwt-tokens">JWT tokens</a></li></ul><script>
