@@ -35,8 +35,8 @@ genctl logs @last         # its whole tree's trail
 ```
 
 Docker — the engine, the UI, a script worker and a few processes already registered — is
-[examples/quickstart](examples/quickstart); [examples/](examples/) has auth, a login, and
-fuller processes.
+[examples/quickstart](examples/quickstart); [examples/](examples/) has auth, a login (also
+through Dex), and fuller processes.
 
 ## Development
 

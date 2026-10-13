@@ -1,0 +1,69 @@
+# genroc-ui signing people in through Dex, an OIDC broker. Dex's own password database stands in
+# for GitHub, LDAP or Google, which need credentials of your own. Delete ./data to reset.
+#
+#   docker compose -f examples/dex/compose.yaml up --build
+#   open http://localhost:8448                    -> alice@example.com / demo
+
+name: genroc-dex-demo
+
+services:
+  init:
+    image: alpine:3
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ ! -s /data/jwt-secret ]; then
+          head -c 32 /dev/urandom | base64 | tr -d '=+/' | cut -c1-43 > /data/jwt-secret
+          echo "generated /data/jwt-secret"
+        fi
+        # genroc and genroc-ui run as 65532 (distroless nonroot), Dex as 1001. A folder docker
+        # creates is root's, which each would refuse at startup as "permission denied".
+        mkdir -p /data/dex
+        chown 65532:65532 /data /data/jwt-secret
+        chmod 600 /data/jwt-secret
+        chown 1001:1001 /data/dex
+    volumes: [./data:/data]
+
+  genroc:
+    build: { context: ../.., dockerfile: Dockerfile }
+    environment:
+      GENROC_DB: /data/genroc.db
+      GENROC_AUTH: "true"
+      GENROC_JWT_SECRET_FILE: /data/jwt-secret
+    volumes: [./data:/data]
+    # Unpublished: the only way in from the host is genroc-ui.
+    depends_on:
+      init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    command: [dex, serve, /etc/dex/config.yaml]
+    # Published: the browser is sent here to sign in.
+    ports: ["5556:5556"]
+    volumes:
+      - ./dex.yaml:/etc/dex/config.yaml:ro
+      - ./data/dex:/var/dex
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5556/dex/.well-known/openid-configuration"]
+      interval: 2s
+      retries: 15
+    depends_on:
+      init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  genroc-ui:
+    build: { context: ../.., dockerfile: ui/Dockerfile }
+    environment:
+      GENROC_UI_CONFIG: /etc/genroc/ui.yaml
+    ports: ["8448:8448"]
+    volumes:
+      - ./ui.yaml:/etc/genroc/ui.yaml:ro
+      - ./data/jwt-secret:/data/jwt-secret:ro
+    # Healthy, not started: genroc-ui discovers its providers at startup and exits if one is down.
+    depends_on:
+      dex: { condition: service_healthy }
+      genroc: { condition: service_started }
+    restart: unless-stopped

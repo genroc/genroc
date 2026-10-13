@@ -110,3 +110,50 @@ to some groups and then the groups have permissions (the `roles` section).
 
 Genroc UI doesn't have any user management system, but it allows you to
 connect to an external provider through oidc (OpenID Connect).
+
+Add the provider under `login.providers` in `ui.yaml`. Any OIDC provider works,
+for example Okta, Entra, Auth0 or Keycloak:
+
+```yaml
+login:
+  providers:
+    - id: okta
+      name: Okta
+      issuer: https://example.okta.com
+      client_id: ...
+      client_secret: ...
+```
+
+Register `http://localhost:8448/auth/callback` as the redirect URL of the client
+in your provider. Each provider becomes one button on the sign-in page.
+
+Groups are read from the `groups` claim of the provider's token and matched against
+`roles`. Some providers don't send groups at all, Google for example. Then you can give
+permissions to each user by email in the `users` section:
+
+```yaml
+login:
+  providers:
+    - id: google
+      name: Google
+      issuer: https://accounts.google.com
+      client_id: ...
+      client_secret: ...
+      scopes: [openid, email, profile] # Google refuses the default `groups` scope
+
+users:
+  ada@example.com: [admin]
+```
+
+### Dex
+
+Providers that don't support OIDC (GitHub, LDAP, SAML) need a broker in between.
+[Dex](https://dexidp.io) is a good fit: it signs the user in with the provider and
+gives Genroc UI a regular OIDC token, groups included. Dex can also read Google Workspace
+groups, which Google itself doesn't put into the token.
+
+See the [Dex example](https://github.com/genroc/genroc/tree/main/examples/dex) for a complete
+setup with docker compose. It runs with Dex's own users, so you can try it without any
+credentials, and shows how to switch to GitHub.
+
+All `ui.yaml` options are listed in the [Genroc UI reference](/reference/genroc-ui/).

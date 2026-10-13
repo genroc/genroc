@@ -1,0 +1,50 @@
+# Dex as genroc-ui's one provider. genroc-ui sees a standard OIDC login either way, so swapping
+# the password database for a real connector changes nothing on its side.
+
+# The address the BROWSER reaches Dex at, which genroc-ui's `issuer` must repeat exactly.
+issuer: http://localhost:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db # ./data/dex, so Dex's signing keys survive a restart
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  skipApprovalScreen: true
+
+staticClients:
+  - id: genroc-ui
+    name: genroc
+    # ui.yaml holds the same value. Replace both for anything real.
+    secret: genroc-dex-demo-client-secret-change-me
+    redirectURIs: [http://localhost:8448/auth/callback]
+
+# Dex's own users, standing in for a real directory. Their tokens carry no groups, so ui.yaml
+# grants them by email.
+enablePasswordDB: true
+staticPasswords:
+  - email: alice@example.com
+    hash: "$2a$10$vnWOfioZ39fUrY.idNtK.exWRjpwbF9SjHMJISy34gTkRt3oBs90m" # demo
+    username: alice
+    userID: 206d429d-60cf-4de4-bd1f-f07dfe7d9a5b
+  - email: bob@example.com
+    hash: "$2a$10$MjLlRerWm375oZYyLF2WUejIr92/.EkzXLrjJxtkLv6BGcfr.vSmq" # demo
+    username: bob
+    userID: 0f762506-9c62-4eb5-ae74-8186b00cd808
+
+# A real directory instead, here GitHub. Its teams arrive as `org:team` groups, for ui.yaml's
+# `roles:`. Register http://localhost:5556/dex/callback as the GitHub app's callback URL.
+#
+# connectors:
+#   - type: github
+#     id: github
+#     name: GitHub
+#     config:
+#       clientID: ...
+#       clientSecret: ...
+#       redirectURI: http://localhost:5556/dex/callback
+#       orgs:
+#         - name: my-org

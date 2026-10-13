@@ -1,0 +1,24 @@
+server: http://genroc:8448
+
+# One provider and no passwords: the sign-in page is skipped, straight to Dex.
+login:
+  providers:
+    - id: dex
+      name: Dex
+      issuer: http://localhost:5556/dex
+      # The browser reaches Dex on localhost; genroc-ui, inside the compose network, on `dex`.
+      discovery_url: http://dex:5556/dex/.well-known/openid-configuration
+      token_url: http://dex:5556/dex/token
+      jwks_url: http://dex:5556/dex/keys
+      client_id: genroc-ui
+      client_secret: genroc-dex-demo-client-secret-change-me
+
+token:
+  secret_file: /data/jwt-secret
+
+roles:
+  "*": [read] # anyone Dex signed in
+  # my-org:platform: [admin]   # with dex.yaml's GitHub connector
+
+users:
+  alice@example.com: [admin]

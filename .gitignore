@@ -50,6 +50,7 @@ eval-node/dist/
 *.tgz
 go.work.sum
 examples/ui/data/
+examples/dex/data/
 
 # VS Code extension build output
 /editors/vscode/dist/
