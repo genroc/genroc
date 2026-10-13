@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/vendor-swagger.mjs && astro dev",
-    "build": "node scripts/vendor-swagger.mjs && astro build && node scripts/check-links.mjs && node scripts/check-nav.mjs",
+    "build": "node scripts/vendor-swagger.mjs && astro build && pagefind --site dist && node scripts/check-links.mjs && node scripts/check-nav.mjs",
     "preview": "astro preview",
     "check": "astro check"
   },
@@ -17,6 +17,7 @@
     "@astrojs/check": "^0.9.4",
     "@types/node": "^26.1.2",
     "astro-rehype-relative-markdown-links": "^0.19.2",
+    "pagefind": "^1.5.2",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-slug": "^6.0.0",
     "swagger-ui-dist": "^5.33.0",

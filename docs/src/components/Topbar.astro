@@ -1,20 +1,12 @@
 ---
 import Logo from './Logo.astro'
+import Search from './Search.astro'
 import { navSections } from '../lib/nav'
 import { url } from '../lib/url'
 
 const path = Astro.url.pathname
 // A section link lands on its first page, so reordering the nav moves it too.
-// `section` links duplicate the mobile drawer, so the narrow layout drops them.
-const links = [
-  ...(await navSections()).map((s) => ({
-    href: s.href,
-    label: s.label,
-    match: `/${s.id}/`,
-    kind: 'section',
-  })),
-  { href: 'https://github.com/genroc/genroc', label: 'github', match: null, kind: 'external' },
-]
+const links = (await navSections()).map((s) => ({ href: s.href, label: s.label, match: `/${s.id}/` }))
 ---
 
 <header class="topbar">
@@ -27,14 +19,14 @@ const links = [
       links.map((l) => (
         <a
           href={l.href}
-          data-kind={l.kind}
-          aria-current={l.match && path.includes(l.match) ? 'page' : undefined}
+          aria-current={path.includes(l.match) ? 'page' : undefined}
         >
           {l.label}
         </a>
       ))
     }
   </nav>
+  <Search />
   <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle colour theme">
     &#9681;
   </button>

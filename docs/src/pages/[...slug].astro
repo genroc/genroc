@@ -17,7 +17,7 @@ if (!entry.body?.trim()) {
   const target = await hrefFor(entry.id)
   if (target)
     return new Response(
-      `<!doctype html><meta http-equiv="refresh" content="0;url=${target}"><meta name="robots" content="noindex">`,
+      `<!doctype html><html><meta http-equiv="refresh" content="0;url=${target}"><meta name="robots" content="noindex"></html>`,
       { headers: { 'content-type': 'text/html' } },
     )
 }

@@ -86,6 +86,8 @@ const genrocHovers = {
             className: String(node.properties.class ?? node.properties.className).includes("opens-down")
               ? ["tip", "below"]
               : ["tip"],
+            // Real text in the DOM, so search would otherwise quote it as page content.
+            dataPagefindIgnore: "",
           },
           children: tipChildren(tip),
         });

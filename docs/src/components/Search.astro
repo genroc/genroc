@@ -1,0 +1,163 @@
+<button class="search-toggle" type="button" data-search-open aria-haspopup="dialog">
+  search <kbd>/</kbd>
+</button>
+
+<dialog class="search" aria-label="Search the docs">
+  <input
+    type="search"
+    placeholder="search the docs"
+    autocomplete="off"
+    spellcheck="false"
+    role="combobox"
+    aria-expanded="false"
+    aria-controls="search-results"
+    aria-autocomplete="list"
+  />
+  <p class="search-status" aria-live="polite"></p>
+  <ol id="search-results" role="listbox"></ol>
+</dialog>
+
+<script>
+  import { asset, url } from '../lib/url'
+
+  type SubResult = { title: string; url: string; excerpt: string; locations: number[] }
+  type Result = {
+    url: string
+    excerpt: string
+    meta: { title?: string; trail?: string }
+    sub_results: SubResult[]
+  }
+  type Pagefind = {
+    options(o: { baseUrl: string }): Promise<void>
+    debouncedSearch(q: string): Promise<{ results: { data(): Promise<Result> }[] } | null>
+  }
+
+  const LIMIT = 8
+
+  const dialog = document.querySelector<HTMLDialogElement>('dialog.search')!
+  const input = dialog.querySelector('input')!
+  const status = dialog.querySelector('.search-status')!
+  const list = dialog.querySelector('ol')!
+
+  // The index is written into dist/ after `astro build`, so it is fetched at runtime and never
+  // seen by Vite -- and under `astro dev` it does not exist at all.
+  let pagefind: Promise<Pagefind> | undefined
+  const load = () =>
+    (pagefind ??= import(/* @vite-ignore */ asset('pagefind/pagefind.js')).then(async (pf: Pagefind) => {
+      await pf.options({ baseUrl: url('/') })
+      return pf
+    }))
+
+  // Lands on the section holding most of the hits, when that section has a heading to link to.
+  function target(r: Result): { href: string; heading?: string } {
+    const best = r.sub_results.reduce<SubResult | undefined>(
+      (a, s) => (!a || s.locations.length > a.locations.length ? s : a),
+      undefined,
+    )
+    if (!best || !best.url.includes('#')) return { href: r.url }
+    return { href: best.url, heading: best.title === r.meta.title ? undefined : best.title }
+  }
+
+  function render(results: Result[]) {
+    list.replaceChildren(
+      ...results.map((r, i) => {
+        const { href, heading } = target(r)
+        const li = document.createElement('li')
+        li.id = `search-result-${i}`
+        li.setAttribute('role', 'option')
+        const a = document.createElement('a')
+        a.href = href
+        a.tabIndex = -1
+        a.innerHTML = `<span class="trail"></span><strong></strong><p>${r.excerpt}</p>`
+        a.querySelector('.trail')!.textContent = r.meta.trail ?? ''
+        a.querySelector('strong')!.textContent = heading ? `${r.meta.title} § ${heading}` : (r.meta.title ?? r.url)
+        li.append(a)
+        return li
+      }),
+    )
+    input.setAttribute('aria-expanded', String(results.length > 0))
+    select(0)
+  }
+
+  let active = -1
+  function select(i: number) {
+    const items = list.children
+    if (!items.length) {
+      active = -1
+      input.removeAttribute('aria-activedescendant')
+      return
+    }
+    items[active]?.removeAttribute('aria-selected')
+    active = (i + items.length) % items.length
+    items[active].setAttribute('aria-selected', 'true')
+    items[active].scrollIntoView({ block: 'nearest' })
+    input.setAttribute('aria-activedescendant', items[active].id)
+  }
+
+  let seq = 0
+  input.addEventListener('input', async () => {
+    const q = input.value.trim()
+    const n = ++seq
+    if (!q) {
+      status.textContent = ''
+      render([])
+      return
+    }
+    let pf: Pagefind
+    try {
+      pf = await load()
+    } catch {
+      pagefind = undefined
+      status.textContent = 'no search index -- make docs-build writes it'
+      return
+    }
+    const search = await pf.debouncedSearch(q)
+    if (!search || n !== seq) return
+    const results = await Promise.all(search.results.slice(0, LIMIT).map((r) => r.data()))
+    if (n !== seq) return
+    const more = search.results.length - results.length
+    status.textContent = results.length
+      ? `${search.results.length} page${search.results.length === 1 ? '' : 's'}${more > 0 ? `, top ${LIMIT} shown` : ''}`
+      : 'no matches'
+    render(results)
+  })
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      select(active + (e.key === 'ArrowDown' ? 1 : -1))
+    } else if (e.key === 'Enter' && active >= 0) {
+      e.preventDefault()
+      list.children[active].querySelector('a')!.click()
+    }
+  })
+
+  list.addEventListener('mousemove', (e) => {
+    const li = (e.target as Element).closest('li')
+    if (li && li.getAttribute('aria-selected') !== 'true') select([...list.children].indexOf(li))
+  })
+
+  // Closed before the navigation starts, so the outgoing view-transition snapshot is the page.
+  list.addEventListener('click', (e) => {
+    if ((e.target as Element).closest('a')) dialog.close()
+  })
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) dialog.close()
+  })
+
+  function open() {
+    dialog.showModal()
+    input.select()
+    load().catch(() => {})
+  }
+
+  document.querySelector('[data-search-open]')!.addEventListener('click', open)
+  addEventListener('keydown', (e) => {
+    if (dialog.open) return
+    const typing = (e.target as Element).closest('input, textarea, [contenteditable]')
+    if ((e.key === '/' && !typing) || (e.key === 'k' && (e.metaKey || e.ctrlKey))) {
+      e.preventDefault()
+      open()
+    }
+  })
+</script>

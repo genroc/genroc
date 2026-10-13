@@ -49,9 +49,15 @@ const { prev, next } = await neighbours(slug)
       })()
     </script>
     <main>
-      <div class="prose">
+      {/* The only indexed region: chrome outside it would match every query on every page.
+          Pagefind splits data-pagefind-meta on commas, so the trail must not carry one. */}
+      <div
+        class="prose"
+        data-pagefind-body
+        data-pagefind-meta={`trail:${['docs', ...trail.map((c) => c.label)].join(' / ').replaceAll(',', '')}`}
+      >
         <div class="page-head">
-          <p class="crumb">
+          <p class="crumb" data-pagefind-ignore>
             <a href={url('/')}>docs</a>
             {trail.map((c) => <> / {c.href ? <a href={c.href}>{c.label}</a> : c.label}</>)}
           </p>
@@ -61,7 +67,7 @@ const { prev, next } = await neighbours(slug)
         <slot />
         {
           (prev || next) && (
-            <nav class="page-nav" aria-label="reading order">
+            <nav class="page-nav" aria-label="reading order" data-pagefind-ignore>
               {prev && (
                 <a class="prev" href={prev.href}>
                   <span>previous</span>

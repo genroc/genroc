@@ -1,7 +1,6 @@
 # Documentation site: a reference generated from the code that defines it
 
-Status: **Built, except Pagefind search, the React islands and the per-tag versioned deploy**
-(Open).
+Status: **Built, except the React islands and the per-tag versioned deploy** (Open).
 
 ## The gap is genre, not volume
 
@@ -17,6 +16,9 @@ guides own the user-level "why" while reference stays free of it.
   two consumers.
 - **No theme**: when the design is the point, a theme is a dependency paid to delete its output.
   Content collections with Zod-validated frontmatter, hand-written CSS, two Shiki themes.
+- **Pagefind search**: indexed from `dist/` after the build, no service, so an archived build
+  searches itself. Only `.prose` is indexed (`data-pagefind-body`) — chrome would match every
+  query — and our own `<dialog>` drives its JS API, no island: one input does not earn React.
 
 **Generated, not written** (`make docs-reference`, `cmd/genrocspec`):
 
@@ -77,10 +79,8 @@ time series bench.yml pushes under `bench/`, which exists nowhere else.
 
 ## Open
 
-- **Pagefind search** — when the nav stops finding pages. Post-build over `dist/`, no service, our
-  own markup over its JS API; `data-pagefind-body` on nav text pollutes every result.
 - **React islands** (Radix, styled through `[data-state]`) — only where interaction demands it:
-  search, a version select.
+  a version select.
 - **Per-tag versioned deploy** — `/v1/`, latest at root, when a second major ships; `DOCS_BASE` is
   wired, no workflow builds tags. **Build once at the tag, never rebuild**: archived HTML must not
   need an old toolchain, which is why Swagger UI is vendored rather than loaded from a CDN.
