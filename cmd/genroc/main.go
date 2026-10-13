@@ -46,9 +46,7 @@ func main() {
 	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The iss claim a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
 	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The aud claim a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
 	jwtLeeway := flag.String("jwt-leeway", os.Getenv("GENROC_JWT_LEEWAY"), "Clock skew allowed on exp/nbf ($GENROC_JWT_LEEWAY); default 30s. A fixed zero fails on real clusters.")
-	seedTokens := flag.String("seed-tokens", "", "Credentials the operator generated, as a comma-separated list of `label=perms=secret` (perms itself is +-separated), e.g. \"admin=admin=genroc_sk_...,evaluator=worker=genroc_sk_...\" ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.")
-	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "Read --seed-tokens from the file at `path` instead ($GENROC_SEED_TOKENS_FILE), one label=perms=secret per line or comma-separated. A file rather than a flag keeps a credential out of the process list and out of `docker inspect`, and is the shape a mounted secret already has.")
-	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
+	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "In token mode, credentials to store, from the file at `path` ($GENROC_SEED_TOKENS_FILE): one label=perms=secret per line, perms +-separated, e.g. \"ci=deploy+read=genroc_sk_...\" (secrets from `genctl token generate`). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive.")
 	httpAddr := flag.String("http", envOr("GENROC_HTTP", ":8448"), "HTTP listen address ($GENROC_HTTP; empty to disable)")
 	pollMs := flag.Int("poll", 500, "Engine poll interval in milliseconds")
 	maxConcurrent := flag.Int("max-concurrent", 200, "Max instances advanced concurrently. Too high overwhelms the DB/lease renewer and in-flight work starts losing its leases (lease_lost audit entries); raise --lease-duration or the DB connection pool before raising this much further.")
@@ -131,7 +129,7 @@ func main() {
 	srv := api.NewServer(handlers, log)
 
 	// genroc-ui's JWTs (people) and genroc's tokens (machines) compose on the bearer header.
-	// humanAuthOn suppresses the exposure warning and the bootstrap mint: an operator already
+	// humanAuthOn suppresses the exposure warning and the no-admin warning: an operator already
 	// has a way in. specs/ui-issued-tokens.md.
 	humanAuthOn := false
 	var auths []api.Authenticator
@@ -167,11 +165,8 @@ func main() {
 				"addr", *httpAddr)
 		}
 	case "token":
-		seeds := *seedTokens
-		if seeds == "" {
-			seeds = os.Getenv("GENROC_SEED_TOKENS")
-		}
-		if seeds == "" && *seedTokensFile != "" {
+		var seeds string
+		if *seedTokensFile != "" {
 			raw, err := os.ReadFile(*seedTokensFile)
 			if err != nil {
 				log.Error("seed-tokens-file", "err", err)
@@ -200,28 +195,14 @@ func main() {
 				log.Info("seeded operator-supplied credentials", "created", seeded.created)
 			}
 		}
-		secret := *bootstrapToken
-		if secret == "" {
-			secret = os.Getenv("GENROC_BOOTSTRAP_TOKEN")
-		}
-		// jwt mode already gives an operator a way in, so a printed bootstrap credential is pure
-		// exposure; `genroc token create` stays the break-glass path. specs/api-auth.md s5.3.
-		if humanAuthOn && secret == "" {
-			log.Info("skipping bootstrap token", "reason", "jwt mode provides an operator path")
-			auths = append(auths, api.NewTokenAuth(database))
-			log.Info("API authentication enabled", "mode", "token")
-			break
-		}
-		tok, created, err := database.EnsureBootstrapToken(context.Background(), "bootstrap", secret)
-		if err != nil {
-			log.Error("bootstrap token", "err", err)
-			os.Exit(1)
-		}
-		if created && *bootstrapToken == "" && os.Getenv("GENROC_BOOTSTRAP_TOKEN") == "" {
-			// Printed once, and nowhere else: this is the weakest of §5.3's four paths
-			// because log aggregation ships it off the box.
-			fmt.Fprintf(os.Stderr, "genroc: created bootstrap admin token %s\n  %s\n"+
-				"  This is the only time it is shown, and it is now in your logs — rotate it.\n", tok.ID, tok.Secret)
+		// Warned, not minted: a secret genroc printed would be in the logs. specs/api-auth.md §5.3.
+		if !humanAuthOn {
+			if ok, err := database.HasLiveAdminToken(context.Background()); err != nil {
+				log.Error("count admin tokens", "err", err)
+				os.Exit(1)
+			} else if !ok {
+				log.Warn("no admin token: add one to --seed-tokens-file, or run `genroc token create --perms admin` against this database")
+			}
 		}
 		auths = append(auths, api.NewTokenAuth(database))
 		log.Info("API authentication enabled", "mode", "token")
@@ -343,8 +324,8 @@ type seedReport struct {
 	noSecret, dead []string // labels
 }
 
-// seedSuppliedTokens parses `label=perms=secret`, perms joined by `+`: flat to survive a compose
-// `environment:` value and a shell. Token bodies are unpadded base64url, so they hold no `=`.
+// seedSuppliedTokens parses `label=perms=secret`, perms joined by `+` since `,` separates entries.
+// Token bodies are unpadded base64url, so they hold no `=`.
 func seedSuppliedTokens(database *db.DB, spec string) (seedReport, error) {
 	entries, noSecret, err := parseSeedTokens(spec)
 	if err != nil {

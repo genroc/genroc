@@ -40,14 +40,12 @@ type APIToken struct {
 	RevokedBy string
 }
 
-// Actors for the mint paths outside any request, recording HOW a credential entered (§5.3's
+// Actors for the mint paths outside any request, recording HOW a credential entered (§5.3):
 // root-of-trust ranking). An API mint carries the caller's actor instead.
 const (
-	ActorSeedTokens     = "startup:seed-tokens"
-	ActorBootstrapToken = "startup:bootstrap-token"
-	ActorAutoMint       = "startup:auto-mint"
-	ActorTokenCreate    = "cli:token-create"
-	ActorTokenRevoke    = "cli:token-revoke"
+	ActorSeedTokens  = "startup:seed-tokens"
+	ActorTokenCreate = "cli:token-create"
+	ActorTokenRevoke = "cli:token-revoke"
 )
 
 // NewTokenSecret returns a fresh credential. 32 bytes of crypto/rand, base64url without
@@ -183,77 +181,10 @@ func (db *DB) RevokeToken(ctx context.Context, id string, actor string) error {
 	return nil
 }
 
-// EnsureBootstrapToken mints an admin token when no live ADMIN one exists; created reports whether
-// this call minted, so only the winner prints it. SERIALIZABLE, not READ COMMITTED: a COUNT locks
-// no unborn rows, so N replicas would all insert. A loser retries. specs/api-auth.md §5.3.
-func (db *DB) EnsureBootstrapToken(ctx context.Context, label string, secret string) (APIToken, bool, error) {
-	// Validated once, outside the retry loop: a malformed secret is not transient.
-	if secret != "" {
-		if err := ValidateTokenSecret(secret); err != nil {
-			return APIToken{}, false, err
-		}
-	}
-	// A loser needs one more pass to see the winner's row; more would only busy-wait.
-	const attempts = 5
-	var err error
-	for i := 0; i < attempts; i++ {
-		var tok APIToken
-		var created bool
-		tok, created, err = db.tryBootstrapToken(ctx, label, secret)
-		if err == nil {
-			return tok, created, nil
-		}
-		if errors.As(err, new(secretHeldError)) {
-			return APIToken{}, false, err
-		}
-	}
-	return APIToken{}, false, fmt.Errorf("bootstrap token after %d attempts: %w", attempts, err)
-}
-
-func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string) (tok APIToken, created bool, err error) {
-	tx, qtx, _, err := db.beginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return APIToken{}, false, err
-	}
-	defer tx.Rollback()
-
-	live, err := qtx.CountLiveAdminTokens(ctx, sql.NullInt64{Int64: nowMillis(), Valid: true})
-	if err != nil {
-		return APIToken{}, false, fmt.Errorf("count admin tokens: %w", err)
-	}
-	if live > 0 {
-		return APIToken{}, false, nil
-	}
-	// The two bootstrap paths differ only in who produced the secret, which is exactly the
-	// difference in root of trust worth recording (§5.3).
-	actor := ActorBootstrapToken
-	if secret == "" {
-		actor = ActorAutoMint
-		if secret, err = NewTokenSecret(); err != nil {
-			return APIToken{}, false, err
-		}
-	} else if err := ValidateTokenSecret(secret); err != nil {
-		return APIToken{}, false, err
-	} else if held, err := holderOf(ctx, qtx, secret); err != nil {
-		return APIToken{}, false, err
-	} else if held != nil {
-		return APIToken{}, false, held.bootstrapRefusal()
-	}
-	perms, _ := json.Marshal([]string{"admin"})
-	tok = APIToken{
-		ID: db.nextTokenID(), Label: label, Perms: []string{"admin"},
-		Secret: secret, CreatedAt: nowMillis(), Actor: actor,
-	}
-	if err := qtx.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
-		ID: tok.ID, Hash: HashToken(secret), Label: label,
-		Perms: string(perms), CreatedAt: tok.CreatedAt, Actor: actor,
-	}); err != nil {
-		return APIToken{}, false, fmt.Errorf("insert bootstrap token: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return APIToken{}, false, err
-	}
-	return tok, true, nil
+// HasLiveAdminToken answers "is there still a way in": worker and expired tokens do not count.
+func (db *DB) HasLiveAdminToken(ctx context.Context) (bool, error) {
+	n, err := db.q.CountLiveAdminTokens(ctx, sql.NullInt64{Int64: nowMillis(), Valid: true})
+	return n > 0, err
 }
 
 type SeedOutcome int
@@ -299,7 +230,7 @@ func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secre
 // secretHolder is the token row a secret hashes to, whatever its state. dead is "revoked" or
 // "expired", or "" while it still authenticates.
 type secretHolder struct {
-	id, label, dead string
+	dead string
 }
 
 // holderOf returns nil when no row holds secret. Never authenticate from it: it sees dead rows.
@@ -311,7 +242,7 @@ func holderOf(ctx context.Context, q *dbgen.Queries, secret string) (*secretHold
 	if err != nil {
 		return nil, fmt.Errorf("look up token secret: %w", err)
 	}
-	h := &secretHolder{id: row.ID, label: row.Label}
+	h := &secretHolder{}
 	switch {
 	case row.RevokedAt.Valid:
 		h.dead = "revoked"
@@ -326,19 +257,4 @@ func (h *secretHolder) seedOutcome() SeedOutcome {
 		return SeedDead
 	}
 	return SeedPresent
-}
-
-// secretHeldError is permanent, so EnsureBootstrapToken does not retry it.
-type secretHeldError struct{ msg string }
-
-func (e secretHeldError) Error() string { return e.msg }
-
-// bootstrapRefusal runs only when no live admin exists, so a live holder is a non-admin one.
-func (h *secretHolder) bootstrapRefusal() error {
-	if h.dead != "" {
-		return secretHeldError{fmt.Sprintf("the bootstrap secret belongs to token %s (%q), which is %s; "+
-			"a dead secret is never reinstated, so supply a new one (genctl token generate)", h.id, h.label, h.dead)}
-	}
-	return secretHeldError{fmt.Sprintf("the bootstrap secret already belongs to token %s (%q), which does "+
-		"not grant admin; supply a different one (genctl token generate)", h.id, h.label)}
 }

@@ -14,7 +14,7 @@ import (
 )
 
 // `genroc token …` works against the DATABASE, not the API: the break-glass path for a lost
-// last admin token, trusted via filesystem access. specs/api-auth.md §5.3, path 1.
+// last admin token, trusted via filesystem access. specs/api-auth.md §5.3, path 2.
 func runTokenCmd(args []string) {
 	if len(args) == 0 {
 		tokenUsage()

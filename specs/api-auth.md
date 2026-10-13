@@ -166,9 +166,9 @@ random bytes, unpadded base64url (43 characters):
 - **Shown once, at creation.** The row keeps hash, permissions, label, created / last used,
   `revoked_at`, `expires_at` (unused — auth-two-credentials.md §6), `actor` and `revoked_by`.
 - `genctl token create --perms deploy --label ci`, `list`, `revoke <id>`, and `generate`, which
-  mints offline with no server and no credential (§5.3, path 0). `POST`/`GET /api/tokens` and
+  mints offline with no server and no credential (§5.3, path 1). `POST`/`GET /api/tokens` and
   `DELETE /api/tokens/{id}` are admin-only.
-- **An unknown permission is refused at mint** by the API, `genroc token` and `--seed-tokens`, all
+- **An unknown permission is refused at mint** by the API, `genroc token` and `--seed-tokens-file`, all
   through `api.ValidPerms`: a typo would grant less than asked, discovered as a 403 somewhere unrelated.
 
 ### 5.1 One host: browsers through genroc-ui, machines direct
@@ -189,42 +189,35 @@ and workers present `genroc_sk_*`, and a person pastes one into the UI. It is wh
 `examples/auth/` runs. What is given up is SSO — deprovisioning is revoking tokens — and `jwt` is
 added beside it, not instead, once an organisation runs an IdP.
 
-### 5.3 Bootstrap: four paths, ranked by root of trust
+### 5.3 Bootstrap: two ways in
 
 **The problem is "no live admin token", not first run**: it recurs when `token` is enabled on a
-deployment that ran without auth, or when the last admin token is lost.
+deployment that ran without auth, or when the last admin token is lost. There are two ways in.
 
-0. **`--seed-tokens` / `--seed-tokens-file` / `$GENROC_SEED_TOKENS` — the operator generates,
-   genroc only stores.** `genctl token generate` mints offline, and genroc receives
-   `label=perms=secret` entries (perms `+`-joined, to survive a compose `environment:` value and
-   a shell) and stores their hashes. A secret never originates inside genroc, reaches its logs,
-   or rests in its container — the recommended path. Idempotent **by secret, not label**:
-   changing a value mints a second token, so rotation is additive and a fleet rolls without
-   refusals. An entry with an empty secret is skipped and its label logged, so an admin
-   credential deleted from the file after first start reads as deliberate. A secret a revoked
-   token holds is skipped with a warning naming its label: revocation survives a restart.
-1. **`genroc token create|list|revoke --db …` — on the server binary, against the database.** The
+1. **`--seed-tokens-file` / `$GENROC_SEED_TOKENS_FILE` — the operator generates, genroc only
+   stores.** `genctl token generate` mints offline, and genroc reads `label=perms=secret` lines
+   (perms `+`-joined, since `,` also separates entries) and stores their hashes. A secret never
+   originates inside genroc or reaches its logs. A file, not a flag or variable, so the secret
+   stays out of the process list and `docker inspect`, and it is the shape a mounted secret
+   already has. Idempotent **by secret, not label**: changing a value mints a second token, so
+   rotation is additive and a fleet rolls without refusals. Replicas seeding the same secret
+   together race on `UNIQUE(hash)`, and the loser reads it as present. An entry with an empty
+   secret is skipped and its label logged, so an admin credential deleted from the file after
+   first start reads as deliberate. A secret a revoked token holds is skipped with a warning
+   naming its label: revocation survives a restart.
+2. **`genroc token create|list|revoke --db …` — on the server binary, against the database.** The
    root of trust is filesystem access, which already owns every secret in it, so this is the
    break-glass path and unconditional. `genctl` cannot host it: it speaks HTTP, and bypassing
    HTTP is the point. The secret goes to stdout and everything else to stderr, so
    `TOKEN=$(genroc token create --perms admin)` captures the credential alone.
-2. **`--bootstrap-token` / `$GENROC_BOOTSTRAP_TOKEN`.** Created only when no live admin token
-   exists, so it is idempotent across restarts and doubles as declarative recovery. A secret a
-   revoked token holds then fails startup saying so; it is never reinstated.
-3. **Auto-mint**, when 2 is unset and no live admin token exists: printed once to stderr with a
-   line saying to rotate it. The weakest, because log aggregation ships it off the box. Skipped
-   when jwt mode is on, since genroc-ui is then the operator's way in.
 
-**"No live admin token", not "empty table"**: a deployment holding only worker tokens would
-otherwise be locked out with the recovery path refusing to fire. An expired admin token counts as
-absent for the same reason. Accepted cost: revoking every admin token and restarting mints a new
-one.
+**With neither, genroc warns and mints nothing** (`HasLiveAdminToken`): a secret it generated and
+printed would ship off the box with the logs. Not warned in jwt mode, where genroc-ui is the
+operator's way in. A "create an admin only if none exists" flag is not needed: seeding already
+skips a stored secret, and the file can hold an admin line.
 
-**The check runs under SERIALIZABLE** (`EnsureBootstrapToken`, with bounded retry since a loser
-fails at COMMIT). Under READ COMMITTED a `COUNT` locks no rows that do not exist yet, so N
-replicas starting together all insert — 8 replicas minted 8 admin tokens with a plain
-transaction, 1 under SERIALIZABLE. SQLite's single writer hides this, so
-`TestTokens_BootstrapRaceMintsExactlyOne` pins nothing without `POSTGRES_DSN`.
+**"No live admin token", not "empty table"**: a deployment holding only worker tokens, or whose
+only admin expired or was revoked, is locked out and gets the warning.
 
 ## 6. The exposure warning
 
@@ -246,9 +239,8 @@ Who did it is recorded as one value, `actor`, on:
   access and has no audit-log fallback, since a token belongs to no instance.
 
 **The value is `source:subject`** — `token:ci`, `jwt:ada@example.com`, `no-auth:anonymous`,
-`engine:self`, and for mints outside any request `startup:seed-tokens`,
-`startup:bootstrap-token`, `startup:auto-mint`, `cli:token-create` (`cli:token-revoke` on a
-revocation). The source is in the value because the subject alone cannot say how the identity was
+`engine:self`, and for mints outside any request `startup:seed-tokens` and `cli:token-create`
+(`cli:token-revoke` on a revocation). The source is in the value because the subject alone cannot say how the identity was
 established, and two columns invite the query that reads one and loses the other.
 `Principal.Actor()` is the one place it is spelled. `no-auth`, not `none`: beside `startup:` and
 `cli:`, `none:` reads as a missing value.

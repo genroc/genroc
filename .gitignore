@@ -43,7 +43,7 @@ docs/node_modules/
 /p_schema.json
 /p.json
 tests/weather.log
-examples/auth/.env
+examples/auth/secrets/
 ui/frontend/node_modules
 ui/frontend/dist
 eval-node/dist/

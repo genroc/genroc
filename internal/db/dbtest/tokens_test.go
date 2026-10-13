@@ -11,7 +11,7 @@ import (
 	dbpkg "genroc/internal/db"
 )
 
-// specs/api-auth.md §5. Machine credentials, and §5.3's bootstrap — which is the part with a
+// specs/api-auth.md §5. Machine credentials, and §5.3's seeding — which is the part with a
 // concurrency hazard rather than just CRUD, and the reason these are Go tests.
 
 func TestTokens_MintThenLookup(t *testing.T) {
@@ -92,125 +92,115 @@ func TestTokens_RevokedStopsAuthenticating(t *testing.T) {
 	}
 }
 
-func TestTokens_BootstrapIsIdempotent(t *testing.T) {
+// The startup warning keys on this: a deployment holding only worker credentials, or an admin
+// that lapsed or was revoked, has locked its operators out.
+func TestTokens_OnlyALiveAdminCountsAsAWayIn(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			first, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", "")
-			if err != nil || !created {
-				t.Fatalf("first bootstrap: created=%v err=%v", created, err)
+			wayIn := func() bool {
+				ok, err := b.db.HasLiveAdminToken(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return ok
 			}
-			_, created, err = b.db.EnsureBootstrapToken(ctx, "bootstrap", "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if created {
-				t.Error("a restart minted a second admin token; bootstrap must be a no-op once one is live")
-			}
-			if _, ok, _ := b.db.LookupToken(ctx, first.Secret); !ok {
-				t.Error("the first token stopped working")
-			}
-		})
-	}
-}
-
-// The condition is "no live ADMIN token", not "no tokens at all": a deployment holding only
-// worker credentials has locked its operators out and still needs a way back in.
-func TestTokens_BootstrapIgnoresNonAdminTokens(t *testing.T) {
-	for _, b := range testBackends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			ctx := context.Background()
 			if _, err := b.db.MintToken(ctx, "a-worker", []string{"worker"}, 0, dbpkg.ActorTokenCreate); err != nil {
 				t.Fatal(err)
 			}
-			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", ""); err != nil || !created {
-				t.Fatalf("a worker-only deployment must still bootstrap an admin: created=%v err=%v", created, err)
+			if wayIn() {
+				t.Error("a worker token counted as an admin; a worker-only deployment would get no warning")
+			}
+			revoked, err := b.db.MintToken(ctx, "revoked", []string{"admin"}, 0, dbpkg.ActorTokenCreate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := b.db.RevokeToken(ctx, revoked.ID, dbpkg.ActorTokenRevoke); err != nil {
+				t.Fatal(err)
+			}
+			if wayIn() {
+				t.Error("a revoked admin token counted as a way in")
+			}
+			if _, err := b.db.MintToken(ctx, "lapsing", []string{"read", "admin"},
+				dbpkg.Now().Add(time.Hour).UnixMilli(), dbpkg.ActorTokenCreate); err != nil {
+				t.Fatal(err)
+			}
+			if !wayIn() {
+				t.Fatal("a live admin token (among other perms) was not counted")
+			}
+			dbpkg.AdvanceClock(2 * time.Hour)
+			if wayIn() {
+				t.Error("an expired admin token still counted; a lapsed deployment would get no warning")
 			}
 		})
 	}
 }
 
-// Bites on POSTGRES ONLY and needs a WARM pool: READ COMMITTED was caught in 4 of 4 full-package
-// runs and 0 of 1 `-run` runs. Reproduce a suspected regression with the full package.
-func TestTokens_BootstrapRaceMintsExactlyOne(t *testing.T) {
+// Replicas starting together read the same seed file. Losing the UNIQUE(hash) race must read as
+// "already present", not fail startup, and must leave one row.
+func TestTokens_ConcurrentSeedsOfOneSecretStoreOneRow(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
+			secret, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
 			const replicas = 8
-
 			var wg sync.WaitGroup
-			var mu sync.Mutex
-			var minted []dbpkg.APIToken
+			errs := make(chan error, replicas)
 			start := make(chan struct{})
-
 			for i := 0; i < replicas; i++ {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					// Warm this goroutine's path before the barrier. It does not fully solve
-					// the cold-pool problem (database/sql returns the connection straight
-					// away), which is why the doc comment above bounds what this proves.
-					_, _ = b.db.ListTokens(ctx)
+					_, _ = b.db.ListTokens(ctx) // warm this goroutine's connection before the barrier
 					<-start
-					tok, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", "")
-					if err != nil {
-						return // a loser may collide; what matters is how many were CREATED
-					}
-					if created {
-						mu.Lock()
-						minted = append(minted, tok)
-						mu.Unlock()
+					if _, err := b.db.SeedToken(ctx, "admin", []string{"admin"}, secret); err != nil {
+						errs <- err
 					}
 				}()
 			}
 			close(start)
 			wg.Wait()
-
-			if len(minted) != 1 {
-				t.Fatalf("%d replicas minted %d admin tokens, want exactly 1 — a plain transaction "+
-					"is not enough here, the count needs SERIALIZABLE", replicas, len(minted))
+			close(errs)
+			for err := range errs {
+				t.Errorf("a replica failed to seed (%v); it would exit at startup", err)
 			}
-			live, err := b.db.ListTokens(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			admins := 0
-			for _, row := range live {
-				if row.RevokedAt == 0 && strings.Join(row.Perms, ",") == "admin" {
-					admins++
-				}
-			}
-			if admins != 1 {
-				t.Errorf("%d live admin rows, want 1", admins)
+			if rows, _ := b.db.ListTokens(ctx); len(rows) != 1 {
+				t.Errorf("%d rows after %d concurrent seeds of one secret, want 1", len(rows), replicas)
 			}
 		})
 	}
 }
 
-// A supplied secret is used verbatim, which is what makes --bootstrap-token declarative
-// recovery: set the value, restart, and the credential you already hold works.
-func TestTokens_BootstrapUsesTheSuppliedSecret(t *testing.T) {
+// A seeded secret is used verbatim, which is what makes the seed file declarative: the credential
+// you put in it is the one that works.
+func TestTokens_SeedUsesTheSuppliedSecret(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 			secret := dbpkg.TokenPrefix + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-			if _, created, err := b.db.EnsureBootstrapToken(ctx, "from-secret", secret); err != nil || !created {
-				t.Fatalf("created=%v err=%v", created, err)
+			if outcome, err := b.db.SeedToken(ctx, "from-file", []string{"admin"}, secret); err != nil || outcome != dbpkg.SeedCreated {
+				t.Fatalf("outcome=%v err=%v", outcome, err)
 			}
 			got, ok, err := b.db.LookupToken(ctx, secret)
 			if err != nil || !ok {
 				t.Fatalf("the supplied secret does not authenticate: ok=%v err=%v", ok, err)
 			}
-			if got.Label != "from-secret" {
+			if got.Label != "from-file" {
 				t.Errorf("label = %q", got.Label)
+			}
+			if outcome, err := b.db.SeedToken(ctx, "from-file", []string{"admin"}, secret); err != nil || outcome != dbpkg.SeedPresent {
+				t.Errorf("a restart re-seeding the same secret: outcome=%v err=%v, want SeedPresent", outcome, err)
 			}
 		})
 	}
 }
 
-// A prefix-less secret would be a live admin row that can never authenticate yet permanently
-// satisfies the bootstrap condition: no credential, and no second chance.
-func TestTokens_BootstrapRefusesAnUnusableSecret(t *testing.T) {
+// A prefix-less secret would be a live admin row that can never authenticate yet silences the
+// no-admin warning: no credential, and nothing saying so.
+func TestTokens_SeedRefusesAnUnusableSecret(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -219,31 +209,19 @@ func TestTokens_BootstrapRefusesAnUnusableSecret(t *testing.T) {
 				"genroc_sk_short", // prefixed but guessable
 				dbpkg.TokenPrefix, // prefix alone
 			} {
-				if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", bad); err == nil || created {
-					t.Errorf("%q was accepted (created=%v); an unusable admin row is a silent lockout", bad, created)
+				if _, err := b.db.SeedToken(ctx, "admin", []string{"admin"}, bad); err == nil {
+					t.Errorf("%q was accepted; an unusable admin row is a silent lockout", bad)
 				}
 			}
-			// Nothing may be left behind: a row would satisfy the bootstrap condition forever.
-			rows, err := b.db.ListTokens(ctx)
-			if err != nil {
-				t.Fatal(err)
+			if rows, err := b.db.ListTokens(ctx); err != nil || len(rows) != 0 {
+				t.Fatalf("%d rows written by refused seeds (err=%v); the table must be untouched", len(rows), err)
 			}
-			if len(rows) != 0 {
-				t.Fatalf("%d rows written by refused bootstraps; the table must be untouched", len(rows))
-			}
-			// A well-formed one still works, and a generated secret satisfies the same rule.
 			good, err := dbpkg.NewTokenSecret()
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err := dbpkg.ValidateTokenSecret(good); err != nil {
 				t.Fatalf("a generated secret must pass its own validator: %v", err)
-			}
-			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", good); err != nil || !created {
-				t.Fatalf("created=%v err=%v", created, err)
-			}
-			if _, ok, _ := b.db.LookupToken(ctx, good); !ok {
-				t.Error("the supplied secret does not authenticate")
 			}
 		})
 	}
@@ -296,47 +274,11 @@ func TestTokens_ZeroExpiryNeverExpires(t *testing.T) {
 	}
 }
 
-// An expired admin token cannot authenticate, so it must not count as "a way in still exists" --
-// otherwise a deployment whose only admin credential lapsed can never bootstrap another.
-func TestTokens_BootstrapIgnoresAnExpiredAdmin(t *testing.T) {
-	for _, b := range testBackends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			ctx := context.Background()
-			if _, err := b.db.MintToken(ctx, "old-admin", []string{"admin"},
-				dbpkg.Now().Add(time.Hour).UnixMilli(), dbpkg.ActorTokenCreate); err != nil {
-				t.Fatalf("mint: %v", err)
-			}
-			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", ""); err != nil || created {
-				t.Fatalf("a LIVE admin token must suppress bootstrap: created=%v err=%v", created, err)
-			}
-
-			dbpkg.AdvanceClock(2 * time.Hour)
-			tok, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", "")
-			if err != nil {
-				t.Fatalf("bootstrap: %v", err)
-			}
-			if !created {
-				t.Fatal("the only admin token has expired and bootstrap still refused to mint — " +
-					"the deployment is locked out with no way back except the database")
-			}
-			if _, ok, err := b.db.LookupToken(ctx, tok.Secret); err != nil || !ok {
-				t.Errorf("the bootstrap token it minted does not authenticate: ok=%v err=%v", ok, err)
-			}
-		})
-	}
-}
-
-// Both bootstrap paths land in EnsureBootstrapToken and only the supplied secret tells them
-// apart; getting it wrong attributes an auto-minted credential to the operator.
 func TestTokens_EveryMintingPathRecordsItsOwnActor(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 			seed, err := dbpkg.NewTokenSecret()
-			if err != nil {
-				t.Fatal(err)
-			}
-			supplied, err := dbpkg.NewTokenSecret()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -346,24 +288,18 @@ func TestTokens_EveryMintingPathRecordsItsOwnActor(t *testing.T) {
 			if _, err := b.db.SeedToken(ctx, "by-seed", []string{"worker"}, seed); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
-			// Neither of the two above is an admin, so the bootstrap condition still holds.
-			flagged, created, err := b.db.EnsureBootstrapToken(ctx, "by-flag", supplied)
-			if err != nil || !created {
-				t.Fatalf("bootstrap from a supplied secret: created=%v err=%v", created, err)
+			cli, err := b.db.MintToken(ctx, "revoked", []string{"read"}, 0, dbpkg.ActorTokenCreate)
+			if err != nil {
+				t.Fatalf("mint: %v", err)
 			}
-			// Revoked so the next call sees no live admin and takes the auto-mint path instead.
-			if err := b.db.RevokeToken(ctx, flagged.ID, dbpkg.ActorTokenRevoke); err != nil {
+			if err := b.db.RevokeToken(ctx, cli.ID, dbpkg.ActorTokenRevoke); err != nil {
 				t.Fatalf("revoke: %v", err)
-			}
-			if _, created, err := b.db.EnsureBootstrapToken(ctx, "by-auto", ""); err != nil || !created {
-				t.Fatalf("auto-mint: created=%v err=%v", created, err)
 			}
 
 			want := map[string]string{
 				"by-cli":  dbpkg.ActorTokenCreate,
 				"by-seed": dbpkg.ActorSeedTokens,
-				"by-flag": dbpkg.ActorBootstrapToken,
-				"by-auto": dbpkg.ActorAutoMint,
+				"revoked": dbpkg.ActorTokenCreate,
 			}
 			rows, err := b.db.ListTokens(ctx)
 			if err != nil {
@@ -377,7 +313,7 @@ func TestTokens_EveryMintingPathRecordsItsOwnActor(t *testing.T) {
 					}
 					delete(want, r.Label)
 				}
-				if r.Label == "by-flag" && r.RevokedBy != dbpkg.ActorTokenRevoke {
+				if r.Label == "revoked" && r.RevokedBy != dbpkg.ActorTokenRevoke {
 					t.Errorf("revoked_by = %q, want %q -- revoked_at moved and the actor beside "+
 						"it did not, which is the seam §7 already paid for once", r.RevokedBy, dbpkg.ActorTokenRevoke)
 				}
@@ -421,60 +357,6 @@ func TestTokens_SeedLeavesARevokedSecretRevoked(t *testing.T) {
 			}
 			if rows, _ := b.db.ListTokens(ctx); len(rows) != 1 {
 				t.Errorf("%d rows after re-seeding, want the one revoked row", len(rows))
-			}
-		})
-	}
-}
-
-func TestTokens_BootstrapRefusesARevokedSecretByName(t *testing.T) {
-	for _, b := range testBackends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			ctx := context.Background()
-			secret, err := dbpkg.NewTokenSecret()
-			if err != nil {
-				t.Fatal(err)
-			}
-			tok, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", secret)
-			if err != nil || !created {
-				t.Fatalf("first bootstrap: created=%v err=%v", created, err)
-			}
-			if err := b.db.RevokeToken(ctx, tok.ID, dbpkg.ActorTokenRevoke); err != nil {
-				t.Fatalf("revoke: %v", err)
-			}
-
-			_, created, err = b.db.EnsureBootstrapToken(ctx, "bootstrap", secret)
-			if err == nil || created {
-				t.Fatalf("a revoked bootstrap secret was accepted (created=%v); it must stay dead", created)
-			}
-			if !strings.Contains(err.Error(), "revoked") || strings.Contains(err.Error(), "attempts") {
-				t.Errorf("err = %q; the operator must be told the secret was revoked, not shown a "+
-					"constraint failure after retries", err)
-			}
-			if _, ok, _ := b.db.LookupToken(ctx, secret); ok {
-				t.Error("the revoked bootstrap secret authenticates again")
-			}
-		})
-	}
-}
-
-func TestTokens_BootstrapRefusesASecretANonAdminTokenHolds(t *testing.T) {
-	for _, b := range testBackends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			ctx := context.Background()
-			secret, err := dbpkg.NewTokenSecret()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := b.db.SeedToken(ctx, "evaluator", []string{"worker"}, secret); err != nil {
-				t.Fatalf("seed: %v", err)
-			}
-			_, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", secret)
-			if err == nil || created {
-				t.Fatalf("bootstrap reused a worker token's secret (created=%v)", created)
-			}
-			if !strings.Contains(err.Error(), "evaluator") || strings.Contains(err.Error(), "attempts") {
-				t.Errorf("err = %q; it must name the token already holding the secret, not report "+
-					"a constraint failure after retries", err)
 			}
 		})
 	}

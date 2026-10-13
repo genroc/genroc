@@ -485,8 +485,8 @@ UPDATE api_tokens SET revoked_at = sqlc.arg(revoked_at), revoked_by = sqlc.arg(r
 WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
 
 -- name: CountLiveAdminTokens :one
--- Runs in bootstrap's insert transaction. Live ADMIN rows only: the question is "is there
--- still a way in", which worker or expired tokens do not answer.
+-- Live ADMIN rows only: the question is "is there still a way in", which worker or expired
+-- tokens do not answer.
 SELECT COUNT(*) FROM api_tokens
 WHERE revoked_at IS NULL AND perms LIKE '%"admin"%'
   AND (expires_at IS NULL OR expires_at > sqlc.arg(now));

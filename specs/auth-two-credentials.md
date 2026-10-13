@@ -51,8 +51,8 @@ cookie's `SameSite=Lax` is set by genroc-ui's code.
 Every token is a machine credential, and rotating one is a deploy, not a clock, so nothing sets
 `api_tokens.expires_at`. The column stays because a lifetime is a property of a credential, not of
 a session, and dropping it costs a migration (§8). `GetAPITokenByHash` and `CountLiveAdminTokens`
-exclude expired rows in SQL, so an expired admin token neither authenticates nor satisfies
-bootstrap (api-auth.md §5.3).
+exclude expired rows in SQL, so an expired admin token neither authenticates nor silences the
+no-admin warning (api-auth.md §5.3).
 
 ## 6.1 `X-Genroc-Actor`
 

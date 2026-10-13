@@ -3,15 +3,15 @@
 genroc with `--auth token`, credentials scoped to what each caller needs, and a script worker
 that holds the weakest one. specs/api-auth.md.
 
-    ./examples/auth/gen-env.sh                       # once — mints both credentials
+    ./examples/auth/gen-secrets.sh                   # once — mints both credentials
     docker compose -f examples/auth/compose.yaml up --build
 
-Both credentials are written to `examples/auth/.env` and neither is printed — echoing a secret
-that is already in a file only adds a copy to your scrollback.
+Both credentials are written to `examples/auth/secrets/` and neither is printed — echoing a
+secret that is already in a file only adds a copy to your scrollback.
 
-`ADMIN_TOKEN` is your admin credential. Store it wherever you keep secrets, then delete the line:
-genroc has its hash after the first start and never needs the value again. `WORKER_TOKEN` stays,
-because the evaluator reads it at every start.
+The `admin=` line of `secrets/seed-tokens` is your admin credential. Store it wherever you keep
+secrets, then delete the line: genroc has its hash after the first start and never needs the value
+again. `secrets/worker-token` stays, because the evaluator reads it at every start.
 
 You drive the stack from the host, so no container ever holds an admin credential:
 
@@ -38,31 +38,27 @@ stack:
 That is the point of the split: a leaked worker credential — the one that sits on whatever
 machine runs untrusted scripts — cannot read a definition, list a run, or mint another token.
 
-**Two credentials, two lifetimes.** The worker token stays in `.env` because a container reads
-it at every start with no human present. The admin token is there for the FIRST start only —
-genroc keeps its hash, so later starts do not need the secret, and deleting the line stops it
-resting in a file compose reads and in an environment `docker inspect` can print. Verified:
+**Two credentials, two lifetimes.** The worker token stays because a container reads it at
+every start with no human present. The admin line is there for the FIRST start only — genroc
+keeps its hash, so later starts do not need the secret, and deleting the line stops it resting in
+a file compose mounts:
 
-    first start                     created=2
-    (delete ADMIN_TOKEN, restart)     created=0  no_secret_supplied=admin
-    the stored token                still works
+    first start                      created=2
+    (delete the admin line, restart)   created=0
+    the stored token                 still works
 
-`no_secret_supplied` names the label deliberately, so a credential that vanished by accident
-looks different from one you removed on purpose.
+Blanking the secret instead (`admin=admin=`) logs `no_secret_supplied=admin`, so a credential you
+removed on purpose reads differently from one that vanished by accident.
 
-**The operator supplies the credentials; genroc never mints one.** `gen-env.sh` runs
-`genctl token generate` — offline, no server, no credential — and writes a gitignored `.env`
-that compose reads. genroc receives them through `GENROC_SEED_TOKENS` and stores only their
-hashes, so **a secret never originates inside genroc, never reaches its logs, and never rests
-in its container**. Verified on the running stack: `grep genroc_sk_` over genroc's log returns
-nothing, and it reports `seeded operator-supplied credentials created=2`.
+**The operator supplies the credentials; genroc never mints one.** `gen-secrets.sh` runs
+`genctl token generate` — offline, no server, no credential — and writes gitignored files that
+compose mounts as secrets. genroc reads them through `GENROC_SEED_TOKENS_FILE` and stores only
+their hashes, so **a secret never originates inside genroc and never reaches its logs**. Each
+container gets only its own file: the evaluator never sees the admin line.
 
 Seeding is idempotent by secret, so a restart is a no-op (`created=0`) and rotation is
 additive — the old credential keeps working until it is revoked, which is what lets a fleet
 roll without a window where half the workers are refused.
-
-`genroc` still auto-mints a bootstrap admin if you start it with neither — that path exists for
-`docker run` and prints a rotate warning, because the secret then goes to a log.
 
 **`/healthz` stays open.** Unauthenticated from the host it answers 200 while `/api/*` answers
 401 — a probe must answer before any identity exists, so it is the one route outside both the
@@ -94,17 +90,18 @@ exposed as a password, so a real deployment terminates TLS at an ingress or a pr
   is the same image with one flag changed.
 
 - **`down` keeps the database; `down -v` resets it.** That distinction matters here: the admin
-  row lives in Postgres, so dropping the volume takes your stored credential with it — and
-  genroc, finding no admin, mints a fresh one and prints it to the log. After a `down -v`,
-  re-run `gen-env.sh`.
+  row lives in Postgres, so dropping the volume takes your stored credential with it, and genroc
+  starts with a `no admin token` warning. After a `down -v`, delete `secrets/` and re-run
+  `gen-secrets.sh`.
 - For a one-shot command against the database — minting a replacement admin after a reset, say
   — there is a `tools` profile that needs no running server and no credential:
 
       docker compose -f examples/auth/compose.yaml run --rm tools \
         token create --pg "$PG" --perms admin --label admin
 
-- `examples/auth/.env` is gitignored and written `0600`. Delete it and re-run `gen-env.sh` to
-  rotate; the old tokens keep working until revoked, so revoke them after the fleet has rolled.
-- The credentials do reach `docker inspect`, being environment variables. That is the usual
-  compose trade-off; a real deployment uses its platform's secret mechanism, which is the same
-  `GENROC_SEED_TOKENS` value delivered differently.
+- `examples/auth/secrets/` is gitignored and its files are written `0644`, so the containers'
+  non-root users can read the mounts — a development default. Delete it and re-run
+  `gen-secrets.sh` to rotate; the old tokens keep working until revoked, so revoke them after the
+  fleet has rolled.
+- A real deployment uses its platform's secret mechanism the same way: a file, named by
+  `GENROC_SEED_TOKENS_FILE`.

@@ -83,14 +83,6 @@ function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
   const pollArgs = o.poll !== undefined ? ["--poll", String(o.poll)] : [];
   const concArgs = o.maxConcurrent !== undefined ? ["--max-concurrent", String(o.maxConcurrent)] : [];
   const retryArgs = o.immediateRetries ? ["--immediate-retries"] : [];
-  // Auth mode via env, so the auth suite can start an authenticated server without adding a
-  // parameter to a chain every other caller passes positionally.
-  const authArgs = [
-    ...(process.env.GENROC_TEST_AUTH ? ["--auth", process.env.GENROC_TEST_AUTH] : []),
-    ...(process.env.GENROC_TEST_BOOTSTRAP_TOKEN
-      ? ["--bootstrap-token", process.env.GENROC_TEST_BOOTSTRAP_TOKEN]
-      : []),
-  ];
   // Optional lease overrides via env (used by the benchmark to tune the lease).
   const leaseArgs = [
     ...(process.env.GENROC_LEASE_DURATION ? ["--lease-duration", process.env.GENROC_LEASE_DURATION] : []),
@@ -120,7 +112,7 @@ function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
     // what every test other than the benchmark wants.
     ...(process.env.GENROC_DURABILITY ? ["--durability", process.env.GENROC_DURABILITY] : []),
   ];
-  const proc = spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", o.log ?? "error", ...pollArgs, ...concArgs, ...retryArgs, ...authArgs, ...leaseArgs, ...poolArgs, ...syncArgs, ...(o.args ?? [])], {
+  const proc = spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", o.log ?? "error", ...pollArgs, ...concArgs, ...retryArgs, ...leaseArgs, ...poolArgs, ...syncArgs, ...(o.args ?? [])], {
     stdio: ["ignore", "ignore", o.onStderr ? "pipe" : "ignore"],
     // Config fixtures, on the global tier because test process names are random. One naming a
     // PORT does not belong here: such a test starts its own server with `env`.

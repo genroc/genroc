@@ -42,7 +42,7 @@ func runTokenCmd(server string, args []string) {
 	fs := newFlagSet("token "+sub, rest)
 	serverFlag := addServerFlag(fs, server)
 	labelFlag := fs.String("label", "", "a name for this token, shown in listings")
-	permsFlag := fs.String("perms", "", "comma-separated: admin, deploy, operate, read, worker")
+	permsFlag := fs.String("perms", "", "comma-separated, no spaces: e.g. read,operate")
 	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
 	quietFlag := fs.Bool("quiet", false, "on create, print only the token")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")

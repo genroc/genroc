@@ -197,7 +197,8 @@ on_error. No result flags sends an empty result, allowed only without a result_s
 			"token create --perms <list> [--label <name>] [-q]",
 			"token generate | token list [--json] | token revoke <id>...",
 		},
-		detail: "Perms: admin, deploy, operate, read, worker.\n\n" +
+		detail: "Perms, comma-separated (--perms read,operate): admin, deploy, operate, read, worker.\n" +
+			"Flat, not nested: only admin implies the others.\n\n" +
 			"create needs an admin token. generate makes a secret offline, for the first token.\n" +
 			"Without any token: `genroc token`, run against the database.",
 	},

@@ -1,9 +1,10 @@
+import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // specs/api-auth.md §3, §5. Over HTTP because only that proves the gate fronts every route. This
-// server runs --auth token, unlike the shared one, so the bootstrap credential is supplied.
+// server runs --auth token, unlike the shared one, so its admin credential is seeded.
 
 const ADMIN = "genroc_sk_" + "a".repeat(43);
 const dbPath = tmpPath("genroc_auth", ".db");
@@ -18,7 +19,7 @@ async function req(path: string, token: string | null, init: RequestInit = {}) {
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
-/** Mints a token with the given permissions, using the bootstrap admin. */
+/** Mints a token with the given permissions, using the seeded admin. */
 async function mint(perms: string[], label = perms.join("-")): Promise<string> {
   const { status, body } = await req("/api/tokens", ADMIN, {
     method: "POST",
@@ -29,15 +30,13 @@ async function mint(perms: string[], label = perms.join("-")): Promise<string> {
 }
 
 beforeAll(async () => {
-  process.env.GENROC_TEST_AUTH = "token";
-  process.env.GENROC_TEST_BOOTSTRAP_TOKEN = ADMIN;
-  server = await startGenroc({ db: dbPath });
+  const seeds = tmpPath("genroc_seed_tokens");
+  writeFileSync(seeds, `admin=admin=${ADMIN}\n`);
+  server = await startGenroc({ db: dbPath, args: ["--auth", "token", "--seed-tokens-file", seeds] });
   base = server.baseUrl;
 }, 120_000);
 
 afterAll(async () => {
-  delete process.env.GENROC_TEST_AUTH;
-  delete process.env.GENROC_TEST_BOOTSTRAP_TOKEN;
   await server?.stop();
 });
 
@@ -57,6 +56,35 @@ test("auth — the probe answers without a credential, because a supervisor hold
   const res = await fetch(`${base}/healthz`);
   expect(res.status).toBe(200);
 });
+
+test("auth — with no admin token genroc warns and mints none", async () => {
+  let stderr = "";
+  const bare = await startGenroc({
+    db: tmpPath("genroc_noadmin", ".db"),
+    log: "info",
+    args: ["--auth", "token"],
+    onStderr: (c) => {
+      stderr += c;
+    },
+  });
+  await bare.stop();
+  expect(stderr, "an operator with no admin token is told how to get one").toContain("no admin token");
+  expect(stderr, "a secret genroc printed would be in the logs; it must never mint one").not.toContain(
+    "genroc_sk_",
+  );
+
+  stderr = "";
+  const seeded = await startGenroc({
+    db: dbPath,
+    log: "info",
+    args: ["--auth", "token"],
+    onStderr: (c) => {
+      stderr += c;
+    },
+  });
+  await seeded.stop();
+  expect(stderr, "the warning fired with a live admin token stored").not.toContain("no admin token");
+}, 60_000);
 
 test("auth — a worker token reaches the inbound zone and nothing else", async () => {
   const worker = await mint(["worker"]);
@@ -338,18 +366,17 @@ test("attribution — a credential records which caller minted it, and who revok
     "a credential was minted with no actor — 'who issued this admin token' is the one audit " +
       "question tokens cannot answer any other way, since a mint belongs to no instance and " +
       "so cannot reach process_logs",
-  ).toBe("token:bootstrap");
+  ).toBe("token:admin");
 
-  // The server's own startup path attributes itself too, and says WHICH path: this deployment
-  // was handed its admin credential rather than generating one for itself (§5.3).
-  expect(rows.find((t) => t.label === "bootstrap")?.actor).toBe("startup:bootstrap-token");
+  // The server's own startup path attributes itself too: this credential came from the seed file.
+  expect(rows.find((t) => t.label === "admin")?.actor).toBe("startup:seed-tokens");
 
   expect((await req(`/api/tokens/${id}`, ADMIN, { method: "DELETE" })).status).toBe(200);
   const after = (await req("/api/tokens", ADMIN)).body.items as Row[];
   expect(
     after.find((t) => t.id === id)?.revoked_by,
     "revoked_at moved and revoked_by did not — the two describe one write",
-  ).toBe("token:bootstrap");
+  ).toBe("token:admin");
 });
 
 test("attribution — with auth off a credential is still attributed, as no-auth", async () => {

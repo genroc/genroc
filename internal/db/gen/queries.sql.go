@@ -180,8 +180,8 @@ WHERE revoked_at IS NULL AND perms LIKE '%"admin"%'
   AND (expires_at IS NULL OR expires_at > ?1)
 `
 
-// Runs in bootstrap's insert transaction. Live ADMIN rows only: the question is "is there
-// still a way in", which worker or expired tokens do not answer.
+// Live ADMIN rows only: the question is "is there still a way in", which worker or expired
+// tokens do not answer.
 func (q *Queries) CountLiveAdminTokens(ctx context.Context, now sql.NullInt64) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countLiveAdminTokens, now)
 	var count int64

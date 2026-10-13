@@ -1,7 +1,7 @@
 # genroc with token auth (specs/api-auth.md): an operator token that can deploy, and a worker
 # token that can only claim script tasks. SSO for humans (`header` mode) is not shown; see README.
 #
-#   ./examples/auth/gen-env.sh                      # once: mints the WORKER credential
+#   ./examples/auth/gen-secrets.sh                  # once: mints both credentials
 #   docker compose -f examples/auth/compose.yaml up --build
 #   genctl definitions                              # from the host, on :8448
 
@@ -31,19 +31,22 @@ services:
       - :8448
       - --auth
       - token
+    # Stored if absent, ignored if present, so a restart is a no-op. The admin line is needed for
+    # the first start only, then deleted.
+    secrets: [seed-tokens]
     environment:
-      # Stored if absent, ignored if present, so a restart is a no-op. ADMIN_TOKEN may be empty:
-      # it is needed for the first start only, then deleted from .env.
-      GENROC_SEED_TOKENS: "evaluator=worker=${WORKER_TOKEN:?run examples/auth/gen-env.sh first},admin=admin=${ADMIN_TOKEN:-}"
+      GENROC_SEED_TOKENS_FILE: /run/secrets/seed-tokens
     ports: ["8448:8448"]
     depends_on:
       postgres: { condition: service_healthy }
 
   evaluator:
     build: { context: ../.., dockerfile: eval-node/Dockerfile }
+    # worker-token only: the container that runs scripts never sees the admin line.
+    secrets: [worker-token]
     environment:
       GENROC_SERVER: http://genroc:8448
-      GENROC_TOKEN: ${WORKER_TOKEN:?run examples/auth/gen-env.sh first}
+      GENROC_TOKEN_FILE: /run/secrets/worker-token
       CONCURRENCY: "2"
     # The worker tolerates genroc being briefly unreachable, so it needs no healthcheck (the
     # distroless image has no shell to run one).
@@ -67,3 +70,7 @@ services:
 
 volumes:
   pgdata:
+
+secrets:
+  seed-tokens: { file: ./secrets/seed-tokens }
+  worker-token: { file: ./secrets/worker-token }

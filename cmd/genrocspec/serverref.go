@@ -25,7 +25,7 @@ var serverGroups = []struct {
 	{"Durability", "What is flushed to disk before a write is acknowledged.",
 		[]string{"durability", "sqlite-synchronous", "sqlite-fullfsync", "pg-commit-delay"}},
 	{"Authentication", "Off by default (`--auth none`). Machines use tokens; people reach the API through genroc-ui.",
-		[]string{"auth", "bootstrap-token", "seed-tokens", "seed-tokens-file",
+		[]string{"auth", "seed-tokens-file",
 			"jwt-secret-file", "jwt-issuer", "jwt-audience", "jwt-leeway"}},
 	{"Engine", "How instances are claimed and advanced.",
 		[]string{"poll", "max-concurrent", "lease-duration", "lease-renew-interval", "immediate-retries"}},
