@@ -205,11 +205,12 @@ on_error. No result flags sends an empty result, allowed only without a result_s
 	"init": {
 		summary: "scaffold a project, or mint a new UI password",
 		usage: []string{
-			"init [dir] [--eval-node] [--auth] [--postgres] [--version <tag>] [-y]",
+			"init [dir] [--eval-node] [--ui] [--auth] [--postgres] [--version <tag>] [-y]",
 			"init password [email]",
 		},
 		detail: "Writes definitions/, a .genroc and optionally a compose.yaml, asking which parts you\n" +
-			"want; -y (or no terminal) takes the defaults. `init password` mints a new UI password.",
+			"want; -y (or no terminal) takes the defaults. --auth with --ui is a login; without it,\n" +
+			"genroc tokens. `init password` mints a new UI password.",
 	},
 	"config": {
 		summary: "read and write ~/.config/genroc/config.yaml",

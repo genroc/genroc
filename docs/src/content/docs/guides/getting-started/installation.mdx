@@ -54,11 +54,7 @@ Following command will start docker containers:
 docker compose up -d
 ```
 
-Try entering `http://localhost:8448` to see if genroc is running correctly. If yes you should see genroc UI.
-
-<Screenshot src="create-project.png" alt="The genroc UI, showing a process instance" />
-
-Genctl looks for genroc server on port 8448 by default, so it should now work as well.
+Genroc listens on port 8448, which is where genctl looks for it by default, so it should now work:
 
 ```
 > genctl instances

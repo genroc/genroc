@@ -38,7 +38,7 @@ func runInitCmd(args []string) {
 	if !assumeYes && interactive() {
 		choices = choices.prompt(prompter{in: bufio.NewReader(os.Stdin), out: os.Stderr})
 	}
-	dir, evalNode, postgres, auth := choices.dir, choices.evalNode, choices.postgres, choices.auth
+	dir, evalNode, postgres, ui, auth := choices.dir, choices.evalNode, choices.postgres, choices.ui, choices.auth
 
 	set := "base"
 	if evalNode {
@@ -47,19 +47,19 @@ func runInitCmd(args []string) {
 	data := struct {
 		Dep, Image, WorkerImage, UIImage string
 		Email, Hash                      string
-		EvalNode, Postgres, Auth         bool
+		EvalNode, Postgres, UI, Auth     bool
 	}{
 		Dep:         tag,
 		Image:       "ghcr.io/genroc/genroc:" + tag,
 		WorkerImage: "ghcr.io/genroc/eval-node:" + tag,
 		UIImage:     "ghcr.io/genroc/ui:" + tag,
-		EvalNode:    evalNode, Postgres: postgres, Auth: auth,
+		EvalNode:    evalNode, Postgres: postgres, UI: ui, Auth: auth,
 	}
 
 	// The login is generated BEFORE anything is written, so a failure to hash leaves no
 	// half-built project holding a config that names a user nobody can sign in as.
 	var login *login
-	if auth {
+	if auth && ui {
 		var err error
 		if login, err = newLogin(choices.email); err != nil {
 			fatal("init: %v", err)
@@ -93,13 +93,15 @@ func runInitCmd(args []string) {
 	}
 	written = append(written, out)
 
-	if auth {
+	if login != nil {
 		out, err := render("templates/ui/ui.yaml", filepath.Join(dir, "ui.yaml"), data)
 		if err != nil {
 			fatal("init: %v", err)
 		}
 		written = append(written, out)
-		secrets, err := writeSecrets(filepath.Join(dir, "data"), evalNode)
+	}
+	if auth {
+		secrets, err := writeSecrets(filepath.Join(dir, "data"), login != nil, evalNode)
 		if err != nil {
 			fatal("init: %v", err)
 		}
@@ -133,35 +135,40 @@ func runInitCmd(args []string) {
 		fmt.Printf("%s    password  %s\n", indent, login.password)
 		fmt.Println(indent + "mint a token in the tokens tab, then")
 		fmt.Println(indent + "genctl config set token genroc_sk_...")
+	} else if auth {
+		// The API cannot mint the first token, so it is created against the database directly.
+		fmt.Println(indent + "docker compose run --rm genroc token create --perms admin --label admin")
+		fmt.Println(indent + "genctl config set token genroc_sk_...")
 	}
 	fmt.Println(indent + "genctl apply")
 	fmt.Println(indent + "genctl run hello --set who=you")
-	if auth {
+	const keepToken = "`config set` keeps the token in ~/.config/genroc/config.yaml (0600) rather " +
+		"than in the\nenvironment, where it is inherited by every process you start and shows up in `ps`."
+	switch {
+	case login != nil:
 		// Stored only as a bcrypt hash, so the replacement command is named here.
 		fmt.Println("\nThe password is shown once; `genctl init password` mints a replacement.\n" +
-			"`config set` keeps the token in ~/.config/genroc/config.yaml (0600) rather than in " +
-			"the\nenvironment, where it is inherited by every process you start and shows up in " +
-			"`ps`.\n\ngenroc itself is not published — genctl reaches it through genroc-ui, " +
+			keepToken + "\n\ngenroc itself is not published — genctl reaches it through genroc-ui, " +
 			"which passes a\nrequest that already carries a token straight through.")
 		fmt.Println("\ndata/ holds the signing key and is world-readable, which is why it is " +
 			"gitignored.\nIt is a development default: anyone with an account on this machine " +
 			"can read it,\nand whoever holds that key can mint any identity genroc will accept.")
-	} else {
+	case auth:
+		fmt.Println("\nThe admin token is shown once; the same command mints another if it is lost.\n" +
+			keepToken)
+	default:
 		fmt.Println("\nNO AUTHENTICATION: every caller is an operator, and `PUT /definitions` " +
 			"stores code the\nengine runs. Right on a laptop, wrong on anything anyone else " +
-			"can reach.\n\nA login in front?  genctl init --auth")
-	}
-	if !evalNode {
-		fmt.Println("\nTypeScript tasks?  genctl init --eval-node  (adds @genroc/eval-node)")
+			"can reach.")
 	}
 }
 
 // parseInitArgs is split out so the flag surface is testable without writing a project.
 func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	evalNode, postgres := false, false
-	// No login by default: this scaffolds a laptop. prompt's default must agree.
-	auth := false
-	var setEvalNode, setPostgres, setAuth bool
+	// No UI and no login by default: this scaffolds a laptop. prompt's defaults must agree.
+	ui, auth := false, false
+	var setEvalNode, setPostgres, setUI, setAuth bool
 	dir, tag := ".", ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -172,6 +179,10 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 			evalNode, setEvalNode = true, true
 		case a == "--postgres":
 			postgres, setPostgres = true, true
+		case a == "--ui":
+			ui, setUI = true, true
+		case a == "--no-ui":
+			ui, setUI = false, true
 		case a == "--no-auth":
 			auth, setAuth = false, true
 		case a == "--auth":
@@ -188,7 +199,7 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 			tag = strings.TrimPrefix(a, "--version=")
 		case strings.HasPrefix(a, "-"):
 			fatal("init: unknown option %q\n"+
-				"usage: genctl init [dir] [--eval-node] [--auth] [--postgres] "+
+				"usage: genctl init [dir] [--eval-node] [--ui] [--auth] [--postgres] "+
 				"[--version <tag>] [-y]", a)
 		default:
 			dir = a
@@ -198,8 +209,8 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 		tag = releaseTag()
 	}
 	return options{
-		dir: dir, evalNode: evalNode, postgres: postgres, auth: auth,
-		setEvalNode: setEvalNode, setPostgres: setPostgres, setAuth: setAuth,
+		dir: dir, evalNode: evalNode, postgres: postgres, ui: ui, auth: auth,
+		setEvalNode: setEvalNode, setPostgres: setPostgres, setUI: setUI, setAuth: setAuth,
 	}, tag, assumeYes
 }
 
@@ -238,11 +249,11 @@ func isSemver(v string) bool {
 // options is decided before anything is written, so answers are testable without a terminal
 // (a pty harness proved unreliable).
 type options struct {
-	dir, email               string
-	evalNode, postgres, auth bool
+	dir, email                   string
+	evalNode, postgres, ui, auth bool
 	// set* marks command-line answers, which the prompt must neither re-ask nor override with its
 	// own default.
-	setEvalNode, setPostgres, setAuth bool
+	setEvalNode, setPostgres, setUI, setAuth bool
 }
 
 func (o options) prompt(p prompter) options {
@@ -256,11 +267,18 @@ func (o options) prompt(p prompter) options {
 	if !o.setPostgres {
 		o.postgres = strings.HasPrefix(strings.ToLower(p.ask("database (sqlite/postgres)", "sqlite")), "p")
 	}
-	if !o.setAuth {
-		// Follows parseInitArgs: the two defaults must agree, or -y and the prompt disagree.
-		o.auth = p.askYesNo("a login in front of the UI", false)
+	// Follows parseInitArgs: the defaults must agree, or -y and the prompt disagree.
+	if !o.setUI {
+		o.ui = p.askYesNo("the web UI (genroc-ui)", false)
 	}
-	if o.auth {
+	if !o.setAuth {
+		label := "authentication (API tokens)"
+		if o.ui {
+			label = "a login in front of the UI"
+		}
+		o.auth = p.askYesNo(label, false)
+	}
+	if o.ui && o.auth {
 		o.email = p.ask("your sign-in email", defaultEmail)
 	}
 	return o
@@ -307,17 +325,20 @@ func randomPassword() (string, error) {
 
 // writeSecrets writes 0644 so the images can read them as any uid: a development default, stated
 // as one in init's output. The alternative is a root container or a uid pinned in compose.
-func writeSecrets(dir string, evalNode bool) ([]string, error) {
+func writeSecrets(dir string, jwt, evalNode bool) ([]string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	key, err := randomSecret()
-	if err != nil {
-		return nil, err
+	var files []struct{ name, content string }
+	if jwt {
+		key, err := randomSecret()
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, struct{ name, content string }{"jwt-secret", key})
 	}
-	files := []struct{ name, content string }{{"jwt-secret", key}}
-	// No operator token: a person mints their own in the UI, leaving no standing admin secret in
-	// a file (the server's jwt mode skips its bootstrap token likewise).
+	// No admin token: one is minted in the UI or by `genroc token create`, leaving no standing
+	// admin secret in a file (the server's jwt mode skips its bootstrap token likewise).
 	if evalNode {
 		worker, err := randomToken()
 		if err != nil {

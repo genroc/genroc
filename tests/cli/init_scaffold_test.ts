@@ -144,3 +144,13 @@ test("the eval-node scaffold's script typechecks against the declarations it gen
   });
   expect(tsc.status, tsc.stdout + tsc.stderr).toBe(0);
 }, 60_000);
+
+test("--auth without the UI names the admin-token command, since there is no login to mint one", () => {
+  const dir = mkdtempSync(join(tmpdir(), "genroc_scaffold_"));
+  const r = runCli(bin, ["init", dir, "-y", "--auth", "--no-ui"], OFFLINE);
+  expect(r.exitCode, r.stderr).toBe(0);
+  expect(r.stdout, "without it the user has auth on and no way to get a first token").toContain(
+    "docker compose run --rm genroc token create --perms admin --label admin",
+  );
+  expect(readdirSync(dir), "ui.yaml configures a login nothing serves").not.toContain("ui.yaml");
+});

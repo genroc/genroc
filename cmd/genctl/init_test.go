@@ -44,18 +44,22 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 
 // Each case presses enter through every prompt, so only the flag can survive.
 func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
-	enter := "\n\n\n\n\n\n"
+	enter := "\n\n\n\n\n\n\n"
 	if got := (options{dir: ".", postgres: true, setPostgres: true}).prompt(newPrompter(enter)); !got.postgres {
 		t.Error("--postgres was overridden by the prompt's sqlite default")
 	}
-	if got := (options{dir: ".", auth: true, setAuth: true}).prompt(newPrompter(enter)); !got.auth {
+	withLogin := options{dir: ".", ui: true, auth: true, setUI: true, setAuth: true}
+	if got := withLogin.prompt(newPrompter(enter)); !got.auth || !got.ui {
 		t.Error("--auth was overridden by the prompt's default")
+	}
+	if got := (options{dir: ".", ui: true, setUI: true}).prompt(newPrompter(enter)); !got.ui {
+		t.Error("--ui was overridden by the prompt's default")
 	}
 	if got := (options{dir: ".", evalNode: true, setEvalNode: true}).prompt(newPrompter(enter)); !got.evalNode {
 		t.Error("--eval-node was overridden by the prompt's default")
 	}
 	// And a flag answering one question must not consume the answer meant for the next.
-	got := (options{dir: ".", auth: true, setAuth: true}).prompt(newPrompter("proj\ny\npostgres\n"))
+	got := withLogin.prompt(newPrompter("proj\ny\npostgres\n"))
 	if got.dir != "proj" || !got.evalNode || !got.postgres {
 		t.Errorf("--auth desynchronised the remaining prompts: %+v", got)
 	}
@@ -64,12 +68,13 @@ func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 // Only the folder may differ: -y writes here, the prompt offers a new one.
 func TestInitOptions_AssumeYesAndEnterScaffoldTheSameProject(t *testing.T) {
 	flags, _, _ := parseInitArgs([]string{"-y"})
-	enter := options{dir: "."}.prompt(newPrompter("\n\n\n\n\n"))
-	if flags.evalNode != enter.evalNode || flags.postgres != enter.postgres || flags.auth != enter.auth {
+	enter := options{dir: "."}.prompt(newPrompter("\n\n\n\n\n\n"))
+	if flags.evalNode != enter.evalNode || flags.postgres != enter.postgres ||
+		flags.ui != enter.ui || flags.auth != enter.auth {
 		t.Errorf("-y gave %+v, Enter gave %+v: parseInitArgs and prompt disagree on a default", flags, enter)
 	}
-	if flags.auth {
-		t.Error("a login is on by default; init scaffolds a laptop, so it must be opt-in (--auth)")
+	if flags.auth || flags.ui {
+		t.Error("a UI or login is on by default; init scaffolds a laptop, so both are opt-in (--ui, --auth)")
 	}
 }
 
@@ -78,16 +83,20 @@ func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 		name, input string
 		want        options
 	}{
-		// Four questions: the folder, script tasks, the database, and the login — then the
-		// email, but only when there is an account to name.
-		{"all defaults", "\n\n\n\n\n", options{dir: "genroc-app"}},
-		{"eval-node", "proj\ny\n\n\n", options{dir: "proj", evalNode: true}},
-		{"postgres", "proj\nn\npostgres\n\n", options{dir: "proj", postgres: true}},
-		{"an email of one's own", ".\ny\n\ny\nada@example.com\n",
-			options{dir: ".", evalNode: true, auth: true, email: "ada@example.com"}},
+		// Five questions: the folder, script tasks, the database, the UI and the login — then
+		// the email, but only when there is an account to name.
+		{"all defaults", "\n\n\n\n\n\n", options{dir: "genroc-app"}},
+		{"eval-node", "proj\ny\n\n\n\n", options{dir: "proj", evalNode: true}},
+		{"postgres", "proj\nn\npostgres\n\n\n", options{dir: "proj", postgres: true}},
+		{"the UI without a login", "proj\nn\n\ny\nn\n", options{dir: "proj", ui: true}},
+		// Without the UI there is no login, so no email question follows.
+		{"tokens without the UI", "proj\nn\n\nn\ny\nada@example.com\n",
+			options{dir: "proj", auth: true}},
+		{"an email of one's own", ".\ny\n\ny\ny\nada@example.com\n",
+			options{dir: ".", evalNode: true, ui: true, auth: true, email: "ada@example.com"}},
 		// Accepting the login is what adds the email question; declining never asks it.
-		{"accepting the login", "proj\nn\n\ny\n\n",
-			options{dir: "proj", auth: true, email: defaultEmail}},
+		{"accepting the login", "proj\nn\n\ny\ny\n\n",
+			options{dir: "proj", ui: true, auth: true, email: defaultEmail}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := options{dir: "."}.prompt(newPrompter(tc.input))

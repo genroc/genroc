@@ -13,10 +13,14 @@ import (
 // `genctl init --auth` writes the credentials itself, so no container runs as root to mint them.
 
 func renderCompose(t *testing.T, auth, evalNode bool) string {
-	return renderComposeDB(t, auth, evalNode, false)
+	return renderComposeWith(t, true, auth, evalNode, false)
 }
 
 func renderComposeDB(t *testing.T, auth, evalNode, postgres bool) string {
+	return renderComposeWith(t, true, auth, evalNode, postgres)
+}
+
+func renderComposeWith(t *testing.T, ui, auth, evalNode, postgres bool) string {
 	t.Helper()
 	body, err := templates.ReadFile("templates/compose.yaml")
 	if err != nil {
@@ -29,7 +33,7 @@ func renderComposeDB(t *testing.T, auth, evalNode, postgres bool) string {
 	var out strings.Builder
 	if err := tmpl.Execute(&out, map[string]any{
 		"Image": "i", "UIImage": "u", "WorkerImage": "w",
-		"Auth": auth, "EvalNode": evalNode, "Postgres": postgres,
+		"UI": ui, "Auth": auth, "EvalNode": evalNode, "Postgres": postgres,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +74,44 @@ func TestInitNoAuth_ReadsNoCredentialFilesButKeepsTheUI(t *testing.T) {
 	}
 }
 
+// Exactly one service owns the host port: genroc, or genroc-ui in front of it.
+func TestInitCompose_PublishesThePortOnce(t *testing.T) {
+	for _, ui := range []bool{false, true} {
+		out := renderComposeWith(t, ui, false, true, false)
+		if n := strings.Count(out, `ports: ["8448:8448"]`); n != 1 {
+			t.Errorf("ui=%v: 8448 published %d times; with none genctl reaches nothing, with two "+
+				"compose refuses to start", ui, n)
+		}
+		if got := strings.Contains(out, "genroc-ui:"); got != ui {
+			t.Errorf("ui=%v: genroc-ui service present = %v", ui, got)
+		}
+	}
+}
+
+// Auth without the UI is genroc's own tokens: the worker's seed, and no JWT secret to mount.
+func TestInitCompose_AuthWithoutTheUIUsesTokensOnly(t *testing.T) {
+	out := renderComposeWith(t, false, true, true, false)
+	for _, want := range []string{`GENROC_AUTH: "true"`, "GENROC_SEED_TOKENS_FILE", "GENROC_TOKEN_FILE",
+		"token create --perms admin --label admin"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(out, "jwt-secret") {
+		t.Error("compose names jwt-secret, which init writes only with the UI")
+	}
+}
+
+func TestInitCompose_TheDatabaseIsInTheEnvironment(t *testing.T) {
+	for postgres, want := range map[bool]string{false: "GENROC_DB: /data/genroc.db", true: "GENROC_PG: "} {
+		out := renderComposeWith(t, false, true, false, postgres)
+		if !strings.Contains(out, want) || strings.Contains(out, "--db") || strings.Contains(out, "--pg") {
+			t.Errorf("postgres=%v: the database is not (only) in the environment, so the printed "+
+				"`docker compose run --rm genroc token create` opens a different database:\n%s", postgres, out)
+		}
+	}
+}
+
 // The worker gets its own credential, never the signing key, which would let it mint any identity.
 func TestInitUI_MountsTheKeyAndTheTokenSeparately(t *testing.T) {
 	out := renderCompose(t, true, true)
@@ -103,7 +145,7 @@ func TestInitCompose_NothingPersistsOutsideTheDataFolder(t *testing.T) {
 
 func TestInitUI_SecretsAreWrittenOnceAndNeverRegenerated(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "data")
-	first, err := writeSecrets(dir, true)
+	first, err := writeSecrets(dir, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +154,7 @@ func TestInitUI_SecretsAreWrittenOnceAndNeverRegenerated(t *testing.T) {
 	}
 	// A regenerated signing key invalidates every session signed with the old one, and a
 	// regenerated token locks out whoever stored the last one.
-	if _, err := writeSecrets(dir, true); err == nil {
+	if _, err := writeSecrets(dir, true, true); err == nil {
 		t.Error("a second run overwrote the secrets; re-running init must refuse instead")
 	}
 
@@ -143,12 +185,21 @@ func TestInitUI_SecretsAreWrittenOnceAndNeverRegenerated(t *testing.T) {
 
 	// Without a worker there is nothing to seed, so the only secret is the signing key.
 	bare := filepath.Join(t.TempDir(), "data")
-	only, err := writeSecrets(bare, false)
+	only, err := writeSecrets(bare, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(only) != 1 || !strings.HasSuffix(only[0], "jwt-secret") {
 		t.Errorf("wrote %v, want only jwt-secret", only)
+	}
+
+	// Without the UI nothing mints JWTs, and a signing key nobody uses is still one that can.
+	tokens := filepath.Join(t.TempDir(), "data")
+	if got, err := writeSecrets(tokens, false, true); err != nil || len(got) != 2 {
+		t.Errorf("wrote %v (%v), want worker-token and seed-tokens only", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(tokens, "jwt-secret")); err == nil {
+		t.Error("jwt-secret written without the UI")
 	}
 }
 
@@ -207,7 +258,9 @@ func TestParseInitArgs(t *testing.T) {
 		want options
 		tag  string
 	}{
-		{"defaults", nil, options{dir: "."}, releaseTag()},
+		{"defaults: no UI", nil, options{dir: "."}, releaseTag()},
+		{"--ui", []string{"--ui"}, options{dir: ".", ui: true, setUI: true}, releaseTag()},
+		{"--no-ui", []string{"--no-ui"}, options{dir: ".", setUI: true}, releaseTag()},
 		{"a directory", []string{"orders"}, options{dir: "orders"}, releaseTag()},
 		{"--version takes the next argument", []string{"--version", "edge"},
 			options{dir: "."}, "edge"},
@@ -216,7 +269,8 @@ func TestParseInitArgs(t *testing.T) {
 		// The value is consumed, so what follows is still parsed as a flag rather than a folder.
 		{"--version does not swallow the next flag", []string{"--version", "edge", "--auth"},
 			options{dir: ".", auth: true, setAuth: true}, "edge"},
-		{"--auth", []string{"--auth"}, options{dir: ".", auth: true, setAuth: true}, releaseTag()},
+		{"--auth answers only its own question", []string{"--auth"},
+			options{dir: ".", auth: true, setAuth: true}, releaseTag()},
 		{"--no-auth", []string{"--no-auth"}, options{dir: ".", setAuth: true}, releaseTag()},
 		{"--eval-node", []string{"--eval-node"},
 			options{dir: ".", evalNode: true, setEvalNode: true}, releaseTag()},
