@@ -19,10 +19,16 @@ For `genctl`, store the token once, or set `GENROC_TOKEN`:
 
 Genroc supports classic tokens and JWT tokens.
 
+## Permissions
+
+Every token carries a list of permissions: `read`, `operate`, `deploy`, `worker` and `admin`.
+Any one of them is enough for an endpoint that lists it, and `admin` is enough for everything.
+What each permission allows is in the [REST API reference](/reference/rest-api/#permissions).
+
 ## Classic tokens
 
-These are tokens managed by genroc server, you can create them through the
-API or CLI. Creating one needs an admin token.
+These are tokens managed by the genroc server. You can create them through the
+API or CLI, which needs an admin token.
 
 ```sh
 > genctl token create --perms read --label "Read only token"
@@ -56,14 +62,15 @@ genroc_sk_EbTqXuTJhseXWTOcZyGlwCD8USE63A8YaZ36F0mmM5s
 
 Only the token itself goes to stdout, so `TOKEN=$(genroc token create ...)` captures just the token.
 
-Use `--pg <dsn>` instead of `--db` for PostgreSQL. With docker:
+Use `--pg <dsn>` instead of `--db` for PostgreSQL. Both are also read from `GENROC_DB` and
+`GENROC_PG`, which the `compose.yaml` from `genctl init` already sets, so with docker it's just:
 
 ```sh
-docker compose run --rm genroc token create --perms admin --db /data/genroc.db
+docker compose run --rm genroc token create --perms admin --label admin
 ```
 
 The same command gets you back in if you lose the admin token.
-Genroc also warns at startup when there is no admin token (unless JWT is enabled).
+Genroc also warns at startup when there is no admin token (unless JWTs are enabled).
 
 ### Seed tokens
 
@@ -116,7 +123,7 @@ The token has to carry:
 }
 ```
 
-`perms` are the same permissions as for genroc tokens, `sub` is who is calling
+`perms` are the same [permissions](#permissions) as for genroc tokens, `sub` is who is calling
 and shows up in logs as `jwt:ada@example.com`. `exp` is required, so keep the tokens short-lived.
 `iss` and `aud` default to the values above, change them with `--jwt-issuer` and `--jwt-audience`.
 
