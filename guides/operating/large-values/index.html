@@ -165,9 +165,58 @@
       })()
     </script> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/operating/managing-instances/">Operating</a> </p> <h1>Large values</h1> <p>How genroc manages large values in process instances.</p> </div>  <p>Genroc stores large values separately and doesn&#39;t return them
 directly when you communicate with the API.</p>
-<h2 id="what-is-large-value">What is large value?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-is-large-value"><span></span></a></h2>
-<p>Genroc limits size of a json fields to a certain size and if the value
-is exceeded it moves parts of the value into <code>objects</code>.</p>
+<h2 id="what-is-a-large-value">What is a large value?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-is-a-large-value"><span></span></a></h2>
+<p>Genroc measures each stored value on its own. When one is over its limit, genroc moves
+its largest parts into <code>objects</code> until the rest fits.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Stored value</th><th>Where you see it</th><th>Limit</th></tr></thead><tbody><tr><td>Process input</td><td><code>state.input</code></td><td>2 KiB</td></tr><tr><td>Each task&#39;s output, separately</td><td><code>state.outputs.&lt;task id&gt;</code></td><td>2 KiB</td></tr><tr><td>Process output</td><td><code>output</code></td><td>2 KiB</td></tr><tr><td>The last error</td><td><code>state.last_error</code></td><td>2 KiB</td></tr><tr><td>A raised error&#39;s data</td><td><code>error_data</code></td><td>2 KiB</td></tr><tr><td>External task input</td><td><code>external_input</code></td><td>2 KiB</td></tr><tr><td>A log entry&#39;s payload</td><td>the entry&#39;s <code>data</code></td><td>2 KiB</td></tr></tbody></table>
+<p>Ten task outputs of 1.5 KB each are therefore all kept inline: each one is under its own limit.</p>
+<p>A log entry&#39;s payload over <code>--log-payload-max</code> (default 1 MiB) is not stored at all. The entry&#39;s
+<code>meta.payload_omitted_bytes</code> says how big it was.</p>
 <h2 id="what-it-looks-like">What it looks like<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-it-looks-like"><span></span></a></h2>
 <p>Say a task downloads a web page and keeps the HTML (about 180 KB) in its output.
 The instance detail doesn&#39;t contain the HTML. The <code>body</code> field is <code>null</code>,
@@ -234,7 +283,7 @@ and <code>size</code> is its size in bytes. Only the large parts are moved out:
 
 <table><thead><tr><th>Endpoint</th><th>What can be moved out</th><th>Paths start at</th></tr></thead><tbody><tr><td><code>GET /api/instances/{id}</code></td><td><code>output</code>, <code>error_data</code>, <code>external_input</code></td><td>the response</td></tr><tr><td><code>GET /api/instances/{id}/detail</code></td><td>anything in <code>state</code></td><td>the response</td></tr><tr><td><code>GET /api/instances/{id}/logs</code></td><td>each entry&#39;s <code>data</code></td><td>the log entry</td></tr><tr><td><code>POST /api/external-tasks/claim</code></td><td>each item&#39;s <code>external_input</code></td><td>the item</td></tr></tbody></table>
 <p>No endpoint fills the values in for you; fetch each one with <code>GET /api/objects/{ref}</code>.</p>
-<p>Fetching an object needs the <code>read</code> or <code>worker</code> permission.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/custom-worker/"> <span>previous</span> <strong>Custom worker</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#what-is-large-value">What is large value?</a></li><li class="depth-2"><a href="#what-it-looks-like">What it looks like</a></li><li class="depth-2"><a href="#which-endpoints">Which endpoints</a></li></ul><script>
+<p>Fetching an object needs the <code>read</code> or <code>worker</code> permission.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/operating/custom-worker/"> <span>previous</span> <strong>Custom worker</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#what-is-a-large-value">What is a large value?</a></li><li class="depth-2"><a href="#what-it-looks-like">What it looks like</a></li><li class="depth-2"><a href="#which-endpoints">Which endpoints</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
