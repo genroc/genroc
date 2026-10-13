@@ -31,7 +31,7 @@ docker compose up
 ## Notes
 
 * **Authentication is off by default** and genroc warns loudly. `PUT /definitions` stores code
-  the engine runs, so an open port is remote code execution — use `--auth token`.
+  the engine runs, so an open port is remote code execution — use `--auth`.
 * **Omit `-ui`** to run headless. Same binary.
 * 39.5 MB on disk, ~10 MB compressed.
 

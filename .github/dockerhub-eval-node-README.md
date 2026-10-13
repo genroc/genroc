@@ -34,7 +34,7 @@ To run more scripts at once, scale the service or raise `CONCURRENCY`.
 | env | default | |
 |---|---|---|
 | `GENROC_SERVER` | `http://localhost:8448` | the genroc server |
-| `GENROC_TOKEN_FILE` | *(none)* | file holding the token, when the server uses `--auth token` |
+| `GENROC_TOKEN_FILE` | *(none)* | file holding the token, when the server uses `--auth` |
 | `GENROC_TOKEN` | *(none)* | the token inline; wins over the file |
 | `PROCESS` / `TASK` | `script-node` / `eval_node` | claim only this process / task id; the defaults are script-node's. Set `PROCESS` for a renamed copy, or `""` to drop a filter; **with both `""`, the worker claims every external task.** |
 | `CONCURRENCY` | `4` | scripts run at once |

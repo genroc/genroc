@@ -61,14 +61,18 @@ type Principal struct {
 Every mode produces this value with `Grants` already resolved — from a token's row, or a JWT's
 `perms` claim — so the gate has one input and cannot learn which mode ran.
 
-- **`token`** (`--auth token`) — genroc's own `genroc_sk_*`, for machines. §5.
-- **`jwt`** (on when `--jwt-secret-file` or `$GENROC_JWT_SECRET` is set) — an HS256 JWT minted by
-  genroc-ui, for people. §2.1, §2.4.
-- With neither, no authenticator is installed and every request is `no-auth:anonymous` holding
-  `admin` — the default, right for a laptop and `make test`. §6.
+`--auth` (`$GENROC_AUTH=true`) is the one switch, and with it on:
 
-The two are independent flags, and a deployment serving people and machines runs both: a browser
-can do a redirect flow and cannot hold a secret, a CI job the reverse. Both read
+- **`token`**, always — genroc's own `genroc_sk_*`, for machines. §5.
+- **`jwt`**, when `--jwt-secret-file` or `$GENROC_JWT_SECRET` is also set — an HS256 JWT minted by
+  genroc-ui, for people. §2.1, §2.4.
+- With `--auth` off, no authenticator is installed and every request is `no-auth:anonymous`
+  holding `admin` — the default, right for a laptop and `make test`. §6. A JWT secret without
+  `--auth` refuses to start: the secret turning auth on reads as if it only configured JWTs.
+
+There is no jwt-only mode: it would buy nothing, since a token table with no rows admits nobody. A
+browser can do a redirect flow and cannot hold a secret, a CI job the reverse, so both kinds share
+the switch. Both read
 `Authorization: Bearer`, so they compose in a `Chain`: each declines what is not its own (a
 `genroc_sk_*` is not three dot-separated segments; a JWT lacks the prefix) and the first to
 recognise the credential answers. **An authenticator that cannot decide stops the chain** and the
@@ -224,8 +228,8 @@ only admin expired or was revoked, is locked out and gets the warning.
 No-auth stays the default so `make test` and the quickstarts run unchanged, and is made
 defensible by a startup warning: with no authenticator and `--http` bound beyond loopback (the
 default `:8448` is all interfaces), genroc logs that anyone reaching the port can register a
-definition — arbitrary code execution. Suppressed when jwt mode is on. If the warning proves
-ignorable, the default should change.
+definition — arbitrary code execution. If the warning proves ignorable, the default should
+change.
 
 ## 7. Attribution
 

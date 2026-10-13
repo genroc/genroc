@@ -29,7 +29,7 @@ COPY --from=build /out/genroc /out/genctl /usr/local/bin/
 # directory" — an errno that points at the wrong cause. Bind mounts keep host ownership: chown
 # them to 65532.
 COPY --from=build --chown=nonroot:nonroot /empty /data
-# Safe because of -auth, not the bind address; `-auth none` warns on startup.
+# Safe because of --auth, not the bind address; without it genroc warns on startup.
 EXPOSE 8448
 USER nonroot
 ENTRYPOINT ["/usr/local/bin/genroc"]

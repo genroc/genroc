@@ -35,7 +35,7 @@ const (
 
 func main() {
 	configPath := flag.String("config", os.Getenv("GENROC_UI_CONFIG"),
-		"Path to the YAML config ($GENROC_UI_CONFIG). Without it, --server alone runs a UI with no login: requests are proxied as they arrive, which is the local shape against a server running --auth none or a pasted token.")
+		"Path to the YAML config ($GENROC_UI_CONFIG). Without it, --server alone runs a UI with no login: requests are proxied as they arrive, which is the local shape against a server without --auth, or a pasted token.")
 	server := flag.String("server", envOr("GENROC_SERVER", "http://localhost:8449"),
 		"The genroc API to proxy to, when no --config is given ($GENROC_SERVER).")
 	listen := flag.String("http", "", "Listen address; overrides the config.")

@@ -48,7 +48,7 @@ never talks to an identity provider: genroc-ui signs people in and mints the JWT
 only checks it against the secret the two share (`--jwt-secret-file`, see the
 [server reference](server.md)).
 
-The default is `--auth none`, which handles no `Authorization` at all and leaves every endpoint
+The default is no `--auth`, which handles no `Authorization` at all and leaves every endpoint
 open. That is fine on a laptop and nowhere else — `PUT /definitions` is arbitrary code
 execution on the server — so genroc warns at startup when it is also bound beyond loopback.
 

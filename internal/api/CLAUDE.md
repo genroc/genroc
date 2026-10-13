@@ -84,7 +84,7 @@ can appear is one genroc verified — there is no unverified one left to disting
 **`X-Genroc-Actor` reports that same string back on every HTTP response**, set in the route
 wrapper whenever a principal exists. A client cannot infer its own identity: behind a proxy the
 browser sends no credential of its own and still succeeds, which is indistinguishable from
-`--auth none` unless the server says which. Two rules, both pinned by an e2e test — a **403 carries
+no `--auth` unless the server says which. Two rules, both pinned by an e2e test — a **403 carries
 it** ("you are alice and alice may not" is the useful message), and a **401 must not**, because
 its absence is the signal to ask for a credential. It is a presentation affordance, not part
 of `Reply`.

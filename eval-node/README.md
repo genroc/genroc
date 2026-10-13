@@ -88,7 +88,7 @@ The worker connects to genroc, not the other way round, so it only needs outboun
 | env | default | |
 |---|---|---|
 | `GENROC_SERVER` | `http://localhost:8448` | the genroc server |
-| `GENROC_TOKEN` / `GENROC_TOKEN_FILE` | *(none)* | token, or a file holding it, when the server uses `--auth token` |
+| `GENROC_TOKEN` / `GENROC_TOKEN_FILE` | *(none)* | token, or a file holding it, when the server uses `--auth` |
 | `PROCESS` / `TASK` | `script-node` / `eval_node` | the process and task id this worker claims; the defaults are script-node's. Set `PROCESS` for a renamed copy. Neither may be empty. |
 | `CONCURRENCY` | `4` | scripts run at once |
 | `LEASE_MS` | `30000` | claim lease, renewed every third of it |

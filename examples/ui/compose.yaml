@@ -43,10 +43,10 @@ services:
     # Environment rather than a command array: one key per line. Unnamed settings default.
     environment:
       GENROC_DB: /data/genroc.db
-      # BOTH credential types: the secret accepts genroc-ui's JWTs for people, token mode the
-      # evaluator's opaque credential; each declines what is not its own.
+      # BOTH credential types: the secret accepts genroc-ui's JWTs for people, beside the
+      # evaluator's opaque token; each declines what is not its own.
+      GENROC_AUTH: "true"
       GENROC_JWT_SECRET_FILE: /data/jwt-secret
-      GENROC_AUTH: token
       # Generated in ./data, not by genroc, so no secret originates in the server or its logs.
       # Stored if absent, ignored if present.
       GENROC_SEED_TOKENS_FILE: /data/seed-tokens

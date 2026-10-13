@@ -1,10 +1,11 @@
+import { createHmac } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // specs/api-auth.md §3, §5. Over HTTP because only that proves the gate fronts every route. This
-// server runs --auth token, unlike the shared one, so its admin credential is seeded.
+// server runs --auth, unlike the shared one, so its admin credential is seeded.
 
 const ADMIN = "genroc_sk_" + "a".repeat(43);
 const dbPath = tmpPath("genroc_auth", ".db");
@@ -32,7 +33,7 @@ async function mint(perms: string[], label = perms.join("-")): Promise<string> {
 beforeAll(async () => {
   const seeds = tmpPath("genroc_seed_tokens");
   writeFileSync(seeds, `admin=admin=${ADMIN}\n`);
-  server = await startGenroc({ db: dbPath, args: ["--auth", "token", "--seed-tokens-file", seeds] });
+  server = await startGenroc({ db: dbPath, args: ["--auth", "--seed-tokens-file", seeds] });
   base = server.baseUrl;
 }, 120_000);
 
@@ -62,7 +63,7 @@ test("auth — with no admin token genroc warns and mints none", async () => {
   const bare = await startGenroc({
     db: tmpPath("genroc_noadmin", ".db"),
     log: "info",
-    args: ["--auth", "token"],
+    args: ["--auth"],
     onStderr: (c) => {
       stderr += c;
     },
@@ -77,13 +78,58 @@ test("auth — with no admin token genroc warns and mints none", async () => {
   const seeded = await startGenroc({
     db: dbPath,
     log: "info",
-    args: ["--auth", "token"],
+    args: ["--auth"],
     onStderr: (c) => {
       stderr += c;
     },
   });
   await seeded.stop();
   expect(stderr, "the warning fired with a live admin token stored").not.toContain("no admin token");
+}, 60_000);
+
+/** An HS256 JWT, as genroc-ui or any other issuer holding the shared secret would mint it. */
+function signJWT(secret: string, claims: Record<string, unknown>): string {
+  const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const body = `${enc({ alg: "HS256", typ: "JWT" })}.${enc(claims)}`;
+  return `${body}.${createHmac("sha256", secret).update(body).digest("base64url")}`;
+}
+
+test("auth — with a JWT secret, a signed JWT and a genroc token both get in", async () => {
+  const secret = "s".repeat(40);
+  const seeds = tmpPath("genroc_seed_tokens");
+  writeFileSync(seeds, `admin=admin=${ADMIN}\n`);
+  const both = await startGenroc({
+    db: tmpPath("genroc_jwt", ".db"),
+    args: ["--auth", "--seed-tokens-file", seeds],
+    env: { GENROC_JWT_SECRET: secret },
+  });
+  try {
+    const get = (token: string) =>
+      fetch(`${both.baseUrl}/api/definitions`, { headers: { authorization: `Bearer ${token}` } });
+    const exp = Math.floor(Date.now() / 1000) + 60;
+    const claims = { iss: "genroc-ui", aud: "genroc", sub: "ada@example.com", exp };
+    expect((await get(signJWT(secret, { ...claims, perms: ["read"] }))).status, "a JWT carrying read").toBe(200);
+    expect((await get(signJWT(secret, { ...claims, perms: ["worker"] }))).status, "perms come from the JWT").toBe(403);
+    expect((await get(signJWT("x".repeat(40), { ...claims, perms: ["read"] }))).status, "another key").toBe(401);
+    expect((await get(ADMIN)).status, "a genroc token must still work beside JWTs").toBe(200);
+  } finally {
+    await both.stop();
+  }
+}, 60_000);
+
+test("auth — a JWT secret without --auth refuses to start", async () => {
+  let stderr = "";
+  const start = startGenroc({
+    db: tmpPath("genroc_jwt_noauth", ".db"),
+    env: { GENROC_JWT_SECRET: "s".repeat(40) },
+    onStderr: (c) => {
+      stderr += c;
+    },
+  });
+  await expect(start, "a JWT setting must not turn auth on silently, nor be ignored").rejects.toThrow(
+    "exited before becoming ready",
+  );
+  expect(stderr).toContain("--auth");
 }, 60_000);
 
 test("auth — a worker token reaches the inbound zone and nothing else", async () => {

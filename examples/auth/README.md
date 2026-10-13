@@ -1,6 +1,6 @@
 # Authentication demo
 
-genroc with `--auth token`, credentials scoped to what each caller needs, and a script worker
+genroc with `--auth`, credentials scoped to what each caller needs, and a script worker
 that holds the weakest one. specs/api-auth.md.
 
     ./examples/auth/gen-secrets.sh                   # once — mints both credentials

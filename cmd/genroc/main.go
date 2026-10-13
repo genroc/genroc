@@ -18,6 +18,7 @@ import (
 	"genroc/internal/engine"
 	"genroc/internal/logview"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -41,8 +42,8 @@ func main() {
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk's serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.")
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown.")
-	authMode := flag.String("auth", envOr("GENROC_AUTH", "none"), "How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator unless jwt is configured, which then requires a JWT) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database).")
-	jwtSecretFile := flag.String("jwt-secret-file", os.Getenv("GENROC_JWT_SECRET_FILE"), "Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.")
+	authOn := flag.Bool("auth", envBool("GENROC_AUTH"), "Require a credential on every API request ($GENROC_AUTH=true): a genroc_sk_* token in Authorization: Bearer, or a JWT when --jwt-secret-file is set. Off by default, where every request is treated as an operator.")
+	jwtSecretFile := flag.String("jwt-secret-file", os.Getenv("GENROC_JWT_SECRET_FILE"), "Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. With --auth, JWTs signed with it are accepted beside genroc_sk_* tokens: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them.")
 	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The iss claim a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
 	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The aud claim a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
 	jwtLeeway := flag.String("jwt-leeway", os.Getenv("GENROC_JWT_LEEWAY"), "Clock skew allowed on exp/nbf ($GENROC_JWT_LEEWAY); default 30s. A fixed zero fails on real clusters.")
@@ -129,42 +130,44 @@ func main() {
 	srv := api.NewServer(handlers, log)
 
 	// genroc-ui's JWTs (people) and genroc's tokens (machines) compose on the bearer header.
-	// humanAuthOn suppresses the exposure warning and the no-admin warning: an operator already
-	// has a way in. specs/ui-issued-tokens.md.
-	humanAuthOn := false
+	// specs/api-auth.md §2.
+	jwtSecret := os.Getenv("GENROC_JWT_SECRET")
+	jwtOn := jwtSecret != "" || *jwtSecretFile != ""
 	var auths []api.Authenticator
-	if secret := os.Getenv("GENROC_JWT_SECRET"); secret != "" || *jwtSecretFile != "" {
-		j, err := api.NewJWTAuth(api.JWTModeConfig{
-			Issuer: *jwtIssuer, Audience: *jwtAudience,
-			Secret: secret, SecretFile: *jwtSecretFile, Leeway: *jwtLeeway,
-		})
-		if err != nil {
-			log.Error("jwt auth", "err", err)
-			os.Exit(1)
-		}
-		auths = append(auths, j)
-		humanAuthOn = true
-		issuer, audience := *jwtIssuer, *jwtAudience
-		if issuer == "" {
-			issuer = api.DefaultJWTIssuer
-		}
-		if audience == "" {
-			audience = api.DefaultJWTAudience
-		}
-		log.Info("API authentication enabled", "mode", "jwt", "issuer", issuer,
-			"audience", audience, "alg", "HS256")
-	}
-
-	switch *authMode {
-	case "none":
+	switch {
+	case !*authOn && jwtOn:
+		// Refused rather than implied: a JWT setting silently turning auth on reads as if it
+		// only configured JWTs.
+		log.Error("a JWT secret is set but --auth is off; add --auth (or GENROC_AUTH=true)")
+		os.Exit(1)
+	case !*authOn:
 		// Loud when reachable off-host: an unauthenticated PUT /definitions on the network
-		// should be a decision (specs/api-auth.md §6). Keyed on a human mode being ON, not on
-		// a config file existing.
-		if exposedAddr(*httpAddr) && !humanAuthOn {
-			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use --auth token, or bind to localhost.",
+		// should be a decision (specs/api-auth.md §6).
+		if exposedAddr(*httpAddr) {
+			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use --auth, or bind to localhost.",
 				"addr", *httpAddr)
 		}
-	case "token":
+	default:
+		if jwtOn {
+			j, err := api.NewJWTAuth(api.JWTModeConfig{
+				Issuer: *jwtIssuer, Audience: *jwtAudience,
+				Secret: jwtSecret, SecretFile: *jwtSecretFile, Leeway: *jwtLeeway,
+			})
+			if err != nil {
+				log.Error("jwt auth", "err", err)
+				os.Exit(1)
+			}
+			auths = append(auths, j)
+			issuer, audience := *jwtIssuer, *jwtAudience
+			if issuer == "" {
+				issuer = api.DefaultJWTIssuer
+			}
+			if audience == "" {
+				audience = api.DefaultJWTAudience
+			}
+			log.Info("API authentication enabled", "mode", "jwt", "issuer", issuer,
+				"audience", audience, "alg", "HS256")
+		}
 		var seeds string
 		if *seedTokensFile != "" {
 			raw, err := os.ReadFile(*seedTokensFile)
@@ -193,8 +196,9 @@ func main() {
 				log.Info("seeded operator-supplied credentials", "created", seeded.created)
 			}
 		}
-		// Warned, not minted: a secret genroc printed would be in the logs. specs/api-auth.md §5.3.
-		if !humanAuthOn {
+		// Warned, not minted: a secret genroc printed would be in the logs. Not with JWTs on,
+		// where genroc-ui is the operator's way in. specs/api-auth.md §5.3.
+		if !jwtOn {
 			if ok, err := database.HasLiveAdminToken(context.Background()); err != nil {
 				log.Error("count admin tokens", "err", err)
 				os.Exit(1)
@@ -204,9 +208,6 @@ func main() {
 		}
 		auths = append(auths, api.NewTokenAuth(database))
 		log.Info("API authentication enabled", "mode", "token")
-	default:
-		log.Error("unknown --auth mode", "mode", *authMode, "valid", "none, token")
-		os.Exit(1)
 	}
 
 	// Installed once, after both switches: jwt and token both read the bearer credential, so a
@@ -288,6 +289,20 @@ func newLogger(level string, mode logview.Mode) *slog.Logger {
 
 // envOr lets a container set flags by environment, which composes per key where a `command:`
 // array restates every flag. The flag wins when both are given.
+// envBool exits on a value it cannot read: a typo in GENROC_AUTH must not start an open server.
+func envBool(key string) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "genroc: $%s=%q: want true or false\n", key, v)
+		os.Exit(2)
+	}
+	return b
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

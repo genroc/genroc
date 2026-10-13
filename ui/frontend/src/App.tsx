@@ -16,7 +16,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<"instances" | "tokens">("instances");
   // Reported by the server on every response, never inferred: "it worked and I sent nothing"
-  // means `-auth none` OR a proxy that authenticated us, and those are opposite things.
+  // means no `--auth` OR a proxy that authenticated us, and those are opposite things.
   const [who, setWho] = useState<string | null>(null);
 
   // No credential of its own behind a proxy. A 401 means no proxy and nothing pasted, which the
@@ -71,7 +71,7 @@ export function App() {
           ))}
         </nav>
         {who?.startsWith("none:") ? (
-          <span className="muted" title="genroc was started with -auth none">
+          <span className="muted" title="genroc was started without --auth">
             authentication off — every caller is an operator
           </span>
         ) : who ? (

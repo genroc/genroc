@@ -30,7 +30,6 @@ services:
       - --http
       - :8448
       - --auth
-      - token
     # Stored if absent, ignored if present, so a restart is a no-op. The admin line is needed for
     # the first start only, then deleted.
     secrets: [seed-tokens]
