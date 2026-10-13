@@ -175,9 +175,7 @@ It provides language support for <code>*.genroc.yaml</code> files.</p>
 </blockquote>
 <p>Following command will start docker containers:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> up</span><span style="color:#8FB996"> -d</span></span></code></pre>
-<p>Try entering <code>http://localhost:8448</code> to see if genroc is running correctly. If yes you should see genroc UI.</p>
-<figure class="screenshot" data-astro-cid-kixgfawn> <img src="/_astro/create-project.BGXwkTf8_11Ugyu.webp" alt="The genroc UI, showing a process instance" data-astro-cid-kixgfawn="true" loading="lazy" decoding="async" fetchpriority="auto" width="1071" height="535"> </figure> 
-<p>Genctl looks for genroc server on port 8448 by default, so it should now work as well.</p>
+<p>Genroc listens on port 8448, which is where genctl looks for it by default, so it should now work:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>&gt; genctl instances</span></span>
 <span class="line"><span>no instances</span></span></code></pre>
 <p>Should run without an error.</p>
