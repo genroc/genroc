@@ -222,12 +222,13 @@ hosted databases often don&#39;t give you, and genroc refuses to start if it can
 find out if the full flush to disk actually happened. Databases use the <code>fsync</code> call
 to instruct the OS to write data all the way to the disk, but this might not
 be enough if the disk is virtualized and you might need to check the actual environment.</p>
-<p>Genroc solves the macOS F_FULLFSYNC problem by default for SQLite (on macOS <code>fsync</code>
+<p>Genroc solves the <a href="https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html">macOS F_FULLFSYNC problem</a> by default for SQLite (on macOS <code>fsync</code>
 returns before the drive empties its own cache). But for PostgreSQL you need to make sure
 you have this configured correctly.</p>
-<p>On Linux the PostgreSQL defaults are fine. When PostgreSQL runs directly on macOS
-or Windows, set this in <code>postgresql.conf</code>:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>wal_sync_method = fsync_writethrough</span></span></code></pre>
+<p>On Linux the PostgreSQL defaults are fine. When PostgreSQL runs directly on macOS or Windows,
+set <code>wal_sync_method</code> in <code>postgresql.conf</code> (see <a href="https://www.postgresql.org/docs/current/wal-reliability.html">WAL reliability</a>):</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>wal_sync_method = fsync_writethrough   # macOS</span></span>
+<span class="line"><span>wal_sync_method = fsync                # Windows</span></span></code></pre>
 <p>Then reload the configuration (a restart works too) and check it&#39;s applied:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> psql -c </span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">SELECT pg_reload_conf()</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> psql -c </span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">SHOW wal_sync_method</span><span style="color:#8A8A84">&quot;</span></span></code></pre>
