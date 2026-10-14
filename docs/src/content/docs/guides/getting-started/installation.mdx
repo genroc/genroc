@@ -63,6 +63,12 @@ no instances
 
 Should run without an error.
 
+Stop it with `docker compose down`, your data stays in the `data` folder.
+
+> The default setup has no authentication, anyone on your network can run code through it.
+> Use `genctl init --auth` to turn it on, and see [Running in production](../operating/running-in-production.mdx)
+> before running genroc anywhere but your laptop.
+
 ## `data` folder
 
 Our example project stores database files in the `data` folder. This folder is in `.gitignore` by default.

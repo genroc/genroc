@@ -1,0 +1,180 @@
+---
+title: Running in production
+description: How to setup genroc in production.
+order: 6
+---
+
+Genroc defaults are skewed to comfortable local setup, the production environment
+requires careful consideration about long term sustainability and scalability.
+
+## Database
+
+Genroc supports SQLite and PostgreSQL, they are great at different use cases.
+
+SQLite
+ - doesn't require separate db server (nice when running locally)
+ - db is a single file (plus `-wal` and `-shm` files next to it in WAL mode)
+ - lower latency - can be faster when there is low number of parallel processes
+ - single writer - doesn't scale horizontally
+ - less options to tune the db later
+
+PostgreSQL
+ - per row writer locks - many genroc servers can work against one database
+ - possibility to use hosted db
+ - better tuning options like `--pg-commit-delay`
+
+For production, PostgreSQL is the safer bet, unless you have specific needs.
+Postgres offers much better horizontal scalability, because commits that happen
+at the same time are written to disk together - so there can be many workers
+working in parallel.
+
+## Durability
+
+Genroc engine operation can be viewed as a state machine. Worker picks up
+the process current state and advances it into the next state. The state changes
+are atomic - done in one transaction. If there is a control handover, like parent
+to the child, it is also done in one transaction, parent is parked and the child
+is initialized to start.
+
+So essentially any dead state (process got stuck with no error) is considered
+a bug and shouldn't occur. Because the state changes are performed in transactions
+we rely on DB to ensure that there are no damaged data in case of an outage.
+
+### Persistency
+
+A successfully executed SQL query doesn't always mean the data have been written to the disk.
+By default both databases flush every commit to disk, but for performance genroc lets
+them confirm ordinary writes before they reach the disk, and flush them later.
+This can lead to the last few transactions being lost after an outage.
+
+For Genroc this could lead to loss of data that were handed over and confirmed as
+saved (like process start or resolution of external task) or a re-execution of tasks.
+We can mitigate this by forcing the DB to do a full fsync with the disk,
+but if we do this all the time, it dramatically decreases the performance.
+
+### What is guaranteed
+
+As a compromise, genroc guarantees that any data submitted by the user
+will not be lost and that any task marked `only_once` is not re-executed
+in this case. So it does a full flush in these cases.
+
+You can change this with the `--durability` option:
+
+  - `only-once` (default): work handed in from outside and `only_once` tasks. Ordinary task
+    progress may replay after a power cut.
+  - `terminal`: also process ends, so a finished process can't rewind to running.
+  - `strict`: every commit, so no completed task repeats.
+  - `none`: nothing is forced to disk. A crash of genroc itself loses nothing, but a power cut
+    or OS crash can lose the last moments of any work, `only_once` included. Used in tests.
+
+Here comes the big difference between SQLite and PostgreSQL. If you set
+higher `--durability` with SQLite, the performance will suffer proportionally:
+each flushed transaction goes to disk on its own, and the writes are sequential.
+
+PostgreSQL writes commits that happen at the same time to disk together, so with many
+processes running in parallel it handles higher `--durability` much better
+(we measured about 9× SQLite's throughput at the same durability).
+There is no durability penalty, because workers still receive confirmation
+after it's on the disk, the difference is that the writes are done together and not
+separately. This doesn't help a single process: its tasks run one after another,
+so each still waits for its own flush.
+
+You can widen that window with `--pg-commit-delay`, which makes PostgreSQL wait
+a few microseconds for more commits to join. It brings smaller gains (we measured
+3% to 33%), so measure on your own storage. It needs a superuser connection, which
+hosted databases often don't give you, and genroc refuses to start if it can't set it.
+
+### Making sure data reach the disk
+
+Genroc can instruct the db to do the fsync, but it can sometimes be tricky to
+find out if the full flush to disk actually happened. Databases use the `fsync` call
+to instruct the OS to write data all the way to the disk, but this might not
+be enough if the disk is virtualized and you might need to check the actual environment.
+
+Genroc solves the macOS F_FULLFSYNC problem by default for SQLite (on macOS `fsync`
+returns before the drive empties its own cache). But for PostgreSQL you need to make sure
+you have this configured correctly.
+
+On Linux the PostgreSQL defaults are fine. When PostgreSQL runs directly on macOS
+or Windows, set this in `postgresql.conf`:
+
+```
+wal_sync_method = fsync_writethrough
+```
+
+Then reload the configuration (a restart works too) and check it's applied:
+
+```sh
+> psql -c "SELECT pg_reload_conf()"
+> psql -c "SHOW wal_sync_method"
+```
+
+This doesn't help PostgreSQL running in Docker on macOS or Windows, it runs on Linux
+inside a virtual machine and the flush ends there.
+
+## Authentication
+
+In production we recommend always running genroc with the `--auth` option.
+Without it, anyone who can reach the genroc server can register a process definition and
+potentially execute malicious code. Genroc warns about this at startup.
+
+Create the first admin token with `genroc token create`, as described in
+[Authentication](./authentication.mdx), and don't leave it accessible to anyone.
+
+Be careful with handing out `admin` permissions, as they allow a user to mint their own tokens,
+which stay valid even after you downgrade their permissions. Tokens however record who created
+them, so you can find them with `genctl token list` and revoke them with `genctl token revoke`.
+
+Give every machine only what it needs. A worker needs just the `worker` permission, and its token
+is best provided through a [seed tokens](./authentication.mdx#seed-tokens) file, so it exists
+before the worker starts. People should come through [Genroc UI](./genroc-ui.mdx), which signs
+them in and gives them permissions by their groups. Its shared JWT secret allows minting a token
+with any permissions, so protect it like an admin token.
+
+Genroc speaks plain HTTP. Tokens travel in a header, so terminate TLS in front of genroc
+(an ingress or a reverse proxy), and don't expose it to the internet without it.
+
+## Health checks
+
+`GET /healthz` is the endpoint for your load balancer or orchestrator. It needs no token,
+so it works with `--auth` on, and it lives outside `/api`:
+
+```sh
+> curl localhost:8448/healthz
+{"status":"ok","worker_id":"...","database":"postgres","lease_age_ms":812,"manual_tick":false}
+```
+
+It answers 503 only when genroc can't reach its database, which is the one failure where
+routing to another server helps. Use it as the readiness probe. The other fields are there
+for you to read, for example `lease_age_ms` growing past `--lease-duration` means this server
+can't renew its work and other servers are taking it over.
+
+The genroc image is distroless, it has no shell or `curl`, so a compose `healthcheck` command
+can't run inside the container. Use your orchestrator's HTTP probe instead.
+
+## Shutdown and restarts
+
+If genroc crashes, its work isn't lost. Each instance is leased to one server, and once the lease
+lapses (`--lease-duration`, 10s) another server, or the same one after a restart, continues it.
+The interrupted task runs again, except an `only_once` task, which raises `only_once.interrupted`.
+See [Surviving a restart](../getting-started/surviving-a-restart.mdx).
+
+On SIGTERM genroc stops taking new work and lets running work finish for up to `--shutdown-grace`
+(15s). Whatever is still running then continues elsewhere, as after a crash. Give the container
+longer than that to stop: Docker's default is 10s, so set `stop_grace_period: 20s`;
+Kubernetes' 30s is enough.
+
+## Logs and storage
+
+If a log collector reads genroc's output, switch it to one JSON object per line with
+`--log-mode json`. Times are in UTC, so logs from several servers line up.
+
+Every instance also has its own log in the database, the one `genctl logs` shows. Genroc keeps
+it for `--log-retention`, 7 days by default (`0` keeps it forever). These logs record the inputs
+and outputs of tasks and calls, so anything sensitive in them ends up there too. Turn that off
+with `--log-payloads=false`, or limit the recorded size with `--log-payload-max` (1 MB by default).
+
+When an instance replaces a large value, the old one stays readable for `--object-grace`
+(1 hour by default), so a client that already has a reference to it can still fetch it.
+
+Instances themselves are never deleted yet, so the database keeps growing. Plan disk space for it.
