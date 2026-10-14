@@ -73,7 +73,7 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [x] script tasks — user TypeScript on the claim queue, no new engine capability
 - [x] source resolution, typed phase — `$import` resolved client-side, typecheck as exit code
 - [x] lease fencing — frozen-worker repair, per-grant `lease_epoch`
-- [x] durability levels — `--durability`, `--pg-commit-delay`, `--sqlite-fullfsync`
+- [x] durability levels — `--durability` (`none` … `strict`), `--pg-commit-delay`, `--sqlite-fullfsync` (on for macOS)
 - [x] object store — content-addressed, ref-owned, grace window on collection
 - [x] lazy context — a `Context` that answers a path and loads only what it needs
 - [x] resource limits and readiness — response cap, shared client, jittered backoff,

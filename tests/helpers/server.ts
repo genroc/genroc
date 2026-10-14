@@ -99,18 +99,16 @@ function spawnProc(bin: string, port: number, o: StartOptions): ChildProcess {
       ? ["--pg-commit-delay", process.env.GENROC_PG_COMMIT_DELAY]
       : []),
   ];
-  // Optional SQLite durability via env (used by the benchmark to compare engines at
-  // matched durability, e.g. GENROC_SQLITE_SYNCHRONOUS=FULL). Ignored for Postgres.
+  // The durability ladder (specs/durability-levels.md). Tests run at `none`: they crash the
+  // process, never the power, and a process crash loses nothing even there. The benchmark sets it.
   const syncArgs = [
-    ...(process.env.GENROC_SQLITE_SYNCHRONOUS
-      ? ["--sqlite-synchronous", process.env.GENROC_SQLITE_SYNCHRONOUS]
+    "--durability",
+    process.env.GENROC_DURABILITY ?? "none",
+    // Unset follows the server's default (on for macOS); 0 measures plain fsync(2), which on
+    // macOS does not flush the drive cache.
+    ...(process.env.GENROC_SQLITE_FULLFSYNC
+      ? [`--sqlite-fullfsync=${process.env.GENROC_SQLITE_FULLFSYNC !== "0"}`]
       : []),
-    // On macOS a plain fsync(2) does not flush the drive cache, so an unset flag here
-    // makes synchronous=FULL benchmark ~20x faster than it would on real storage.
-    ...(process.env.GENROC_SQLITE_FULLFSYNC ? ["--sqlite-fullfsync"] : []),
-    // The durability ladder (specs/durability-levels.md): unset means strict, which is
-    // what every test other than the benchmark wants.
-    ...(process.env.GENROC_DURABILITY ? ["--durability", process.env.GENROC_DURABILITY] : []),
   ];
   const proc = spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", o.log ?? "error", ...pollArgs, ...concArgs, ...retryArgs, ...leaseArgs, ...poolArgs, ...syncArgs, ...(o.args ?? [])], {
     stdio: ["ignore", "ignore", o.onStderr ? "pipe" : "ignore"],

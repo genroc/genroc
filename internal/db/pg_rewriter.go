@@ -69,7 +69,9 @@ func (db *DB) beginTxAt(ctx context.Context, floor Durability, opts *sql.TxOptio
 	relaxed := !db.level().syncs(floor)
 
 	s := &syncTx{db: db}
-	if relaxed && db.dialect == "sqlite" {
+	// Only a connection that syncs per commit has anything to relax; pinning one already at
+	// NORMAL (as under `none`) would only serialise writers for nothing.
+	if relaxed && db.dialect == "sqlite" && (db.sqliteBaseSync == "FULL" || db.sqliteBaseSync == "EXTRA") {
 		// Pinned, not set through the pool: a separately issued PRAGMA could be overtaken by
 		// another goroutine's write, which would then commit at this level.
 		conn, err := db.sqldb.Conn(ctx)

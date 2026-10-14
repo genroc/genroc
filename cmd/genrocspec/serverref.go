@@ -23,7 +23,7 @@ var serverGroups = []struct {
 	{"Listening", "Where the API is served. An empty `--http` runs a worker-only node.", []string{"http", "pprof"}},
 	{"Database", "SQLite by default; `--pg` switches to PostgreSQL.", []string{"db", "pg", "pg-max-open-conns"}},
 	{"Durability", "What is flushed to disk before a write is acknowledged.",
-		[]string{"durability", "sqlite-synchronous", "sqlite-fullfsync", "pg-commit-delay"}},
+		[]string{"durability", "sqlite-fullfsync", "pg-commit-delay"}},
 	{"Authentication", "Off by default; `--auth` turns it on. Machines use tokens; people reach the API through genroc-ui.",
 		[]string{"auth", "seed-tokens-file",
 			"jwt-secret-file", "jwt-issuer", "jwt-audience", "jwt-leeway"}},

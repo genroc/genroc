@@ -10,6 +10,9 @@ func TestDurability_FloorIsSafeAtZero(t *testing.T) {
 	// every level, so forgetting to classify a new write path costs throughput and never a
 	// guarantee. That only holds while the zero value is the WEAKEST level.
 	var unclassified Durability // what a forgotten floor is
+	if unclassified != syncAlways {
+		t.Fatalf("the zero value is %s, not syncAlways; a level added below it must not shift the iota", unclassified)
+	}
 	for _, level := range []Durability{DurabilityOnlyOnce, DurabilityTerminal, DurabilityStrict} {
 		if !level.syncs(unclassified) {
 			t.Fatalf("level %s does not flush an unclassified write; a forgotten floor must cost throughput, not a guarantee", level)
@@ -23,6 +26,7 @@ func TestDurability_LadderIsStrictlyIncreasing(t *testing.T) {
 	floors := []Durability{syncAlways, syncTerminal, syncStrict}
 	for _, floor := range floors {
 		for _, pair := range [][2]Durability{
+			{DurabilityNone, DurabilityOnlyOnce},
 			{DurabilityOnlyOnce, DurabilityTerminal},
 			{DurabilityTerminal, DurabilityStrict},
 		} {
@@ -41,7 +45,10 @@ func TestDurability_WhatEachLevelFlushes(t *testing.T) {
 		level, floor Durability
 		want         bool
 	}{
-		{DurabilityOnlyOnce, syncAlways, true},    // inbound work: never dropped, at any level
+		{DurabilityNone, syncAlways, false}, // nothing, not even inbound work or only_once
+		{DurabilityNone, syncTerminal, false},
+		{DurabilityNone, syncStrict, false},
+		{DurabilityOnlyOnce, syncAlways, true},    // inbound work: never dropped, at any level but none
 		{DurabilityOnlyOnce, syncTerminal, false}, // a finished process may rewind
 		{DurabilityOnlyOnce, syncStrict, false},   // ordinary task writes replay
 		{DurabilityTerminal, syncAlways, true},
@@ -60,6 +67,7 @@ func TestDurability_WhatEachLevelFlushes(t *testing.T) {
 
 func TestParseDurability(t *testing.T) {
 	for in, want := range map[string]Durability{
+		"none":      DurabilityNone,
 		"only-once": DurabilityOnlyOnce,
 		"terminal":  DurabilityTerminal,
 		"strict":    DurabilityStrict,
@@ -70,7 +78,7 @@ func TestParseDurability(t *testing.T) {
 			t.Errorf("ParseDurability(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"none", "accepted", "STRICT", "off", "full"} {
+	for _, bad := range []string{"NONE", "accepted", "STRICT", "off", "full"} {
 		if _, err := ParseDurability(bad); err == nil {
 			t.Errorf("ParseDurability(%q) accepted an unknown level", bad)
 		}

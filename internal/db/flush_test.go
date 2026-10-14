@@ -44,6 +44,17 @@ func TestFlush_IsANoOpAtStrict(t *testing.T) {
 	}
 }
 
+func TestFlush_IsANoOpAtNone(t *testing.T) {
+	db := openTempSQLite(t, DurabilityNone)
+	before := markerN(t, db)
+	if err := db.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := markerN(t, db); got != before || db.FlushCount() != 0 {
+		t.Fatalf("marker moved %d -> %d at none; `none` promises no flush, and a Flush is one", before, got)
+	}
+}
+
 func TestFlush_RunsAtFullSynchronous(t *testing.T) {
 	// The point of Flush is the fsync, so it must not itself be relaxed. Observable the
 	// same way the relaxed writes are: the connection it borrowed goes back at the base

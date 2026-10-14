@@ -1,6 +1,6 @@
 // `node bench/run.ts <workload>`: times draining a workloads/<name>.yaml backlog on SQLite, and on
 // Postgres when POSTGRES_DSN is set. Every numeric knob lives in the YAML's `bench` section; env only
-// selects (BENCH_WORKLOAD, BENCH_ENGINES, BENCH_JSON, GENROC_SQLITE_SYNCHRONOUS).
+// selects (BENCH_WORKLOAD, BENCH_ENGINES, BENCH_JSON, GENROC_DURABILITY, GENROC_SQLITE_FULLFSYNC).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { load as loadYaml } from "js-yaml";
@@ -12,6 +12,9 @@ import {
   tmpPath,
   type GenrocProcess,
 } from "../helpers/server.ts";
+
+// Before any server starts: the test helper's own default is `none`, which would measure nothing.
+process.env.GENROC_DURABILITY ??= "strict";
 
 // Read rather than imported: no bundler here parses .yaml, and a static import of one
 // resolves at typecheck and then fails at run. Adding a workload = a new YAML + one line.
@@ -261,12 +264,12 @@ function report(results: EngineResult[]) {
   );
   // Both engines fully durable by default. fullfsync is printed because on macOS it separates a
   // real fsync from a 185x-faster no-op (specs/durability-levels.md §1).
-  const sqliteSync = process.env.GENROC_SQLITE_SYNCHRONOUS ?? "FULL";
-  const fullFsync = process.env.GENROC_SQLITE_FULLFSYNC ? "on" : "off";
+  const fullFsyncEnv = process.env.GENROC_SQLITE_FULLFSYNC;
+  const fullFsync = fullFsyncEnv ? (fullFsyncEnv !== "0" ? "on" : "off") : platform() === "darwin" ? "on" : "off";
   const commitDelay = process.env.GENROC_PG_COMMIT_DELAY ?? "0";
-  const level = process.env.GENROC_DURABILITY ?? "strict";
+  const level = process.env.GENROC_DURABILITY;
   console.log(
-    `durability: level=${level}, sqlite synchronous=${sqliteSync} fullfsync=${fullFsync}, ` +
+    `durability: level=${level}, sqlite fullfsync=${fullFsync}, ` +
       `postgres synchronous_commit=on commit_delay=${commitDelay}us`,
   );
   console.log(`host:   ${HOST}\n`);

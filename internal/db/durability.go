@@ -13,9 +13,13 @@ import (
 type Durability int
 
 const (
+	// DurabilityNone flushes nothing. A process crash loses nothing; a power cut can lose the
+	// last commits of any kind, only_once included. Below the zero value, so a write's FLOOR can
+	// never be none: an unclassified write still syncs at every other level.
+	DurabilityNone Durability = -1
 	// DurabilityOnlyOnce keeps what cannot be replayed: inbound work is never forgotten and an
 	// only_once task never runs twice. Ordinary task writes may replay after a power cut.
-	DurabilityOnlyOnce Durability = iota
+	DurabilityOnlyOnce Durability = iota - 1
 	// DurabilityTerminal adds: a finished process stays finished. It is what stops a
 	// poller seeing `completed` and then `running` again after a power cut.
 	DurabilityTerminal
@@ -23,8 +27,8 @@ const (
 	DurabilityStrict
 )
 
-// syncAlways is the weakest level, so it fsyncs at every level, and the zero value: forgetting
-// to classify a new write path costs throughput, never a guarantee.
+// syncAlways is the weakest floor, so it fsyncs at every level but none, and the zero value:
+// forgetting to classify a new write path costs throughput, never a guarantee.
 const (
 	syncAlways   = DurabilityOnlyOnce
 	syncTerminal = DurabilityTerminal
@@ -36,6 +40,8 @@ func (d Durability) syncs(floor Durability) bool { return d >= floor }
 
 func (d Durability) String() string {
 	switch d {
+	case DurabilityNone:
+		return "none"
 	case DurabilityOnlyOnce:
 		return "only-once"
 	case DurabilityTerminal:
@@ -49,6 +55,8 @@ func (d Durability) String() string {
 // ParseDurability maps the operator-facing name onto a level.
 func ParseDurability(s string) (Durability, error) {
 	switch s {
+	case "none":
+		return DurabilityNone, nil
 	case "only-once":
 		return DurabilityOnlyOnce, nil
 	case "terminal":
@@ -60,7 +68,7 @@ func ParseDurability(s string) (Durability, error) {
 		// no level gets here, and an unnamed level must be the safe one.
 		return DurabilityStrict, nil
 	}
-	return 0, fmt.Errorf("invalid durability %q (want only-once, terminal, or strict)", s)
+	return 0, fmt.Errorf("invalid durability %q (want none, only-once, terminal, or strict)", s)
 }
 
 // SetDurability sets the level every write is measured against. Call once at startup,
@@ -79,10 +87,10 @@ func instanceWriteFloor(status interface{ Terminal() bool }) Durability {
 }
 
 // Flush makes every commit so far durable, whatever level it ran at: both engines append to one
-// WAL, so one flushed commit hardens those behind it. A no-op at `strict`.
-// specs/durability-levels.md s3.
+// WAL, so one flushed commit hardens those behind it. A no-op at `strict`, where everything
+// already is, and at `none`, where nothing is meant to be. specs/durability-levels.md s3.
 func (db *DB) Flush(ctx context.Context) error {
-	if db.level() == DurabilityStrict {
+	if lvl := db.level(); lvl == DurabilityStrict || lvl == DurabilityNone {
 		return nil
 	}
 	err := db.withTxAt(ctx, syncAlways, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {

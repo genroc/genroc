@@ -11,9 +11,9 @@ deliveries (§8).**
 ## 1. macOS `fsync` does not flush
 
 macOS `fsync(2)` returns before the drive flushes its write cache; `F_FULLFSYNC` does not. On the
-M1, `pg_test_fsync`: 22 µs against **4,070 µs** — **185×**. So `--sqlite-synchronous=FULL` is not
-power-loss durable on Apple hardware without `--sqlite-fullfsync` (which exists for the
-benchmarks), Dockerized Postgres lies too (~0.23 ms, no `fsync_writethrough` in the LinuxKit VM),
+M1, `pg_test_fsync`: 22 µs against **4,070 µs** — **185×**. So a flushed SQLite commit is not
+power-loss durable on Apple hardware without `--sqlite-fullfsync`, which is therefore on by default
+on macOS (`=false` measures plain `fsync`). Dockerized Postgres lies too (~0.23 ms, no `fsync_writethrough` in the LinuxKit VM),
 and no throughput number that does not say which fsync produced it means anything — the bench
 prints `fullfsync=on|off`.
 
@@ -67,15 +67,22 @@ Levels are strictly increasing; each adds fsync points to the one above.
 
 | level | guarantee | adds | drain |
 |---|---|---|---|
+| `none` | consistency only | — | ~3,900 ² |
 | `only-once` | handed work is never forgotten, `only_once` never runs twice | create, delivery, bracket around `only_once` | 3,858 ¹ |
 | `terminal` | + a finished process stays finished | process end | ~3,000 |
 | `strict` | + no completed task ever repeats | every commit | 183 |
 
 ¹ creates sit in drain's untimed load phase; steady state costs 1 fsync per accepted item,
 batched across concurrent callers. The bracket is free unless the definition uses `only_once`.
+² the §2 `NORMAL` ceiling.
 
-Rungs below `only-once` (`none`, consistency only; `accepted`, no bracket) were considered and
-not built.
+Below the ladder, **`none`** flushes nothing: SQLite opens at `synchronous=NORMAL`, every Postgres
+transaction runs with `synchronous_commit = off`, and `Flush` is a no-op. A process crash still
+loses nothing (the OS holds the WAL); a power cut can lose the last commits of any kind,
+`only_once` included. It is what the test suite runs at, since tests crash processes, never
+power, and it replaces the old `--sqlite-synchronous=NORMAL`, which silently capped every level.
+`none` is −1 so `only-once` stays the zero value, the floor an unclassified write declares.
+`accepted` (no bracket) was considered and not built.
 
 **Default: `only-once`**, the lowest rung: its bracket costs nothing unless used, and it is 21×
 faster than `strict`. `terminal` is the level that stops a poller seeing `completed` and
@@ -198,7 +205,7 @@ repeat"; the `--durability` help says so.
     pg_test_fsync -s 2                    # this disk's real fsync cost
 
     # SQLite, honest; add GENROC_DURABILITY=… and run bench-iterate too (§5a)
-    GENROC_SQLITE_SYNCHRONOUS=FULL GENROC_SQLITE_FULLFSYNC=1 make bench-drain
+    make bench-drain                      # strict unless GENROC_DURABILITY; fullfsync on for macOS
 
     # Postgres, honest: a native cluster (Docker cannot, §1), with in postgresql.conf
     #   wal_sync_method = fsync_writethrough   max_connections = 400 (> --pg-max-open-conns)
