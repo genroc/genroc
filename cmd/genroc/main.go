@@ -54,6 +54,7 @@ func main() {
 	immediateRetries := flag.Bool("immediate-retries", false, "Disable retry backoff (retries fire instantly); for testing only")
 	leaseDuration := flag.Duration("lease-duration", 10*time.Second, "How long a claimed instance is leased to a worker before another worker may reclaim it on crash")
 	leaseRenewInterval := flag.Duration("lease-renew-interval", 3*time.Second, "How often a worker re-stamps its leases; must be comfortably shorter than --lease-duration")
+	shutdownGrace := flag.Duration("shutdown-grace", engine.DefaultShutdownGrace, "On SIGTERM, how long work already running may finish before it is abandoned; new work stops being claimed at once. Abandoned work is written nowhere and re-runs elsewhere once its lease lapses, as after a crash. Give the container at least this long to stop.")
 	pprofAddr := flag.String("pprof", "", "pprof listen address, e.g. localhost:6060 (empty to disable)")
 	logLevel := flag.String("log", "info", "Log level: debug, info, warn, error")
 	logMode := flag.String("log-mode", "basic", "Console output: basic (no data body), detail (+ data body), or json (one JSON object per line); same modes as genctl logs. Times are UTC, so a fleet's logs collate; genctl renders the reader's local zone")
@@ -131,7 +132,7 @@ func main() {
 		Mode:       mode,
 	}
 	database.SetObjectGrace(*objectGrace)
-	eng := engine.New(database, time.Duration(*pollMs)*time.Millisecond, *maxConcurrent, *immediateRetries, *leaseDuration, *leaseRenewInterval, logCfg, log)
+	eng := engine.New(database, time.Duration(*pollMs)*time.Millisecond, *maxConcurrent, *immediateRetries, *leaseDuration, *leaseRenewInterval, logCfg, log, engine.WithShutdownGrace(*shutdownGrace))
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
 

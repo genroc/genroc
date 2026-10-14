@@ -65,6 +65,9 @@ const (
 	// EventLeaseLost marks an advance whose write the fence refused; it explains a
 	// work_started with no completion.
 	EventLeaseLost = "lease_lost"
+	// EventAbandoned marks an advance cut off when the worker's shutdown grace ran out; like
+	// lease_lost it explains a work_started with no completion.
+	EventAbandoned = "work_abandoned"
 )
 
 // ActorEngine is the Actor recorded for work genroc does on its own behalf. NOT empty: empty

@@ -34,6 +34,8 @@ services:
 
   genroc:
     image: {{.Image}}
+    # Past --shutdown-grace (15s), so running work finishes before Docker's kill; its default is 10s.
+    stop_grace_period: 20s
     # In the environment, not `command:`, so `docker compose run genroc token ...` finds it too.
     environment:
 {{- if .Postgres}}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,8 +20,13 @@ import (
 const (
 	defaultLeaseDuration      = 10 * time.Second
 	defaultLeaseRenewInterval = 3 * time.Second
+	DefaultShutdownGrace      = 15 * time.Second
 	consoleExcerptBytes       = 2048
 )
+
+// errAbandoned is the cause in-flight advances are cancelled with once the shutdown grace runs
+// out. runAdvance keys on it, not on any cancellation: a /tick request's own cancel is not one.
+var errAbandoned = errors.New("abandoned at shutdown")
 
 // LogConfig controls how much the engine persists to each instance's audit log
 // and for how long, plus the verbosity of the unified server console.
@@ -41,12 +47,14 @@ type Engine struct {
 	immediateRetries   bool
 	leaseDuration      time.Duration // how long a claimed instance is leased to this worker
 	leaseRenewInterval time.Duration // how often the renewer re-stamps this worker's leases
+	shutdownGrace      time.Duration // how long in-flight advances may run on after Run's ctx ends
 	logCfg             LogConfig     // audit-log persistence settings
 	log                *slog.Logger
 	sem                chan struct{}
 	wake               chan struct{} // buffer-1 nudge: "runnable work may exist, re-scan now" (see signalWork)
 	workerID           string
-	inflight           sync.Map // instance IDs this worker is currently advancing (detects self-reclaim)
+	inflight           sync.Map    // instance IDs this worker is currently advancing (detects self-reclaim)
+	abandoned          atomic.Bool // the shutdown grace ran out; audit drops what abandoned advances log
 	// held is the renewer's set; leaving it is the hand-back (CLAUDE.md). Reach it only via
 	// holdLease/dropLease/heldLeases: heldMu is never held across a database call.
 	heldMu sync.Mutex
@@ -87,6 +95,7 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 		wake:               make(chan struct{}, 1),
 		workerID:           workerID,
 		held:               make(map[string]struct{}, maxConcurrent),
+		shutdownGrace:      DefaultShutdownGrace,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -108,6 +117,12 @@ func randomSuffix() string {
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// WithShutdownGrace bounds how long Run lets in-flight advances finish after its context ends.
+// Past it they are abandoned unwritten, and their leases lapse to another worker.
+func WithShutdownGrace(d time.Duration) Option {
+	return func(e *Engine) { e.shutdownGrace = d }
 }
 
 // WithWorkerID overrides the default hostname-pid-random identity. It must be at least as
@@ -226,7 +241,12 @@ func (e *Engine) Run(ctx context.Context) {
 
 	// Seed before the renewer's first tick, or a freshly started engine reads as stale.
 	e.lastRenewMs.Store(db.Now().UnixMilli())
-	go e.leaseRenewer(ctx)
+	// ctx ends the claiming; work ends the advances already running. Not derived from ctx, or
+	// a SIGTERM cuts every in-flight call off and records it as the task's failure.
+	work, abandon := context.WithCancelCause(context.WithoutCancel(ctx))
+	defer abandon(nil)
+	// On work, not ctx: a lease the draining advances hold must not lapse under them.
+	go e.leaseRenewer(work)
 
 	if e.pollEvery == 0 {
 		e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine in manual tick mode"})
@@ -235,18 +255,35 @@ func (e *Engine) Run(ctx context.Context) {
 		return
 	}
 
-	e.runPump(ctx)
+	e.runPump(ctx, work, abandon)
 	e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine stopped"})
 }
 
 // runPump never waits for a batch, topping up as slots free. e.sem is both the concurrency
 // bound and the idle detector.
-func (e *Engine) runPump(ctx context.Context) {
+// drain waits for in-flight advances, then abandons whatever outlives the grace: those write
+// nothing, so they are re-run elsewhere exactly as after a crash.
+func (e *Engine) drain(wg *sync.WaitGroup, abandon context.CancelCauseFunc) {
+	drained := make(chan struct{})
+	go func() { wg.Wait(); close(drained) }()
+	select {
+	case <-drained:
+		return
+	case <-time.After(e.shutdownGrace):
+	}
+	e.logOnly(logEvent{Level: model.LogWarn, Msg: "shutdown grace expired; abandoning in-flight work to other workers",
+		Meta: map[string]any{"grace": e.shutdownGrace.String()}})
+	e.abandoned.Store(true) // before the cancel, so no line an abandoned advance logs slips through
+	abandon(errAbandoned)
+	<-drained
+}
+
+func (e *Engine) runPump(ctx, work context.Context, abandon context.CancelCauseFunc) {
 	ticker := time.NewTicker(e.pollEvery)
 	defer ticker.Stop()
 
 	var wg sync.WaitGroup
-	defer wg.Wait() // stop claiming, finish in-flight advances, then return
+	defer e.drain(&wg, abandon)
 
 	// The takeover-grace window, owned by this loop: leaseGate is its only reader and
 	// writer, and only this goroutine calls leaseGate.
@@ -308,10 +345,10 @@ func (e *Engine) runPump(ctx context.Context) {
 
 		// Before any of them runs: a claim is an only_once task's only evidence that it ran, and
 		// below `strict` its commit is not flushed. specs/durability-levels.md s4.
-		e.hardenClaims(ctx, insts)
+		e.hardenClaims(work, insts)
 
 		for _, inst := range insts {
-			if !e.dispatch(ctx, &wg, inst, takeover == db.SkipTakeover) {
+			if !e.dispatch(work, &wg, inst, takeover == db.SkipTakeover) {
 				<-e.sem // slot reserved for this instance, left to the advance already running it
 			}
 		}

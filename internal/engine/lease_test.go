@@ -19,86 +19,88 @@ import (
 	"genroc/internal/model"
 )
 
-// A released lease is reclaimed as a clean claim, so a healthy restart logs no takeover warning.
-func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
-	database := openTestDB(t)
-
-	// Blocks until released so the task stays in-flight (lease held) right up to shutdown. The
-	// engine aborts its request client-side, so the assertions run without the handler
-	// unblocking; release only keeps srv.Close() from waiting on the leaked goroutine.
+// gracefulFixture starts an engine on one instance whose fetch blocks until release is closed,
+// and returns once the call is in flight.
+func gracefulFixture(t *testing.T, opts ...Option) (database *db.DB, instID string, release chan struct{}, cancel context.CancelFunc, done chan struct{}) {
+	t.Helper()
+	database = openTestDB(t)
 	hit := make(chan struct{}, 1)
-	release := make(chan struct{})
+	release = make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case hit <- struct{}{}:
 		default:
 		}
-		<-release
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
 	}))
-	defer srv.Close()
-	defer close(release) // LIFO: runs before srv.Close() so the handler can exit
+	t.Cleanup(srv.Close)
+	instID = seedInstance(t, database, "graceful", srv.URL)
 
-	processName := fmt.Sprintf("graceful-%d", time.Now().UnixNano())
-	tasks := []*model.Task{{
-		ID:     "work",
-		Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: srv.URL},
-		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
-	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: processName, Tasks: tasks}, 1, nil, "graceful-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
-
-	instID := fmt.Sprintf("gi-%d", time.Now().UnixNano())
-	if err := database.SaveInstance(&model.ProcessInstance{
-		ID:             instID,
-		ProcessName:    processName,
-		ProcessVersion: 1,
-		Task:           tasks[0].ID,
-		State:          map[string]any{},
-		Status:         model.StatusRunning,
-	}); err != nil {
-		t.Fatalf("SaveInstance: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
+	var ctx context.Context
+	ctx, cancel = context.WithCancel(context.Background())
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	eng := New(database, time.Millisecond, 10, true /* immediateRetries */, 0, 0 /* default lease */, LogConfig{}, log)
-
-	done := make(chan struct{})
+	eng := New(database, time.Millisecond, 10, true /* immediateRetries */, 0, 0 /* default lease */, LogConfig{}, log, opts...)
+	done = make(chan struct{})
 	go func() { eng.Run(ctx); close(done) }()
-
 	select {
 	case <-hit:
 	case <-time.After(10 * time.Second):
 		cancel()
 		t.Fatal("task never went in-flight")
 	}
+	return database, instID, release, cancel, done
+}
 
-	// Sanity: an in-flight instance holds a lease.
-	if got, err := database.GetInstance(instID); err != nil {
-		t.Fatalf("GetInstance (in-flight): %v", err)
-	} else if got.WorkerID == nil {
-		t.Fatal("expected the in-flight instance to hold a lease (worker_id set)")
-	}
-
-	cancel()
+func waitDone(t *testing.T, done chan struct{}, within time.Duration) {
+	t.Helper()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("engine did not shut down within 10s")
+	case <-time.After(within):
+		t.Fatalf("engine did not shut down within %s", within)
 	}
+}
 
-	// The drain must have released the lease — otherwise a restart would treat the
-	// instance as a takeover and log a spurious warning.
+func TestGracefulShutdown_LetsInFlightWorkFinish(t *testing.T) {
+	database, instID, release, cancel, done := gracefulFixture(t)
+	cancel()
+	time.Sleep(50 * time.Millisecond) // the call is still running past the cancel
+	close(release)
+	waitDone(t, done, 10*time.Second)
+
 	got, err := database.GetInstance(instID)
 	if err != nil {
-		t.Fatalf("GetInstance (after shutdown): %v", err)
+		t.Fatalf("GetInstance: %v", err)
 	}
-	if got.WorkerID != nil {
-		t.Fatalf("graceful shutdown left a held lease (worker_id=%q); a restart would log a spurious takeover warning", *got.WorkerID)
+	if got.Status != model.StatusCompleted {
+		t.Fatalf("status %q (%s); a shutdown must let in-flight work finish, not record the cancel as its failure", got.Status, got.ErrorCode)
 	}
-	if got.LeaseExpiresAt != nil {
-		t.Fatal("graceful shutdown left lease_expires_at set; expected it cleared")
+	// Otherwise a restart treats the instance as a takeover and logs a spurious warning.
+	if got.WorkerID != nil || got.LeaseExpiresAt != nil {
+		t.Fatal("finished work left its lease held")
+	}
+}
+
+func TestGracefulShutdown_AbandonsWorkPastTheGraceUnwritten(t *testing.T) {
+	database, instID, _, cancel, done := gracefulFixture(t, WithShutdownGrace(100*time.Millisecond))
+	cancel()
+	waitDone(t, done, 5*time.Second)
+
+	got, err := database.GetInstance(instID)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if got.Status != model.StatusRunning {
+		t.Fatalf("status %q (%s); abandoned work must write nothing, or the shutdown is recorded as its outcome", got.Status, got.ErrorCode)
+	}
+	// The lease lapsing with worker_id intact is what lets only_once raise only_once.interrupted.
+	if got.WorkerID == nil {
+		t.Fatal("abandoned work released its lease; worker_id is the evidence a takeover needs")
 	}
 }
 

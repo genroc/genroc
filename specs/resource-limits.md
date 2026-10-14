@@ -63,6 +63,14 @@ returning, because `ListenAndServe` returns `http.ErrServerClosed` as soon as th
 before requests finish. A bind failure skips the wait: the shutdown goroutine is still parked on a
 context nothing has cancelled.
 
+### In-flight advances outlive SIGTERM, up to `--shutdown-grace`
+
+SIGTERM ends the claiming at once; advances already running get `--shutdown-grace` (default 15s)
+on a context SIGTERM does not cancel, and the lease renewer runs with them. Past it they are
+cancelled with `errAbandoned` and write nothing, so their leases lapse and they re-run elsewhere —
+a crash's outcome, `only_once.interrupted` included. Cancelling them on SIGTERM itself recorded
+the shutdown as the task's failure (`http.disconnected`), so every deploy failed processes.
+
 ## 5. `GET /healthz` is the readiness endpoint
 
 It answers 503 (`CodeUnavailable`) on **exactly one question — can this worker reach its

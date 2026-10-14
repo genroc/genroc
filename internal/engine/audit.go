@@ -30,6 +30,13 @@ type logEvent struct {
 
 // audit's DB write is best-effort: a failure is logged and swallowed, never aborting an advance.
 func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
+	// An advance still running when the grace ran out unwinds through the cancel it was given,
+	// and would log that as the task failing. Its outcome is never written, so neither is this.
+	if e.abandoned.Load() {
+		if _, running := e.inflight.Load(inst.ID); running {
+			return
+		}
+	}
 	ev.ID = inst.ID
 	// The one place engine attribution is applied, so nothing is written unattributed. Never
 	// the operator who started the run. specs/api-auth.md section 7.

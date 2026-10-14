@@ -211,6 +211,21 @@ break silently:
    first write failed and rolled back, leaving the lease held — and why a doubled advance
    can no longer fail an instance it does not own.
 
+## Shutdown: two contexts, and an abandoned advance writes nothing
+
+`Run`'s ctx ends the claiming; in-flight advances and the lease renewer run on `work`, which only
+`drain` cancels, once `--shutdown-grace` runs out. [specs/resource-limits.md](../../specs/resource-limits.md).
+Three things break silently:
+
+1. **Never derive `work` from ctx.** Every in-flight call is then cut off by the SIGTERM and
+   recorded as the task's failure — `tests/integration/shutdown_test.ts` is what catches it.
+2. **An abandoned advance writes nothing**, not a failure and not a release: `runAdvance` keys on
+   `context.Cause(ctx) == errAbandoned` and returns before `persist`. The lease must lapse with
+   `worker_id` intact, which is the evidence `only_once.interrupted` derives from.
+3. **`audit` drops what an abandoned advance logs** while it is still in `inflight`: the cancel
+   unwinds as an ordinary call failure, and logging it puts `inst_failed` in a trail whose
+   instance then completes.
+
 ## A declared slot schema is conformed as an ASSERTION
 
 `conformDeclared` (`declared.go`) applies a slot's declared schema to the value leaving it.

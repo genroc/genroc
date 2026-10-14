@@ -117,6 +117,14 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 	onlyOnce := !inst.NextReplayable
 	outcome := e.advanceGuarded(ctx, inst)
 	e.inflight.Delete(inst.ID)
+	// Whatever it reached was cut short by the cancel, so writing it records the shutdown as
+	// the task's failure. Written nothing, the lease lapses and the advance re-runs elsewhere.
+	if context.Cause(ctx) == errAbandoned {
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventAbandoned, Task: inst.Task,
+			Msg:  "abandoned at shutdown; another worker re-runs this task once the lease lapses",
+			Meta: map[string]any{"worker": e.workerID, "lease": e.leaseDuration.String()}})
+		return nil
+	}
 	if err := e.persist(ctx, inst, outcome); err != nil {
 		// The grant is gone: anything written now — including a failure — is the
 		// clobber the fence exists to prevent. Drop the outcome.
