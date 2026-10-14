@@ -144,11 +144,14 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 	return nil
 }
 
-// CollectObjects is the sweep, in the order its questions must be asked: retire orphaned log
-// claims, mark unclaimed content, delete what stayed marked past --object-grace.
+// CollectObjects is the sweep, in the order its questions must be asked: retire orphaned log and
+// instance claims, mark unclaimed content, delete what stayed marked past --object-grace.
 func (db *DB) CollectObjects(now int64) (int64, error) {
 	ctx := context.Background()
 	if err := db.retireOrphanedLogRefs(ctx); err != nil {
+		return 0, err
+	}
+	if err := db.retireOrphanedInstanceRefs(ctx); err != nil {
 		return 0, err
 	}
 	// Catches a claim added without re-writing content (a passed-through reference; PutObject
@@ -185,6 +188,29 @@ func (db *DB) retireOrphanedLogRefs(ctx context.Context) error {
 				OwnerID:   o.OwnerID,
 			}); err != nil {
 				return fmt.Errorf("release log claim %s: %w", o.Hash, err)
+			}
+		}
+		return nil
+	})
+}
+
+// retireOrphanedInstanceRefs releases what a pruned tree held, the same way: by the owner's absence.
+func (db *DB) retireOrphanedInstanceRefs(ctx context.Context) error {
+	orphans, err := db.q.OrphanedInstanceRefs(ctx)
+	if err != nil {
+		return fmt.Errorf("find orphaned instance claims: %w", err)
+	}
+	if len(orphans) == 0 {
+		return nil
+	}
+	return db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+		for _, o := range orphans {
+			if err := qtx.DropObjectRef(ctx, dbgen.DropObjectRefParams{
+				Hash:      o.Hash,
+				OwnerKind: string(model.ObjectOwnerInstance),
+				OwnerID:   o.OwnerID,
+			}); err != nil {
+				return fmt.Errorf("release instance claim %s: %w", o.Hash, err)
 			}
 		}
 		return nil

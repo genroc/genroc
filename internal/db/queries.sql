@@ -361,6 +361,25 @@ SELECT status FROM process_instances WHERE id = sqlc.arg(id);
 -- name: DeleteLogsBefore :execrows
 DELETE FROM process_logs WHERE created_at < sqlc.arg(before);
 
+-- name: ConcludedRootsBefore :many
+-- Candidates only, read unlocked: PruneConcludedTrees re-checks each under the tree lock.
+SELECT id FROM process_instances
+WHERE parent_id = '' AND status IN ('completed', 'failed', 'raised', 'cancelled')
+  AND updated_at < sqlc.arg(before)
+ORDER BY updated_at, id
+LIMIT sqlc.arg(max_trees);
+
+-- name: DeleteSignalsOfTrees :exec
+DELETE FROM process_signals
+WHERE instance_id IN (
+    SELECT id FROM process_instances WHERE root_id IN (SELECT value FROM json_each(sqlc.arg(roots))));
+
+-- name: DeleteLogsOfTrees :exec
+DELETE FROM process_logs WHERE root_id IN (SELECT value FROM json_each(sqlc.arg(roots)));
+
+-- name: DeleteTrees :execrows
+DELETE FROM process_instances WHERE root_id IN (SELECT value FROM json_each(sqlc.arg(roots)));
+
 -- name: PutObject :exec
 -- DO UPDATE, never DO NOTHING: the row lock makes a racing sweep wait, and clearing released_at
 -- voids its mark. CLAUDE.md, the object store, items 2-3.
@@ -402,6 +421,12 @@ WHERE released_at IS NULL
 
 -- name: CountObjectRefs :one
 SELECT COUNT(*) FROM object_refs WHERE hash = sqlc.arg(hash);
+
+-- name: OrphanedInstanceRefs :many
+-- What a pruned tree held. Driven by the owner being absent, like OrphanedLogRefs.
+SELECT hash, owner_id FROM object_refs
+WHERE owner_kind = 'instance'
+  AND NOT EXISTS (SELECT 1 FROM process_instances pi WHERE pi.id = object_refs.owner_id);
 
 -- name: OrphanedLogRefs :many
 -- owner_id IS the log row's id, so no time horizon is needed.

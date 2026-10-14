@@ -30,7 +30,7 @@ var serverGroups = []struct {
 	{"Engine", "How instances are claimed and advanced.",
 		[]string{"poll", "max-concurrent", "lease-duration", "lease-renew-interval", "shutdown-grace", "immediate-retries"}},
 	{"Logging", "Console output and the per-instance audit trail.",
-		[]string{"log", "log-mode", "log-payloads", "log-payload-max", "log-retention"}},
+		[]string{"log", "log-mode", "log-payloads", "log-payload-max", "log-retention", "instance-retention"}},
 	{"Objects", "Large values kept out of the instance row.", []string{"object-grace"}},
 	{"Other", "", []string{"version"}},
 }

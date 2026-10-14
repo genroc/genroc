@@ -9,7 +9,6 @@ One line per item. The argument lives in `specs/`; this is the index.
   (specs/api-auth.md §10)
 - [] **metrics** — `/healthz` is binary; nothing reports backlog depth or the age of the
   oldest due `wake_at` (specs/resource-limits.md)
-- [] **instance retention** — logs prune and objects sweep, `process_instances` grows forever
 - [] **deterministic simulation**, tier 1 — crash-recovery tests already assert `only_once` with
   counting services; this adds exhaustive crash points and interleavings
   (specs/deterministic-simulation.md)
@@ -32,6 +31,8 @@ One line per item. The argument lives in `specs/`; this is the index.
   flattened in the resolver, not the language (specs/openapi-resolver.md)
 
 ## Shipped
+- [x] **instance retention** — `--instance-retention` (opt-in) deletes concluded trees with their
+      logs and signals; their objects follow through the sweep (specs/instance-retention.md)
 - [x] **declared slot schemas** — an optional `<slot>_schema` beside every shape, checked
       against inference and conformed on the way out (specs/declared-slot-schemas.md)
 - [x] **source resolution, structural phase** — the spread form, `$process` and registered

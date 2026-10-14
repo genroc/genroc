@@ -592,3 +592,110 @@ func TestStress_CancelProcess_IsAtomic(t *testing.T) {
 		}
 	}
 }
+
+// RetryProcess against the instance-retention sweep on one failed tree whose ids sort on both
+// sides of the root. Both lock the tree in id order (lockTree), so either may win, never both,
+// and neither deadlocks.
+func TestStress_RetryProcess_vs_PruneConcludedTrees(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+
+	const iterations = 50
+	var retried, pruned int
+	for i := 0; i < iterations; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInst(t, db, "m-root", model.StatusRunning, "", nil, "")
+		insertInst(t, db, "a-child", model.StatusFailed, "m-root", []string{"m-root"}, "boom")
+		insertInst(t, db, "z-child", model.StatusFailed, "m-root", []string{"m-root"}, "boom")
+		settle(t, db, "m-root", model.StatusFailed)
+
+		var wg sync.WaitGroup
+		var retryErr, pruneErr error
+		var n int
+		wg.Add(2)
+		go func() { defer wg.Done(); _, retryErr = db.RetryProcess(ctx, "m-root", false, "stress") }()
+		go func() { defer wg.Done(); n, pruneErr = db.PruneConcludedTrees(ctx, nowPlusHours(1), 10) }()
+		wg.Wait()
+
+		for _, err := range []error{retryErr, pruneErr} {
+			if pgDeadlock(err) {
+				t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
+			}
+		}
+		if pruneErr != nil && !pgDeadlock(pruneErr) {
+			t.Errorf("iteration %d: prune: %v", i, pruneErr)
+		}
+		switch {
+		case retryErr == nil && n == 0:
+			retried++
+			if gone(t, db, "m-root") {
+				t.Errorf("iteration %d: the retry succeeded and the tree is gone", i)
+			}
+		case n == 1:
+			pruned++
+			if retryErr == nil {
+				t.Errorf("iteration %d: both the retry and the prune report success on one tree", i)
+			}
+			if !gone(t, db, "m-root") || !gone(t, db, "a-child") || !gone(t, db, "z-child") {
+				t.Errorf("iteration %d: a pruned tree left rows behind", i)
+			}
+		case !pgDeadlock(retryErr):
+			t.Errorf("iteration %d: neither won: retry=%v pruned=%d", i, retryErr, n)
+		}
+	}
+	t.Logf("%d iterations: retry won %d, prune won %d", iterations, retried, pruned)
+}
+
+// How long a retention backlog takes to drain in the engine's 200-tree batches, and the longest
+// single batch: that is how long the sweep holds its locks (on SQLite, the one write lock).
+func TestStress_RetentionBacklogDrain(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	const trees, batch = 2000, 200
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			seedStart := time.Now()
+			for i := range trees {
+				root := fmt.Sprintf("bk-%05d", i)
+				insertInst(t, b.db, root, model.StatusCompleted, "", nil, "")
+				insertInst(t, b.db, root+"-a", model.StatusCompleted, root, []string{root}, "")
+				insertInst(t, b.db, root+"-b", model.StatusCompleted, root, []string{root}, "")
+				for _, id := range []string{root, root + "-a", root + "-b"} {
+					appendLog(t, b.db, id, model.LogInfo, "inst_completed", dbpkg.Now().UnixMilli())
+				}
+			}
+			t.Logf("seeded %d trees (%d instances, %d logs) in %s", trees, 3*trees, 3*trees, time.Since(seedStart).Round(time.Millisecond))
+
+			cutoff := nowPlusHours(1)
+			var total int
+			var longest time.Duration
+			start := time.Now()
+			for {
+				t0 := time.Now()
+				n, err := b.db.PruneConcludedTrees(context.Background(), cutoff, batch)
+				if err != nil {
+					t.Fatalf("PruneConcludedTrees: %v", err)
+				}
+				longest = max(longest, time.Since(t0))
+				total += n
+				if n < batch {
+					break
+				}
+			}
+			elapsed := time.Since(start)
+			t.Logf("drained %d trees in %s (%.0f trees/s); longest %d-tree batch %s",
+				total, elapsed.Round(time.Millisecond), float64(total)/elapsed.Seconds(), batch, longest.Round(time.Millisecond))
+			if total != trees {
+				t.Errorf("drained %d trees, want %d", total, trees)
+			}
+			// Generous: a batch this slow stalls every writer for seconds, on SQLite the whole engine.
+			if longest > 2*time.Second {
+				t.Errorf("a %d-tree batch took %s; the sweep would stall writers", batch, longest)
+			}
+		})
+	}
+}

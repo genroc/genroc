@@ -61,6 +61,7 @@ func main() {
 	logPayloads := flag.Bool("log-payloads", true, "Record the payload an audit event is about (process/task input and output, request/response bodies) on its log row. Stored whole: a large value moves into the object store like any other, never cut short.")
 	logPayloadMax := flag.Int("log-payload-max", 1<<20, "Largest payload a log row records, in bytes. A larger one is left out, not cut short, and the row's meta says so with payload_omitted_bytes. 0 = no limit.")
 	logRetention := flag.Duration("log-retention", 168*time.Hour, "Delete per-instance audit logs older than this; 0 = keep forever")
+	instanceRetention := flag.Duration("instance-retention", 0, "Delete a process, with its children and logs, once it concluded (completed, failed or cancelled) longer ago than this; 0 (default) = keep forever. A deleted instance answers 404, so read results and retry failures within it.")
 	objectGrace := flag.Duration("object-grace", time.Hour, "How long a released large value stays fetchable by a reference already handed out. A read hands out references and fetching them is a second call, so the data can move on in between; this is the window in which that cannot lose. Raise it for slow consumers, lower it for processes that churn big values in a loop.")
 	showVersion := flag.Bool("version", false, "Print the version and exit.")
 	flag.Usage = func() { printFlags(flag.CommandLine) }
@@ -132,7 +133,7 @@ func main() {
 		Mode:       mode,
 	}
 	database.SetObjectGrace(*objectGrace)
-	eng := engine.New(database, time.Duration(*pollMs)*time.Millisecond, *maxConcurrent, *immediateRetries, *leaseDuration, *leaseRenewInterval, logCfg, log, engine.WithShutdownGrace(*shutdownGrace))
+	eng := engine.New(database, time.Duration(*pollMs)*time.Millisecond, *maxConcurrent, *immediateRetries, *leaseDuration, *leaseRenewInterval, logCfg, log, engine.WithShutdownGrace(*shutdownGrace), engine.WithInstanceRetention(*instanceRetention))
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
 

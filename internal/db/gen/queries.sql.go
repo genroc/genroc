@@ -114,6 +114,43 @@ func (q *Queries) CollectUnreferencedObjects(ctx context.Context, before sql.Nul
 	return result.RowsAffected()
 }
 
+const concludedRootsBefore = `-- name: ConcludedRootsBefore :many
+SELECT id FROM process_instances
+WHERE parent_id = '' AND status IN ('completed', 'failed', 'raised', 'cancelled')
+  AND updated_at < ?1
+ORDER BY updated_at, id
+LIMIT ?2
+`
+
+type ConcludedRootsBeforeParams struct {
+	Before   int64
+	MaxTrees int64
+}
+
+// Candidates only, read unlocked: PruneConcludedTrees re-checks each under the tree lock.
+func (q *Queries) ConcludedRootsBefore(ctx context.Context, arg ConcludedRootsBeforeParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, concludedRootsBefore, arg.Before, arg.MaxTrees)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countActiveSiblings = `-- name: CountActiveSiblings :one
 SELECT COUNT(*) FROM process_instances
 WHERE parent_id = ?1
@@ -241,6 +278,15 @@ func (q *Queries) DeleteLogsBefore(ctx context.Context, before int64) (int64, er
 	return result.RowsAffected()
 }
 
+const deleteLogsOfTrees = `-- name: DeleteLogsOfTrees :exec
+DELETE FROM process_logs WHERE root_id IN (SELECT value FROM json_each(?1))
+`
+
+func (q *Queries) DeleteLogsOfTrees(ctx context.Context, roots interface{}) error {
+	_, err := q.db.ExecContext(ctx, deleteLogsOfTrees, roots)
+	return err
+}
+
 const deleteSignal = `-- name: DeleteSignal :exec
 DELETE FROM process_signals WHERE id = ?1
 `
@@ -248,6 +294,29 @@ DELETE FROM process_signals WHERE id = ?1
 func (q *Queries) DeleteSignal(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteSignal, id)
 	return err
+}
+
+const deleteSignalsOfTrees = `-- name: DeleteSignalsOfTrees :exec
+DELETE FROM process_signals
+WHERE instance_id IN (
+    SELECT id FROM process_instances WHERE root_id IN (SELECT value FROM json_each(?1)))
+`
+
+func (q *Queries) DeleteSignalsOfTrees(ctx context.Context, roots interface{}) error {
+	_, err := q.db.ExecContext(ctx, deleteSignalsOfTrees, roots)
+	return err
+}
+
+const deleteTrees = `-- name: DeleteTrees :execrows
+DELETE FROM process_instances WHERE root_id IN (SELECT value FROM json_each(?1))
+`
+
+func (q *Queries) DeleteTrees(ctx context.Context, roots interface{}) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTrees, roots)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const dropObjectRef = `-- name: DropObjectRef :exec
@@ -1223,6 +1292,41 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.ExternalInput,
 			&i.ExternalLost,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const orphanedInstanceRefs = `-- name: OrphanedInstanceRefs :many
+SELECT hash, owner_id FROM object_refs
+WHERE owner_kind = 'instance'
+  AND NOT EXISTS (SELECT 1 FROM process_instances pi WHERE pi.id = object_refs.owner_id)
+`
+
+type OrphanedInstanceRefsRow struct {
+	Hash    string
+	OwnerID string
+}
+
+// What a pruned tree held. Driven by the owner being absent, like OrphanedLogRefs.
+func (q *Queries) OrphanedInstanceRefs(ctx context.Context) ([]OrphanedInstanceRefsRow, error) {
+	rows, err := q.db.QueryContext(ctx, orphanedInstanceRefs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OrphanedInstanceRefsRow
+	for rows.Next() {
+		var i OrphanedInstanceRefsRow
+		if err := rows.Scan(&i.Hash, &i.OwnerID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -180,4 +180,7 @@ with `--log-payloads=false`, or limit the recorded size with `--log-payload-max`
 When an instance replaces a large value, the old one stays readable for `--object-grace`
 (1 hour by default), so a client that already has a reference to it can still fetch it.
 
-Instances themselves are never deleted yet, so the database keeps growing. Plan disk space for it.
+By default genroc keeps concluded processes forever, so the database keeps growing. Set
+`--instance-retention` (for example `720h`, 30 days) to delete completed, failed and cancelled
+processes, with their children and logs, that long after they finished. After that their id
+answers 404, so read results and retry failures within that time.

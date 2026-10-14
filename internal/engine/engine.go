@@ -21,7 +21,11 @@ const (
 	defaultLeaseDuration      = 10 * time.Second
 	defaultLeaseRenewInterval = 3 * time.Second
 	DefaultShutdownGrace      = 15 * time.Second
-	consoleExcerptBytes       = 2048
+	// A pass deletes at most pruneBatches × pruneBatchTrees trees, each batch its own transaction,
+	// so a backlog drains over many passes without stalling the pump that runs them.
+	defaultPruneBatchTrees = 200
+	defaultPruneBatches    = 10
+	consoleExcerptBytes    = 2048
 )
 
 // errAbandoned is the cause in-flight advances are cancelled with once the shutdown grace runs
@@ -48,6 +52,9 @@ type Engine struct {
 	leaseDuration      time.Duration // how long a claimed instance is leased to this worker
 	leaseRenewInterval time.Duration // how often the renewer re-stamps this worker's leases
 	shutdownGrace      time.Duration // how long in-flight advances may run on after Run's ctx ends
+	instanceRetention  time.Duration // delete process trees concluded longer ago; 0 = keep forever
+	pruneBatchTrees    int           // trees per prune transaction
+	pruneBatches       int           // prune transactions per pass
 	logCfg             LogConfig     // audit-log persistence settings
 	log                *slog.Logger
 	sem                chan struct{}
@@ -95,6 +102,8 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 		wake:               make(chan struct{}, 1),
 		workerID:           workerID,
 		held:               make(map[string]struct{}, maxConcurrent),
+		pruneBatchTrees:    defaultPruneBatchTrees,
+		pruneBatches:       defaultPruneBatches,
 		shutdownGrace:      DefaultShutdownGrace,
 	}
 	for _, opt := range opts {
@@ -123,6 +132,11 @@ func randomSuffix() string {
 // Past it they are abandoned unwritten, and their leases lapse to another worker.
 func WithShutdownGrace(d time.Duration) Option {
 	return func(e *Engine) { e.shutdownGrace = d }
+}
+
+// WithInstanceRetention deletes process trees whose root concluded longer ago than d; 0 keeps them.
+func WithInstanceRetention(d time.Duration) Option {
+	return func(e *Engine) { e.instanceRetention = d }
 }
 
 // WithWorkerID overrides the default hostname-pid-random identity. It must be at least as
@@ -295,6 +309,7 @@ func (e *Engine) runPump(ctx, work context.Context, abandon context.CancelCauseF
 		if nowMs := db.Now().UnixMilli(); nowMs >= nextPruneMs {
 			nextPruneMs = nowMs + logPruneInterval.Milliseconds()
 			e.pruneLogs()
+			e.pruneInstances()
 			e.collectObjects()
 		}
 
@@ -431,6 +446,30 @@ func (e *Engine) pruneLogs() {
 	}
 }
 
+// pruneInstances runs before collectObjects, so what the pruned trees held is released this pass.
+func (e *Engine) pruneInstances() {
+	if e.instanceRetention <= 0 {
+		return
+	}
+	cutoff := db.Now().Add(-e.instanceRetention).UnixMilli()
+	total := 0
+	for range e.pruneBatches {
+		n, err := e.db.PruneConcludedTrees(context.Background(), cutoff, e.pruneBatchTrees)
+		if err != nil {
+			e.logOnly(logEvent{Level: model.LogError, Msg: "prune instances: " + err.Error()})
+			break
+		}
+		total += n
+		if n < e.pruneBatchTrees {
+			break
+		}
+	}
+	if total > 0 {
+		e.logOnly(logEvent{Level: model.LogInfo, Msg: "pruned concluded processes",
+			Meta: map[string]any{"trees": total, "older_than": e.instanceRetention.String()}})
+	}
+}
+
 // collectObjects is not gated on log retention: ordinary work releases objects, so a run with
 // retention disabled would otherwise grow without bound.
 func (e *Engine) collectObjects() {
@@ -449,6 +488,7 @@ func (e *Engine) ManualTick() bool { return e.pollEvery == 0 }
 // concurrently. Returns the number of instances claimed and processed.
 func (e *Engine) Tick(ctx context.Context) (int, error) {
 	e.pruneLogs()
+	e.pruneInstances()
 	e.collectObjects()
 	// No lease gate: a tick waits for every advance it starts, so it cannot re-claim its
 	// own in-flight work.
