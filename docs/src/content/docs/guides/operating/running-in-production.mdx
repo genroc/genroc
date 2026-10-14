@@ -91,15 +91,16 @@ find out if the full flush to disk actually happened. Databases use the `fsync` 
 to instruct the OS to write data all the way to the disk, but this might not
 be enough if the disk is virtualized and you might need to check the actual environment.
 
-Genroc solves the macOS F_FULLFSYNC problem by default for SQLite (on macOS `fsync`
+Genroc solves the [macOS F_FULLFSYNC problem](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html) by default for SQLite (on macOS `fsync`
 returns before the drive empties its own cache). But for PostgreSQL you need to make sure
 you have this configured correctly.
 
-On Linux the PostgreSQL defaults are fine. When PostgreSQL runs directly on macOS
-or Windows, set this in `postgresql.conf`:
+On Linux the PostgreSQL defaults are fine. When PostgreSQL runs directly on macOS or Windows,
+set `wal_sync_method` in `postgresql.conf` (see [WAL reliability](https://www.postgresql.org/docs/current/wal-reliability.html)):
 
 ```
-wal_sync_method = fsync_writethrough
+wal_sync_method = fsync_writethrough   # macOS
+wal_sync_method = fsync                # Windows
 ```
 
 Then reload the configuration (a restart works too) and check it's applied:
