@@ -6,7 +6,9 @@ package db
 import (
 	"context"
 	"database/sql"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -107,5 +109,46 @@ func TestCommitDelay_OffLeavesTheServerDefault(t *testing.T) {
 	defer tx.Rollback()
 	if got := settingOn(t, tx, "commit_delay"); got != server {
 		t.Fatalf("commit_delay = %q with the option off, want the server's own %q", got, server)
+	}
+}
+
+// The superuser hint belongs to a refusal only; on any other failure it misdirects.
+func TestCommitDelay_HintsSuperuserOnlyWhenRefused(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("POSTGRES_DSN not set; commit_delay is a PostgreSQL setting")
+	}
+	withUser := func(user, password string) string {
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatalf("parse POSTGRES_DSN: %v", err)
+		}
+		u.User = url.UserPassword(user, password)
+		return u.String()
+	}
+
+	u, _ := url.Parse(dsn)
+	_, err := OpenPostgres(withUser(u.User.Username(), "not-the-password"), 2, WithCommitDelay(500))
+	if err == nil {
+		t.Skip("the server accepted a wrong password (trust auth); nothing to tell apart")
+	}
+	if strings.Contains(err.Error(), "superuser") {
+		t.Errorf("a failed login was reported as a privilege problem: %v", err)
+	}
+
+	admin, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	const role = "genroc_commit_delay_plain"
+	admin.Exec(`DROP ROLE IF EXISTS ` + role)
+	if _, err := admin.Exec(`CREATE ROLE ` + role + ` LOGIN PASSWORD 'plain' NOSUPERUSER`); err != nil {
+		t.Skipf("cannot create a non-superuser role to test against (%v)", err)
+	}
+	defer admin.Exec(`DROP ROLE IF EXISTS ` + role)
+	_, err = OpenPostgres(withUser(role, "plain"), 2, WithCommitDelay(500))
+	if err == nil || !strings.Contains(err.Error(), "superuser") {
+		t.Errorf("a refused commit_delay must say a superuser is needed: %v", err)
 	}
 }

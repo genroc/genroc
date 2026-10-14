@@ -1,10 +1,10 @@
 ---
 title: Running in production
-description: How to setup genroc in production.
+description: How to set up genroc in production.
 order: 6
 ---
 
-Genroc defaults are skewed to comfortable local setup, the production environment
+Genroc defaults are skewed to a comfortable local setup. The production environment
 requires careful consideration about long term sustainability and scalability.
 
 ## Database
@@ -73,16 +73,17 @@ each flushed transaction goes to disk on its own, and the writes are sequential.
 
 PostgreSQL writes commits that happen at the same time to disk together, so with many
 processes running in parallel it handles higher `--durability` much better
-(we measured about 9× SQLite's throughput at the same durability).
+(in our benchmark about 9× SQLite's throughput at the same durability).
 There is no durability penalty, because workers still receive confirmation
 after it's on the disk, the difference is that the writes are done together and not
 separately. This doesn't help a single process: its tasks run one after another,
 so each still waits for its own flush.
 
 You can widen that window with `--pg-commit-delay`, which makes PostgreSQL wait
-a few microseconds for more commits to join. It brings smaller gains (we measured
+a fraction of a millisecond for more commits to join. It brings smaller gains (we measured
 3% to 33%), so measure on your own storage. It needs a superuser connection, which
 hosted databases often don't give you, and genroc refuses to start if it can't set it.
+On a hosted database, set `commit_delay` in its parameter settings instead and leave the flag off.
 
 ### Making sure data reach the disk
 
@@ -117,7 +118,8 @@ inside a virtual machine and the flush ends there.
 
 In production we recommend always running genroc with the `--auth` option.
 Without it, anyone who can reach the genroc server can register a process definition and
-potentially execute malicious code. Genroc warns about this at startup.
+potentially execute malicious code. Genroc warns about this at startup when its port is
+reachable from other machines.
 
 Create the first admin token with `genroc token create`, as described in
 [Authentication](./authentication.mdx), and don't leave it accessible to anyone.
@@ -155,8 +157,8 @@ can't run inside the container. Use your orchestrator's HTTP probe instead.
 
 ## Shutdown and restarts
 
-If genroc crashes, its work isn't lost. Each instance is leased to one server, and once the lease
-lapses (`--lease-duration`, 10s) another server, or the same one after a restart, continues it.
+If genroc crashes, its work isn't lost. Each instance a server is working on is leased to it, and
+once the lease lapses (`--lease-duration`, 10s) another server, or the same one after a restart, continues it.
 The interrupted task runs again, except an `only_once` task, which raises `only_once.interrupted`.
 See [Surviving a restart](../getting-started/surviving-a-restart.mdx).
 

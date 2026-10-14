@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"embed"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -181,8 +182,14 @@ func probeSessionSettings(dsn string, settings []string) error {
 	defer probe.Close()
 	for _, s := range settings {
 		if _, err := probe.Exec(s); err != nil {
-			return fmt.Errorf("%s: %w (a superuser-context setting: connect as a "+
-				"superuser, or set it in postgresql.conf and drop the flag)", s, err)
+			// Only a refusal is about the setting: a wrong password or an unreachable host
+			// fails here too, and the superuser hint would send the operator the wrong way.
+			var pqErr *pq.Error
+			if errors.As(err, &pqErr) && pqErr.Code.Name() == "insufficient_privilege" {
+				return fmt.Errorf("%s: %w (a superuser-context setting: connect as a "+
+					"superuser, or set it in postgresql.conf and drop the flag)", s, err)
+			}
+			return fmt.Errorf("%s: %w", s, err)
 		}
 	}
 	return nil
