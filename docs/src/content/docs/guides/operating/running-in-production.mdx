@@ -43,18 +43,17 @@ we rely on DB to ensure that there are no damaged data in case of an outage.
 ### Persistency
 
 A database can confirm a commit before the data reach the disk. If it does, an outage
-(a power cut or an OS crash) can lose the last few transactions. For genroc that would mean
-losing work it already confirmed, like a started process or an external task's result, or
-running a task again.
+(a power cut, an OS crash, or on PostgreSQL a crash of the database server) can lose
+the last few transactions. For genroc that would mean losing work it already confirmed,
+like a started process or an external task's result, or running a task again.
 
 Flushing every commit to disk prevents that, but makes every commit wait for the disk.
-For performance, genroc doesn't flush every commit.
+So by default, genroc doesn't flush every commit.
 
 ### What is guaranteed
 
-As a compromise, genroc guarantees that any data submitted by the user
-will not be lost and that any task marked `only_once` is not re-executed
-in this case. So it does a full flush in these cases.
+As a compromise, genroc flushes what can't be replayed: data submitted from outside
+is never lost after an outage, and an `only_once` task never runs twice on its own.
 
 You can change this with the `--durability` option:
 
@@ -62,8 +61,8 @@ You can change this with the `--durability` option:
     progress may replay after a power cut.
   - `terminal`: also process ends, so a finished process can't rewind to running.
   - `strict`: every commit, so no completed task repeats.
-  - `none`: nothing is forced to disk. A crash of genroc itself loses nothing, but a power cut
-    or OS crash can lose the last moments of any work, `only_once` included. Used in tests.
+  - `none`: nothing is forced to disk. A crash of genroc itself loses nothing, but any of the
+    outages above can lose the last moments of any work, `only_once` included. Used in tests.
 
 Here comes the big difference between SQLite and PostgreSQL. If you set
 higher `--durability` with SQLite, the performance will suffer proportionally:
