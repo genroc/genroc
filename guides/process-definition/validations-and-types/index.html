@@ -269,40 +269,8 @@ configuration, because the result is available only after the action has execute
 <p>Genroc also validates switch/goto targets (that the task exists) and doesn&#39;t
 allow unreachable tasks.</p>
 <h2 id="config">Config<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#config"><span></span></a></h2>
-<p>Config lets a process read environment variables.
-You can define <code>config_schema</code>. It must be a flat object, e.g.:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#D6D6D2">name</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> process-with-config</span></span>
-<span class="line"><span style="color:#D6D6D2">config_schema</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#D6D6D2">  type</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> object</span></span>
-<span class="line"><span style="color:#D6D6D2">  properties</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#D6D6D2">    server_url</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#D6D6D2">      type</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> string</span></span>
-<span class="line"><span style="color:#D6D6D2">  required</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">server_url</span><span style="color:#8A8A84">]</span></span></code></pre>
-<p>You can then provide config properties through environment variables like this:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#8A8A84;font-style:italic"># scoped to a single process</span></span>
-<span class="line"><span style="color:#D6D6D2">GENROC_PROCESS_WITH_CONFIG_SERVER_URL</span><span style="color:#E07A4F">=</span><span style="color:#8FB996">http://example.project</span></span>
-<span class="line"><span style="color:#8A8A84;font-style:italic"># or globally for all processes</span></span>
-<span class="line"><span style="color:#D6D6D2">GENROC_GLOBAL_SERVER_URL</span><span style="color:#E07A4F">=</span><span style="color:#8FB996">http://example.project</span></span></code></pre>
-<p>You can then access config anywhere in the process expressions.</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#D6D6D2">    url</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#E07A4F">${</span><span style="color:#D6D6D2">config</span><span style="color:#8A8A84">.</span><span style="color:#D6D6D2">server_url</span><span style="color:#E07A4F">}</span><span style="color:#8FB996">/users/</span><span style="color:#E07A4F">${</span><span style="color:#D6D6D2">input</span><span style="color:#8A8A84">.</span><span style="color:#D6D6D2">user_id</span><span style="color:#E07A4F">}</span><span style="color:#8A8A84">&quot;</span></span></code></pre>
-<p>Genroc loads and validates config values every time it interacts with the process.
-You can declare any primitive type; genroc validates the value and converts it.
-If the validation doesn&#39;t pass, the process is not allowed to register.
-So if the value is required, you need to set the env before applying the definition (on the server).</p>
-<h3 id="secrets">Secrets<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#secrets"><span></span></a></h3>
-<p>In the config you can mark a property as <code>secret</code>.</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#D6D6D2">name</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> process-with-config</span></span>
-<span class="line"><span style="color:#D6D6D2">config_schema</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#D6D6D2">  type</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> object</span></span>
-<span class="line"><span style="color:#D6D6D2">  properties</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#D6D6D2">    server_token</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#D6D6D2">      type</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> string</span></span>
-<span class="line"><span style="color:#D6D6D2">      secret</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> true</span></span>
-<span class="line"><span style="color:#D6D6D2">  required</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">server_token</span><span style="color:#8A8A84">]</span></span></code></pre>
-<p>This will redact the secrets that would otherwise leak into stdout (server logs).
-Secrets can still leak into db-stored logs or process state - so they will be
-visible through <code>genctl logs</code> and so on.</p>
-<p>The <code>secret</code> property can only be used in the config.</p>
+<p><code>config_schema</code> declares the values a process reads from the environment, and they are
+type-checked like the rest. See <a href="/guides/process-definition/configuration/">Configuration</a>.</p>
 <h2 id="the-benefits">The benefits<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-benefits"><span></span></a></h2>
 <p>Genroc&#39;s type system ensures validity at two different moments, which complement each other.</p>
 <p><strong>At registration</strong> - everything is statically checked - all the expressions,
@@ -340,7 +308,7 @@ against the <code>responses</code> you declared.</p>
 <h3 id="process-state-upgradability">Process state upgradability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-state-upgradability"><span></span></a></h3>
 <p>Because genroc knows what the state schema should look like at every stage
 of the process, it can decide whether an old version of the process is upgradable to
-a newer version. We will look at this feature later.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/child-processes/"> <span>next</span> <strong>Child processes</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#scenarios">Scenarios</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li></ul><script>
+a newer version. We will look at this feature later.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/child-processes/"> <span>next</span> <strong>Child processes</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#scenarios">Scenarios</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
