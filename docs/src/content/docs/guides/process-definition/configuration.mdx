@@ -45,3 +45,38 @@ tasks:
         Authorization: "Bearer ${config.server_auth}"
     switch: end
 ```
+
+### Specifying the env
+
+Values come from the environment of the genroc server (not genctl). Each property is read
+from a variable named after the process, or from a global one shared by all processes:
+
+```sh
+# only for get-user-data
+GENROC_GET_USER_DATA_SERVER_AUTH=secret-token
+# for every process with a server_origin property
+GENROC_GLOBAL_SERVER_ORIGIN=https://api.example.com
+```
+
+Names are upper-cased, with `-` turned into `_` and camelCase split (`serverAuth` reads
+`SERVER_AUTH`). The process variable wins over the global one, and an empty variable counts
+as unset. Without either, the `default` is used.
+
+Values are converted to the declared type, so `GENROC_GLOBAL_RETRIES=3` arrives as a number
+and `true`/`false` as a boolean. A required value that's missing, or one that doesn't
+convert, is refused by `genctl apply` and when a process starts. Genroc reads the values again
+on every step and never stores them, so after you change one and restart the server, running
+processes use the new value too. If a value goes missing or stops converting, the process
+fails at its next step with `engine.config`.
+
+### Secrets
+
+`config_schema` is also special, because you can specify
+property as `secret`. This will prevent the value leaking
+to stdio of the server logs.
+
+Value can however still leak into db logs accessible through
+`genctl logs` or into the process state.
+
+Secrets are redacted through simple string matching on
+the print function.
