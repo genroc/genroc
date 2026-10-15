@@ -248,6 +248,28 @@ so there is no <code>$:</code> or <code>${}</code> syntax, you write the express
 <span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> case</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#D6D6D2">self</span><span style="color:#8A8A84">.</span><span style="color:#D6D6D2">result</span><span style="color:#8A8A84">.</span><span style="color:#D6D6D2">activated </span><span style="color:#E07A4F">==</span><span style="color:#D4A76A"> true</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"><span style="color:#D6D6D2">    goto</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> ...</span></span></code></pre>
 <p>The same syntax is used also for <code>on_error/case</code> fields, which we will discuss later.</p>
+<h3 id="numbers">Numbers<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#numbers"><span></span></a></h3>
+<p>Expressions support <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code> and <code>%</code>. Numbers are arbitrary-precision decimals,
+following the <a href="https://speleotrove.com/decimal/">General Decimal Arithmetic</a> specification
+(the one Python&#39;s <code>decimal</code> module implements), computed with the
+<a href="https://github.com/cockroachdb/apd">apd</a> library. Genroc keeps them exact, also when it only
+passes them through, so a long id like <code>9007199254740993</code> arrives unchanged, which many
+JSON tools don&#39;t guarantee.</p>
+<p><code>+</code>, <code>-</code> and <code>*</code> are exact, decimals included:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#8FB996">0.1 + 0.2</span><span style="color:#8A8A84;font-style:italic">              # 0.3</span></span>
+<span class="line"><span style="color:#8FB996">0.1 + 0.2 == 0.3</span><span style="color:#8A8A84;font-style:italic">       # true</span></span>
+<span class="line"><span style="color:#8FB996">input.id + 1</span><span style="color:#8A8A84;font-style:italic">           # 9007199254740994</span></span></code></pre>
+<p><code>/</code> is the only operator that rounds, to 34 significant digits (the precision of IEEE 754
+decimal128), with ties rounded away from zero:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#8FB996">1 / 3</span><span style="color:#8A8A84;font-style:italic">                  # 0.3333333333333333333333333333333333</span></span>
+<span class="line"><span style="color:#8FB996">2 / 3 * 3</span><span style="color:#8A8A84;font-style:italic">              # 2.0000000000000000000000000000000001</span></span></code></pre>
+<p>The way a number is written decides its type: <code>3</code> is an <code>integer</code>, <code>3.0</code> is a <code>number</code>.
+<code>%</code> works on integers only, so <code>7 % 2</code> is fine and <code>7 % 2.0</code> is refused when you apply the
+definition.</p>
+<blockquote>
+<p>A client reading results in JavaScript loses precision on large numbers in <code>JSON.parse</code>,
+so a long id can still break there, on the client&#39;s side.</p>
+</blockquote>
 <h2 id="shapes">Shapes<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#shapes"><span></span></a></h2>
 <p>Shapes are a convenient way to transform data.
 The best example is the task <code>output</code> field.</p>
@@ -332,7 +354,7 @@ reaches <code>switch: end</code>. It cannot access <code>self</code>, as it is n
 <p>The output is the contract for the outside world: it is what callers read,
 and what a parent checks a child&#39;s result against.
 Task outputs are internal — visible in <code>genctl detail</code>,
-but nothing outside is written against them.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/basics/"> <span>previous</span> <strong>Basics</strong> </a> <a class="next" href="/guides/process-definition/actions/"> <span>next</span> <strong>Actions</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#action">Action</a></li><li class="depth-2"><a href="#reading-the-fetch-result">Reading the fetch result</a></li><li class="depth-2"><a href="#expressions">Expressions</a></li><li class="depth-3"><a href="#map-function">map function</a></li><li class="depth-3"><a href="#string-template">String template</a></li><li class="depth-3"><a href="#expression-of-any-type">Expression of any type</a></li><li class="depth-3"><a href="#raw-expressions">Raw expressions</a></li><li class="depth-2"><a href="#shapes">Shapes</a></li><li class="depth-3"><a href="#fully-static">Fully static</a></li><li class="depth-3"><a href="#combined">Combined</a></li><li class="depth-3"><a href="#expression-only">Expression only</a></li><li class="depth-2"><a href="#slots">Slots</a></li><li class="depth-2"><a href="#process-output">Process output</a></li></ul><script>
+but nothing outside is written against them.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/basics/"> <span>previous</span> <strong>Basics</strong> </a> <a class="next" href="/guides/process-definition/actions/"> <span>next</span> <strong>Actions</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#action">Action</a></li><li class="depth-2"><a href="#reading-the-fetch-result">Reading the fetch result</a></li><li class="depth-2"><a href="#expressions">Expressions</a></li><li class="depth-3"><a href="#map-function">map function</a></li><li class="depth-3"><a href="#string-template">String template</a></li><li class="depth-3"><a href="#expression-of-any-type">Expression of any type</a></li><li class="depth-3"><a href="#raw-expressions">Raw expressions</a></li><li class="depth-3"><a href="#numbers">Numbers</a></li><li class="depth-2"><a href="#shapes">Shapes</a></li><li class="depth-3"><a href="#fully-static">Fully static</a></li><li class="depth-3"><a href="#combined">Combined</a></li><li class="depth-3"><a href="#expression-only">Expression only</a></li><li class="depth-2"><a href="#slots">Slots</a></li><li class="depth-2"><a href="#process-output">Process output</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
