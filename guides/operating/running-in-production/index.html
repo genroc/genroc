@@ -182,21 +182,19 @@ is initialized to start.</p>
 a bug and shouldn&#39;t occur. Because the state changes are performed in transactions
 we rely on DB to ensure that there are no damaged data in case of an outage.</p>
 <h3 id="persistency">Persistency<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#persistency"><span></span></a></h3>
-<p>A successfully executed SQL query doesn&#39;t always mean the data have been written to the disk.
-By default both databases flush every commit to disk, but for performance genroc lets
-them confirm ordinary writes before they reach the disk, and flush them later.
-This can lead to the last few transactions being lost after an outage.</p>
-<p>For Genroc this could lead to loss of data that were handed over and confirmed as
-saved (like process start or resolution of external task) or a re-execution of tasks.
-We can mitigate this by forcing the DB to do a full fsync with the disk,
-but if we do this all the time, it dramatically decreases the performance.</p>
+<p>A database can confirm a commit before the data reach the disk. If it does, an outage
+(a power cut or an OS crash) can lose the last few transactions. For genroc that would mean
+losing work it already confirmed, like a started process or an external task&#39;s result, or
+running a task again.</p>
+<p>Flushing every commit to disk prevents that, but makes every commit wait for the disk.
+For performance, genroc doesn&#39;t flush every commit.</p>
 <h3 id="what-is-guaranteed">What is guaranteed<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-is-guaranteed"><span></span></a></h3>
 <p>As a compromise, genroc guarantees that any data submitted by the user
 will not be lost and that any task marked <code>only_once</code> is not re-executed
 in this case. So it does a full flush in these cases.</p>
 <p>You can change this with the <code>--durability</code> option:</p>
 <ul>
-<li><code>only-once</code> (default): work handed in from outside and <code>only_once</code> tasks. Ordinary task
+<li><code>essential</code> (default): work handed in from outside and <code>only_once</code> tasks. Ordinary task
 progress may replay after a power cut.</li>
 <li><code>terminal</code>: also process ends, so a finished process can&#39;t rewind to running.</li>
 <li><code>strict</code>: every commit, so no completed task repeats.</li>
