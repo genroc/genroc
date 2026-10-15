@@ -150,14 +150,14 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
           } catch (_) {}
         })
       })()
-    </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Process definition"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Configuration</h1> <p>Pass settings and secrets to a process through environment variables.</p> </div>  <p>Genroc allows you to pass environment variables through <code>config</code> property.</p>
+    </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Process definition"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Configuration</h1> <p>Pass settings and secrets to a process through environment variables.</p> </div>  <p>Genroc allows you to pass environment variables through the <code>config</code> property.</p>
 <h2 id="specifying-config_schema">Specifying <code>config_schema</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#specifying-config_schema"><span></span></a></h2>
 <p>If you want to use <code>config</code> in your process, you first need to
 specify what values and types you require for the process.</p>
-<p>This is done through <code>config_schema</code>, it requires JSON-schema.
+<p>This is done through <code>config_schema</code>, it takes a JSON Schema.
 It is similar to <code>input_schema</code>, however it only supports a
 flat object with primitive properties (as it&#39;s coming from env and
-nested properties would be akward here).</p>
+nested properties would be awkward here).</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc-lsp"><code><span class="line"><span style="--col:0;--line:1" class="hovered opens-down">name<span class="tip below" data-pagefind-ignore>Unique process identifier.</span></span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> </span><span style="--col:6;--line:1" class="hovered opens-down">get-user-data<span class="tip below" data-pagefind-ignore>Unique process identifier.</span></span></span>
 <span class="line"><span style="--col:0;--line:2" class="hovered opens-down">input_schema<span class="tip below" data-pagefind-ignore>JSON Schema used to validate the input payload when starting a new instance.</span></span><span style="color:#8A8A84">:</span></span>
 <span class="line"><span style="color:#D6D6D2">  </span><span style="--col:2;--line:3" class="hovered">type<span class="tip" data-pagefind-ignore>The value&#39;s JSON type, or a list of types it may take.</span></span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> </span><span style="--col:8;--line:3" class="hovered">object<span class="tip" data-pagefind-ignore>The value&#39;s JSON type, or a list of types it may take.</span></span></span>
@@ -193,22 +193,26 @@ from a variable named after the process, or from a global one shared by all proc
 <span class="line"><span style="color:#8A8A84;font-style:italic"># for every process with a server_origin property</span></span>
 <span class="line"><span style="color:#D6D6D2">GENROC_GLOBAL_SERVER_ORIGIN</span><span style="color:#E07A4F">=</span><span style="color:#8FB996">https://api.example.com</span></span></code></pre>
 <p>Names are upper-cased, with <code>-</code> turned into <code>_</code> and camelCase split (<code>serverAuth</code> reads
-<code>SERVER_AUTH</code>). The process variable wins over the global one, and an empty variable counts
+<code>SERVER_AUTH</code>). Property names must be identifiers (letters, digits and <code>_</code>), and two
+properties that map to the same variable, like <code>apiKey</code> and <code>api_key</code>, are refused.
+The process variable wins over the global one, and an empty variable counts
 as unset. Without either, the <code>default</code> is used.</p>
-<p>Values are converted to the declared type, so <code>GENROC_GLOBAL_RETRIES=3</code> arrives as a number
+<p>Values are converted to the declared type, so for a property declared as <code>integer</code>,
+<code>GENROC_GLOBAL_RETRIES=3</code> arrives as a number
 and <code>true</code>/<code>false</code> as a boolean. A required value that&#39;s missing, or one that doesn&#39;t
 convert, is refused by <code>genctl apply</code> and when a process starts. Genroc reads the values again
 on every step and never stores them, so after you change one and restart the server, running
 processes use the new value too. If a value goes missing or stops converting, the process
 fails at its next step with <code>engine.config</code>.</p>
 <h3 id="secrets">Secrets<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#secrets"><span></span></a></h3>
-<p><code>config_schema</code> is also special, because you can specify
-property as <code>secret</code>. This will prevent the value leaking
-to stdio of the server logs.</p>
-<p>Value can however still leak into db logs accessible through
+<p><code>config_schema</code> is also special, because you can mark
+a property as <code>secret</code>. This keeps the value out of
+the server&#39;s console output.</p>
+<p>The value can however still leak into db logs accessible through
 <code>genctl logs</code> or into the process state.</p>
-<p>Secrets are redacted through simple string matching on
-the print function.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/actions/"> <span>previous</span> <strong>Actions</strong> </a> <a class="next" href="/guides/process-definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#specifying-config_schema">Specifying config_schema</a></li><li class="depth-3"><a href="#specifying-the-env">Specifying the env</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li></ul><script>
+<p>Genroc replaces the exact value with <code>***</code> wherever it appears in the console output.
+That works because expressions can&#39;t transform a value, so a secret only ever appears
+verbatim, like in <code>Bearer &lt;token&gt;</code>.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/actions/"> <span>previous</span> <strong>Actions</strong> </a> <a class="next" href="/guides/process-definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#specifying-config_schema">Specifying config_schema</a></li><li class="depth-3"><a href="#specifying-the-env">Specifying the env</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
