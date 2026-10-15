@@ -153,6 +153,38 @@ switch:
 
 The same syntax is used also for `on_error/case` fields, which we will discuss later.
 
+### Numbers
+
+Expressions support `+`, `-`, `*`, `/` and `%`. Numbers are arbitrary-precision decimals,
+following the [General Decimal Arithmetic](https://speleotrove.com/decimal/) specification
+(the one Python's `decimal` module implements), computed with the
+[apd](https://github.com/cockroachdb/apd) library. Genroc keeps them exact, also when it only
+passes them through, so a long id like `9007199254740993` arrives unchanged, which many
+JSON tools don't guarantee.
+
+`+`, `-` and `*` are exact, decimals included:
+
+```genroc
+0.1 + 0.2              # 0.3
+0.1 + 0.2 == 0.3       # true
+input.id + 1           # 9007199254740994
+```
+
+`/` is the only operator that rounds, to 34 significant digits (the precision of IEEE 754
+decimal128), with ties rounded away from zero:
+
+```genroc
+1 / 3                  # 0.3333333333333333333333333333333333
+2 / 3 * 3              # 2.0000000000000000000000000000000001
+```
+
+The way a number is written decides its type: `3` is an `integer`, `3.0` is a `number`.
+`%` works on integers only, so `7 % 2` is fine and `7 % 2.0` is refused when you apply the
+definition.
+
+> A client reading results in JavaScript loses precision on large numbers in `JSON.parse`,
+> so a long id can still break there, on the client's side.
+
 
 ## Shapes
 
