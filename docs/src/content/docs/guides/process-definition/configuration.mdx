@@ -4,17 +4,17 @@ description: Pass settings and secrets to a process through environment variable
 order: 4
 ---
 
-Genroc allows you to pass environment variables through `config` property.
+Genroc allows you to pass environment variables through the `config` property.
 
 ## Specifying `config_schema`
 
 If you want to use `config` in your process, you first need to
 specify what values and types you require for the process.
 
-This is done through `config_schema`, it requires JSON-schema.
+This is done through `config_schema`, it takes a JSON Schema.
 It is similar to `input_schema`, however it only supports a
 flat object with primitive properties (as it's coming from env and
-nested properties would be akward here).
+nested properties would be awkward here).
 
 ```genroc-lsp
 name: get-user-data
@@ -59,10 +59,13 @@ GENROC_GLOBAL_SERVER_ORIGIN=https://api.example.com
 ```
 
 Names are upper-cased, with `-` turned into `_` and camelCase split (`serverAuth` reads
-`SERVER_AUTH`). The process variable wins over the global one, and an empty variable counts
+`SERVER_AUTH`). Property names must be identifiers (letters, digits and `_`), and two
+properties that map to the same variable, like `apiKey` and `api_key`, are refused.
+The process variable wins over the global one, and an empty variable counts
 as unset. Without either, the `default` is used.
 
-Values are converted to the declared type, so `GENROC_GLOBAL_RETRIES=3` arrives as a number
+Values are converted to the declared type, so for a property declared as `integer`,
+`GENROC_GLOBAL_RETRIES=3` arrives as a number
 and `true`/`false` as a boolean. A required value that's missing, or one that doesn't
 convert, is refused by `genctl apply` and when a process starts. Genroc reads the values again
 on every step and never stores them, so after you change one and restart the server, running
@@ -71,12 +74,13 @@ fails at its next step with `engine.config`.
 
 ### Secrets
 
-`config_schema` is also special, because you can specify
-property as `secret`. This will prevent the value leaking
-to stdio of the server logs.
+`config_schema` is also special, because you can mark
+a property as `secret`. This keeps the value out of
+the server's console output.
 
-Value can however still leak into db logs accessible through
+The value can however still leak into db logs accessible through
 `genctl logs` or into the process state.
 
-Secrets are redacted through simple string matching on
-the print function.
+Genroc replaces the exact value with `***` wherever it appears in the console output.
+That works because expressions can't transform a value, so a secret only ever appears
+verbatim, like in `Bearer <token>`.
