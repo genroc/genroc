@@ -13,7 +13,7 @@ func TestDurability_FloorIsSafeAtZero(t *testing.T) {
 	if unclassified != syncAlways {
 		t.Fatalf("the zero value is %s, not syncAlways; a level added below it must not shift the iota", unclassified)
 	}
-	for _, level := range []Durability{DurabilityOnlyOnce, DurabilityTerminal, DurabilityStrict} {
+	for _, level := range []Durability{DurabilityEssential, DurabilityTerminal, DurabilityStrict} {
 		if !level.syncs(unclassified) {
 			t.Fatalf("level %s does not flush an unclassified write; a forgotten floor must cost throughput, not a guarantee", level)
 		}
@@ -26,8 +26,8 @@ func TestDurability_LadderIsStrictlyIncreasing(t *testing.T) {
 	floors := []Durability{syncAlways, syncTerminal, syncStrict}
 	for _, floor := range floors {
 		for _, pair := range [][2]Durability{
-			{DurabilityNone, DurabilityOnlyOnce},
-			{DurabilityOnlyOnce, DurabilityTerminal},
+			{DurabilityNone, DurabilityEssential},
+			{DurabilityEssential, DurabilityTerminal},
 			{DurabilityTerminal, DurabilityStrict},
 		} {
 			lower, higher := pair[0], pair[1]
@@ -48,9 +48,9 @@ func TestDurability_WhatEachLevelFlushes(t *testing.T) {
 		{DurabilityNone, syncAlways, false}, // nothing, not even inbound work or only_once
 		{DurabilityNone, syncTerminal, false},
 		{DurabilityNone, syncStrict, false},
-		{DurabilityOnlyOnce, syncAlways, true},    // inbound work: never dropped, at any level but none
-		{DurabilityOnlyOnce, syncTerminal, false}, // a finished process may rewind
-		{DurabilityOnlyOnce, syncStrict, false},   // ordinary task writes replay
+		{DurabilityEssential, syncAlways, true},    // inbound work: never dropped, at any level but none
+		{DurabilityEssential, syncTerminal, false}, // a finished process may rewind
+		{DurabilityEssential, syncStrict, false},   // ordinary task writes replay
 		{DurabilityTerminal, syncAlways, true},
 		{DurabilityTerminal, syncTerminal, true}, // finished stays finished
 		{DurabilityTerminal, syncStrict, false},
@@ -68,7 +68,7 @@ func TestDurability_WhatEachLevelFlushes(t *testing.T) {
 func TestParseDurability(t *testing.T) {
 	for in, want := range map[string]Durability{
 		"none":      DurabilityNone,
-		"only-once": DurabilityOnlyOnce,
+		"essential": DurabilityEssential,
 		"terminal":  DurabilityTerminal,
 		"strict":    DurabilityStrict,
 		"":          DurabilityStrict, // no level named: the safe one, not the CLI's default

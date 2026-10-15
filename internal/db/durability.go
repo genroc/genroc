@@ -17,9 +17,9 @@ const (
 	// last commits of any kind, only_once included. Below the zero value, so a write's FLOOR can
 	// never be none: an unclassified write still syncs at every other level.
 	DurabilityNone Durability = -1
-	// DurabilityOnlyOnce keeps what cannot be replayed: inbound work is never forgotten and an
+	// DurabilityEssential keeps what cannot be replayed: inbound work is never forgotten and an
 	// only_once task never runs twice. Ordinary task writes may replay after a power cut.
-	DurabilityOnlyOnce Durability = iota - 1
+	DurabilityEssential Durability = iota - 1
 	// DurabilityTerminal adds: a finished process stays finished. It is what stops a
 	// poller seeing `completed` and then `running` again after a power cut.
 	DurabilityTerminal
@@ -30,7 +30,7 @@ const (
 // syncAlways is the weakest floor, so it fsyncs at every level but none, and the zero value:
 // forgetting to classify a new write path costs throughput, never a guarantee.
 const (
-	syncAlways   = DurabilityOnlyOnce
+	syncAlways   = DurabilityEssential
 	syncTerminal = DurabilityTerminal
 	syncStrict   = DurabilityStrict
 )
@@ -42,8 +42,8 @@ func (d Durability) String() string {
 	switch d {
 	case DurabilityNone:
 		return "none"
-	case DurabilityOnlyOnce:
-		return "only-once"
+	case DurabilityEssential:
+		return "essential"
 	case DurabilityTerminal:
 		return "terminal"
 	case DurabilityStrict:
@@ -57,18 +57,18 @@ func ParseDurability(s string) (Durability, error) {
 	switch s {
 	case "none":
 		return DurabilityNone, nil
-	case "only-once":
-		return DurabilityOnlyOnce, nil
+	case "essential":
+		return DurabilityEssential, nil
 	case "terminal":
 		return DurabilityTerminal, nil
 	case "strict":
 		return DurabilityStrict, nil
 	case "":
-		// Not the CLI default (the flag supplies only-once): only a programmatic caller naming
+		// Not the CLI default (the flag supplies essential): only a programmatic caller naming
 		// no level gets here, and an unnamed level must be the safe one.
 		return DurabilityStrict, nil
 	}
-	return 0, fmt.Errorf("invalid durability %q (want none, only-once, terminal, or strict)", s)
+	return 0, fmt.Errorf("invalid durability %q (want none, essential, terminal, or strict)", s)
 }
 
 // SetDurability sets the level every write is measured against. Call once at startup,

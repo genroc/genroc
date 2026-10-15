@@ -42,15 +42,13 @@ we rely on DB to ensure that there are no damaged data in case of an outage.
 
 ### Persistency
 
-A successfully executed SQL query doesn't always mean the data have been written to the disk.
-By default both databases flush every commit to disk, but for performance genroc lets
-them confirm ordinary writes before they reach the disk, and flush them later.
-This can lead to the last few transactions being lost after an outage.
+A database can confirm a commit before the data reach the disk. If it does, an outage
+(a power cut or an OS crash) can lose the last few transactions. For genroc that would mean
+losing work it already confirmed, like a started process or an external task's result, or
+running a task again.
 
-For Genroc this could lead to loss of data that were handed over and confirmed as
-saved (like process start or resolution of external task) or a re-execution of tasks.
-We can mitigate this by forcing the DB to do a full fsync with the disk,
-but if we do this all the time, it dramatically decreases the performance.
+Flushing every commit to disk prevents that, but makes every commit wait for the disk.
+For performance, genroc doesn't flush every commit.
 
 ### What is guaranteed
 
@@ -60,7 +58,7 @@ in this case. So it does a full flush in these cases.
 
 You can change this with the `--durability` option:
 
-  - `only-once` (default): work handed in from outside and `only_once` tasks. Ordinary task
+  - `essential` (default): work handed in from outside and `only_once` tasks. Ordinary task
     progress may replay after a power cut.
   - `terminal`: also process ends, so a finished process can't rewind to running.
   - `strict`: every commit, so no completed task repeats.

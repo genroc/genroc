@@ -25,10 +25,10 @@ func openPgAt(t *testing.T, level Durability) *DB {
 }
 
 func TestDurability_PostgresRelaxIsTransactionScoped(t *testing.T) {
-	db := openPgAt(t, DurabilityOnlyOnce)
+	db := openPgAt(t, DurabilityEssential)
 	ctx := context.Background()
 
-	tx, _, exec, err := db.beginTxAt(ctx, syncStrict, nil) // relaxed at only-once
+	tx, _, exec, err := db.beginTxAt(ctx, syncStrict, nil) // relaxed at essential
 	if err != nil {
 		t.Fatalf("beginTxAt: %v", err)
 	}

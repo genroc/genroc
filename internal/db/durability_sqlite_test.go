@@ -47,13 +47,13 @@ func runningInstance(t *testing.T, db *DB, id string) *model.ProcessInstance {
 }
 
 func TestDurability_RelaxedWriteRestoresTheConnection(t *testing.T) {
-	db := openTempSQLite(t, DurabilityOnlyOnce)
+	db := openTempSQLite(t, DurabilityEssential)
 	inst := runningInstance(t, db, "restore-1")
 
 	if got := pragmaSynchronous(t, db); got != sqliteSyncFull {
 		t.Fatalf("before any relaxed write: synchronous=%d, want %d", got, sqliteSyncFull)
 	}
-	// A checkpoint is the relaxed path at only-once, so this transaction runs at NORMAL.
+	// A checkpoint is the relaxed path at essential, so this transaction runs at NORMAL.
 	if err := db.UpdateInstanceProgress(inst); err != nil {
 		t.Fatalf("UpdateInstanceProgress: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestDurability_RelaxedWriteRestoresTheConnection(t *testing.T) {
 }
 
 func TestDurability_RestoredEvenWhenTheWriteIsRefused(t *testing.T) {
-	db := openTempSQLite(t, DurabilityOnlyOnce)
+	db := openTempSQLite(t, DurabilityEssential)
 	inst := runningInstance(t, db, "restore-2")
 
 	// A fenced write nobody granted: the transaction rolls back rather than commits, which
@@ -90,7 +90,7 @@ func TestDurability_StrictNeverRelaxes(t *testing.T) {
 }
 
 func TestDurability_DefaultsToStrictWithoutSetDurability(t *testing.T) {
-	// The zero value of the atomic is only-once, so a DB nobody configured would run
+	// The zero value of the atomic is essential, so a DB nobody configured would run
 	// relaxed. open() must have set strict instead.
 	db, err := OpenSQLite(filepath.Join(t.TempDir(), "d.db"), "FULL")
 	if err != nil {

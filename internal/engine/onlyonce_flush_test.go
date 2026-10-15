@@ -25,7 +25,7 @@ func flushes(t *testing.T, database *db.DB) int64 {
 
 func TestOnlyOnce_ClaimAndResultAreHardened(t *testing.T) {
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	_, hits := interruptedFixture(t, database, "bracket", model.StatusRunning, nil)
@@ -47,7 +47,7 @@ func TestOnlyOnce_OneFlushPerBatchNotPerInstance(t *testing.T) {
 	// Prefix durability: one flush hardens every claim behind it, so three claimed together
 	// still cost one.
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	for i := 0; i < 3; i++ {
@@ -69,7 +69,7 @@ func TestOnlyOnce_OneFlushPerBatchNotPerInstance(t *testing.T) {
 
 func TestOnlyOnce_NoFlushWithoutTheFlag(t *testing.T) {
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 	spawnFixture(t, database, "no-bracket")
 
@@ -103,7 +103,7 @@ func TestOnlyOnce_UnsetFlagFlushes(t *testing.T) {
 	// Why the column stores "replayable": the zero value and the column default land on false,
 	// and false must mean "flush".
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	id := spawnFixture(t, database, "unset-flag")
@@ -129,7 +129,7 @@ func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
 	// The delay keeps the instance RUNNABLE afterwards: `goto: end` would leave Task naming the
 	// only_once task forever.
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	var hits atomic.Int32
@@ -186,7 +186,7 @@ func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
 	// Two writes build UpdateInstanceParams by hand. Forgetting the flag is safe and therefore
 	// silent: every parked parent and revived instance would pay an fsync forever.
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	// A spawning parent parks in SpawnChildrenAndWait, then is claimed again to collect.
@@ -271,7 +271,7 @@ func TestOnlyOnce_NeverRunsInTheAdvanceThatMovedToIt(t *testing.T) {
 	// Run while the row still named the switch, a crash mid-request would look like "never
 	// started" and re-run silently.
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	id, hits := onlyOnceBehindSwitch(t, database, "inline-bailout")
@@ -309,7 +309,7 @@ func TestOnlyOnce_InterruptedBehindASwitchDoesNotRerun(t *testing.T) {
 	// that worker cannot have executed the action -- it would have checkpointed first -- so
 	// running it now is correct and must happen exactly once.
 	database := openTestDB(t)
-	database.SetDurability(db.DurabilityOnlyOnce)
+	database.SetDurability(db.DurabilityEssential)
 	eng := tickEngine(t, database)
 
 	id, hits := onlyOnceBehindSwitch(t, database, "inline-interrupted")

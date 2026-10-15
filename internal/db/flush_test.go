@@ -21,7 +21,7 @@ func markerN(t *testing.T, db *DB) int64 {
 }
 
 func TestFlush_WritesAtRelaxedLevels(t *testing.T) {
-	db := openTempSQLite(t, DurabilityOnlyOnce)
+	db := openTempSQLite(t, DurabilityEssential)
 	before := markerN(t, db)
 	if err := db.Flush(context.Background()); err != nil {
 		t.Fatalf("Flush: %v", err)
@@ -59,7 +59,7 @@ func TestFlush_RunsAtFullSynchronous(t *testing.T) {
 	// The point of Flush is the fsync, so it must not itself be relaxed. Observable the
 	// same way the relaxed writes are: the connection it borrowed goes back at the base
 	// level, and a Flush that had relaxed it would leave NORMAL behind.
-	db := openTempSQLite(t, DurabilityOnlyOnce)
+	db := openTempSQLite(t, DurabilityEssential)
 	if err := db.Flush(context.Background()); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}

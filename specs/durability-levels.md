@@ -68,7 +68,7 @@ Levels are strictly increasing; each adds fsync points to the one above.
 | level | guarantee | adds | drain |
 |---|---|---|---|
 | `none` | consistency only | — | ~3,900 ² |
-| `only-once` | handed work is never forgotten, `only_once` never runs twice | create, delivery, bracket around `only_once` | 3,858 ¹ |
+| `essential` | handed work is never forgotten, `only_once` never runs twice | create, delivery, bracket around `only_once` | 3,858 ¹ |
 | `terminal` | + a finished process stays finished | process end | ~3,000 |
 | `strict` | + no completed task ever repeats | every commit | 183 |
 
@@ -81,10 +81,10 @@ transaction runs with `synchronous_commit = off`, and `Flush` is a no-op. A proc
 loses nothing (the OS holds the WAL); a power cut can lose the last commits of any kind,
 `only_once` included. It is what the test suite runs at, since tests crash processes, never
 power, and it replaces the old `--sqlite-synchronous=NORMAL`, which silently capped every level.
-`none` is −1 so `only-once` stays the zero value, the floor an unclassified write declares.
+`none` is −1 so `essential` stays the zero value, the floor an unclassified write declares.
 `accepted` (no bracket) was considered and not built.
 
-**Default: `only-once`**, the lowest rung: its bracket costs nothing unless used, and it is 21×
+**Default: `essential`**, the lowest rung: its bracket costs nothing unless used, and it is 21×
 faster than `strict`. `terminal` is the level that stops a poller seeing `completed` and
 then `running` again after a power cut — one sync per process rather than one per task.
 
@@ -104,7 +104,7 @@ Honest SQLite, levels as built:
 |---|---|---|
 | `strict` | 178 | 11,666 |
 | `terminal` | 190 (1.07×) | 2,368 (**4.9×**) |
-| `only-once` | **3,551 (19.8×)** | **419 (27×)** |
+| `essential` | **3,551 (19.8×)** | **419 (27×)** |
 
 The variable is **yields per process**. `advance()` collapses a call-less chain into one write, so
 only a task that parks, spawns or calls forces its own; drain flushes once per instance at
