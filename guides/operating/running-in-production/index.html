@@ -183,23 +183,22 @@ a bug and shouldn&#39;t occur. Because the state changes are performed in transa
 we rely on DB to ensure that there are no damaged data in case of an outage.</p>
 <h3 id="persistency">Persistency<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#persistency"><span></span></a></h3>
 <p>A database can confirm a commit before the data reach the disk. If it does, an outage
-(a power cut or an OS crash) can lose the last few transactions. For genroc that would mean
-losing work it already confirmed, like a started process or an external task&#39;s result, or
-running a task again.</p>
+(a power cut, an OS crash, or on PostgreSQL a crash of the database server) can lose
+the last few transactions. For genroc that would mean losing work it already confirmed,
+like a started process or an external task&#39;s result, or running a task again.</p>
 <p>Flushing every commit to disk prevents that, but makes every commit wait for the disk.
-For performance, genroc doesn&#39;t flush every commit.</p>
+So by default, genroc doesn&#39;t flush every commit.</p>
 <h3 id="what-is-guaranteed">What is guaranteed<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-is-guaranteed"><span></span></a></h3>
-<p>As a compromise, genroc guarantees that any data submitted by the user
-will not be lost and that any task marked <code>only_once</code> is not re-executed
-in this case. So it does a full flush in these cases.</p>
+<p>As a compromise, genroc flushes what can&#39;t be replayed: data submitted from outside
+is never lost after an outage, and an <code>only_once</code> task never runs twice on its own.</p>
 <p>You can change this with the <code>--durability</code> option:</p>
 <ul>
 <li><code>essential</code> (default): work handed in from outside and <code>only_once</code> tasks. Ordinary task
 progress may replay after a power cut.</li>
 <li><code>terminal</code>: also process ends, so a finished process can&#39;t rewind to running.</li>
 <li><code>strict</code>: every commit, so no completed task repeats.</li>
-<li><code>none</code>: nothing is forced to disk. A crash of genroc itself loses nothing, but a power cut
-or OS crash can lose the last moments of any work, <code>only_once</code> included. Used in tests.</li>
+<li><code>none</code>: nothing is forced to disk. A crash of genroc itself loses nothing, but any of the
+outages above can lose the last moments of any work, <code>only_once</code> included. Used in tests.</li>
 </ul>
 <p>Here comes the big difference between SQLite and PostgreSQL. If you set
 higher <code>--durability</code> with SQLite, the performance will suffer proportionally:
