@@ -308,7 +308,59 @@ against the <code>responses</code> you declared.</p>
 <h3 id="process-state-upgradability">Process state upgradability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-state-upgradability"><span></span></a></h3>
 <p>Because genroc knows what the state schema should look like at every stage
 of the process, it can decide whether an old version of the process is upgradable to
-a newer version. We will look at this feature later.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/child-processes/"> <span>next</span> <strong>Child processes</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#scenarios">Scenarios</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li></ul><script>
+a newer version. We will look at this feature later.</p>
+<h2 id="exporting-types">Exporting types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#exporting-types"><span></span></a></h2>
+<p>Genroc knows the type of every value in a process, and <code>genctl schema type</code> exports it.
+Use it to keep other systems in line with the process: generate types for a service that
+starts it, for a worker that answers its external tasks, or compare what a <code>fetch</code> sends with
+the API&#39;s own spec.</p>
+<p>Without an address it lists every value that has a type:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl schema type nudge-inactive-user</span></span>
+<span class="line"><span style="color:#E07A4F">input</span><span style="color:#8FB996">                          object{user_id}</span></span>
+<span class="line"><span style="color:#E07A4F">output</span><span style="color:#8FB996">                         object{email,</span><span style="color:#8FB996"> nudged}</span></span>
+<span class="line"><span style="color:#E07A4F">tasks.load_user.action.body</span><span style="color:#8FB996">    object</span></span>
+<span class="line"><span style="color:#E07A4F">tasks.load_user.action.result</span><span style="color:#8FB996">  object{activated,</span><span style="color:#8FB996"> email}</span></span>
+<span class="line"><span style="color:#E07A4F">tasks.load_user.output</span><span style="color:#8FB996">         object{email}</span></span>
+<span class="line"><span style="color:#E07A4F">tasks.nudge.action.body</span><span style="color:#8FB996">        object{to}</span></span>
+<span class="line"><span style="color:#E07A4F">tasks.nudge.output</span><span style="color:#8FB996">             object{nudged}</span></span></code></pre>
+<p>The ones other systems care about:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>address</th><th>what it is</th></tr></thead><tbody><tr><td><code>input</code>, <code>output</code></td><td>what a caller sends to start the process and gets back</td></tr><tr><td><code>tasks.&lt;id&gt;.action.body</code>, <code>.result</code></td><td>what a <code>fetch</code> sends and expects back</td></tr><tr><td><code>tasks.&lt;id&gt;.action.input</code>, <code>.result</code></td><td>for an <code>external</code> task, what the worker receives and must answer</td></tr><tr><td><code>raises</code></td><td>the errors the process can raise to its caller</td></tr></tbody></table>
+<p>Name one to get its schema, <code>--json</code> gives JSON Schema that code generators accept:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl schema type nudge-inactive-user tasks.load_user.action.result --json </span><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> user.json</span></span>
+<span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> npx json-schema-to-typescript -i user.json</span></span>
+<span class="line"><span style="color:#E07A4F">export</span><span style="color:#D6D6D2"> interface User </span><span style="color:#8A8A84">{</span></span>
+<span class="line"><span style="color:#E07A4F">  activated:</span><span style="color:#8FB996"> boolean</span><span style="color:#8A8A84">;</span></span>
+<span class="line"><span style="color:#E07A4F">  email:</span><span style="color:#8FB996"> string</span><span style="color:#8A8A84">;</span></span>
+<span class="line"><span style="color:#8A8A84">  [</span><span style="color:#D6D6D2">k: string</span><span style="color:#8A8A84">]</span><span style="color:#E07A4F">:</span><span style="color:#8FB996"> unknown</span><span style="color:#8A8A84">;</span></span>
+<span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
+<p>It reads your definition files (from <code>.genroc</code>, or <code>-f</code>) and needs no server, so you can run it
+in CI and regenerate the types whenever a definition changes.</p>
+<p><code>genctl schema context</code> answers the other question: what an expression at a given place can read.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/child-processes/"> <span>next</span> <strong>Child processes</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#scenarios">Scenarios</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li><li class="depth-2"><a href="#exporting-types">Exporting types</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
