@@ -197,3 +197,49 @@ against the `responses` you declared.
 Because genroc knows what the state schema should look like at every stage
 of the process, it can decide whether an old version of the process is upgradable to
 a newer version. We will look at this feature later.
+
+## Exporting types
+
+Genroc knows the type of every value in a process, and `genctl schema type` exports it.
+Use it to keep other systems in line with the process: generate types for a service that
+starts it, for a worker that answers its external tasks, or compare what a `fetch` sends with
+the API's own spec.
+
+Without an address it lists every value that has a type:
+
+```sh
+> genctl schema type nudge-inactive-user
+input                          object{user_id}
+output                         object{email, nudged}
+tasks.load_user.action.body    object
+tasks.load_user.action.result  object{activated, email}
+tasks.load_user.output         object{email}
+tasks.nudge.action.body        object{to}
+tasks.nudge.output             object{nudged}
+```
+
+The ones other systems care about:
+
+| address | what it is |
+|---|---|
+| `input`, `output` | what a caller sends to start the process and gets back |
+| `tasks.<id>.action.body`, `.result` | what a `fetch` sends and expects back |
+| `tasks.<id>.action.input`, `.result` | for an `external` task, what the worker receives and must answer |
+| `raises` | the errors the process can raise to its caller |
+
+Name one to get its schema, `--json` gives JSON Schema that code generators accept:
+
+```sh
+> genctl schema type nudge-inactive-user tasks.load_user.action.result --json > user.json
+> npx json-schema-to-typescript -i user.json
+export interface User {
+  activated: boolean;
+  email: string;
+  [k: string]: unknown;
+}
+```
+
+It reads your definition files (from `.genroc`, or `-f`) and needs no server, so you can run it
+in CI and regenerate the types whenever a definition changes.
+
+`genctl schema context` answers the other question: what an expression at a given place can read.
