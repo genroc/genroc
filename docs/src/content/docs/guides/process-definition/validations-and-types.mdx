@@ -164,59 +164,8 @@ allow unreachable tasks.
 
 ## Config
 
-Config lets a process read environment variables.
-You can define `config_schema`. It must be a flat object, e.g.:
-
-```genroc
-name: process-with-config
-config_schema:
-  type: object
-  properties:
-    server_url:
-      type: string
-  required: [server_url]
-```
-
-You can then provide config properties through environment variables like this:
-
-```sh
-# scoped to a single process
-GENROC_PROCESS_WITH_CONFIG_SERVER_URL=http://example.project
-# or globally for all processes
-GENROC_GLOBAL_SERVER_URL=http://example.project
-```
-
-You can then access config anywhere in the process expressions.
-
-```genroc
-    url: "${config.server_url}/users/${input.user_id}"
-```
-
-Genroc loads and validates config values every time it interacts with the process.
-You can declare any primitive type; genroc validates the value and converts it.
-If the validation doesn't pass, the process is not allowed to register.
-So if the value is required, you need to set the env before applying the definition (on the server).
-
-### Secrets
-
-In the config you can mark a property as `secret`.
-
-```genroc
-name: process-with-config
-config_schema:
-  type: object
-  properties:
-    server_token:
-      type: string
-      secret: true
-  required: [server_token]
-```
-
-This will redact the secrets that would otherwise leak into stdout (server logs).
-Secrets can still leak into db-stored logs or process state - so they will be
-visible through `genctl logs` and so on.
-
-The `secret` property can only be used in the config.
+`config_schema` declares the values a process reads from the environment, and they are
+type-checked like the rest. See [Configuration](./configuration.mdx).
 
 ## The benefits
 

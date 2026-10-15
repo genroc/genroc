@@ -25,12 +25,12 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
-- [] **docs** — the language and the API are covered; running the server is not (flags,
-  Postgres, durability, auth setup, genroc-ui config)
 - [] **`$openapi` resolver** — an operation's response types spread into a fetch; `allOf`
   flattened in the resolver, not the language (specs/openapi-resolver.md)
 
 ## Shipped
+- [x] **docs: running the server** — production (database, durability, health, shutdown, logs),
+      authentication and genroc-ui guides
 - [x] **instance retention** — `--instance-retention` (opt-in) deletes concluded trees with their
       logs and signals; their objects follow through the sweep (specs/instance-retention.md)
 - [x] **declared slot schemas** — an optional `<slot>_schema` beside every shape, checked
