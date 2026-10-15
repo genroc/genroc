@@ -1,0 +1,47 @@
+---
+title: Configuration
+description: Pass settings and secrets to a process through environment variables.
+order: 4
+---
+
+Genroc allows you to pass environment variables through `config` property.
+
+## Specifying `config_schema`
+
+If you want to use `config` in your process, you first need to
+specify what values and types you require for the process.
+
+This is done through `config_schema`, it requires JSON-schema.
+It is similar to `input_schema`, however it only supports a
+flat object with primitive properties (as it's coming from env and
+nested properties would be akward here).
+
+```genroc-lsp
+name: get-user-data
+input_schema:
+  type: object
+  properties:
+    user_id: { type: string }
+  required: [user_id]
+
+config_schema:
+  type: object
+  properties:
+    server_origin:
+      type: string
+      default: "http://localhost:8080"
+    server_auth:
+      type: string
+      secret: true
+  required: [server_auth]
+
+tasks:
+  - id: load_user
+    action:
+      type: fetch
+      method: get
+      url: "${config.server_origin}/users/${input.user_id}"
+      headers:
+        Authorization: "Bearer ${config.server_auth}"
+    switch: end
+```
