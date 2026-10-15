@@ -143,6 +143,16 @@ Retry can't be used on `paused`, `cancelled` or `raised` statuses.
 If the task is `only_once`, retry needs the `--force` flag,
 because a retry could easily break the `only_once` rule by accident.
 
+### Upgrade
+
+```sh
+genctl upgrade @last --to latest
+```
+
+Moves a running instance to a newer version of its definition, for example to fix a URL
+in a process that's already running. It only moves if the new version fits the state the
+instance is in. See [Upgrading instances](../process-definition/upgrading-instances.mdx).
+
 ## Instance logs
 
 To see a detailed history of an instance, use the `logs` command.
