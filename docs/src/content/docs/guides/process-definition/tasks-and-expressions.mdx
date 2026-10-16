@@ -1,83 +1,35 @@
 ---
 title: Tasks and expressions
-description: Learn about tasks, and how to pass data around.
+description: Learn how tasks pass data to each other.
 order: 2
 ---
 
-To make our process actually do something, we need a way to communicate with
-the outside world, and that is where the task `action` comes in.
+Tasks can produce data and pass it on to the tasks that follow.
+That is what the task `output` and expressions are for.
 
-## Action
-
-Let's say we want to send our users a welcome email two hours after they register.
+## Task output
 
 ```genroc-lsp
-name: welcome-user
-input_schema:
-  type: object
-  properties:
-    user_email:
-      type: string
-  required: [user_email]
-
+name: output-example
 tasks:
-  - id: wait_some_time
-    action:
-      type: delay    # the process will be parked for 2 hours
-      for: 2h
+  - id: task1
+    output: 1
     switch: next
 
-  - id: welcome
-    action:
-      type: fetch    # this will hit an endpoint on our API
-      url: "https://api.example.com/emails"
-      method: post
-      body:
-        # passing data from input to the request body
-        to: "$: input.user_email"
-        template: welcome-after-registration
+  - id: task2
+    output: 2
+    switch: next
+
+  - id: task_sum
+    output: "$: outputs.task1 + outputs.task2"
     switch: end
 ```
 
-In the example above we've used the `delay` and `fetch` actions.
-The delay parks the process for a specified amount of time. While it waits there is no active thread anywhere,
-it just sits in the database.
+Task output defines what will be passed to following tasks.
+If the output is defined, the following tasks can read it through the
+`outputs.<task_id>` expression.
 
-The fetch action then hits the specified endpoint. We are sending a body whose parameters
-can be either expressions or static data.
-
-## Reading the fetch result
-
-What if you want to read data instead of sending it?
-No problem, let's look at another example.
-
-```genroc
-  - id: load_user
-    action:
-      type: fetch
-      method: get
-      url: "https://api.example.com/users/${input.user_id}"
-      responses:
-        200:
-          type: object
-          properties:
-            email: { type: string }
-            activated: { type: boolean }
-          required: [email, activated]
-    switch:
-      - case: "self.result.activated == true"
-        goto: end
-      - goto: $nudge
-    # mapping the task output (what parts of the response we need)
-    output:
-      email: "$: self.result.email"
-```
-
-To read the fetch result, you need to declare its response type.
-Genroc validates the data against that schema, so invalid data never gets in.
-
-The result is then available as `self.result` in the `case` expression,
-so we can check whether the account is activated.
+The `$:` prefix marks an expression, which we explain below.
 
 ## Expressions
 
@@ -86,7 +38,7 @@ In an expression you can reference the following variables:
 
   - `input` - the process input defined by `input_schema`
   - `outputs.<task-id>` - output of any earlier task (if it defines one)
-  - `self` - data about the current task, not available outside it
+  - `self` - data about the current task, not available outside it (see [looping](#looping))
   - `config` - configuration values resolved from environment variables (we will get to this later)
 
 You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `??`.
@@ -114,7 +66,7 @@ $: map(names, (name) => { who: name })
 This is a simple use case: it lets you compose a string value dynamically.
 
 ```genroc
-"https://api.example.com/users/${input.user_id}"
+"Hello ${input.user_name}!"
 ```
 
 The value passed into a template must be a primitive value (string, number or boolean), and it cannot be null.
@@ -122,7 +74,7 @@ The value passed into a template must be a primitive value (string, number or bo
 You can escape `${}` by doubling the `$`, e.g.:
 
 ```genroc
-"https://api.example.com/users/$${input.user_id}"
+"Hello $${input.user_name}!"
 ```
 
 ### Expression of any type
@@ -131,13 +83,13 @@ By prefixing the string with `$: ` you are not creating a template. The whole ex
 used and its type is preserved:
 
 ```genroc
-"$: self.result.email"  # string
+"$: outputs.task1 + outputs.task2"  # integer
 ```
 
-This way you can also return whole objects, e.g.:
+This way you can also pass whole objects, e.g.:
 
 ```genroc
-"$: self.result"        # { email: ..., activated: ... }
+"$: input"                          # { user_name: ... }
 ```
 
 ### Raw expressions
@@ -147,7 +99,7 @@ so there is no `$:` or `${}` syntax, you write the expression directly:
 
 ```genroc
 switch:
-  - case: "self.result.activated == true"
+  - case: "input.user_name == 'Brenda'"
     goto: ...
 ```
 
@@ -185,6 +137,39 @@ definition.
 > A client reading results in JavaScript loses precision on large numbers in `JSON.parse`,
 > so a long id can still break there, on the client's side.
 
+## Looping
+
+You can also use switch to create loops. We however need a way
+to express a condition when to stop and keep track of current state.
+
+```genroc-lsp
+name: looper
+# number of iterations as an input
+input_schema:
+  type: integer
+tasks:
+  - id: task1
+    # counting the iterations (previous output + 1)
+    output: "$: (self.previous ?? 0) + 1"
+    switch:
+        # looping condition
+      - case: "self.output < input"
+        goto: $task1
+      - goto: end
+```
+
+This process takes input of single integer (number of iterations)
+and then loops on `task1` while counting the number of iterations in the `output`
+field. In the switch statement we compare the counter (task output) with
+the required number of iterations (process input).
+
+The counter lives in `self`:
+
+  - `self.previous` - the output of the last run of this task, `null` on the first run (hence the `??`)
+  - `self.output` - the output this run just produced, readable only in `switch`
+
+Actions add `self.result`, which we get to in the next chapter.
+Which slot can read which is in the [expressions reference](../../reference/definition/expressions.mdx).
 
 ## Shapes
 
@@ -206,7 +191,7 @@ Define the object shape statically and pass the values dynamically.
 
 ```genroc
 output:
-  ok: "$: self.result.is_ok"
+  name: "$: input.user_name"
 ```
 
 ### Expression only
@@ -215,7 +200,7 @@ Because expressions can define objects, you can build the whole structure
 in one expression, or pass a variable that already has the expected shape.
 
 ```genroc
-output: "$: { ok: self.result.is_ok }"
+output: "$: { name: input.user_name }"
 ```
 
 ## Slots
@@ -225,18 +210,12 @@ In the examples above that is:
 
 | Slot | Where | Syntax |
 |---|---|---|
-| `url`, `method` | `fetch` action | string template |
-| `body` | `fetch` action | shape |
-| `for` | `delay` action | literal duration, or a `$:` yielding integer * |
-| `until` | `delay` action | literal instant, or a `$:` yielding integer * |
 | `case` | `switch` | raw expression |
 | `output` | `task` | shape |
 | `output` | `process` | shape |
 
-> \* A static `for` or `until` can use [human-readable syntax](../../reference/definition/delay-syntax.mdx), e.g. `2h30s` or `mon 09:00`; a dynamic one can only give
-> milliseconds as a number — a duration for `for`, a Unix timestamp for `until`.
-
-Every action and clause introduced later brings its own slots, but the syntax is always one of these.
+Every action and clause introduced later brings its own slots, e.g. a fetch `body` is a shape
+and its `url` a string template, but the syntax is always one of these.
 
 ## Process output
 
@@ -244,13 +223,12 @@ A process can optionally define an output. It looks like this:
 
 ```genroc
 tasks:
-  - id: load_user
-    ...
-    output:
-      email: "$: self.result.email"
+  - id: task_sum
+    output: "$: outputs.task1 + outputs.task2"
+    switch: end
 
 output:
-  email: "$: outputs.load_user.email"
+  sum: "$: outputs.task_sum"
 ```
 
 It has the same shape and syntax as a task output. It is evaluated once the process

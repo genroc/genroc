@@ -27,9 +27,9 @@ input_schema:
   required: [user_name]
 
 tasks:
-  - id: task-1
+  - id: task1
     ...
-  - id: task-2
+  - id: task2
     ...
 ```
 
@@ -47,13 +47,13 @@ Or you can reference task by id with `$` prefix.
 ```genroc
 ...
 tasks:
-  - id: task-1          # this is a first task
-    switch: $task-2     # next task referenced by id
+  - id: task1          # this is a first task
+    switch: $task2     # next task referenced by id
 
-  - id: task-2
-    switch: next        # same as `$task-3` in this case
+  - id: task2
+    switch: next        # same as `$task3` in this case
 
-  - id: task-3
+  - id: task3
     switch: end         # end of the process
 ```
 
@@ -66,15 +66,15 @@ The switch statement can also be conditional.
 ```genroc
 ...
 tasks:
-  - id: task-1
+  - id: task1
     switch:
         # condition to check the name
       - case: "input.user_name == 'Brenda'"
-        goto: $only-brenda
+        goto: $only_brenda
         # the default case
       - goto: $others
 
-  - id: only-brenda
+  - id: only_brenda
     switch: end
 
   - id: others
