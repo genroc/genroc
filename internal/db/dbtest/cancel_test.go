@@ -463,3 +463,21 @@ func TestCancelLeavesAFailedTreeForRetry(t *testing.T) {
 		})
 	}
 }
+
+// A failing row settles in SQL from below and is never claimed: claimed, it would run its task as if
+// it were running. Even woken to the empty phase, it must not be offered.
+func TestFailingRowsAreNeverClaimed(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "failing-woken", model.StatusFailing, "", nil, "boom")
+
+			claimed, err := b.db.ClaimInstances("w2", time.Minute, 10, dbpkg.AllowTakeover())
+			if err != nil {
+				t.Fatalf("ClaimInstances: %v", err)
+			}
+			for _, c := range claimed {
+				t.Errorf("%s (%s) was claimed; a failing row has no task left to run", c.ID, c.Status)
+			}
+		})
+	}
+}

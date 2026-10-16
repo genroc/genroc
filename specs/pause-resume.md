@@ -47,7 +47,8 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
 3. **A stop settles bottom-up, so the root reports the tree.** A held row's own write keeps
    `pausing` (the CASE in `UpdateInstance`, only where the new status is `running`, so real
    outcomes win; `UpdateInstanceProgress` does not write status). The claim predicate grants a
-   draining row whatever its `wake_at` or park, so the next claim settles it (`settlePausing`), and
+   draining row whatever its `wake_at` or park, so the next claim settles it (`settlePausing`; its
+   `paused` yields to a verb landing after that claim — a cancel lands, a resume stands), and
    `FinishChild` climbs from there: every parent whose batch has nothing busy settles in the same
    transaction (`settleUp`; paused is not busy). Settling in the holder's write instead skips the
    climb and leaves the ancestors draining forever — which is also why a spawn hands a pending stop
@@ -77,7 +78,10 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
 
 ## Known gaps
 
-Resume has no info-level trace; attribution needs `?level=debug`. Migration 022's data mapping is untested (test databases never hold legacy rows).
+Resume has no info-level trace; attribution needs `?level=debug`. When a settle's `paused`
+yields to a cancel or resume that landed after its claim (§3), the engine's audit still reads
+"instance paused": it is written before the write that decides. The status is right; fixing the
+line needs the write to report what it landed. Migration 022's data mapping is untested (test databases never hold legacy rows).
 
 ## Cancel
 

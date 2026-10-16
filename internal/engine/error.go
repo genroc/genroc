@@ -276,13 +276,3 @@ func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
 		Msg: "in-flight task settled; instance cancelled"})
 	return advanceOutcome{kind: outcomeTerminal}
 }
-
-// settleFailing finalises a claimable 'failing' row, which only data written before the
-// settle-up moved into SQL can be: FinishChild settles every 'failing' parent itself now.
-func (e *Engine) settleFailing(inst *model.ProcessInstance) advanceOutcome {
-	inst.Status = model.StatusFailed
-	inst.Phase = model.PhaseNone
-	inst.WakeAt = nil
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceSettled, Msg: inst.ErrorMessage})
-	return advanceOutcome{kind: outcomeTerminal}
-}

@@ -332,45 +332,7 @@ func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 	}
 }
 
-// advance() tests 'failing' before anything else, so a tree on its way down is settled,
-// not adjudicated — and keeps the failure that started it.
-func TestInterrupted_FailingTreeKeepsItsOriginalCause(t *testing.T) {
-	database := openTestDB(t)
-	id, hits := interruptedFixture(t, database, "failing", model.StatusFailing,
-		[]model.ErrorCase{{Code: []string{"only_once.interrupted"}, Goto: "verify"}})
 
-	// Stamp the cause that poisoned the tree, the way FailAncestors would have.
-	inst, err := database.GetInstance(id)
-	if err != nil {
-		t.Fatalf("GetInstance: %v", err)
-	}
-	inst.ErrorMessage = "sibling exploded"
-	inst.ErrorCode = "child_failed"
-	if err := database.UpdateInstance(inst); err != nil {
-		t.Fatalf("UpdateInstance: %v", err)
-	}
-	interrupt(t, database, id)
-
-	if _, err := tickEngine(t, database).Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
-
-	if inst, err = database.GetInstance(id); err != nil {
-		t.Fatalf("GetInstance: %v", err)
-	}
-	if inst.Status != model.StatusFailed {
-		t.Errorf("status %q, want failed: a draining instance settles", inst.Status)
-	}
-	if inst.ErrorCode != "child_failed" {
-		t.Errorf("error_code %q, want the original cause: the interruption must not relabel a tree that was already dying", inst.ErrorCode)
-	}
-	if inst.Task == "verify" {
-		t.Error("a draining instance was routed to a handler; 'failing' outranks the interruption")
-	}
-	if got := hits.Load(); got != 0 {
-		t.Errorf("the interrupted action was executed %d times", got)
-	}
-}
 
 // The runtime half of the unknowable-set ban: all that stands behind definitions stored
 // before validation learned to refuse them.

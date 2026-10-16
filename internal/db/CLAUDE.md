@@ -355,7 +355,7 @@ That is what separates the two recovery verbs, and they must not be merged again
   skips `only_once` too). It reconstructs the interrupted path, which is why it carries
   the revive walk.
 
-Three invariants that are easy to break:
+Four invariants that are easy to break:
 
 1. **A stop settles bottom-up, and only in `saveAndNotify`'s two writes.** `PauseTree` /
    `CancelTree` split the tree in one statement: a row a worker is on (`worker_id` set, lapsed
@@ -366,7 +366,9 @@ Three invariants that are easy to break:
    that lands a stop elsewhere — in the holder's write, or at spawn (children INHERIT a pending
    stop) — skips the climb, and the ancestors drain forever with nothing left to land. The split
    statement runs under `lockTree`, or a claim between its snapshot and its write stops a parent
-   over a running child.
+   over a running child. The settle's own `paused` must yield in the same CASE to a verb that
+   landed after its claim, or a cancel or resume in that window leaves a paused row under a
+   cancelled or running parent (`TestSettle_AVerbBetweenTheClaimAndTheWriteWins`).
 2. **The settle-up's locks widen only on demand, before the first write.** `withChildTx` locks
    the child and parent, the call stack once the parent is draining, every live row for a
    failure that poisons the root; `errWiden` reruns the transaction. Widening after a write
@@ -378,6 +380,11 @@ Three invariants that are easy to break:
    what is left. A failed root is therefore a quiescent tree, possibly with paused rows:
    `RetryProcess` resumes them, `ResumeProcess` refuses a `failing`/`failed` root, pause and cancel
    leave a concluded root alone, and retention counts paused as concluded under it.
+4. **A tree verb decides from rows its lock matched, never from a predicate widened to fit.** Under
+   read committed a `FOR UPDATE` re-checks only the rows its snapshot matched; folding the root into
+   `ResumeProcess`'s lock (`OR parent_id = ''`) let a pause committing mid-wait flip the root alone,
+   stranding paused rows under a running one. Read anything else in its own statement after the
+   lock. `TestStress_PauseVsResume` fails 300 times in 180 runs with it back.
 
 The engine side of pause settlement (`advance()`, `settlePausing`) has its own invariant
 about `only_once` ordering — see [internal/engine/CLAUDE.md](../engine/CLAUDE.md).

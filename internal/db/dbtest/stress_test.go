@@ -823,3 +823,46 @@ func TestStress_ConcurrentFailures_vs_Pause(t *testing.T) {
 		}
 	}
 }
+
+// Pause racing resume. Whichever wins, the tree agrees with its root: a resume whose lock waited
+// on a committing pause must flip all of it or none of it, never the root alone.
+func TestStress_PauseVsResume(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+	const iterations = 60
+	for i := 0; i < iterations; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInstW(t, db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+		for j := 0; j < 4; j++ {
+			insertChild(t, db, fmt.Sprintf("c%d", j), model.StatusRunning, "root", "step1", []string{"root"}, "")
+		}
+		if i%2 == 1 { // half the runs start paused, so resume has something to flip
+			if _, err := db.PauseProcess(ctx, "root", ""); err != nil {
+				t.Fatalf("iteration %d: setup pause: %v", i, err)
+			}
+		}
+
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() { defer wg.Done(); _, err := db.PauseProcess(ctx, "root", ""); errs <- err }()
+		go func() { defer wg.Done(); _, err := db.ResumeProcess(ctx, "root", ""); errs <- err }()
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Errorf("iteration %d: %v", i, err)
+			}
+		}
+
+		root := mustStatus(t, db, "root")
+		for j := 0; j < 4; j++ {
+			if got := mustStatus(t, db, fmt.Sprintf("c%d", j)); got != root {
+				t.Errorf("iteration %d: c%d is %q under a %q root: the verbs interleaved", i, j, got, root)
+			}
+		}
+	}
+}

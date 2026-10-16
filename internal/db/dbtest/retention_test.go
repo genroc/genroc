@@ -21,6 +21,13 @@ func settle(t *testing.T, db *dbpkg.DB, id string, status model.Status) {
 	if err != nil {
 		t.Fatalf("GetInstance %s: %v", id, err)
 	}
+	// A settle writes 'paused' only over 'pausing'; over 'running' it means a resume came first.
+	if status == model.StatusPaused {
+		inst.Status = model.StatusPausing
+		if err := db.UpdateInstance(inst); err != nil {
+			t.Fatalf("settle %s: %v", id, err)
+		}
+	}
 	inst.Status = status
 	if err := db.UpdateInstance(inst); err != nil {
 		t.Fatalf("settle %s: %v", id, err)

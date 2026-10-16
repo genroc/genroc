@@ -1576,3 +1576,241 @@ func insertChildW(t *testing.T, db *dbpkg.DB, id string, status model.Status, ph
 		t.Fatalf("insertChildW %q: %v", id, err)
 	}
 }
+
+// failLeaf writes a leaf's failure with its own code, as the engine's failInstance does.
+func failLeaf(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance, code string) {
+	t.Helper()
+	inst.Status, inst.ErrorCode, inst.ErrorMessage = model.StatusFailed, code, code
+	if err := db.FailInstanceAndAncestors(inst); err != nil {
+		t.Fatalf("FailInstanceAndAncestors %s: %v", inst.ID, err)
+	}
+}
+
+// Two siblings fail one after the other: the root reports the first, the one that poisoned it.
+// The second finds its ancestors already failed and must neither overwrite them nor error.
+func TestFailInstanceAndAncestors_TheFirstFailureKeepsTheReport(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+			insertChild(t, b.db, "c1", model.StatusRunning, "root", "step1", []string{"root"}, "")
+			insertChild(t, b.db, "c2", model.StatusRunning, "root", "step1", []string{"root"}, "")
+			lease(t, b.db, "c1") // claims c2 too: both are mid-task when the first fails
+
+			c1, _ := b.db.GetInstance("c1")
+			c2, _ := b.db.GetInstance("c2")
+			failLeaf(t, b.db, c1, "first")
+			if got := mustStatus(t, b.db, "root"); got != model.StatusFailing {
+				t.Fatalf("root: c2 is still held, so the root must drain, got %q", got)
+			}
+			failLeaf(t, b.db, c2, "second")
+
+			root, err := b.db.GetInstance("root")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			if root.Status != model.StatusFailed {
+				t.Errorf("root: the last busy child failed, so the root settles, got %q", root.Status)
+			}
+			if root.ErrorCode != "first" || root.ErrorMessage != "first" {
+				t.Errorf("root reports %q/%q, want the failure that poisoned it", root.ErrorCode, root.ErrorMessage)
+			}
+		})
+	}
+}
+
+// root → {m1 → l1 (fails), m2 → l2 (held)}: the failure pauses the other branch, and a held row
+// two levels away holds the root open until its settle climbs both levels.
+func TestFailInstanceAndAncestors_AHeldCousinDrainsTheRoot(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+			insertChildW(t, b.db, "m1", model.StatusRunning, model.PhaseChildren, "root", []string{"root"})
+			insertChildW(t, b.db, "m2", model.StatusRunning, model.PhaseChildren, "root", []string{"root"})
+			insertChild(t, b.db, "l1", model.StatusRunning, "m1", "step1", []string{"root", "m1"}, "")
+			insertChild(t, b.db, "l2", model.StatusRunning, "m2", "step1", []string{"root", "m2"}, "")
+			lease(t, b.db, "l1") // claims l2 too
+
+			l1, _ := b.db.GetInstance("l1")
+			failLeaf(t, b.db, l1, "boom")
+			want := map[string]model.Status{
+				"m1": model.StatusFailed, "root": model.StatusFailing,
+				"m2": model.StatusPausing, "l2": model.StatusPausing,
+			}
+			for id, w := range want {
+				if got := mustStatus(t, b.db, id); got != w {
+					t.Errorf("after the failure, %s: expected %s, got %q", id, w, got)
+				}
+			}
+			if got := mustError(t, b.db, "m2"); got != "" {
+				t.Errorf("m2 was paused, not failed, and must carry no error: %q", got)
+			}
+
+			l2, _ := b.db.GetInstance("l2")
+			l2.Status = model.StatusRunning
+			if err := b.db.UpdateInstance(l2); err != nil {
+				t.Fatalf("UpdateInstance: %v", err)
+			}
+			settle := mustClaim(t, b.db, "l2", "the cousin's kept pause must reach a worker")
+			settle.Status = model.StatusPaused
+			if err := b.db.FinishChild(settle); err != nil {
+				t.Fatalf("FinishChild: %v", err)
+			}
+			for id, w := range map[string]model.Status{"m2": model.StatusPaused, "root": model.StatusFailed} {
+				if got := mustStatus(t, b.db, id); got != w {
+					t.Errorf("after the cousin settled, %s: expected %s, got %q", id, w, got)
+				}
+			}
+		})
+	}
+}
+
+// A worker dies holding the sibling a failure is draining. Its lease lapses, the next claim
+// takes the row over and settles it, and the root still fails: a crash cannot strand the drain.
+func TestFailInstanceAndAncestors_ADeadHolderStillSettles(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+			insertChild(t, b.db, "c-dead", model.StatusRunning, "root", "step1", []string{"root"}, "")
+			insertChild(t, b.db, "c-bad", model.StatusRunning, "root", "step1", []string{"root"}, "")
+			lease(t, b.db, "c-dead") // claims c-bad too; c-dead's worker then dies
+
+			bad, _ := b.db.GetInstance("c-bad")
+			failLeaf(t, b.db, bad, "boom")
+			if got := mustStatus(t, b.db, "c-dead"); got != model.StatusPausing {
+				t.Fatalf("c-dead: expected pausing, got %q", got)
+			}
+
+			advance(t, 2*time.Minute) // past the dead worker's lease
+			settle := mustClaim(t, b.db, "c-dead", "a lapsed holder's draining row must be reclaimable")
+			if !settle.ReclaimedExpired {
+				t.Errorf("the takeover must be flagged, or an interrupted only_once task goes unnoticed")
+			}
+			settle.Status = model.StatusPaused
+			if err := b.db.FinishChild(settle); err != nil {
+				t.Fatalf("FinishChild: %v", err)
+			}
+			if got := mustStatus(t, b.db, "root"); got != model.StatusFailed {
+				t.Errorf("root: expected failed once the reclaimed sibling settled, got %q", got)
+			}
+		})
+	}
+}
+
+// A raise is a settled outcome, so it lands a draining parent like completion does.
+func TestFinishChild_ARaiseUnderADrainingParentSettlesIt(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+			insertChild(t, b.db, "c-raise", model.StatusRunning, "root", "step1", []string{"root"}, "")
+			insertChild(t, b.db, "c-idle", model.StatusRunning, "root", "step1", []string{"root"}, "")
+			lease(t, b.db, "c-raise") // claims c-idle too
+			idle, _ := b.db.GetInstance("c-idle")
+			if err := b.db.UpdateInstance(idle); err != nil { // its task boundary: no longer held
+				t.Fatalf("UpdateInstance: %v", err)
+			}
+			if _, err := b.db.PauseProcess(context.Background(), "root", ""); err != nil {
+				t.Fatalf("PauseProcess: %v", err)
+			}
+			if got := mustStatus(t, b.db, "root"); got != model.StatusPausing {
+				t.Fatalf("root: expected pausing over the held child, got %q", got)
+			}
+
+			raised, _ := b.db.GetInstance("c-raise")
+			raised.Status, raised.ErrorCode = model.StatusRaised, "declined"
+			if err := b.db.FinishChild(raised); err != nil {
+				t.Fatalf("FinishChild: %v", err)
+			}
+			if got := mustStatus(t, b.db, "root"); got != model.StatusPaused {
+				t.Errorf("root: its last busy child raised, so the pause settles, got %q", got)
+			}
+			if got := mustStatus(t, b.db, "c-raise"); got != model.StatusRaised {
+				t.Errorf("c-raise: the raise must stand over the pause, got %q", got)
+			}
+		})
+	}
+}
+
+// A child retry under a pending pause hands the pause to the replacement, as a first spawn does,
+// rather than settling the parent with nothing below it to land.
+func TestRespawnSlotsAndWait_InheritsAPendingPause(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInstW(t, b.db, "parent", model.StatusPausing, model.PhaseCollecting, "", nil, "")
+			insertChild(t, b.db, "attempt1", model.StatusRaised, "parent", "step1", []string{"parent"}, "")
+			parent, err := b.db.GetInstance("parent")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			replacement := &model.ProcessInstance{
+				ID: "attempt2", ProcessName: "test", ProcessVersion: 1, Task: "step1", State: map[string]any{},
+				ParentID: "parent", SpawnTaskID: "step1", CallStack: []string{"parent"}, Status: model.StatusRunning,
+			}
+			if err := b.db.RespawnSlotsAndWait(context.Background(), parent, []string{"attempt1"},
+				[]*model.ProcessInstance{replacement}); err != nil {
+				t.Fatalf("RespawnSlotsAndWait: %v", err)
+			}
+			if got := mustStatus(t, b.db, "attempt2"); got != model.StatusPausing {
+				t.Errorf("replacement: expected the pending pause inherited, got %q", got)
+			}
+			if got := mustStatus(t, b.db, "parent"); got != model.StatusPausing {
+				t.Errorf("parent: a pause landed at respawn strands its ancestors, got %q", got)
+			}
+			settle := mustClaim(t, b.db, "attempt2", "an inherited pause is settled by the first claim")
+			settle.Status = model.StatusPaused
+			if err := b.db.FinishChild(settle); err != nil {
+				t.Fatalf("FinishChild: %v", err)
+			}
+			if got := mustStatus(t, b.db, "parent"); got != model.StatusPaused {
+				t.Errorf("parent: the replacement's settle did not settle it, got %q", got)
+			}
+		})
+	}
+}
+
+// A verb landing between the settling claim and its write. The settle writes 'paused' for the pause
+// it saw; it must not overwrite a newer decision: a cancel lands instead, a resume stands.
+func TestSettle_AVerbBetweenTheClaimAndTheWriteWins(t *testing.T) {
+	for _, verb := range []string{"cancel", "resume"} {
+		for _, b := range testBackends(t) {
+			t.Run(b.name+"/"+verb, func(t *testing.T) {
+				ctx := context.Background()
+				insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+				insertChild(t, b.db, "leaf", model.StatusRunning, "root", "step1", []string{"root"}, "")
+				lease(t, b.db, "leaf")
+				if _, err := b.db.PauseProcess(ctx, "root", ""); err != nil {
+					t.Fatalf("PauseProcess: %v", err)
+				}
+				leaf, _ := b.db.GetInstance("leaf")
+				if err := b.db.UpdateInstance(leaf); err != nil { // its task ends: the pause is kept
+					t.Fatalf("UpdateInstance: %v", err)
+				}
+				settle := mustClaim(t, b.db, "leaf", "the kept pause must reach a worker")
+
+				var want model.Status
+				switch verb {
+				case "cancel":
+					if _, err := b.db.CancelProcess(ctx, "root", ""); err != nil {
+						t.Fatalf("CancelProcess: %v", err)
+					}
+					want = model.StatusCancelled
+				default:
+					if _, err := b.db.ResumeProcess(ctx, "root", ""); err != nil {
+						t.Fatalf("ResumeProcess: %v", err)
+					}
+					want = model.StatusRunning
+				}
+
+				settle.Status = model.StatusPaused // what settlePausing writes, unaware of the verb
+				if err := b.db.FinishChild(settle); err != nil {
+					t.Fatalf("FinishChild: %v", err)
+				}
+				if got := mustStatus(t, b.db, "leaf"); got != want {
+					t.Errorf("leaf: the %s in the window was overwritten: got %q, want %q", verb, got, want)
+				}
+				if got := mustStatus(t, b.db, "root"); got != want {
+					t.Errorf("root: expected %q after the %s, got %q", want, verb, got)
+				}
+			})
+		}
+	}
+}

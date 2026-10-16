@@ -325,3 +325,84 @@ test("resume changes nothing when the tree is already advancing", async () => {
     await ctx.env.tickUntilIdle();
   }
 });
+
+// A pause landing while a child is mid-call drains up the tree: the child's own write keeps the
+// pause, its next claim settles it, and that settle climbs, each parent logging its own landing.
+test("pause mid-call — the ancestors drain, then settle together once the child lands", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const held = await startMockService(0, { response: {}, firstRequestDelayMs: Infinity });
+  try {
+    const leaf = `held_leaf_${uid}`;
+    await ctx.env.define(leaf, [
+      {
+        id: "work",
+        action: { type: "fetch" as const, method: "post", url: `http://localhost:${held.port}/a`, timeout: 30_000 },
+        switch: [{ goto: "next" }],
+      },
+      { id: "after", switch: [{ goto: "end" }] },
+    ]);
+    const mid = `held_mid_${uid}`;
+    await ctx.env.define(mid, [
+      { id: "run_children", action: { type: "child_map" as const, children: { a: { name: leaf } } }, switch: [{ goto: "end" }] },
+    ]);
+    const top = `held_gp_${uid}`;
+    await ctx.env.define(top, [
+      { id: "run_parent", action: { type: "child_map" as const, children: { out: { name: mid } } }, switch: [{ goto: "end" }] },
+    ]);
+    const gp = await ctx.env.start(top);
+    await ctx.env.tick();
+    const parent = await ctx.env.childOf(gp, "run_parent");
+    await ctx.env.tick();
+    const a = await ctx.env.childOf(parent, "run_children");
+
+    const inFlight = ctx.env.tick();
+    await held.firstRequestReceived;
+    expect(await ctx.env.pause(gp)).toBe("accepted");
+    expect(await ctx.env.statuses({ gp, parent, a })).toEqual({
+      gp: "pausing children",
+      parent: "pausing children",
+      a: "pausing",
+    });
+
+    held.release();
+    await inFlight;
+    // a's task finished and moved on; its write kept the pause, so nothing has stopped yet.
+    expect(await ctx.env.statuses({ gp, parent, a })).toEqual({
+      gp: "pausing children",
+      parent: "pausing children",
+      a: "pausing",
+    });
+
+    expect(await ctx.env.tick()).toBe(1); // a's settle, which climbs to gp in the same write
+    expect(await ctx.env.statuses({ gp, parent, a })).toEqual({
+      gp: "paused children",
+      parent: "paused children",
+      a: "paused",
+    });
+    expect(await ctx.env.pause(gp)).toBe("unchanged");
+
+    // Audit rows flush on a short ticker, so poll for the settle-up's entries.
+    const settledOn = async (id: string) => {
+      for (let i = 0; i < 40; i++) {
+        const { data } = await ctx.env.client.GET("/instances/{id}/logs", {
+          params: { path: { id }, query: { limit: 100, flat: true, level: "debug" } as never },
+        });
+        const hit = (data?.items ?? []).find((l) => l.event === "inst_paused");
+        if (hit) return hit;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return undefined;
+    };
+    for (const id of [gp, parent, a]) {
+      expect(await settledOn(id), `inst_paused on ${id}: every landing must be on the trail`).toBeDefined();
+    }
+
+    await ctx.env.resume(gp);
+    await ctx.env.tickUntilIdle();
+    expect(await ctx.env.status(gp)).toBe("completed");
+  } finally {
+    held.release();
+    await ctx.env.tickUntilIdle();
+    await held.stop();
+  }
+});

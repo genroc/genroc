@@ -480,23 +480,24 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		// The root is locked with the paused rows, so a failure cannot poison it in between.
-		var rootStatus model.Status
-		if err := db.lockTree(ctx, exec, `id, status`, `(status IN ('paused', 'pausing') OR parent_id = '')`, func(rows *sql.Rows) error {
-			var rowID, status string
-			if err := rows.Scan(&rowID, &status); err != nil {
+		if err := db.lockTree(ctx, exec, `id`, `status IN ('paused', 'pausing')`, func(rows *sql.Rows) error {
+			var rowID string
+			if err := rows.Scan(&rowID); err != nil {
 				return err
 			}
-			if rowID == id {
-				rootStatus = model.Status(status)
-			}
-			if status == string(model.StatusPaused) || status == string(model.StatusPausing) {
-				resumed = append(resumed, rowID)
-			}
+			resumed = append(resumed, rowID)
 			return nil
 		}, id); err != nil {
 			return err
 		}
+		// Its own statement, after the lock: do not fold the root into the lock's predicate. A
+		// lock re-checks only the rows its snapshot matched, so a pause committing while it waited
+		// would flip the root and leave the rest paused under it.
+		status, err := qtx.GetInstanceStatus(ctx, id)
+		if err != nil {
+			return fmt.Errorf("read root status: %w", err)
+		}
+		rootStatus := model.Status(status)
 		// Resuming these would run siblings under a parent that can no longer collect them.
 		switch rootStatus {
 		case model.StatusFailing:
@@ -511,14 +512,10 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 		if len(resumed) == 0 {
 			// Nothing paused: still advancing (the assertion holds) or settled. Split here, under
 			// the tree lock; an answer derived afterwards describes a tree that may have moved.
-			status, err := qtx.GetInstanceStatus(ctx, id)
-			if err != nil {
-				return fmt.Errorf("read root status: %w", err)
-			}
-			if model.Status(status).Terminal() {
+			if rootStatus.Terminal() {
 				// A cancelled tree gets its own advice: retry refuses it by design, so naming
 				// retry here would send the operator to the one door that is bolted.
-				if model.Status(status) == model.StatusCancelled {
+				if rootStatus == model.StatusCancelled {
 					return fmt.Errorf("process was cancelled and a cancel is final; "+
 						"start a new instance: %w", ErrConflict)
 				}

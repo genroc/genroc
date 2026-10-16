@@ -249,9 +249,6 @@ func enterTask(inst *model.ProcessInstance, taskID string) {
 }
 
 func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advanceOutcome {
-	if inst.Status == model.StatusFailing {
-		return e.settleFailing(inst)
-	}
 	if inst.Status == model.StatusCancelling {
 		return e.settleCancelling(inst)
 	}

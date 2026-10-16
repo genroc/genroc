@@ -148,11 +148,36 @@ test("cancelling a draining failure stops it as cancelled, not failed", async ()
       b: "cancelled",
     });
 
-    // settleFailing must not run: it would overwrite the stop with the fault and make a cancelled
-    // tree retryable.
+    // Nothing may settle the fault over the stop: that would make a cancelled tree retryable.
     expect(await ctx.env.tick()).toBe(0);
     expect(await ctx.env.status(t.root)).toBe("cancelled");
     expect(t.next.requestCount()).toBe(0);
+  } finally {
+    t.held.release();
+    await t.inFlight;
+    await ctx.env.tickUntilIdle();
+    await t.stop();
+  }
+});
+
+// The settle-up writes the failure's landing on each ancestor, as info: it is the moment the tree
+// became retryable, and the only line that says so.
+test("the root's settle to failed is on its trail", async () => {
+  const t = await heldTree({ bHasNextTask: false });
+  try {
+    t.held.release();
+    await t.inFlight;
+    expect(await ctx.env.status(t.root)).toBe("failed");
+    let hit: { level?: string } | undefined;
+    for (let i = 0; i < 40 && !hit; i++) {
+      const { data } = await ctx.env.client.GET("/instances/{id}/logs", {
+        params: { path: { id: t.root }, query: { limit: 100, flat: true } },
+      });
+      hit = (data?.items ?? []).find((l) => l.event === "inst_settled");
+      if (!hit) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(hit, "inst_settled on the root").toBeDefined();
+    expect(hit!.level).toBe("info");
   } finally {
     t.held.release();
     await t.inFlight;

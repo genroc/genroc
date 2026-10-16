@@ -142,3 +142,9 @@ comparison's internals are in [internal/validation/CLAUDE.md](../internal/valida
   skipped without a `result_schema`. **`CompareSet` must stop being a per-name loop** to build
   it: it needs old-parent/new-child and new-parent/old-child in one frame. Trigger: operators
   excusing child output breaks that no parent reads.
+- **Failed descendants stay on their old version** (§3c moves only the non-terminal closure).
+  Frozen outputs justify that for `completed`, not `failed`: retry revives a failed child in
+  place, so "publish a fix, upgrade, retry" re-runs the broken version. Moving them means
+  `NonTerminalSubtree` admitting `failed` below the root, each targeted by `ResolveChildVersion`
+  as a live child is. Trigger: an operator needing a fix delivered to a failed branch without
+  starting a new instance.

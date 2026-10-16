@@ -165,8 +165,9 @@ for free, since the output-boundary analysis keys on `goto: end`, which a raise 
 
 ### 5.2 Parent: resolution
 
-Precondition: `running ∧ collecting` (`failing` → `settleFailing`, `pausing` → `settlePausing`;
-`paused` is unclaimable and resolves on resume). So **a resolving parent's batch holds only
+Precondition: `running ∧ collecting` (`failing` is never claimed — it settles in SQL from below,
+[pause-resume.md](pause-resume.md) §3; `pausing` → `settlePausing`; `paused` is unclaimable and
+resolves on resume). So **a resolving parent's batch holds only
 `completed` and `raised` children** — a failure poisoned it first (§5.4), a paused child holds
 it in `children` (`CountActiveSiblings`).
 

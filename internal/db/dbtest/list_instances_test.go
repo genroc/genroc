@@ -1,6 +1,7 @@
 package dbtest
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -382,9 +383,16 @@ func TestListInstances_StatusSet(t *testing.T) {
 			at := func(status model.Status) *model.ProcessInstance {
 				t.Helper()
 				inst := saveInstance(t, b.db, "sweep")
-				inst.Status = status
-				if err := b.db.UpdateInstance(inst); err != nil {
-					t.Fatalf("UpdateInstance: %v", err)
+				if status == model.StatusPaused {
+					// The verb, not a raw write: a settle's 'paused' over 'running' yields to it.
+					if _, err := b.db.PauseProcess(context.Background(), inst.ID, ""); err != nil {
+						t.Fatalf("PauseProcess: %v", err)
+					}
+				} else {
+					inst.Status = status
+					if err := b.db.UpdateInstance(inst); err != nil {
+						t.Fatalf("UpdateInstance: %v", err)
+					}
 				}
 				dbpkg.AdvanceClock(time.Second)
 				return inst

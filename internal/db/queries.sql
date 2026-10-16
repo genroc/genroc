@@ -82,7 +82,8 @@ VALUES
 
 -- name: UpdateInstance :execrows
 -- input_data is never written. The status CASE keeps a pause/cancel that arrived mid-lease for
--- the next claim to settle; landing it here would skip the parent's settle-up. Moving task_epoch
+-- the next claim to settle; landing it here would skip the parent's settle-up. A settle's 'paused'
+-- yields to a verb that came after its claim: a cancel lands, a resume stands. Moving task_epoch
 -- drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE so a lease-less
 -- caller's unheld row still matches.
 UPDATE process_instances
@@ -101,7 +102,12 @@ SET task             = sqlc.arg(task),
     wake_at    = sqlc.arg(wake_at),
     status           = CASE WHEN status IN ('pausing', 'cancelling')
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
-                            THEN status ELSE CAST(sqlc.arg(status) AS TEXT) END,
+                            THEN status
+                            WHEN CAST(sqlc.arg(status) AS TEXT) = 'paused' AND status = 'cancelling'
+                            THEN 'cancelled'
+                            WHEN CAST(sqlc.arg(status) AS TEXT) = 'paused' AND status = 'running'
+                            THEN status
+                            ELSE CAST(sqlc.arg(status) AS TEXT) END,
     phase       = sqlc.arg(phase),
     error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),

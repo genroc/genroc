@@ -1822,7 +1822,12 @@ SET task             = ?1,
     wake_at    = ?13,
     status           = CASE WHEN status IN ('pausing', 'cancelling')
                             AND CAST(?14 AS TEXT) = 'running'
-                            THEN status ELSE CAST(?14 AS TEXT) END,
+                            THEN status
+                            WHEN CAST(?14 AS TEXT) = 'paused' AND status = 'cancelling'
+                            THEN 'cancelled'
+                            WHEN CAST(?14 AS TEXT) = 'paused' AND status = 'running'
+                            THEN status
+                            ELSE CAST(?14 AS TEXT) END,
     phase       = ?15,
     error_message    = ?16,
     error_code       = ?17,
@@ -1860,7 +1865,8 @@ type UpdateInstanceParams struct {
 }
 
 // input_data is never written. The status CASE keeps a pause/cancel that arrived mid-lease for
-// the next claim to settle; landing it here would skip the parent's settle-up. Moving task_epoch
+// the next claim to settle; landing it here would skip the parent's settle-up. A settle's 'paused'
+// yields to a verb that came after its claim: a cancel lands, a resume stands. Moving task_epoch
 // drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE so a lease-less
 // caller's unheld row still matches.
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
