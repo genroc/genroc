@@ -692,7 +692,7 @@ WHERE id = ?1
 `
 
 // Column order is the table's, so sqlc returns dbgen.ProcessInstance: append a new table column
-// here, in GetChildrenForTask and in NonTerminalSubtree, or every toInstance caller breaks.
+// here, in GetChildrenForTask and in RevivableSubtree, or every toInstance caller breaks.
 func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, error) {
 	row := q.db.QueryRowContext(ctx, getInstance, id)
 	var i ProcessInstance
@@ -1295,82 +1295,6 @@ func (q *Queries) NextWorkerNumber(ctx context.Context) (int64, error) {
 	return value, err
 }
 
-const nonTerminalSubtree = `-- name: NonTerminalSubtree :many
-SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, engine_state, task,
-       error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
-FROM process_instances
-WHERE root_id = ?1
-  AND (process_instances.id = ?1
-       OR status NOT IN ('completed', 'failed', 'raised', 'cancelled'))
-ORDER BY created_at ASC, id ASC
-`
-
-// The root is returned whatever its status: a failed root is what an upgrade is for.
-// specs/version-compatibility.md s3c.
-func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]ProcessInstance, error) {
-	rows, err := q.db.QueryContext(ctx, nonTerminalSubtree, root)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ProcessInstance
-	for rows.Next() {
-		var i ProcessInstance
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProcessName,
-			&i.ProcessVersion,
-			&i.ParentID,
-			&i.CallStack,
-			&i.RetryCount,
-			&i.WakeAt,
-			&i.Status,
-			&i.ErrorMessage,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.WorkerID,
-			&i.LeaseExpiresAt,
-			&i.Phase,
-			&i.SpawnTaskID,
-			&i.InputData,
-			&i.OutputsData,
-			&i.OutputData,
-			&i.ErrorInternal,
-			&i.EngineState,
-			&i.Task,
-			&i.ErrorCode,
-			&i.LeaseEpoch,
-			&i.TaskEpoch,
-			&i.ParentTaskEpoch,
-			&i.ExternalWorkerID,
-			&i.ExternalLeaseExpiresAt,
-			&i.ExternalClaimEpoch,
-			&i.Objects,
-			&i.NextReplayable,
-			&i.ErrorData,
-			&i.SupersededAt,
-			&i.RootID,
-			&i.ExternalInput,
-			&i.ExternalLost,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const orphanedInstanceRefs = `-- name: OrphanedInstanceRefs :many
 SELECT hash, owner_id FROM object_refs
 WHERE owner_kind = 'instance'
@@ -1650,6 +1574,83 @@ func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLea
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const revivableSubtree = `-- name: RevivableSubtree :many
+SELECT id, process_name, process_version, parent_id,
+       call_stack, retry_count, wake_at, status, error_message,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
+FROM process_instances
+WHERE root_id = ?1
+  AND (process_instances.id = ?1
+       OR status NOT IN ('completed', 'raised', 'cancelled'))
+ORDER BY created_at ASC, id ASC
+`
+
+// The root whatever its status, and every row a resume or retry can still run: 'failed' is in,
+// since retry revives it in place; 'raised' is out, since a retry re-spawns it whole.
+// specs/version-compatibility.md s3c.
+func (q *Queries) RevivableSubtree(ctx context.Context, root string) ([]ProcessInstance, error) {
+	rows, err := q.db.QueryContext(ctx, revivableSubtree, root)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProcessInstance
+	for rows.Next() {
+		var i ProcessInstance
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProcessName,
+			&i.ProcessVersion,
+			&i.ParentID,
+			&i.CallStack,
+			&i.RetryCount,
+			&i.WakeAt,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.WorkerID,
+			&i.LeaseExpiresAt,
+			&i.Phase,
+			&i.SpawnTaskID,
+			&i.InputData,
+			&i.OutputsData,
+			&i.OutputData,
+			&i.ErrorInternal,
+			&i.EngineState,
+			&i.Task,
+			&i.ErrorCode,
+			&i.LeaseEpoch,
+			&i.TaskEpoch,
+			&i.ParentTaskEpoch,
+			&i.ExternalWorkerID,
+			&i.ExternalLeaseExpiresAt,
+			&i.ExternalClaimEpoch,
+			&i.Objects,
+			&i.NextReplayable,
+			&i.ErrorData,
+			&i.SupersededAt,
+			&i.RootID,
+			&i.ExternalInput,
+			&i.ExternalLost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const revokeAPIToken = `-- name: RevokeAPIToken :execrows

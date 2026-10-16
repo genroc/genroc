@@ -108,8 +108,8 @@ claim by `phase = 'external'`, and releasing is what the heartbeat tells a cance
 Two seams. `ClaimInstances`'s status list and the `idx_instances_runnable` partial index are
 **one predicate written twice**: `cancelling` must be in both, and a status in one but not the
 other is either never scanned (stranding every draining row whose worker died) or index churn. And
-`Status.Terminal()`'s SQL copies (`CountActiveSiblings`, `NonTerminalSubtree`) gain a terminal
-status by hand, as `CountBusySiblings` follows `Status.Busy()`.
+`Status.Terminal()`'s SQL copy (`CountActiveSiblings`) gains a terminal status by hand, as
+`CountBusySiblings` follows `Status.Busy()` and `RevivableSubtree` lists what a retry cannot run.
 
 Reaching work already in flight is the heartbeat's job:
 [external-task-queue.md](external-task-queue.md) §Renew is the heartbeat.

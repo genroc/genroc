@@ -10,12 +10,13 @@ import (
 	"genroc/internal/model"
 )
 
-// NonTerminalSubtree returns the instance and every live descendant, oldest first: the unit an
-// upgrade moves, since terminal outputs are frozen. specs/version-compatibility.md s3c.
-func (db *DB) NonTerminalSubtree(ctx context.Context, rootID string) ([]*model.ProcessInstance, error) {
-	rows, err := db.q.NonTerminalSubtree(ctx, rootID)
+// RevivableSubtree returns the instance and every descendant a resume or retry can still run,
+// failed ones included, oldest first: the unit an upgrade moves, since a settled row's output is
+// frozen. specs/version-compatibility.md s3c.
+func (db *DB) RevivableSubtree(ctx context.Context, rootID string) ([]*model.ProcessInstance, error) {
+	rows, err := db.q.RevivableSubtree(ctx, rootID)
 	if err != nil {
-		return nil, fmt.Errorf("non-terminal subtree of %q: %w", rootID, err)
+		return nil, fmt.Errorf("revivable subtree of %q: %w", rootID, err)
 	}
 	out := make([]*model.ProcessInstance, 0, len(rows))
 	for _, r := range rows {

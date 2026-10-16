@@ -7,13 +7,14 @@ import { useTickEnv } from "./helpers.ts";
 
 const ctx = useTickEnv();
 
-// Answers 500 until `healthy` is set, so a retry can succeed where the first attempt failed.
+// Answers 500 until `healthy` is set, so a retry can succeed where the first attempt failed; /ok
+// always succeeds, for a fixed version to call.
 const endpoint = { healthy: false, port: 0, stop: async () => {} };
 
 beforeAll(async () => {
   const server = createServer((req, res) => {
     req.resume();
-    res.writeHead(endpoint.healthy ? 200 : 500, { "Content-Type": "application/json" });
+    res.writeHead(endpoint.healthy || req.url === "/ok" ? 200 : 500, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
   });
   await new Promise<void>((r) => server.listen(0, () => r()));
@@ -28,7 +29,7 @@ async function tree() {
   const ext = `fx_ext_${uid}`;
   await defineExt(ext, "$: outputs.approval");
   const bad = `fx_bad_${uid}`;
-  await defineBad(bad);
+  await defineBad(bad, "/x");
   const root = `fx_root_${uid}`;
   const defineRoot = () =>
     ctx.env.define(root, [
@@ -49,7 +50,7 @@ async function tree() {
     ext: "running external",
     bad: "running",
   });
-  return { root: id, ext, ext_id: kids.ext, bad_id: kids.bad, defineRoot };
+  return { root: id, ext, bad, ext_id: kids.ext, bad_id: kids.bad, defineRoot };
 }
 
 function defineExt(name: string, output: unknown) {
@@ -67,12 +68,12 @@ function defineExt(name: string, output: unknown) {
 }
 
 // The delay lets ext arm first whichever sibling a tick claims first.
-function defineBad(name: string) {
+function defineBad(name: string, path: string) {
   return ctx.env.define(name, [
     { id: "wait", action: { type: "delay", for: "1s" }, switch: "next" },
     {
       id: "call",
-      action: { type: "fetch" as const, method: "post", url: `http://localhost:${endpoint.port}/x`, timeout: 5_000 },
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${endpoint.port}${path}`, timeout: 5_000 },
       switch: [{ goto: "end" }],
     },
   ]);
@@ -153,9 +154,11 @@ test("a cancel leaves a failed tree's paused wait open for its answer", async ()
   expect(error, "the wait is paused, not cancelled, so it still takes its answer").toBeUndefined();
 });
 
-// Upgrading a failed tree carries what the failure paused: the paused wait moves to the new version
-// in place and, resumed by the retry, finishes on it.
-test("a failed tree's paused rows move with an upgrade, and finish on the new version", async () => {
+// The repair an operator reaches for: publish a fixed child, re-apply the root to pin it, upgrade
+// the failed tree, retry. The failed child moves to the fix and the paused wait moves with the
+// tree, so the retry runs the fixed version and resumes the wait on its new one. The endpoint
+// stays broken throughout: only the fix can succeed.
+test("fix, upgrade, retry: the failed child runs the fixed version and the paused wait resumes", async () => {
   endpoint.healthy = false;
   const t = await tree();
   await failBad();
@@ -165,26 +168,26 @@ test("a failed tree's paused rows move with an upgrade, and finish on the new ve
     bad: "failed",
   });
 
+  await defineBad(t.bad, "/ok");
   await defineExt(t.ext, { approved: "$: outputs.approval.approved", version: 2 });
-  await t.defineRoot(); // pins ext v2: a parent keeps the child version baked in until re-applied
+  await t.defineRoot(); // pins both v2s: a parent keeps child versions baked in until re-applied
   const { data: up, error: upErr } = await ctx.env.client.POST("/instances/{id}/upgrade", {
     params: { path: { id: t.root } },
     body: { to_version: 2 } as never,
   });
   expect(upErr, JSON.stringify(upErr)).toBeUndefined();
   expect(up!.upgraded, JSON.stringify(up)).toBe(true);
-  const extMove = up!.moves?.find((m) => m.id === t.ext_id);
-  expect(extMove, JSON.stringify(up)).toMatchObject({ from_version: 1, to_version: 2, status: "paused" });
-  expect(extMove?.skipped ?? false).toBe(false);
+  const moved = (id: string) => up!.moves?.find((m) => m.id === id);
+  expect(moved(t.bad_id), JSON.stringify(up)).toMatchObject({ from_version: 1, to_version: 2, status: "failed" });
+  expect(moved(t.ext_id), JSON.stringify(up)).toMatchObject({ from_version: 1, to_version: 2, status: "paused" });
   expect(await ctx.env.status(t.ext_id), "the upgrade must not disturb the paused wait").toBe("paused external");
 
-  endpoint.healthy = true;
   await ctx.env.retry(t.root);
   await ctx.env.tickUntilIdle();
   expect(await ctx.env.statuses({ root: t.root, ext: t.ext_id, bad: t.bad_id })).toEqual({
     root: "running children",
     ext: "running external",
-    bad: "completed",
+    bad: "completed", // only v2's /ok can succeed
   });
 
   const { data: parked } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id: t.ext_id } } });

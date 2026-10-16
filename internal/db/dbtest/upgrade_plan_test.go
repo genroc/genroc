@@ -114,42 +114,45 @@ func TestPlanUpgrade_ChildVersionComesFromTheParentsTargetDefinition(t *testing.
 	}
 }
 
-func TestPlanUpgrade_TerminalDescendantsStayPut(t *testing.T) {
-	for _, b := range testBackends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			saveKidDef(t, b.db, 1)
-			parentPinning(t, b.db, 1, 1)
-			parentPinning(t, b.db, 2, 1)
+func TestPlanUpgrade_SettledDescendantsStayPut(t *testing.T) {
+	// A completed, raised or cancelled child is never run again — a raised slot is re-spawned
+	// whole, at the version the parent's target names — so it is not part of the unit that moves.
+	for _, settled := range []model.Status{model.StatusCompleted, model.StatusRaised, model.StatusCancelled} {
+		for _, b := range testBackends(t) {
+			t.Run(b.name+"/"+string(settled), func(t *testing.T) {
+				saveKidDef(t, b.db, 1)
+				saveKidDef(t, b.db, 7)
+				parentPinning(t, b.db, 1, 1)
+				parentPinning(t, b.db, 2, 7)
 
-			if err := b.db.SaveInstance(&model.ProcessInstance{
-				ID: "p2", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
-			}); err != nil {
-				t.Fatalf("SaveInstance: %v", err)
-			}
-			// A finished child: its output is frozen and nothing re-runs it, so it is not
-			// part of the unit that moves.
-			if err := b.db.SaveInstance(&model.ProcessInstance{
-				ID: "k2", ProcessName: "kid", ProcessVersion: 1, Task: "run",
-				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusCompleted,
-				ParentID: "p2", SpawnTaskID: "fan",
-			}); err != nil {
-				t.Fatalf("SaveInstance: %v", err)
-			}
-
-			plan, err := b.db.PlanUpgrade(context.Background(), "p2", 2)
-			if err != nil {
-				t.Fatalf("PlanUpgrade: %v", err)
-			}
-			for _, m := range plan {
-				if m.Instance.ID == "k2" {
-					t.Fatal("a completed child was planned into the move; its output is frozen and nothing re-runs it")
+				if err := b.db.SaveInstance(&model.ProcessInstance{
+					ID: "p2", ProcessName: "par", ProcessVersion: 1, Task: "fan",
+					State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
+				}); err != nil {
+					t.Fatalf("SaveInstance: %v", err)
 				}
-			}
-			if len(plan) != 1 {
-				t.Fatalf("planned %d instances, want just the root", len(plan))
-			}
-		})
+				if err := b.db.SaveInstance(&model.ProcessInstance{
+					ID: "k2", ProcessName: "kid", ProcessVersion: 1, Task: "run",
+					State: map[string]any{"outputs": map[string]any{}}, Status: settled,
+					ParentID: "p2", SpawnTaskID: "fan",
+				}); err != nil {
+					t.Fatalf("SaveInstance: %v", err)
+				}
+
+				plan, err := b.db.PlanUpgrade(context.Background(), "p2", 2)
+				if err != nil {
+					t.Fatalf("PlanUpgrade: %v", err)
+				}
+				for _, m := range plan {
+					if m.Instance.ID == "k2" {
+						t.Fatalf("a %s child was planned into the move; nothing runs it again", settled)
+					}
+				}
+				if len(plan) != 1 {
+					t.Fatalf("planned %d instances, want just the root", len(plan))
+				}
+			})
+		}
 	}
 }
 
@@ -249,15 +252,16 @@ func TestUpgradeComposition_IsIdempotent(t *testing.T) {
 	}
 }
 
-func TestPlanUpgrade_AFailedRootIsStillATreeToMove(t *testing.T) {
-	// `failed` is a state an upgrade is FOR: move it, then retry it on the new version. The
-	// subtree filter drops terminal DESCENDANTS, and a root filtered out of its own subtree
-	// reads as "no tree to move" -- which refused exactly the case the operation exists for.
+func TestPlanUpgrade_AFailedTreeMovesWithItsFailedChild(t *testing.T) {
+	// `failed` is a state an upgrade is FOR: move it, then retry it on the new version. Retry
+	// revives a failed child in place, so it moves too — left behind, the retry re-runs the very
+	// version the fix was published to replace.
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			saveKidDef(t, b.db, 1)
-			parentPinning(t, b.db, 1, 1)
-			parentPinning(t, b.db, 2, 1)
+			saveKidDef(t, b.db, 7)
+			parentPinning(t, b.db, 1, 1) // par@1 spawns kid@1
+			parentPinning(t, b.db, 2, 7) // par@2 spawns kid@7: the fix
 
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "fp", ProcessName: "par", ProcessVersion: 1, Task: "fan",
@@ -266,8 +270,6 @@ func TestPlanUpgrade_AFailedRootIsStillATreeToMove(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}
-			// A finished child, which is what a failed tree leaves behind: a parent poisoned
-			// by a child cannot settle to `failed` until its descendants are terminal.
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "fk", ProcessName: "kid", ProcessVersion: 1, Task: "run",
 				State:  map[string]any{"outputs": map[string]any{}},
@@ -280,19 +282,34 @@ func TestPlanUpgrade_AFailedRootIsStillATreeToMove(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PlanUpgrade on a failed root: %v", err)
 			}
-			if len(plan) != 1 || plan[0].Instance.ID != "fp" {
-				t.Fatalf("plan = %v, want just the failed root — its terminal child stays put", plan)
+			got := map[string]int{}
+			for _, m := range plan {
+				got[m.Instance.ID] = m.ToVersion
+			}
+			if got["fp"] != 2 || got["fk"] != 7 {
+				t.Fatalf("plan = %v, want fp→2 and fk→7: a failed child's target is the version par@2 names", got)
 			}
 
 			if err := upgradeTree(t, b.db, "fp", 1, 2); err != nil {
-				t.Fatalf("upgradeTree on a failed root: %v", err)
+				t.Fatalf("upgradeTree on a failed tree: %v", err)
 			}
-			got, _ := b.db.GetInstance("fp")
-			if got.ProcessVersion != 2 {
-				t.Errorf("failed root on version %d, want 2", got.ProcessVersion)
+			for id, want := range map[string]int{"fp": 2, "fk": 7} {
+				inst, _ := b.db.GetInstance(id)
+				if inst.ProcessVersion != want {
+					t.Errorf("%s on version %d, want %d", id, inst.ProcessVersion, want)
+				}
+				if inst.Status != model.StatusFailed {
+					t.Errorf("%s: status %q, want failed — an upgrade moves the version, not the state machine", id, inst.Status)
+				}
 			}
-			if got.Status != model.StatusFailed {
-				t.Errorf("status %q, want failed — an upgrade moves the version, not the state machine", got.Status)
+
+			// The retry that follows revives the child on the version it was moved to.
+			if _, err := b.db.RetryProcess(context.Background(), "fp", false, ""); err != nil {
+				t.Fatalf("RetryProcess: %v", err)
+			}
+			kid, _ := b.db.GetInstance("fk")
+			if kid.Status != model.StatusRunning || kid.ProcessVersion != 7 {
+				t.Errorf("revived child is %s on version %d, want running on 7", kid.Status, kid.ProcessVersion)
 			}
 		})
 	}

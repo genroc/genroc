@@ -145,7 +145,7 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
 
 -- name: GetInstance :one
 -- Column order is the table's, so sqlc returns dbgen.ProcessInstance: append a new table column
--- here, in GetChildrenForTask and in NonTerminalSubtree, or every toInstance caller breaks.
+-- here, in GetChildrenForTask and in RevivableSubtree, or every toInstance caller breaks.
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
@@ -502,8 +502,9 @@ WHERE id = sqlc.arg(id)
   AND status IN ('paused', 'failed')
   AND worker_id IS NULL;
 
--- name: NonTerminalSubtree :many
--- The root is returned whatever its status: a failed root is what an upgrade is for.
+-- name: RevivableSubtree :many
+-- The root whatever its status, and every row a resume or retry can still run: 'failed' is in,
+-- since retry revives it in place; 'raised' is out, since a retry re-spawns it whole.
 -- specs/version-compatibility.md s3c.
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
@@ -515,7 +516,7 @@ SELECT id, process_name, process_version, parent_id,
 FROM process_instances
 WHERE root_id = sqlc.arg(root)
   AND (process_instances.id = sqlc.arg(root)
-       OR status NOT IN ('completed', 'failed', 'raised', 'cancelled'))
+       OR status NOT IN ('completed', 'raised', 'cancelled'))
 ORDER BY created_at ASC, id ASC;
 
 -- name: SupersedeInstance :exec

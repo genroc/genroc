@@ -17,9 +17,10 @@ type PlannedMove struct {
 
 // PlanUpgrade works out the whole move from the ROOT's target. Every descendant's is DERIVED from
 // the definition its parent moves to, or a parent runs a child version its definition never names.
-// Non-terminal closure only, so the tree moves whole or not at all.
+// The revivable closure only — failed rows in, since a retry runs them again — so the tree moves
+// whole or not at all.
 func (db *DB) PlanUpgrade(ctx context.Context, rootID string, rootVersion int) ([]PlannedMove, error) {
-	tree, err := db.NonTerminalSubtree(ctx, rootID)
+	tree, err := db.RevivableSubtree(ctx, rootID)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +42,7 @@ func (db *DB) PlanUpgrade(ctx context.Context, rootID string, rootVersion int) (
 		return nil, fmt.Errorf("instance %q is not live", rootID)
 	}
 
-	// Breadth-first: a child's target needs its parent's. A descendant under a terminal parent is
+	// Breadth-first: a child's target needs its parent's. A descendant under a settled parent is
 	// unreachable here, correctly -- nothing will collect it under a new version.
 	out := []PlannedMove{{Instance: root, ToVersion: rootVersion}}
 	queue := []*model.ProcessInstance{root}

@@ -65,11 +65,14 @@ Not built: §8.
 
 A parent's definition names its child versions (explicit `version`, else self-reference, else
 the baked dependency row), so a running child moved alone leaves its parent executing a version
-its definition does not name. The unit of upgrade is therefore the **non-terminal tree
-closure** (`NonTerminalSubtree`): a non-root is refused, and each child's target comes from
+its definition does not name. The unit of upgrade is therefore the **revivable tree closure**
+(`RevivableSubtree`): a non-root is refused, and each child's target comes from
 `ResolveChildVersion` against its parent's TARGET — the function spawn uses, because two copies
-drift silently. A self-reference inherits the parent's target. Terminal descendants stay put;
-their outputs are frozen. The tree is written in one transaction, so no mixed state is visible.
+drift silently. A self-reference inherits the parent's target. **A failed descendant moves**:
+retry revives it in place, so leaving it behind re-runs the broken version a fix was published
+to replace. Completed, raised and cancelled descendants stay put — their outputs are frozen, and
+a raised slot is re-spawned whole, at the version the parent's target names. The tree is written
+in one transaction, so no mixed state is visible.
 
 ## 4. The write: version and migrated state together
 
@@ -142,9 +145,3 @@ comparison's internals are in [internal/validation/CLAUDE.md](../internal/valida
   skipped without a `result_schema`. **`CompareSet` must stop being a per-name loop** to build
   it: it needs old-parent/new-child and new-parent/old-child in one frame. Trigger: operators
   excusing child output breaks that no parent reads.
-- **Failed descendants stay on their old version** (§3c moves only the non-terminal closure).
-  Frozen outputs justify that for `completed`, not `failed`: retry revives a failed child in
-  place, so "publish a fix, upgrade, retry" re-runs the broken version. Moving them means
-  `NonTerminalSubtree` admitting `failed` below the root, each targeted by `ResolveChildVersion`
-  as a live child is. Trigger: an operator needing a fix delivered to a failed branch without
-  starting a new instance.
