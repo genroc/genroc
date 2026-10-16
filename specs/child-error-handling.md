@@ -208,6 +208,10 @@ catchability is a raise inside the child (`on_error: [http.503] → retry: 3 →
 psp_unavailable`). A defect in one slot dominates a sibling's raise: a fault must not be masked
 by a business error beside it.
 
+The rest of the tree is paused, not run to completion: work the defect has doomed would only
+spend side effects, and `retry` resumes it where it stopped. The root reaches `failed` once
+nothing below it is in flight. [pause-resume.md](pause-resume.md) §4.
+
 ### 5.5 Retrying a child task
 
 A rule matched on a raised slot may carry `retry`. **Each slot is a call with its own budget**:

@@ -333,7 +333,14 @@ test("a pausing only_once instance with a handler pauses at the handler and runs
     const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
+      const { data: routed } = await genroc2.client.GET("/instances/{id}/detail", {
+        params: { path: { id: instanceId } },
+      });
+      // The route writes 'running', which keeps the pause for the next claim to settle.
+      expect(routed!.status).toBe("pausing");
+      expect(routed!.task).toBe("verify");
 
+      await genroc2.client.POST("/tick", {});
       const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });

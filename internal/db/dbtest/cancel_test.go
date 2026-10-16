@@ -84,8 +84,8 @@ func TestCancelProcess_LeavesTerminalRowsAlone(t *testing.T) {
 	}
 }
 
-// CountDrainingInTree must count cancel's own draining state; pause's would answer about the
-// wrong verb.
+// A repeated cancel reads the root's own status, which must be cancel's draining state: pause's
+// would answer about the wrong verb.
 func TestCancelProcess_ReportsADrainingTree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -246,9 +246,9 @@ func TestResolveExternalTask_RefusedAfterCancel(t *testing.T) {
 	}
 }
 
-// The silent one: without the CASE the row sits in 'cancelling' until a reclaim, and a parked
-// row is never reclaimed.
-func TestUpdateInstance_LandsPendingCancel(t *testing.T) {
+// The worker's own write keeps the cancel for the next claim, as it keeps a pause; a real outcome
+// still wins, because the work genuinely happened.
+func TestUpdateInstance_KeepsPendingCancel(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
@@ -264,12 +264,11 @@ func TestUpdateInstance_LandsPendingCancel(t *testing.T) {
 			if err := b.db.UpdateInstance(held); err != nil {
 				t.Fatalf("UpdateInstance held: %v", err)
 			}
-			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelled {
-				t.Errorf("held: expected cancelled, got %q", got)
+			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelling {
+				t.Errorf("held: the worker's 'running' overwrote the pending cancel, got %q", got)
 			}
+			mustClaim(t, b.db, "held", "a kept cancel is settled by the next claim, or never")
 
-			// A finished task writes a real outcome, and a cancel does not hide it -- the same
-			// rule pause follows, because the work genuinely happened.
 			insertInst(t, b.db, "done", model.StatusRunning, "", nil, "")
 			lease(t, b.db, "done")
 			if _, err := b.db.CancelProcess(context.Background(), "done", ""); err != nil {
@@ -290,9 +289,9 @@ func TestUpdateInstance_LandsPendingCancel(t *testing.T) {
 	}
 }
 
-// The checkpoint also PARKS on a delay or external task, so a cancel not landing here leaves
-// 'cancelling' on a row no later claim can settle.
-func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
+// A checkpoint that parks on an external task keeps the cancel and the park: the next claim
+// settles it, and ReleaseExternalClaim finds a claim by phase='external'.
+func TestUpdateInstanceProgress_KeepsPendingCancel(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
@@ -308,17 +307,20 @@ func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 			if err := b.db.UpdateInstanceProgress(held); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}
-			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelled {
-				t.Errorf("held: expected cancelled, got %q", got)
+			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelling {
+				t.Errorf("held: expected cancelling, got %q", got)
 			}
-			// The park survives the landing write: ReleaseExternalClaim finds a claim by
-			// phase='external', and releasing is what the heartbeat tells a cancelled worker.
+			settle := mustClaim(t, b.db, "held", "a cancel kept on an external park must still reach a worker")
+			settle.Status = model.StatusCancelled // what settleCancelling writes
+			if err := b.db.FinishChild(settle); err != nil {
+				t.Fatalf("FinishChild: %v", err)
+			}
 			after, err := b.db.GetInstance("held")
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			if after.Phase != model.PhaseExternal {
-				t.Errorf("a landed cancel must keep the park it was stopped in, got %q", after.Phase)
+			if after.Status != model.StatusCancelled || after.Phase != model.PhaseExternal {
+				t.Errorf("a settled cancel must keep the park it was stopped in: %s/%q", after.Status, after.Phase)
 			}
 		})
 	}
@@ -359,8 +361,8 @@ func TestCancelStatesAreClaimableOrNot(t *testing.T) {
 	}
 }
 
-// The landing CASE checks 'pausing' before 'cancelling'; the later, more final cancel must win,
-// or an operator who asked to stop the tree must resume it to get rid of it.
+// The later, more final cancel replaces a draining pause, and the worker's write keeps it: an
+// operator who asked to stop the tree must not have to resume it to get rid of it.
 func TestCancelOverAPendingPause(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -387,8 +389,8 @@ func TestCancelOverAPendingPause(t *testing.T) {
 			if err := b.db.UpdateInstance(held); err != nil {
 				t.Fatalf("UpdateInstance: %v", err)
 			}
-			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelled {
-				t.Errorf("the later, final decision must land: expected cancelled, got %q", got)
+			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelling {
+				t.Errorf("the later, final decision must be the one kept: expected cancelling, got %q", got)
 			}
 		})
 	}
@@ -434,6 +436,29 @@ func TestCancelledRowKeepsItsPark(t *testing.T) {
 			}
 			if got.Phase != model.PhaseChildren {
 				t.Errorf("cancel must write status alone, got phase %q", got.Phase)
+			}
+		})
+	}
+}
+
+// A failed tree keeps what its failure paused for a retry; cancelling those rows would leave the
+// retried parent waiting on children that can never run. A concluded tree has nothing to stop.
+func TestCancelLeavesAFailedTreeForRetry(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "boom")
+			insertChild(t, b.db, "c-bad", model.StatusFailed, "root", "step1", []string{"root"}, "boom")
+			insertChild(t, b.db, "c-paused", model.StatusPaused, "root", "step1", []string{"root"}, "")
+
+			res, err := b.db.CancelProcess(context.Background(), "root", "")
+			if err != nil {
+				t.Fatalf("CancelProcess: %v", err)
+			}
+			if res.Outcome != model.OutcomeUnchanged {
+				t.Errorf("expected unchanged on a concluded tree, got %q", res.Outcome)
+			}
+			if got := mustStatus(t, b.db, "c-paused"); got != model.StatusPaused {
+				t.Errorf("c-paused: a cancel reached under a failed root: %q", got)
 			}
 		})
 	}

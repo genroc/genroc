@@ -245,12 +245,24 @@ func TestInterrupted_WhilePausing_RoutesThenPauses(t *testing.T) {
 		[]model.ErrorCase{{Code: []string{"only_once.interrupted"}, Goto: "verify"}})
 	interrupt(t, database, id)
 
-	if _, err := tickEngine(t, database).Tick(context.Background()); err != nil {
+	eng := tickEngine(t, database)
+	if _, err := eng.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
-
 	inst, err := database.GetInstance(id)
 	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if inst.Status != model.StatusPausing || inst.Task != "verify" {
+		t.Fatalf("after the verdict: %s on %q, want pausing on the handler: the route keeps the pause for the next claim",
+			inst.Status, inst.Task)
+	}
+
+	// The next claim settles it; its worker_id is gone, so nothing is asked about an interruption twice.
+	if _, err := eng.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if inst, err = database.GetInstance(id); err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	}
 	if inst.Status != model.StatusPaused {

@@ -1,5 +1,6 @@
 /** A task already executing when a cancel arrives runs to completion: the cancel is only RECORDED
- *  ('cancelling') and lands on that task's own write. One tick runs one task, so each step is checkable. */
+ *  ('cancelling'), kept by that task's own write, and settled by the next claim. One tick runs one
+ *  task, so each step is checkable. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -55,10 +56,14 @@ test("cancel waits for an in-flight fetch, then lands — and the next task neve
   expect(await ctx.env.status(id)).toBe("cancelling");
   expect(held.requestCount(), "the in-flight request is not aborted").toBe(1);
 
-  // Let the held task finish. Its own write releases the lease, and the landing CASE turns
-  // 'cancelling' into 'cancelled' on the way past.
+  // Let the held task finish. Its own write releases the lease and keeps the cancel: settling it
+  // there would skip the settle-up a parent above it waits on.
   held.release();
   expect(await inFlight).toBe(1);
+  expect(await ctx.env.status(id)).toBe("cancelling");
+
+  // The next claim is the settle, and it runs no task.
+  expect(await ctx.env.tick()).toBe(1);
   expect(await ctx.env.status(id)).toBe("cancelled");
 
   // The drain finished the task it was holding and stopped there: `after` is the task the
@@ -69,7 +74,7 @@ test("cancel waits for an in-flight fetch, then lands — and the next task neve
   expect(next.requestCount()).toBe(0);
 });
 
-// The landing CASE fires only when the task's own write says 'running', so a terminal failure
+// The CASE keeps the cancel only when the task's own write says 'running', so a terminal failure
 // under a pending cancel stands as the outcome.
 test("a task that fails terminally while cancelling reports the failure, not the cancel", async () => {
   const name = `drain_fail_${crypto.randomUUID().slice(0, 8)}`;
@@ -90,8 +95,8 @@ test("a task that fails terminally while cancelling reports the failure, not the
   expect(await ctx.env.tick()).toBe(0);
 });
 
-// A retry writes 'running' with a wake_at, so the landing CASE fires and the cancel wins;
-// otherwise the row would keep re-arming and never stop.
+// A retry writes 'running' with a wake_at, so the CASE keeps the cancel and the next claim
+// settles it whatever the wake_at says; otherwise the row would keep re-arming and never stop.
 test("a cancel breaks a retry loop rather than being re-armed by it", async () => {
   const boom = await startMockService(0, { statusCode: 500, firstRequestDelayMs: Infinity });
   const prev = stopMocks;
@@ -119,7 +124,9 @@ test("a cancel breaks a retry loop rather than being re-armed by it", async () =
   boom.release();
   await inFlight;
 
-  // 9 attempts still budgeted, and none of them will happen.
+  // 9 attempts still budgeted, and none of them will happen: the settle is due before the retry.
+  expect(await ctx.env.status(id)).toBe("cancelling");
+  expect(await ctx.env.tick()).toBe(1);
   expect(await ctx.env.status(id)).toBe("cancelled");
 
   // Past the retry timer: a cancelled row is outside the runnable index and the claim

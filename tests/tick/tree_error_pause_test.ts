@@ -1,6 +1,6 @@
 /** Errors × pausing in a gp → parent → {a: fails, b: succeeds} tree; conventions as tree_pause_test.ts.
- *  A failure propagates through paused ancestors, but a failing parent waits on a paused child, so
- *  the tree settles to 'failed' (and becomes retryable) only after resume. */
+ *  A failure pauses the rest of its tree and propagates through paused ancestors; a paused row is
+ *  not busy, so the tree settles to 'failed' (and becomes retryable) as soon as nothing is in flight. */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
@@ -103,54 +103,41 @@ async function buildTree() {
   return { gp, parent, a, b };
 }
 
-test("a fails — ancestors drain through 'failing' and settle to 'failed' one level per tick", async () => {
+test("a fails — the rest of the tree pauses, and the root fails in the same tick", async () => {
   const { gp, parent, a, b } = await buildTree();
   try {
-    // tick: a (smaller created_at) runs first and 500s; ancestors go 'failing' but keep
-    // phase='children' while b is active.
-    await ctx.env.tick();
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing children",
-      parent: "failing children",
-      a: "failed",
-      b: "running",
-    });
-
-    // tick: b completes and wakes parent (phase ''). Never 'collecting' — a failing parent
-    // must not merge outputs.
-    await ctx.env.tick();
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing children",
-      parent: "failing",
-      a: "failed",
-      b: "completed",
-    });
-
-    // tick: parent (failing, claimable) settles to 'failed'; its terminal save
-    // wakes gp (phase '').
-    await ctx.env.tick();
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing",
-      parent: "failed",
-      a: "failed",
-      b: "completed",
-    });
-
-    // tick: gp settles to 'failed' — the root is terminal only now that the
-    // whole tree is inactive, so 'failed' means retryable.
+    // tick: a (smaller created_at) runs first and 500s. b is not held, so it pauses outright and
+    // nothing below parent is busy: the whole stack settles to 'failed' in a's own write.
     await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "failed",
       parent: "failed",
       a: "failed",
-      b: "completed",
+      b: "paused",
+    });
+    expect(await ctx.env.tick(), "a doomed sibling must not run").toBe(0);
+
+    // Resume would run b under a parent that can no longer collect it; retry is the way back.
+    const { error: resumeErr } = await ctx.env.client.POST("/instances/{id}/resume", {
+      params: { path: { id: gp } },
+    });
+    expect(JSON.stringify(resumeErr)).toContain("retry");
+    expect(await ctx.env.status(b)).toBe("paused");
+
+    // Retry revives the failure and resumes what it paused, keeping b's place.
+    await ctx.env.retry(gp);
+    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
+      gp: "running children",
+      parent: "running children",
+      a: "running",
+      b: "running",
     });
   } finally {
     await ctx.env.tickUntilIdle();
   }
 });
 
-test("a fails while the tree is paused — failure propagates, and resume unblocks the settle", async () => {
+test("a fails while the tree is pausing — the failure outranks the pause and settles at once", async () => {
   // The failing worker holds its first request open, so the root can be paused mid-call.
   const uid = crypto.randomUUID().slice(0, 8);
   const holdMock = await startMockService(0, {
@@ -204,11 +191,11 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
     const tickPromise = ctx.env.tick();
     await holdMock.firstRequestReceived;
 
-    // a is leased, so it alone lands in 'pausing'; the rest have nothing in flight.
-    await ctx.env.pause(gp);
+    // a is leased, so it and every row above it drain; b has nothing in flight and stops now.
+    expect(await ctx.env.pause(gp)).toBe("accepted");
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "paused children",
-      parent: "paused children",
+      gp: "pausing children",
+      parent: "pausing children",
       a: "pausing",
       b: "paused",
     });
@@ -219,77 +206,31 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
       });
       return (data!.items ?? []).map((l) => l.event);
     };
-    expect(await eventsOn(a)).toContain("inst_pausing");
-    expect(await eventsOn(a)).not.toContain("inst_paused");
+    for (const id of [gp, parent, a]) {
+      expect(await eventsOn(id), `inst_pausing on ${id}`).toContain("inst_pausing");
+    }
     expect(await eventsOn(b)).toContain("inst_paused");
     const { data: rootLogs } = await ctx.env.client.GET("/instances/{id}/logs", {
       params: { path: { id: gp }, query: { limit: 100 } },
     });
     expect(
       rootLogs!.items!.find((l) => l.event === "inst_pause_requested")!.meta,
-    ).toMatchObject({ instances: 4, pausing: 1 });
+    ).toMatchObject({ instances: 4, pausing: 3 });
 
-    // Nothing is left to write, so `accepted` comes entirely from CountDrainingInTree;
-    // "unchanged" would read a tree with a worker mid-task as stopped.
+    // Nothing is left to write, and the root's own 'pausing' is what says the tree is still
+    // draining; "unchanged" would read a tree with a worker mid-task as stopped.
     expect(await ctx.env.pause(gp)).toBe("accepted");
 
-    // a is still in-memory 'running', so FailAncestors runs, and its predicate includes
-    // paused rows: a failure must not be hidden by a suspension.
+    // a is still in-memory 'running', so FailAncestors runs, and its predicate includes the
+    // draining rows: a failure must not be hidden by a suspension. b is paused, not busy, so the
+    // failure settles all the way up in a's write.
     holdMock.release();
     await tickPromise;
-
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing children",
-      parent: "failing children",
-      a: "failed",
-      b: "paused",
-    });
-
-    // Wedged, legitimately: parent waits on b, which is paused. The root is draining, not failed.
-    expect(await ctx.env.tick()).toBe(0);
-    const { error: earlyRetryErr } = await ctx.env.client.POST(
-      "/instances/{id}/retry",
-      { params: { path: { id: gp } } },
-    );
-    expect(earlyRetryErr).toBeDefined();
-    expect(JSON.stringify(earlyRetryErr)).toContain("not retryable");
-
-    // The root itself is 'failing', so this works only because resume finds paused rows
-    // anywhere in the subtree.
-    await ctx.env.resume(gp);
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing children",
-      parent: "failing children",
-      a: "failed",
-      b: "running",
-    });
-
-    // tick: b runs and completes. FinishChild(b): all batch children terminal →
-    // parent woken (phase '' — a failing parent must not merge outputs).
-    await ctx.env.tick();
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing children",
-      parent: "failing",
-      a: "failed",
-      b: "completed",
-    });
-
-    // tick: parent settles failing → failed; its terminal save wakes gp.
-    await ctx.env.tick();
-    expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "failing",
-      parent: "failed",
-      a: "failed",
-      b: "completed",
-    });
-
-    // tick: gp settles failing → failed — only now is the root retryable.
-    await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "failed",
       parent: "failed",
       a: "failed",
-      b: "completed",
+      b: "paused",
     });
 
     // The error from 'a' is propagated to ancestors via FailAncestors.

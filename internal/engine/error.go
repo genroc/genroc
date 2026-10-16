@@ -251,9 +251,10 @@ func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, re
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settlePausing lands 'pausing' in 'paused' touching nothing else (resume = status flip);
-// reached only when a worker died holding the instance. It must NOT regain an only_once
-// check — advance() resolves that first, before the evidence dies. specs/pause-resume.md.
+// settlePausing lands 'pausing' in 'paused' touching nothing else (resume = status flip), on the
+// claim after a held task's write; FinishChild settles the ancestors from there. It must NOT
+// regain an only_once check — advance() resolves that first, before the evidence dies.
+// specs/pause-resume.md.
 func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusPaused
 	// The other half of inst_paused: PauseProcess logs the rows it settled itself, this
@@ -263,7 +264,7 @@ func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settleCancelling is reached only when a worker died holding the instance. No interrupted
+// settleCancelling lands a cancel on the claim after a held task's write. No interrupted
 // only_once resolution first: routing it into on_error carries on what the operator forbade.
 func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
 	// Status only: phase and wake_at record what the instance was doing, and
@@ -276,8 +277,8 @@ func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settleFailing finalises a draining 'failing' instance once its children have settled
-// (it only becomes claimable then). The error was recorded when the failure propagated up.
+// settleFailing finalises a claimable 'failing' row, which only data written before the
+// settle-up moved into SQL can be: FinishChild settles every 'failing' parent itself now.
 func (e *Engine) settleFailing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusFailed
 	inst.Phase = model.PhaseNone

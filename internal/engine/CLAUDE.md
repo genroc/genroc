@@ -19,11 +19,10 @@ Three things that break silently if you touch this:
    column. So a decision about an interruption can never be deferred past the next write —
    which is why `advance()` resolves it *before* settling a pending pause, ignoring the
    `pausing` status to do so, and why `settlePausing` must not regain an `only_once`
-   branch. The routed instance still lands `paused`: it writes status `running` and the
-   `CASE` in `UpdateInstance` maps `pausing` + `running` → `paused` (see the pause
-   invariants in [internal/db/CLAUDE.md](../db/CLAUDE.md), applied to a path that used to
-   opt out of them). Anything that hands a row back by clearing `worker_id` re-runs
-   `only_once` tasks that must never re-run.
+   branch. The routed instance still ends `paused`: it writes status `running`, the `CASE`
+   in `UpdateInstance` keeps `pausing`, and the next claim — `worker_id` now cleared — settles
+   it (see the pause invariants in [internal/db/CLAUDE.md](../db/CLAUDE.md)). Anything that
+   hands a row back by clearing `worker_id` re-runs `only_once` tasks that must never re-run.
 2. **`errcode.Unknowable()` is the set** — the codes where the request left and nothing came
    back, on both the HTTP and the external path. On an `only_once` task these can never be
    retried, and `not_reached: true` does **not** override them: that flag asserts what an

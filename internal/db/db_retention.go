@@ -91,7 +91,8 @@ func (db *DB) lockConcludedTrees(ctx context.Context, exec dbgen.DBTX, candidate
 			order = append(order, root)
 		}
 		terminal := model.Status(status).Terminal()
-		t.settled = t.settled && terminal
+		// Not Terminal: a failure leaves the rest of its tree paused under the failed root.
+		t.settled = t.settled && !model.Status(status).Busy()
 		if id == root {
 			t.rootOld = terminal && updatedAt.Valid && updatedAt.Int64 < before
 		}

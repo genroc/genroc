@@ -8,8 +8,8 @@ import (
 )
 
 // Status is an instance's lifecycle state. failing, pausing and cancelling drain descendants or
-// an in-flight task, so a failed root implies a settled tree. paused is not an outcome: wait
-// state and timers are kept verbatim, so resuming is a status flip. specs/child-error-handling.md.
+// an in-flight task, so a root's status is its whole tree's. paused is not an outcome: wait
+// state and timers are kept verbatim, so resuming is a status flip. specs/pause-resume.md.
 type Status string
 
 const (
@@ -18,12 +18,12 @@ const (
 	StatusFailing   Status = "failing" // doomed by an error, draining descendants
 	StatusFailed    Status = "failed"
 	StatusRaised    Status = "raised"  // concluded by a `raise` clause; catchable by the parent
-	StatusPausing   Status = "pausing" // pause requested, still holding an in-flight task
+	StatusPausing   Status = "pausing" // pause requested; a task in flight at or below it
 	StatusPaused    Status = "paused"
 
 	// cancelled is the one settled outcome an operator produces; unlike pause, it has no way
 	// back. specs/pause-resume.md.
-	StatusCancelling Status = "cancelling" // cancel requested, still holding an in-flight task
+	StatusCancelling Status = "cancelling" // cancel requested; a task in flight at or below it
 	StatusCancelled  Status = "cancelled"
 )
 
@@ -32,6 +32,17 @@ const (
 // queries.sql) are kept in step by hand.
 func (s Status) Terminal() bool {
 	return s == StatusCompleted || s == StatusFailed || s == StatusRaised || s == StatusCancelled
+}
+
+// Draining reports a stop that settles once nothing below it is Busy. specs/pause-resume.md.
+func (s Status) Draining() bool {
+	return s == StatusPausing || s == StatusFailing || s == StatusCancelling
+}
+
+// Busy reports whether a worker may still act on the row, which is what a draining parent waits
+// on; paused is not busy. CountBusySiblings in queries.sql is its SQL copy.
+func (s Status) Busy() bool {
+	return s == StatusRunning || s.Draining()
 }
 
 // Outcome is what a lifecycle assertion (pause, resume) did, decided under the lock that read

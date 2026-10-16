@@ -20,6 +20,51 @@ func (q *Queries) BumpDurabilityMarker(ctx context.Context) error {
 	return err
 }
 
+const cancelTree = `-- name: CancelTree :many
+UPDATE process_instances
+SET status = CASE WHEN worker_id IS NOT NULL
+                    OR id IN (SELECT a.value FROM process_instances h, json_each(h.call_stack) a
+                              WHERE h.root_id = ?1 AND h.worker_id IS NOT NULL)
+                  THEN 'cancelling' ELSE 'cancelled' END,
+    updated_at = ?2
+WHERE root_id = ?1 AND status IN ('running', 'failing', 'pausing', 'paused')
+RETURNING id, status
+`
+
+type CancelTreeParams struct {
+	Root      string
+	UpdatedAt int64
+}
+
+type CancelTreeRow struct {
+	ID     string
+	Status string
+}
+
+// PauseTree's split over every live status: a paused or failing tree is what a cancel disposes of.
+func (q *Queries) CancelTree(ctx context.Context, arg CancelTreeParams) ([]CancelTreeRow, error) {
+	rows, err := q.db.QueryContext(ctx, cancelTree, arg.Root, arg.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CancelTreeRow
+	for rows.Next() {
+		var i CancelTreeRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const childrenOfInstance = `-- name: ChildrenOfInstance :many
 SELECT id, spawn_task_id, engine_state, superseded_at
 FROM process_instances
@@ -192,20 +237,24 @@ func (q *Queries) CountBufferedSignals(ctx context.Context, arg CountBufferedSig
 	return count, err
 }
 
-const countDrainingInTree = `-- name: CountDrainingInTree :one
+const countBusySiblings = `-- name: CountBusySiblings :one
 SELECT COUNT(*) FROM process_instances
-WHERE root_id = ?1 AND status = ?2
+WHERE parent_id = ?1
+  AND spawn_task_id = ?2
+  AND parent_task_epoch = ?3
+  AND status IN ('running', 'pausing', 'failing', 'cancelling')
 `
 
-type CountDrainingInTreeParams struct {
-	Root     string
-	Draining string
+type CountBusySiblingsParams struct {
+	ParentID        string
+	SpawnTaskID     string
+	ParentTaskEpoch int64
 }
 
-// Tells a stopped tree from a draining one. Count only the caller's own draining status, or a
-// cancel reads a paused tree as still stopping. root must BE a root. specs/id-list-commands.md.
-func (q *Queries) CountDrainingInTree(ctx context.Context, arg CountDrainingInTreeParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countDrainingInTree, arg.Root, arg.Draining)
+// What a draining parent still waits on: paused rows count as settled here, unlike in
+// CountActiveSiblings. Kept in step with model.Status.Busy by hand.
+func (q *Queries) CountBusySiblings(ctx context.Context, arg CountBusySiblingsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countBusySiblings, arg.ParentID, arg.SpawnTaskID, arg.ParentTaskEpoch)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -726,15 +775,32 @@ func (q *Queries) GetObject(ctx context.Context, hash string) (GetObjectRow, err
 	return i, err
 }
 
-const getPhase = `-- name: GetPhase :one
-SELECT phase FROM process_instances WHERE id = ?1
+const getSettleInfo = `-- name: GetSettleInfo :one
+SELECT status, phase, parent_id, spawn_task_id, parent_task_epoch, error_message
+FROM process_instances WHERE id = ?1
 `
 
-func (q *Queries) GetPhase(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getPhase, id)
-	var phase string
-	err := row.Scan(&phase)
-	return phase, err
+type GetSettleInfoRow struct {
+	Status          string
+	Phase           string
+	ParentID        string
+	SpawnTaskID     string
+	ParentTaskEpoch int64
+	ErrorMessage    string
+}
+
+func (q *Queries) GetSettleInfo(ctx context.Context, id string) (GetSettleInfoRow, error) {
+	row := q.db.QueryRowContext(ctx, getSettleInfo, id)
+	var i GetSettleInfoRow
+	err := row.Scan(
+		&i.Status,
+		&i.Phase,
+		&i.ParentID,
+		&i.SpawnTaskID,
+		&i.ParentTaskEpoch,
+		&i.ErrorMessage,
+	)
+	return i, err
 }
 
 const grantExternalLeases = `-- name: GrantExternalLeases :exec
@@ -1375,6 +1441,53 @@ func (q *Queries) OrphanedLogRefs(ctx context.Context) ([]OrphanedLogRefsRow, er
 	return items, nil
 }
 
+const pauseTree = `-- name: PauseTree :many
+UPDATE process_instances
+SET status = CASE WHEN worker_id IS NOT NULL
+                    OR id IN (SELECT a.value FROM process_instances h, json_each(h.call_stack) a
+                              WHERE h.root_id = ?1 AND h.worker_id IS NOT NULL)
+                  THEN 'pausing' ELSE 'paused' END,
+    updated_at = ?2
+WHERE root_id = ?1 AND status = 'running'
+RETURNING id, status
+`
+
+type PauseTreeParams struct {
+	Root      string
+	UpdatedAt int64
+}
+
+type PauseTreeRow struct {
+	ID     string
+	Status string
+}
+
+// A row a worker holds, or any row above one, drains; the rest stop now. The subquery must not
+// name the outer row: uncorrelated it runs once, correlated once per row. The caller holds
+// lockTree, or a claim racing the subquery's snapshot pauses a parent over a running child.
+func (q *Queries) PauseTree(ctx context.Context, arg PauseTreeParams) ([]PauseTreeRow, error) {
+	rows, err := q.db.QueryContext(ctx, pauseTree, arg.Root, arg.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PauseTreeRow
+	for rows.Next() {
+		var i PauseTreeRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const peekOldestSignal = `-- name: PeekOldestSignal :one
 SELECT id, outcome FROM process_signals
 WHERE instance_id = ?1 AND task_id = ?2
@@ -1577,6 +1690,29 @@ func (q *Queries) SetStatusIn(ctx context.Context, arg SetStatusInParams) error 
 	return err
 }
 
+const settleDrained = `-- name: SettleDrained :exec
+UPDATE process_instances
+SET status = CASE status WHEN 'pausing' THEN 'paused'
+                         WHEN 'cancelling' THEN 'cancelled'
+                         ELSE 'failed' END,
+    phase = CASE WHEN status = 'failing' THEN '' ELSE phase END,
+    wake_at = CASE WHEN status = 'failing' THEN NULL ELSE wake_at END,
+    updated_at = ?1
+WHERE id = ?2 AND status IN ('pausing', 'cancelling', 'failing')
+`
+
+type SettleDrainedParams struct {
+	UpdatedAt int64
+	ID        string
+}
+
+// Status only, as the stop that started the drain wrote it; a failed row's wait has genuinely
+// ended, so it alone clears phase and wake_at. Every SET reads the pre-update status.
+func (q *Queries) SettleDrained(ctx context.Context, arg SettleDrainedParams) error {
+	_, err := q.db.ExecContext(ctx, settleDrained, arg.UpdatedAt, arg.ID)
+	return err
+}
+
 const supersedeInstance = `-- name: SupersedeInstance :exec
 UPDATE process_instances SET superseded_at = ?1 WHERE id = ?2
 `
@@ -1684,12 +1820,9 @@ SET task             = ?1,
     objects          = ?11,
     retry_count      = ?12,
     wake_at    = ?13,
-    status           = CASE WHEN status = 'pausing'
+    status           = CASE WHEN status IN ('pausing', 'cancelling')
                             AND CAST(?14 AS TEXT) = 'running'
-                            THEN 'paused'
-                            WHEN status = 'cancelling'
-                            AND CAST(?14 AS TEXT) = 'running'
-                            THEN 'cancelled' ELSE CAST(?14 AS TEXT) END,
+                            THEN status ELSE CAST(?14 AS TEXT) END,
     phase       = ?15,
     error_message    = ?16,
     error_code       = ?17,
@@ -1726,9 +1859,10 @@ type UpdateInstanceParams struct {
 	WorkerID       string
 }
 
-// input_data is never written. The status CASE lands a pause/cancel that arrived mid-lease;
-// moving task_epoch drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE
-// so a lease-less caller's unheld row still matches.
+// input_data is never written. The status CASE keeps a pause/cancel that arrived mid-lease for
+// the next claim to settle; landing it here would skip the parent's settle-up. Moving task_epoch
+// drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE so a lease-less
+// caller's unheld row still matches.
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
@@ -1772,8 +1906,6 @@ SET task             = ?1,
     objects          = ?9,
     retry_count      = ?10,
     wake_at    = ?11,
-    status           = CASE WHEN status = 'pausing'    THEN 'paused'
-                            WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
     phase       = ?12,
     updated_at       = ?13,
     external_worker_id        = CASE WHEN task_epoch = ?3 THEN external_worker_id END,
@@ -1803,8 +1935,8 @@ type UpdateInstanceProgressParams struct {
 	WorkerID       string
 }
 
-// input_data is immutable, output_data completion-only. A pending pause lands unconditionally,
-// including on the write that parks the row out of the claim predicate. Fence: UpdateInstance.
+// input_data is immutable, output_data completion-only, status untouched: a pending pause stays
+// for the next claim, which the claim predicate grants whatever wake_at says. Fence: UpdateInstance.
 func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,

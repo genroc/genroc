@@ -20,9 +20,9 @@ var statusMeanings = map[Status]string{
 	StatusFailing:    "doomed by an error, and draining the descendants still in flight",
 	StatusFailed:     "stopped by an error; retryable, which is what separates it from the other settled outcomes",
 	StatusRaised:     "concluded by a `raise` clause — a condition, not a defect, and catchable by the parent",
-	StatusPausing:    "a pause was requested while a task was in flight; it settles at the next task boundary",
+	StatusPausing:    "a pause was requested while a task at or below it was in flight; it settles once every such task reaches its boundary",
 	StatusPaused:     "not being advanced, and able to resume exactly where it stopped; timers keep running",
-	StatusCancelling: "a cancel was requested while a task was in flight; it settles at the next task boundary",
+	StatusCancelling: "a cancel was requested while a task at or below it was in flight; it settles once every such task reaches its boundary",
 	StatusCancelled:  "stopped for good by an operator — terminal, and unlike a pause there is no way back",
 }
 

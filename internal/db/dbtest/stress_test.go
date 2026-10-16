@@ -699,3 +699,127 @@ func TestStress_RetentionBacklogDrain(t *testing.T) {
 		})
 	}
 }
+
+// Leaves of two draining parents settling at once. Each sees a draining parent and widens to its
+// stack's locks, so the last of each batch, whichever it is, must climb: a settle-up that two
+// siblings both skip leaves the tree 'pausing' forever, with nothing left to land.
+func TestStress_ConcurrentSettleUp(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+
+	const (
+		iterations = 20
+		leaves     = 3
+	)
+	for i := 0; i < iterations; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInstW(t, db, "root", model.StatusPausing, model.PhaseChildren, "", nil, "")
+		var ids []string
+		for _, mid := range []string{"mid1", "mid2"} {
+			insertChildW(t, db, mid, model.StatusPausing, model.PhaseChildren, "root", []string{"root"})
+			for j := 0; j < leaves; j++ {
+				id := fmt.Sprintf("%s-leaf%d", mid, j)
+				insertChild(t, db, id, model.StatusPausing, mid, "step1", []string{"root", mid}, "")
+				ids = append(ids, id)
+			}
+		}
+
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func(id string) {
+				defer wg.Done()
+				leaf, err := db.GetInstance(id)
+				if err != nil {
+					t.Errorf("iteration %d: GetInstance %s: %v", i, id, err)
+					return
+				}
+				leaf.Status = model.StatusPaused // what settlePausing writes
+				if err := db.FinishChild(leaf); err != nil {
+					if pgDeadlock(err) {
+						t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
+					} else {
+						t.Errorf("iteration %d: FinishChild %s: %v", i, id, err)
+					}
+				}
+			}(id)
+		}
+		wg.Wait()
+
+		for _, id := range []string{"root", "mid1", "mid2"} {
+			if got := mustStatus(t, db, id); got != model.StatusPaused {
+				t.Errorf("iteration %d: %s = %q after every leaf settled; a concurrent settle-up was lost", i, id, got)
+			}
+		}
+	}
+}
+
+// Siblings failing and completing at once, against a pause. Every failure may be the first, so
+// each reads the root under the stack's locks and widens to the tree's; the invariant is that the
+// tree settles 'failed' with nothing left busy, whichever order the writes land in.
+func TestStress_ConcurrentFailures_vs_Pause(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+
+	const (
+		iterations = 20
+		children   = 6
+	)
+	for i := 0; i < iterations; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInstW(t, db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
+		for j := 0; j < children; j++ {
+			insertChild(t, db, fmt.Sprintf("c%d", j), model.StatusRunning, "root", "step1", []string{"root"}, "")
+		}
+
+		var wg sync.WaitGroup
+		errs := make(chan error, children+1)
+		wg.Add(1)
+		go func() { defer wg.Done(); _, err := db.PauseProcess(ctx, "root", ""); errs <- err }()
+		for j := 0; j < children; j++ {
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				c, err := db.GetInstance(fmt.Sprintf("c%d", j))
+				if err != nil {
+					errs <- err
+					return
+				}
+				if j%2 == 0 {
+					c.Status, c.ErrorCode, c.ErrorMessage = model.StatusFailed, "boom", "boom"
+					errs <- db.FailInstanceAndAncestors(c)
+					return
+				}
+				c.Status = model.StatusCompleted
+				errs <- db.FinishChild(c)
+			}(j)
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			switch {
+			case err == nil:
+			case pgDeadlock(err):
+				t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
+			default:
+				t.Errorf("iteration %d: unexpected error: %v", i, err)
+			}
+		}
+
+		if got := mustStatus(t, db, "root"); got != model.StatusFailed {
+			t.Errorf("iteration %d: root = %q, want failed: nothing was in flight, so nothing may hold it open", i, got)
+		}
+		for j := 0; j < children; j++ {
+			id := fmt.Sprintf("c%d", j)
+			if got := mustStatus(t, db, id); got.Busy() {
+				t.Errorf("iteration %d: %s = %q under a failed root", i, id, got)
+			}
+		}
+	}
+}

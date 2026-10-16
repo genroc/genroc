@@ -32,7 +32,7 @@ as one JSON array through `json_each`, which sqlc expresses fine.
 - `writeLogBatch` (`db_logs.go`) — a multi-row INSERT whose row count varies, which no named query can express.
 - `collectUnreferencedPG` (`db_objects.go`) — the object sweep splits into `SELECT … FOR UPDATE` then `DELETE` on Postgres, so the delete decides on a snapshot taken after any writer it waited for. Neither statement binds a value, so the raw `db.sqldb` transaction needs no placeholder rewriting.
 - `lockConcludedTrees` (`db_retention.go`) — the instance-retention prune locks every row of its candidate trees in `lockTree`'s id order (`FOR UPDATE`, Postgres only) and re-checks them before the deletes, which stay in `queries.sql`. specs/instance-retention.md §3.
-- `PauseProcess` / `ResumeProcess` / `CancelProcess` / `RetryProcess` (`db_lifecycle.go`) — select a tree with `inTree` (`root_id = ?`, migration 040) and append a dialect-dependent `FOR UPDATE`. **The enumeration is not why they are here**: a tree query that takes no locks belongs in `queries.sql` like any other (`CountDrainingInTree`, `NonTerminalSubtree`) — only the locking step stays, and it lives ONCE, in `lockTree`: `ORDER BY id FOR UPDATE` (Postgres only), the global order shared with `FinishChild`/`FailInstanceAndAncestors` that prevents deadlocks, and the cursor closed on every path before the caller's UPDATE — SQLite serves both on one connection. A fifth tree-wide verb goes through it rather than beside it.
+- `PauseProcess` / `ResumeProcess` / `CancelProcess` / `RetryProcess` (`db_lifecycle.go`) — select a tree with `inTree` (`root_id = ?`, migration 040) and append a dialect-dependent `FOR UPDATE`. **The enumeration is not why they are here**: a tree query that takes no locks belongs in `queries.sql` like any other (`PauseTree`, `NonTerminalSubtree`) — only the locking step stays, and it lives ONCE, in `lockTree`: `ORDER BY id FOR UPDATE` (Postgres only), the global order shared with `FinishChild`/`FailInstanceAndAncestors` that prevents deadlocks, and the cursor closed on every path before the caller's UPDATE — SQLite serves both on one connection. A fifth tree-wide verb goes through it rather than beside it.
 - The list endpoints — `ListInstances`, `ListDefinitions`, `ListChannels`, `ListLogs`/`ListTreeLogs` — take a dynamic `ORDER BY` + keyset cursor, which sqlc can't express (a column name / `ASC`/`DESC` is never a bind value). They share the bidirectional keyset paginator in `paginate.go`: a wrapper declares a `paginator` (its table, columns, the **index-backed** sortable columns, and the filterable columns), adds filters by column+value via `Eq`/`EqIf`/`GteIf`, and calls `build()` to get the page query (`SELECT … FROM … WHERE … ORDER BY … LIMIT ?`). Column names and operators come only from the whitelists; all values are bound `?`, so there is no injection surface. After the page is scanned, `orient` flips a backward page back to display order and yields its boundary key values, then `built.countQuery` counts how many rows fall before the first / after the last row as **two bounded subqueries** (`SELECT (SELECT COUNT(*) FROM (… WHERE <before-keyset> LIMIT cap+1)), (SELECT COUNT(*) FROM (… WHERE <after-keyset> LIMIT cap+1))`) — each scans at most `pageCountCap+1` (1001) rows, so a value of 1001 means ">1000" (UI shows "1000+"); there is no unbounded grand `COUNT(*)`. `db.pageInfo` assembles `PageInfo`. The cursor is an opaque base64 token carrying the sort key+direction (rejected if reused under a different sort/direction); `After` pages forward, `Before` backward. The HTTP layer returns `{items, page:{size, items_before, items_after, sort, order, after, before}}` (`PageResp[T]`). `sort`/`order` echo the effective sort key + direction; `after`/`before` are the cursors to pass straight back as `?after`/`?before` (same names as the request params) and each is set only in a direction that has more rows — so cursor presence is itself the has-more signal and a page-to-end loop terminates when `after` is absent. Page size defaults to 20, capped at 100. Sorts are restricted to index-backed columns and extended by adding a key to the `sorts` map (with a matching index).
 
 The hand-written persistence layer is split across `db_*.go` files by domain (`db_registry.go`, `db_instances.go`, `db_claim.go`, `db_lifecycle.go`); `db.go` holds the `DB` type, connection setup, and time/null helpers.
@@ -163,7 +163,7 @@ put one in a tree of its own — absent from the trail, with nothing to error on
 batched insert of 100k rows. **A new insert path must carry the subquery**, not a parameter.
 
 **Every tree query reads `root_id`**; no `WITH RECURSIVE` remains outside migration 040's own
-backfill. All of them — pause, resume, retry, `CountDrainingInTree`, `NonTerminalSubtree` —
+backfill. All of them — pause, resume, retry, cancel, `NonTerminalSubtree` —
 therefore require the bound id to BE a root: a child matches nothing, where the walk used to
 return the subtree under it. Every caller is gated (`requireRoot`, and the upgrade handler's
 parent check), and those gates are now load-bearing rather than merely polite.
@@ -355,25 +355,29 @@ That is what separates the two recovery verbs, and they must not be merged again
   skips `only_once` too). It reconstructs the interrupted path, which is why it carries
   the revive walk.
 
-Two invariants that are easy to break:
+Three invariants that are easy to break:
 
-1. **A pending pause lands in SQL, not in Go.** `PauseProcess` marks a row `pausing` only
-   if it is currently leased; a worker mid-task cannot know the pause arrived after it
-   claimed, so the `pausing` → `paused` transition is a `CASE` in `UpdateInstance` /
-   `UpdateInstanceProgress` (and `settledAtSpawn` in `SpawnChildrenAndWait` / `RespawnSlotsAndWait`, which lands a pending
-   pause or cancel on the parent and its new children). Everything not
-   leased is set to `paused` directly — a row parked on `children` is excluded from
-   `ClaimInstances`, so marking it `pausing` would leave it draining forever. `pausing`
-   stays in the claim predicate purely for crash recovery. "Leased" means `worker_id` is set, lapsed lease or
-   not: a settled stop on a lapsed lease was undone by the still-alive owner's late save. Now the
-   owner's save settles it, or a new claim bumps the epoch, fences that save and settles it
-   (`TestLapsedLease_TheStopDrainsInsteadOfSettling`).
-2. **A failure outranks a pause.** `FailAncestors` includes `paused`/`pausing` rows, so a
-   branch that dies while the tree is suspended still propagates `failing` upward. But a
-   failing parent waits for every child and paused children count as active
-   (`CountActiveSiblings`), so such a tree sits at `failing` until it is resumed — which
-   is why `ResumeProcess` keys on paused rows anywhere in the subtree rather than on the
-   root's own status.
+1. **A stop settles bottom-up, and only in `saveAndNotify`'s two writes.** `PauseTree` /
+   `CancelTree` split the tree in one statement: a row a worker is on (`worker_id` set, lapsed
+   lease or not), and every row above it, drains; the rest stop. The holder's own write KEEPS the
+   draining status (`UpdateInstance`'s CASE; progress writes no status), the claim predicate grants
+   it whatever its `wake_at` or park, and the settling claim's `FinishChild` runs `settleUp`, which
+   settles every parent left with nothing busy (`CountBusySiblings`; paused is not busy). Anything
+   that lands a stop elsewhere — in the holder's write, or at spawn (children INHERIT a pending
+   stop) — skips the climb, and the ancestors drain forever with nothing left to land. The split
+   statement runs under `lockTree`, or a claim between its snapshot and its write stops a parent
+   over a running child.
+2. **The settle-up's locks widen only on demand, before the first write.** `withChildTx` locks
+   the child and parent, the call stack once the parent is draining, every live row for a
+   failure that poisons the root; `errWiden` reruns the transaction. Widening after a write
+   replays `persistState`, which has already moved the instance's in-memory object refs. Locking
+   the stack always serialises a fan-out on the root's row. `TestStress_ConcurrentSettleUp` and
+   `TestStress_ConcurrentFailures_vs_Pause` fail if either half goes (Postgres only).
+3. **A failure outranks a pause and pauses the rest of its tree.** `FailAncestors` includes
+   `paused`/`pausing` rows; the failure that finds the root not yet failing runs `PauseTree` over
+   what is left. A failed root is therefore a quiescent tree, possibly with paused rows:
+   `RetryProcess` resumes them, `ResumeProcess` refuses a `failing`/`failed` root, pause and cancel
+   leave a concluded root alone, and retention counts paused as concluded under it.
 
 The engine side of pause settlement (`advance()`, `settlePausing`) has its own invariant
 about `only_once` ordering — see [internal/engine/CLAUDE.md](../engine/CLAUDE.md).

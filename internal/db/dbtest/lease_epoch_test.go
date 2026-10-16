@@ -578,7 +578,8 @@ func TestFence_ReusedEpochProgress(t *testing.T) {
 }
 
 // A stop on a row with a worker recorded drains, lapsed lease or not: the late owner either saves in
-// time (and its save settles the stop), or a new claim bumps the epoch and fences that save out.
+// time (its save keeps the stop for the next claim), or a new claim bumps the epoch and fences that
+// save out. Either way the next grant is what settles it.
 func TestLapsedLease_TheStopDrainsInsteadOfSettling(t *testing.T) {
 	stops := []struct {
 		name              string
@@ -610,22 +611,20 @@ func TestLapsedLease_TheStopDrainsInsteadOfSettling(t *testing.T) {
 					}
 
 					late.Status = model.StatusRunning
-					if !reclaimed {
+					var fresh *model.ProcessInstance
+					if reclaimed {
+						fresh = claimOne(t, b.db, "worker-B", time.Minute)
+						if err := b.db.UpdateInstance(late); !errors.Is(err, dbpkg.ErrLeaseLost) {
+							t.Fatalf("the late owner's save after a reclaim: err=%v, want ErrLeaseLost", err)
+						}
+					} else {
 						if err := b.db.UpdateInstance(late); err != nil {
 							t.Fatalf("the late owner's save was refused though nobody reclaimed the row: %v", err)
 						}
-						if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.settled {
-							t.Fatalf("the late owner's save did not settle the %s: status %q", stop.name, got.Status)
-						}
-						return
-					}
-
-					fresh := claimOne(t, b.db, "worker-B", time.Minute)
-					if err := b.db.UpdateInstance(late); !errors.Is(err, dbpkg.ErrLeaseLost) {
-						t.Fatalf("the late owner's save after a reclaim: err=%v, want ErrLeaseLost", err)
+						fresh = claimOne(t, b.db, "worker-B", time.Minute)
 					}
 					if got, _ := b.db.GetInstance("lapse-1"); got.Status != stop.draining {
-						t.Fatalf("the fenced save moved the row: status %q, want %q", got.Status, stop.draining)
+						t.Fatalf("the late owner's save moved the row: status %q, want %q", got.Status, stop.draining)
 					}
 					// What settlePausing / the cancel settle does on the new grant.
 					fresh.Status = stop.settled

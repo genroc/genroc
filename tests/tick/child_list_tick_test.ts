@@ -195,19 +195,17 @@ test("a failing child fails the whole batch — root settles to 'failed'", async
   const kids = await ctx.env.listChildrenOf(root, "spread");
   expect(kids).toHaveLength(2);
 
-  // tick: first child runs its REST call, gets 500 → fails; FailInstanceAndAncestors
-  // turns the still-waiting root to 'failing'.
+  // tick: first child runs its REST call, gets 500 → fails. The failure pauses the sibling, which
+  // nothing holds, so the root has nothing busy below it and settles in the same write — never
+  // through 'collecting': a failed batch is never merged.
   await ctx.env.tick();
   expect(await ctx.env.status(kids[0])).toBe("failed");
-  expect(await ctx.env.phase(root)).not.toBe("collecting");
-  expect(await ctx.env.status(root)).toContain("failing");
-
-  // Drain the rest of the tree: the sibling settles and the failing root becomes
-  // 'failed' (a failing parent never merges outputs).
-  await ctx.env.tickUntilIdle();
-  expect(await ctx.env.status(kids[0])).toBe("failed");
-  expect(await ctx.env.status(kids[1])).toBe("failed");
+  expect(await ctx.env.status(kids[1])).toBe("paused");
   expect(await ctx.env.status(root)).toBe("failed");
+
+  // The sibling waits for a retry; nothing in the tree is claimable.
+  expect(await ctx.env.tick()).toBe(0);
+  expect(await ctx.env.status(kids[1])).toBe("paused");
 });
 
 test("pause the root — its whole child_list fan-out suspends, and resume finishes it", async () => {

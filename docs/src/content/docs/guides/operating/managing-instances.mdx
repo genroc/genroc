@@ -107,7 +107,9 @@ genctl pause @last
 This will pause the instance if it's running. The instance can then be resumed by the `resume` command with the same syntax.
 
 `pause` returns at once. An instance a worker is executing goes to `pausing` and becomes `paused`
-when that task finishes, so no worker is forcefully interrupted and no work is repeated.
+when that task finishes, so no worker is forcefully interrupted and no work is repeated. Every
+instance above it stays `pausing` until nothing below it is running, so the root's status is the
+whole tree's: a `paused` root means nothing in the tree is executing.
 
 Pause/resume operates strictly within the definition boundaries (they never add a retry),
 so you can use them as you like without changing the instance's behavior. The only caveat is that timers
@@ -124,7 +126,7 @@ genctl cancel @last
 ```
 This cancels the instance for good — a cancelled instance can't be resumed.
 
-Cancel also goes through `cancelling` while the workers settle.
+Cancel goes through `cancelling` the same way, up to the root.
 
 An external worker can't deliver a result through `resolve` (it will fail) if the instance
 was cancelled while the worker was running.
@@ -139,6 +141,10 @@ Retries a `failed` instance; it basically adds one extra attempt on the current 
 (it doesn't reset the retry counter, so it tries once and goes straight back to `failed` on an error).
 
 Retry can't be used on `paused`, `cancelled` or `raised` statuses.
+
+When a child fails, the rest of its tree is paused rather than left running work the failure has
+doomed, and the root becomes `failed` once nothing in the tree is executing. `retry` revives the
+failed branch and resumes the paused ones where they stopped; `resume` is refused on a failed tree.
 
 If the task is `only_once`, retry needs the `--force` flag,
 because a retry could easily break the `only_once` rule by accident.

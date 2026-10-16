@@ -81,9 +81,10 @@ VALUES
      sqlc.arg(next_replayable));
 
 -- name: UpdateInstance :execrows
--- input_data is never written. The status CASE lands a pause/cancel that arrived mid-lease;
--- moving task_epoch drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE
--- so a lease-less caller's unheld row still matches.
+-- input_data is never written. The status CASE keeps a pause/cancel that arrived mid-lease for
+-- the next claim to settle; landing it here would skip the parent's settle-up. Moving task_epoch
+-- drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE so a lease-less
+-- caller's unheld row still matches.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     next_replayable   = sqlc.arg(next_replayable),
@@ -98,12 +99,9 @@ SET task             = sqlc.arg(task),
     objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
     wake_at    = sqlc.arg(wake_at),
-    status           = CASE WHEN status = 'pausing'
+    status           = CASE WHEN status IN ('pausing', 'cancelling')
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
-                            THEN 'paused'
-                            WHEN status = 'cancelling'
-                            AND CAST(sqlc.arg(status) AS TEXT) = 'running'
-                            THEN 'cancelled' ELSE CAST(sqlc.arg(status) AS TEXT) END,
+                            THEN status ELSE CAST(sqlc.arg(status) AS TEXT) END,
     phase       = sqlc.arg(phase),
     error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),
@@ -116,8 +114,8 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
   AND COALESCE(worker_id, '') = CAST(sqlc.arg(worker_id) AS TEXT);
 
 -- name: UpdateInstanceProgress :execrows
--- input_data is immutable, output_data completion-only. A pending pause lands unconditionally,
--- including on the write that parks the row out of the claim predicate. Fence: UpdateInstance.
+-- input_data is immutable, output_data completion-only, status untouched: a pending pause stays
+-- for the next claim, which the claim predicate grants whatever wake_at says. Fence: UpdateInstance.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     next_replayable   = sqlc.arg(next_replayable),
@@ -130,8 +128,6 @@ SET task             = sqlc.arg(task),
     objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
     wake_at    = sqlc.arg(wake_at),
-    status           = CASE WHEN status = 'pausing'    THEN 'paused'
-                            WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
     phase       = sqlc.arg(phase),
     updated_at       = sqlc.arg(updated_at),
     external_worker_id        = CASE WHEN task_epoch = sqlc.arg(task_epoch) THEN external_worker_id END,
@@ -217,8 +213,30 @@ WHERE parent_id = sqlc.arg(parent_id)
   AND parent_task_epoch = sqlc.arg(parent_task_epoch)
   AND status NOT IN ('completed', 'failed', 'raised', 'cancelled');
 
--- name: GetPhase :one
-SELECT phase FROM process_instances WHERE id = sqlc.arg(id);
+-- name: CountBusySiblings :one
+-- What a draining parent still waits on: paused rows count as settled here, unlike in
+-- CountActiveSiblings. Kept in step with model.Status.Busy by hand.
+SELECT COUNT(*) FROM process_instances
+WHERE parent_id = sqlc.arg(parent_id)
+  AND spawn_task_id = sqlc.arg(spawn_task_id)
+  AND parent_task_epoch = sqlc.arg(parent_task_epoch)
+  AND status IN ('running', 'pausing', 'failing', 'cancelling');
+
+-- name: GetSettleInfo :one
+SELECT status, phase, parent_id, spawn_task_id, parent_task_epoch, error_message
+FROM process_instances WHERE id = sqlc.arg(id);
+
+-- name: SettleDrained :exec
+-- Status only, as the stop that started the drain wrote it; a failed row's wait has genuinely
+-- ended, so it alone clears phase and wake_at. Every SET reads the pre-update status.
+UPDATE process_instances
+SET status = CASE status WHEN 'pausing' THEN 'paused'
+                         WHEN 'cancelling' THEN 'cancelled'
+                         ELSE 'failed' END,
+    phase = CASE WHEN status = 'failing' THEN '' ELSE phase END,
+    wake_at = CASE WHEN status = 'failing' THEN NULL ELSE wake_at END,
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND status IN ('pausing', 'cancelling', 'failing');
 
 -- name: WakeParent :exec
 -- A paused parent is armed too (suspended, not doomed); its status keeps it unclaimable.
@@ -257,6 +275,30 @@ SET status = 'failing', error_message = sqlc.arg(error_message), error_code = sq
     updated_at = sqlc.arg(updated_at)
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
   AND status IN ('running', 'pausing', 'paused');
+
+-- name: PauseTree :many
+-- A row a worker holds, or any row above one, drains; the rest stop now. The subquery must not
+-- name the outer row: uncorrelated it runs once, correlated once per row. The caller holds
+-- lockTree, or a claim racing the subquery's snapshot pauses a parent over a running child.
+UPDATE process_instances
+SET status = CASE WHEN worker_id IS NOT NULL
+                    OR id IN (SELECT a.value FROM process_instances h, json_each(h.call_stack) a
+                              WHERE h.root_id = sqlc.arg(root) AND h.worker_id IS NOT NULL)
+                  THEN 'pausing' ELSE 'paused' END,
+    updated_at = sqlc.arg(updated_at)
+WHERE root_id = sqlc.arg(root) AND status = 'running'
+RETURNING id, status;
+
+-- name: CancelTree :many
+-- PauseTree's split over every live status: a paused or failing tree is what a cancel disposes of.
+UPDATE process_instances
+SET status = CASE WHEN worker_id IS NOT NULL
+                    OR id IN (SELECT a.value FROM process_instances h, json_each(h.call_stack) a
+                              WHERE h.root_id = sqlc.arg(root) AND h.worker_id IS NOT NULL)
+                  THEN 'cancelling' ELSE 'cancelled' END,
+    updated_at = sqlc.arg(updated_at)
+WHERE root_id = sqlc.arg(root) AND status IN ('running', 'failing', 'pausing', 'paused')
+RETURNING id, status;
 
 -- name: NextWorkerNumber :one
 -- One statement, so the read and the increment cannot interleave.
@@ -345,12 +387,6 @@ VALUES
      COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = sqlc.arg(instance_id)), sqlc.arg(instance_id)),
      sqlc.arg(seq), sqlc.arg(level), sqlc.arg(event),
      sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(objects), sqlc.arg(meta), sqlc.arg(created_at), sqlc.arg(actor));
-
--- name: CountDrainingInTree :one
--- Tells a stopped tree from a draining one. Count only the caller's own draining status, or a
--- cancel reads a paused tree as still stopping. root must BE a root. specs/id-list-commands.md.
-SELECT COUNT(*) FROM process_instances
-WHERE root_id = sqlc.arg(root) AND status = sqlc.arg(draining);
 
 -- name: GetInstanceRoot :one
 SELECT root_id FROM process_instances WHERE id = sqlc.arg(id);

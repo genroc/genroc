@@ -256,8 +256,9 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		return e.settleCancelling(inst)
 	}
 	if inst.Status == model.StatusPausing {
-		// Crash recovery only. The interrupted verdict must run BEFORE the pause settles: its
-		// evidence (worker_id) does not survive that write. CLAUDE.md.
+		// Every pause of a held row lands here, on the claim after its task's own write. The
+		// interrupted verdict must run BEFORE it settles: its evidence (worker_id) does not
+		// survive that write. CLAUDE.md.
 		if inst.ReclaimedExpired {
 			if task := e.lookupTask(inst); interruptedOnlyOnce(task) {
 				inst.Status = model.StatusRunning

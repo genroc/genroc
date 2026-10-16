@@ -11,153 +11,259 @@ import (
 	"genroc/internal/model"
 )
 
-// FinishChild atomically saves the child as terminal and, if all siblings are now done, wakes the
-// waiting parent ('collecting' if healthy, the empty phase if draining). A root only saves itself;
-// failed children use FailInstanceAndAncestors instead.
+// FinishChild atomically saves a child that stopped — terminal, or a pause/cancel landing — and
+// settles up: it wakes the parent once the batch is terminal, and settles every draining ancestor
+// left with nothing busy below it. A root only saves itself; failed children use
+// FailInstanceAndAncestors instead.
 func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	if child.ParentID == "" {
 		return db.UpdateInstance(child)
 	}
-
-	ctx := context.Background()
-	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-
-		// The global id order shared with lockTree and FailInstanceAndAncestors, or Postgres
-		// deadlocks.
-		var parentPhase string
-		err := raw.QueryRowContext(ctx, `
-		WITH locked AS (
-			SELECT id, phase FROM process_instances
-			WHERE id IN (?, ?)
-			ORDER BY id`+db.forUpdate()+`
-		)
-		SELECT phase FROM locked WHERE id = ?`,
-			child.ID, child.ParentID, child.ParentID).Scan(&parentPhase)
-		// An absent parent is control flow, not a lookup failure — a root child, or a
-		// parent already gone — so this stays sql.ErrNoRows and never becomes ErrNotFound.
+	var settled []settledRow
+	err := db.withChildTx(child, lockParent, func(qtx *dbgen.Queries, held lockScope) error {
+		ctx := context.Background()
+		parent, err := qtx.GetSettleInfo(ctx, child.ParentID)
+		// An absent parent is control flow, not a lookup failure — a parent already gone — so
+		// this stays sql.ErrNoRows and never becomes ErrNotFound.
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("lock parent: %w", err)
+			return fmt.Errorf("read parent: %w", err)
 		}
-		parentFound := err == nil
+		if err == nil && model.Status(parent.Status).Draining() && held < lockStack {
+			return errWiden{lockStack}
+		}
 
-		// The fence sits here; a refused child write rolls back the parent wake too.
+		// The fence sits here; a refused child write rolls back the settle-up too.
 		now := nowMillis()
 		cols, err := db.persistState(ctx, qtx, child, now)
 		if err != nil {
 			return err
 		}
-		childParams := updateInstanceParams(child, cols, now)
-		if err := requireFenced(qtx.UpdateInstance(ctx, childParams)); err != nil {
+		if err := requireFenced(qtx.UpdateInstance(ctx, updateInstanceParams(child, cols, now))); err != nil {
 			if errors.Is(err, ErrLeaseLost) {
 				return err
 			}
 			return fmt.Errorf("save child: %w", err)
 		}
-
-		if parentFound && model.Phase(parentPhase) == model.PhaseChildren {
-			active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
-				ParentID:        child.ParentID,
-				SpawnTaskID:     child.SpawnTaskID,
-				ParentTaskEpoch: child.ParentTaskEpoch,
-			})
-			if err != nil {
-				return fmt.Errorf("count siblings: %w", err)
-			}
-			if active == 0 {
-				if err := qtx.WakeParent(ctx, dbgen.WakeParentParams{
-					ID:        child.ParentID,
-					UpdatedAt: nowMillis(),
-				}); err != nil {
-					return fmt.Errorf("wake parent: %w", err)
-				}
-			}
-		}
-
-		return nil
+		settled, err = settleUp(ctx, qtx, child, now)
+		return err
 	})
+	if err != nil {
+		return err
+	}
+	db.logSettled(settled)
+	return nil
 }
 
-// FailInstanceAndAncestors atomically marks a child failed, propagates 'failing' up its call stack
-// and, if it was its batch's last active member, wakes the parent to the empty phase (it is
-// failing). Use it instead of UpdateInstance + FailAncestors.
+// FailInstanceAndAncestors atomically marks a child failed, propagates 'failing' up its call
+// stack, pauses the rest of the tree if this failure is the one that poisons the root, and settles
+// up as FinishChild does. Use it instead of UpdateInstance + FailAncestors.
 func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
-	ctx := context.Background()
-	// The child is terminal; the ancestors this poisons are not, and the max of the two is
-	// the child's — one transaction takes the strongest floor it writes for (§8).
-	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-		now := nowMillis()
-
-		// The global id order shared with lockTree and FinishChild, or Postgres deadlocks. It
-		// exists only to take the locks, so SQLite skips it.
-		if db.dialect == "postgres" {
-			lockRows, lockErr := raw.QueryContext(ctx, `
-			SELECT id FROM process_instances
-			WHERE id = ?
-			   OR id IN (SELECT value FROM json_each(
-			                 (SELECT call_stack FROM process_instances WHERE id = ?)))
-			ORDER BY id FOR UPDATE`, child.ID, child.ID)
-			if lockErr != nil {
-				return fmt.Errorf("lock rows: %w", lockErr)
+	var settled []settledRow
+	var paused []dbgen.PauseTreeRow
+	err := db.withChildTx(child, lockStack, func(qtx *dbgen.Queries, held lockScope) error {
+		ctx := context.Background()
+		poisons := false
+		if len(child.CallStack) > 0 {
+			root, err := qtx.GetInstanceStatus(ctx, child.CallStack[0])
+			if err != nil {
+				return fmt.Errorf("read root status: %w", err)
 			}
-			lockRows.Close()
+			// FailAncestors' own predicate: only the first failure finds the rest still running,
+			// so later ones skip the tree lock instead of each taking it.
+			switch model.Status(root) {
+			case model.StatusRunning, model.StatusPausing, model.StatusPaused:
+				poisons = true
+			}
+			if poisons && held < lockLive {
+				return errWiden{lockLive}
+			}
 		}
 
+		now := nowMillis()
 		cols, err := db.persistState(ctx, qtx, child, now)
 		if err != nil {
 			return err
 		}
-		// The fence sits on the child's write; FailAncestors and the parent wake roll
-		// back with it.
-		childParams := updateInstanceParams(child, cols, now)
-		if err := requireFenced(qtx.UpdateInstance(ctx, childParams)); err != nil {
+		// The fence sits on the child's write; everything below rolls back with it.
+		if err := requireFenced(qtx.UpdateInstance(ctx, updateInstanceParams(child, cols, now))); err != nil {
 			return err
 		}
-
-		if len(child.CallStack) > 0 {
-			idsJSON, err := json.Marshal(child.CallStack)
-			if err != nil {
-				return err
-			}
-			// Ancestors inherit the code too, so a poisoned tree filters by the failure that
-			// started it.
-			if err := qtx.FailAncestors(ctx, dbgen.FailAncestorsParams{
-				ErrorMessage: child.ErrorMessage,
-				ErrorCode:    child.ErrorCode,
-				UpdatedAt:    now,
-				Ids:          string(idsJSON),
-			}); err != nil {
-				return err
-			}
+		if len(child.CallStack) == 0 {
+			return nil
 		}
 
-		// Mirrors FinishChild. WakeParent picks '' here: a failing parent must never collect.
-		if child.ParentID != "" {
-			parentPhase, err := qtx.GetPhase(ctx, child.ParentID)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("read parent phase: %w", err)
-			}
-			if err == nil && model.Phase(parentPhase) == model.PhaseChildren {
-				active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
-					ParentID:        child.ParentID,
-					SpawnTaskID:     child.SpawnTaskID,
-					ParentTaskEpoch: child.ParentTaskEpoch,
-				})
-				if err != nil {
-					return fmt.Errorf("count siblings: %w", err)
-				}
-				if active == 0 {
-					if err := qtx.WakeParent(ctx, dbgen.WakeParentParams{
-						ID:        child.ParentID,
-						UpdatedAt: now,
-					}); err != nil {
-						return fmt.Errorf("wake parent: %w", err)
-					}
-				}
+		idsJSON, err := json.Marshal(child.CallStack)
+		if err != nil {
+			return err
+		}
+		// Ancestors inherit the code too, so a poisoned tree filters by the failure that
+		// started it.
+		if err := qtx.FailAncestors(ctx, dbgen.FailAncestorsParams{
+			ErrorMessage: child.ErrorMessage,
+			ErrorCode:    child.ErrorCode,
+			UpdatedAt:    now,
+			Ids:          string(idsJSON),
+		}); err != nil {
+			return err
+		}
+		// After FailAncestors, so the stack is no longer 'running' and only the rest matches.
+		if poisons {
+			if paused, err = qtx.PauseTree(ctx, dbgen.PauseTreeParams{Root: child.CallStack[0], UpdatedAt: now}); err != nil {
+				return fmt.Errorf("pause the rest of the tree: %w", err)
 			}
 		}
-
-		return nil
+		settled, err = settleUp(ctx, qtx, child, now)
+		return err
 	})
+	if err != nil {
+		return err
+	}
+	for _, r := range paused {
+		event, msg := model.EventPaused, fmt.Sprintf("paused: instance %s failed", child.ID)
+		if model.Status(r.Status) == model.StatusPausing {
+			event, msg = model.EventPausing, fmt.Sprintf("pause requested while a task was in flight: instance %s failed", child.ID)
+		}
+		db.logInstances([]string{r.ID}, event, msg, "")
+	}
+	db.logSettled(settled)
+	return nil
+}
+
+// lockScope is how much of the tree a child's write locks. Every sibling locks its parent, so a
+// scope wider than the write needs serialises a fan-out on its ancestors' rows.
+type lockScope int
+
+const (
+	lockParent lockScope = iota // the child and its parent
+	lockStack                   // the child and every ancestor: a settle-up may climb
+	lockLive                    // every live row in the tree: a first failure pauses the rest
+)
+
+// errWiden reruns the transaction under a wider scope. It must be returned before the first
+// write: persistState updates the instance's in-memory object refs, so a write cannot be replayed.
+type errWiden struct{ scope lockScope }
+
+func (errWiden) Error() string { return "lock scope too narrow" }
+
+// withChildTx takes the scope's locks in id order — the global order shared with lockTree, or
+// Postgres deadlocks — before body runs. SQLite's single writer already holds everything.
+func (db *DB) withChildTx(child *model.ProcessInstance, scope lockScope, body func(*dbgen.Queries, lockScope) error) error {
+	ctx := context.Background()
+	if db.dialect != "postgres" {
+		scope = lockLive
+	}
+	for {
+		// The child is terminal; the ancestors this settles are not, and the max of the two is
+		// the child's — one transaction takes the strongest floor it writes for (§8).
+		err := db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
+			if db.dialect == "postgres" {
+				if err := db.lockForChild(ctx, raw, child, scope); err != nil {
+					return err
+				}
+			}
+			return body(qtx, scope)
+		})
+		var widen errWiden
+		if errors.As(err, &widen) && widen.scope > scope {
+			scope = widen.scope
+			continue
+		}
+		return err
+	}
+}
+
+func (db *DB) lockForChild(ctx context.Context, raw dbgen.DBTX, child *model.ProcessInstance, scope lockScope) error {
+	var rows *sql.Rows
+	var err error
+	switch scope {
+	case lockParent:
+		rows, err = raw.QueryContext(ctx, `SELECT id FROM process_instances WHERE id IN (?, ?)
+			ORDER BY id FOR UPDATE`, child.ID, child.ParentID)
+	case lockStack:
+		rows, err = raw.QueryContext(ctx, `SELECT id FROM process_instances
+			WHERE id = ? OR id IN (SELECT value FROM json_each(
+			                           (SELECT call_stack FROM process_instances WHERE id = ?)))
+			ORDER BY id FOR UPDATE`, child.ID, child.ID)
+	default:
+		// Live rows only: the child and its stack are live, and every row PauseTree can write is.
+		return db.lockTree(ctx, raw, `id`, `status NOT IN ('completed', 'failed', 'raised', 'cancelled')`,
+			func(*sql.Rows) error { return nil }, child.CallStack[0])
+	}
+	if err != nil {
+		return fmt.Errorf("lock rows: %w", err)
+	}
+	return rows.Close()
+}
+
+// settledRow is one ancestor a settle-up moved on, logged after the commit.
+type settledRow struct {
+	id, status, msg string
+}
+
+// settleUp climbs from a child that just stopped: each parent on 'children' is woken once its
+// batch is terminal, and settled if it is draining with nothing in the batch busy. The caller
+// holds the stack's locks whenever the parent is draining. specs/pause-resume.md §3.
+func settleUp(ctx context.Context, qtx *dbgen.Queries, child *model.ProcessInstance, now int64) ([]settledRow, error) {
+	var settled []settledRow
+	parentID, spawnTask, epoch := child.ParentID, child.SpawnTaskID, int64(child.ParentTaskEpoch)
+	for parentID != "" {
+		p, err := qtx.GetSettleInfo(ctx, parentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return settled, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read parent: %w", err)
+		}
+		if model.Phase(p.Phase) != model.PhaseChildren {
+			return settled, nil
+		}
+		batch := dbgen.CountActiveSiblingsParams{ParentID: parentID, SpawnTaskID: spawnTask, ParentTaskEpoch: epoch}
+		active, err := qtx.CountActiveSiblings(ctx, batch)
+		if err != nil {
+			return nil, fmt.Errorf("count siblings: %w", err)
+		}
+		if active == 0 {
+			if err := qtx.WakeParent(ctx, dbgen.WakeParentParams{ID: parentID, UpdatedAt: now}); err != nil {
+				return nil, fmt.Errorf("wake parent: %w", err)
+			}
+		}
+		status := model.Status(p.Status)
+		if !status.Draining() {
+			return settled, nil
+		}
+		if active > 0 {
+			busy, err := qtx.CountBusySiblings(ctx, dbgen.CountBusySiblingsParams(batch))
+			if err != nil {
+				return nil, fmt.Errorf("count busy siblings: %w", err)
+			}
+			if busy > 0 {
+				return settled, nil
+			}
+		}
+		if err := qtx.SettleDrained(ctx, dbgen.SettleDrainedParams{ID: parentID, UpdatedAt: now}); err != nil {
+			return nil, fmt.Errorf("settle parent: %w", err)
+		}
+		settled = append(settled, settledRow{id: parentID, status: string(status), msg: p.ErrorMessage})
+		parentID, spawnTask, epoch = p.ParentID, p.SpawnTaskID, p.ParentTaskEpoch
+	}
+	return settled, nil
+}
+
+// logSettled writes what settleUp did, after its commit. A failure's settle is info, like the
+// engine's own settle of a failing row; the stop that a pause or cancel completes is debug.
+func (db *DB) logSettled(rows []settledRow) {
+	for _, r := range rows {
+		switch model.Status(r.status) {
+		case model.StatusPausing:
+			db.logInstances([]string{r.id}, model.EventPaused, "children settled; instance paused", "")
+		case model.StatusCancelling:
+			db.logInstances([]string{r.id}, model.EventCancelled, "children settled; instance cancelled", "")
+		case model.StatusFailing:
+			_ = db.AppendLog(&model.LogEntry{
+				InstanceID: r.id, Level: model.LogInfo, Event: model.EventInstanceSettled, Message: r.msg,
+			})
+		}
+	}
 }
 
 // inTree takes NO row locks: a mutating caller goes through lockTree, or Postgres deadlocks. The
@@ -190,100 +296,106 @@ func (db *DB) lockTree(ctx context.Context, exec dbgen.DBTX, columns, where stri
 	return rows.Err()
 }
 
-// heldColumns: whether a worker is on the row, lapsed lease or not. Such a row only records the
-// request: its owner's write settles it, or a new claim bumps the epoch, fencing that write, and settles it.
-const heldColumns = `id, CASE WHEN worker_id IS NOT NULL THEN 1 ELSE 0 END AS held`
-
-// scanHeld sorts each row into settled or leased by its held flag.
-func scanHeld(settled, leased *[]string) func(*sql.Rows) error {
-	return func(rows *sql.Rows) error {
-		var id string
-		var held int
-		if err := rows.Scan(&id, &held); err != nil {
-			return err
-		}
-		if held == 1 {
-			*leased = append(*leased, id)
-		} else {
-			*settled = append(*settled, id)
-		}
-		return nil
-	}
+// PauseProcess atomically suspends a root's tree, leaving phase, wake_at, retry_count and context
+// untouched; an already-stopped tree is OutcomeUnchanged, not an error. A row with a task in flight
+// at or below it goes to 'pausing' and settles bottom-up. specs/pause-resume.md, specs/id-list-commands.md.
+func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
+	return db.stopTree(ctx, id, actor, stopVerb{
+		op: "pause", draining: model.StatusPausing, stopped: model.StatusPaused,
+		lockWhere: `status = 'running'`,
+		requested: model.EventPauseRequested, stoppedEvent: model.EventPaused, drainingEvent: model.EventPausing,
+		update: func(ctx context.Context, qtx *dbgen.Queries, root string, now int64) ([]treeRow, error) {
+			rows, err := qtx.PauseTree(ctx, dbgen.PauseTreeParams{Root: root, UpdatedAt: now})
+			out := make([]treeRow, len(rows))
+			for i, r := range rows {
+				out[i] = treeRow(r)
+			}
+			return out, err
+		},
+	})
 }
 
-// PauseProcess atomically suspends a root's tree, leaving phase, wake_at, retry_count and context
-// untouched; an already-stopped tree is OutcomeUnchanged, not an error. Only a *leased* row goes
-// to 'pausing'. specs/pause-resume.md, specs/id-list-commands.md.
-func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
+// treeRow is one row a tree-wide stop wrote, and the status it wrote.
+type treeRow struct{ ID, Status string }
+
+// stopVerb is everything that separates pause from cancel.
+type stopVerb struct {
+	op                string
+	draining, stopped model.Status
+	// lockWhere must cover every row update writes or can see become held: a claim between the
+	// statement's snapshot and its write would stop a parent over a running child.
+	lockWhere                              string
+	requested, stoppedEvent, drainingEvent string
+	update                                 func(context.Context, *dbgen.Queries, string, int64) ([]treeRow, error)
+}
+
+// stopTree is the shared body of PauseProcess and CancelProcess: one statement splits the tree
+// into rows that stop now and rows that drain, under lockTree.
+func (db *DB) stopTree(ctx context.Context, id, actor string, v stopVerb) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
 		return LifecycleResult{}, err
 	}
-	if err := requireRoot(row, "pause"); err != nil {
+	if err := requireRoot(row, v.op); err != nil {
 		return LifecycleResult{}, err
 	}
 
-	// settled reached 'paused' in this call; leased is left draining in 'pausing'. Logged as
-	// different events: a leased row has only been asked to stop.
-	var settled, leased []string
-	// Rows a previous pause left mid-task. Nothing to write for them, but they are the
-	// difference between a tree that has stopped and one still draining.
-	var draining int64
+	var rows []treeRow
+	var rootStatus model.Status
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
-		now := nowMillis()
-
-		// Selecting rather than blind-updating yields the per-instance outcome the audit trail
-		// needs, which a row count cannot express.
-		if err := db.lockTree(ctx, exec, heldColumns, `status = 'running'`, scanHeld(&settled, &leased), id); err != nil {
-			return err
-		}
-
-		// Nothing running: settled, paused, or still draining. An outcome, not an error -- a no-op
-		// that fails cannot converge on a re-run. specs/id-list-commands.md.
-		if len(settled)+len(leased) == 0 {
-			// The selector matches 'running' only, so without this a second pause would report a
-			// draining tree as stopped while a worker is still inside a task.
-			n, err := qtx.CountDrainingInTree(ctx, dbgen.CountDrainingInTreeParams{
-				Root: id, Draining: string(model.StatusPausing),
-			})
-			if err != nil {
-				return fmt.Errorf("count draining instances: %w", err)
+		// SQLite's single writer already excludes every claim.
+		if db.dialect == "postgres" {
+			if err := db.lockTree(ctx, exec, `id`, v.lockWhere, func(*sql.Rows) error { return nil }, id); err != nil {
+				return err
 			}
-			draining = n
+		}
+		status, err := qtx.GetInstanceStatus(ctx, id)
+		if err != nil {
+			return fmt.Errorf("read root status: %w", err)
+		}
+		rootStatus = model.Status(status)
+		// A concluded tree has nothing to stop: what a failure paused waits for a retry, and a
+		// cancel there would leave the retried parent waiting on cancelled children.
+		if rootStatus.Terminal() {
 			return nil
 		}
-
-		if err := updateStatusIn(ctx, qtx, settled, string(model.StatusPaused), now); err != nil {
-			return fmt.Errorf("pause process: %w", err)
+		if rows, err = v.update(ctx, qtx, id, nowMillis()); err != nil {
+			return fmt.Errorf("%s process: %w", v.op, err)
 		}
-		if err := updateStatusIn(ctx, qtx, leased, string(model.StatusPausing), now); err != nil {
-			return fmt.Errorf("pause process: %w", err)
-		}
-
 		return nil
 	}); err != nil {
 		return LifecycleResult{}, err
 	}
 
-	written := len(settled) + len(leased)
-	if written == 0 {
-		if draining > 0 {
+	if len(rows) == 0 {
+		// Settled, stopped, or still draining, which the root's own status says now that a parent
+		// waits on its descendants. An outcome, not an error -- a no-op that fails cannot converge
+		// on a re-run. specs/id-list-commands.md.
+		if rootStatus == v.draining {
 			return db.lifecycleResult(ctx, id, model.OutcomeAccepted, 0)
 		}
 		return db.lifecycleResult(ctx, id, model.OutcomeUnchanged, 0)
 	}
-	db.logTreeAction(id, model.EventPauseRequested, "pause requested", actor,
-		int64(written), map[string]any{"pausing": len(leased)})
-	db.logInstances(settled, model.EventPaused, "paused", actor)
-	db.logInstances(leased, model.EventPausing, "pause requested while a task was in flight", actor)
+	var stopped, draining []string
+	for _, r := range rows {
+		if model.Status(r.Status) == v.draining {
+			draining = append(draining, r.ID)
+		} else {
+			stopped = append(stopped, r.ID)
+		}
+	}
+	db.logTreeAction(id, v.requested, v.op+" requested", actor,
+		int64(len(rows)), map[string]any{string(v.draining): len(draining)})
+	db.logInstances(stopped, v.stoppedEvent, string(v.stopped), actor)
+	db.logInstances(draining, v.drainingEvent, v.op+" requested while a task at or below it was in flight", actor)
 
-	// A leased row has only been asked to stop; reporting applied would claim the tree had
+	// A draining row has only been asked to stop; reporting applied would claim the tree had
 	// stopped. specs/id-list-commands.md §202.
 	outcome := model.OutcomeApplied
-	if len(leased) > 0 {
+	if len(draining) > 0 {
 		outcome = model.OutcomeAccepted
 	}
-	return db.lifecycleResult(ctx, id, outcome, written)
+	return db.lifecycleResult(ctx, id, outcome, len(rows))
 }
 
 // LifecycleResult is what a tree verb did: the outcome, the root's status once committed, and
@@ -352,7 +464,7 @@ func (db *DB) logInstances(ids []string, event, msg, actor string) {
 
 // ResumeProcess atomically un-suspends a paused tree — a plain status flip, since PauseProcess
 // preserved everything else. 'pausing' rows are included, so a resume before a pause landed
-// un-requests it. Keyed on the subtree, not the root: a failing root over paused rows resumes.
+// un-requests it. A failing or failed root is refused: its paused rows wait for a retry.
 func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -368,15 +480,32 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		if err := db.lockTree(ctx, exec, `id`, `status IN ('paused', 'pausing')`, func(rows *sql.Rows) error {
-			var rowID string
-			if err := rows.Scan(&rowID); err != nil {
+		// The root is locked with the paused rows, so a failure cannot poison it in between.
+		var rootStatus model.Status
+		if err := db.lockTree(ctx, exec, `id, status`, `(status IN ('paused', 'pausing') OR parent_id = '')`, func(rows *sql.Rows) error {
+			var rowID, status string
+			if err := rows.Scan(&rowID, &status); err != nil {
 				return err
 			}
-			resumed = append(resumed, rowID)
+			if rowID == id {
+				rootStatus = model.Status(status)
+			}
+			if status == string(model.StatusPaused) || status == string(model.StatusPausing) {
+				resumed = append(resumed, rowID)
+			}
 			return nil
 		}, id); err != nil {
 			return err
+		}
+		// Resuming these would run siblings under a parent that can no longer collect them.
+		switch rootStatus {
+		case model.StatusFailing:
+			return fmt.Errorf("process is failing and settles to failed once its in-flight tasks land; "+
+				"retry it then, which resumes its paused branches too: %w", ErrConflict)
+		case model.StatusFailed:
+			if len(resumed) > 0 {
+				return fmt.Errorf("process failed; retry it, which resumes its paused branches too: %w", ErrConflict)
+			}
 		}
 
 		if len(resumed) == 0 {
@@ -443,71 +572,22 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 }
 
 // CancelProcess stops a root's tree for good: every LIVE row, paused and draining included, goes
-// terminal. It must not clear external_worker_id: renew reads it to answer "cancelled" rather
-// than "lost". specs/external-task-queue.md.
+// terminal, bottom-up past any task in flight. It must not clear external_worker_id: renew reads it
+// to answer "cancelled" rather than "lost". specs/external-task-queue.md.
 func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
-	row, err := db.loadInstanceRow(ctx, id)
-	if err != nil {
-		return LifecycleResult{}, err
-	}
-	if err := requireRoot(row, "cancel"); err != nil {
-		return LifecycleResult{}, err
-	}
-
-	// settled reached 'cancelled' in this call; leased is left draining in 'cancelling'.
-	var settled, leased []string
-	var draining int64
-	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
-		now := nowMillis()
-
-		if err := db.lockTree(ctx, exec, heldColumns, `status IN ('running', 'failing', 'pausing', 'paused')`,
-			scanHeld(&settled, &leased), id); err != nil {
-			return err
-		}
-
-		if len(settled)+len(leased) == 0 {
-			// 'cancelling' is outside the selector above, so without this a second cancel on a
-			// draining tree would report it stopped while a worker was still inside a task.
-			n, err := qtx.CountDrainingInTree(ctx, dbgen.CountDrainingInTreeParams{
-				Root: id, Draining: string(model.StatusCancelling),
-			})
-			if err != nil {
-				return fmt.Errorf("count draining instances: %w", err)
+	return db.stopTree(ctx, id, actor, stopVerb{
+		op: "cancel", draining: model.StatusCancelling, stopped: model.StatusCancelled,
+		lockWhere: `status IN ('running', 'failing', 'pausing', 'paused')`,
+		requested: model.EventCancelRequested, stoppedEvent: model.EventCancelled, drainingEvent: model.EventCancelling,
+		update: func(ctx context.Context, qtx *dbgen.Queries, root string, now int64) ([]treeRow, error) {
+			rows, err := qtx.CancelTree(ctx, dbgen.CancelTreeParams{Root: root, UpdatedAt: now})
+			out := make([]treeRow, len(rows))
+			for i, r := range rows {
+				out[i] = treeRow(r)
 			}
-			draining = n
-			return nil
-		}
-
-		if err := updateStatusIn(ctx, qtx, settled, string(model.StatusCancelled), now); err != nil {
-			return fmt.Errorf("cancel process: %w", err)
-		}
-		if err := updateStatusIn(ctx, qtx, leased, string(model.StatusCancelling), now); err != nil {
-			return fmt.Errorf("cancel process: %w", err)
-		}
-		return nil
-	}); err != nil {
-		return LifecycleResult{}, err
-	}
-
-	written := len(settled) + len(leased)
-	if written == 0 {
-		if draining > 0 {
-			return db.lifecycleResult(ctx, id, model.OutcomeAccepted, 0)
-		}
-		return db.lifecycleResult(ctx, id, model.OutcomeUnchanged, 0)
-	}
-	db.logTreeAction(id, model.EventCancelRequested, "cancel requested", actor,
-		int64(written), map[string]any{"cancelling": len(leased)})
-	db.logInstances(settled, model.EventCancelled, "cancelled", actor)
-	db.logInstances(leased, model.EventCancelling, "cancel requested while a task was in flight", actor)
-
-	// A leased row has been asked to stop, not stopped: the tree still has a task running
-	// until that worker's write lands. specs/id-list-commands.md s202.
-	outcome := model.OutcomeApplied
-	if len(leased) > 0 {
-		outcome = model.OutcomeAccepted
-	}
-	return db.lifecycleResult(ctx, id, outcome, written)
+			return out, err
+		},
+	})
 }
 
 // RetryProcess revives a failed root's tree in place from where it died: leaves re-run their
@@ -623,10 +703,12 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		case model.StatusCompleted, model.StatusRaised, model.StatusCancelled:
 			// Settled work is kept, raised included: a raise concluded by design, at every depth.
 			return nil
-		case model.StatusRunning, model.StatusFailing, model.StatusPausing, model.StatusPaused,
-			model.StatusCancelling:
-			// Unreachable under a failed root (paused children count as active, so the tree stays
-			// 'failing'); kept as defense — a live node belongs to the engine or ResumeProcess.
+		case model.StatusPaused:
+			// What the failure paused; resumed with the rest below, keeping its place.
+			return nil
+		case model.StatusRunning, model.StatusFailing, model.StatusPausing, model.StatusCancelling:
+			// Unreachable: a root settles to 'failed' only once nothing below it is busy. Kept as
+			// defense — a live node belongs to the engine.
 			return nil
 		}
 		// node is failed
@@ -700,6 +782,17 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 	}
 
 	now := nowMillis()
+	// Every paused row is under the revived path, so the retried tree runs whole. A status flip,
+	// as a resume: the pause kept everything else.
+	var resumed []string
+	for _, node := range nodes {
+		if node.Status == model.StatusPaused {
+			resumed = append(resumed, node.ID)
+		}
+	}
+	if err := updateStatusIn(ctx, qtx, resumed, string(model.StatusRunning), now); err != nil {
+		return LifecycleResult{}, fmt.Errorf("resume paused instances: %w", err)
+	}
 	for _, node := range dirty {
 		// Context is preserved verbatim, so the encoded columns and their references pass
 		// straight through with no claim changes. UpdateInstance never writes input_data.
@@ -747,14 +840,15 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 	if err := tx.Commit(); err != nil {
 		return LifecycleResult{}, err
 	}
+	db.logInstances(resumed, model.EventResumed, "resumed by retry", actor)
 	// Always applied: retry is an act, not an assertion -- no prior state satisfies "was
 	// given a fresh attempt", so it never reports unchanged. specs/id-list-commands.md.
-	return db.lifecycleResult(ctx, id, model.OutcomeApplied, len(dirty))
+	return db.lifecycleResult(ctx, id, model.OutcomeApplied, len(dirty)+len(resumed))
 }
 
 // SpawnChildrenAndWait atomically inserts child instances and transitions the parent to
-// phase='children'. Children inherit the parent's current status, so a concurrently-paused
-// parent spawns paused children. Zero children is a no-op.
+// phase='children'. Children inherit the parent's current status, so a parent asked to pause
+// mid-spawn spawns 'pausing' children, which settle on their first claim. Zero children is a no-op.
 func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessInstance, children []*model.ProcessInstance) error {
 	if len(children) == 0 {
 		return nil
@@ -774,9 +868,8 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			return fmt.Errorf("parent %q is already in phase %q", parent.ID, currentPhase)
 		}
 
-		// A pause or cancel that landed mid-spawn settles here, and the children inherit it, so a
-		// stopped tree spawns nothing that waits for a worker.
-		currentStatus = settledAtSpawn(currentStatus)
+		// Do not settle a pending pause or cancel here: the parent would stop with nothing below
+		// it to land, and the ancestors draining above it would never settle.
 
 		// created_at = now+i gives siblings a strict spawn order, which ClaimInstances
 		// (ORDER BY created_at) follows.
@@ -806,18 +899,6 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 	})
 }
 
-// settledAtSpawn lands a draining stop: the spawn's park is the parent's last write before its
-// children, so a pending pause or cancel settles there or the whole tree waits on a claim.
-func settledAtSpawn(status string) string {
-	switch model.Status(status) {
-	case model.StatusPausing:
-		return string(model.StatusPaused)
-	case model.StatusCancelling:
-		return string(model.StatusCancelled)
-	}
-	return status
-}
-
 // RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the parent
 // back on 'children': a crash between retire and insert would leave a slot with no occupant.
 // specs/child-error-handling.md s5.5.
@@ -835,8 +916,7 @@ func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInst
 		if model.Phase(currentPhase) != model.PhaseCollecting {
 			return fmt.Errorf("parent %q is in phase %q, not collecting", parent.ID, currentPhase)
 		}
-		// Same landing as a first spawn.
-		currentStatus = settledAtSpawn(currentStatus)
+		// Inherited as a first spawn's children inherit it.
 
 		now := nowMillis()
 		for _, id := range retired {

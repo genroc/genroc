@@ -203,10 +203,11 @@ export class TickEnv {
 }
 
 // A fresh tick-mode server per file, on an OS-assigned port since files run in parallel. Pass
-// immediateRetries: false to keep real backoff, so a test can observe how long a retry parks.
-export function useTickEnv(opts: { immediateRetries?: boolean } = {}) {
+// immediateRetries: false to keep real backoff, so a test can observe how long a retry parks, and
+// maxConcurrent > 1 for one tick to hold a task in flight while another advances beside it.
+export function useTickEnv(opts: { immediateRetries?: boolean; maxConcurrent?: number } = {}) {
   const ctx = {} as { env: TickEnv };
-  const { immediateRetries = true } = opts;
+  const { immediateRetries = true, maxConcurrent = 1 } = opts;
 
   beforeAll(async () => {
     // poll=0 → manual tick mode; max-concurrent=1 → one instance per tick (predictable ordering)
@@ -214,7 +215,7 @@ export function useTickEnv(opts: { immediateRetries?: boolean } = {}) {
     const genroc = await startGenroc({
       db: tmpPath("genroc_tick", ".db"),
       poll: 0,
-      maxConcurrent: 1,
+      maxConcurrent,
       immediateRetries,
     });
     ctx.env = new TickEnv(genroc);

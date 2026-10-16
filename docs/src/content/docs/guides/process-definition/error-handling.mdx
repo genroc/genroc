@@ -135,6 +135,8 @@ task directly after the error; later tasks have no access to it.
 An error no rule handles - or one that runs out of retries - fails the process on its own.
 The state switches to `failed`, execution stops, and `error_code` is the error's own code (`http.500`).
 Failed is a retryable state, so the process can be retried with the `genctl retry` command.
+In a child, the failure fails every ancestor up to the root and pauses the rest of the tree
+([managing instances](../operating/managing-instances.mdx#retry)).
 
 `panic` is that same ending with a code you choose instead. Since `error_code` is what you filter
 and alert on, a panic is how a failure gets a name from your domain rather than from the transport.

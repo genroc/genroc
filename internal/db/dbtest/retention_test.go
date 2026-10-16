@@ -297,3 +297,27 @@ func TestRetention_ASweepWaitingOnARetryKeepsTheRevivedTree(t *testing.T) {
 		}
 	}
 }
+
+// A failure leaves the rest of its tree paused under the failed root, and that tree has concluded:
+// counting paused as live would keep every such tree forever. A busy row still holds one back.
+func TestRetention_AFailedTreeWithPausedRowsIsConcluded(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			tree(t, b.db, "failed-paused", model.StatusFailed, model.StatusPaused)
+			tree(t, b.db, "failed-pausing", model.StatusFailed, model.StatusPausing)
+			advance(t, 2*time.Hour)
+
+			n, err := b.db.PruneConcludedTrees(ctx, dbpkg.Now().Add(-time.Hour).UnixMilli(), 100)
+			if err != nil {
+				t.Fatalf("PruneConcludedTrees: %v", err)
+			}
+			if n != 1 || !gone(t, b.db, "failed-paused") || !gone(t, b.db, "failed-paused-child") {
+				t.Errorf("pruned %d trees: a failed root over paused rows must go whole", n)
+			}
+			if gone(t, b.db, "failed-pausing") {
+				t.Error("a tree with a row still draining was pruned")
+			}
+		})
+	}
+}

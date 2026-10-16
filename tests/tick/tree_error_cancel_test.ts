@@ -76,35 +76,31 @@ async function buildTree() {
   return { gp, parent, a, b };
 }
 
-test("cancelling a draining tree stops it as cancelled, not failed", async () => {
+// A cancel over a draining failure is tree_failure_drain_test.ts: draining needs a task in flight.
+test("a cancel after the failure leaves the failed tree for a retry", async () => {
   const { gp, parent, a, b } = await buildTree();
 
-  // tick: `a` fails, so its ancestors enter the drain and wait for `b`.
+  // tick: `a` fails; nothing holds `b`, so it pauses and the tree settles at once.
   await ctx.env.tick();
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "failing children",
-    parent: "failing children",
+    gp: "failed",
+    parent: "failed",
     a: "failed",
+    b: "paused",
+  });
+
+  // A concluded tree has nothing to stop. Cancelling b would leave a retried parent waiting on a
+  // child that can never run.
+  expect(await ctx.env.cancel(gp)).toBe("unchanged");
+  expect(await ctx.env.status(b)).toBe("paused");
+
+  await ctx.env.retry(gp);
+  expect(await ctx.env.statuses({ gp, parent, b })).toEqual({
+    gp: "running children",
+    parent: "running children",
     b: "running",
   });
-
-  // The selector takes 'failing' because the drain is when an operator reaches for cancel;
-  // pause's 'running'-only selector would write nothing here.
-  expect(await ctx.env.cancel(gp)).toBe("applied");
-  expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled children",
-    parent: "cancelled children",
-    a: "failed", // already terminal: the work really did break, and that is kept
-    b: "cancelled",
-  });
-
-  // settleFailing must not run: it would overwrite the stop with the fault and make a cancelled
-  // tree retryable.
-  expect(await ctx.env.tick()).toBe(0);
-  expect(await ctx.env.statuses({ gp, parent })).toEqual({
-    gp: "cancelled children",
-    parent: "cancelled children",
-  });
+  await ctx.env.tickUntilIdle();
 });
 
 test("a failure landing after the cancel cannot reopen the tree", async () => {
