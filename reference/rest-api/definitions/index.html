@@ -255,8 +255,9 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
 <p><strong>Response</strong></p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
 <span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">name</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">order_pipeline</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">version</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">saved</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> true</span><span style="color:#8A8A84">,</span></span>
-<span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">version</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1</span></span>
+<span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">previous</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 0</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
 <p>Fails with <code>400</code>, <code>500</code>.</p>
 <h2 id="get-apidefinitions">GET /api/definitions<a class="swagger-link" href="../../../swagger/index.html#/Definitions/list_definitions" target="_blank" rel="noopener" aria-label="Open in Swagger UI"></a><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#get-apidefinitions"><span></span></a></h2>
@@ -354,30 +355,35 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
 <span class="line"><span style="color:#8A8A84">]</span></span></code></pre>
 <p>Fails with <code>400</code>, <code>500</code>.</p>
 <h2 id="post-apidefinitionsvalidate">POST /api/definitions/validate<a class="swagger-link" href="../../../swagger/index.html#/Definitions/validate_definitions" target="_blank" rel="noopener" aria-label="Open in Swagger UI"></a><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#post-apidefinitionsvalidate"><span></span></a></h2>
-<p>Validate process definitions and return inferred JSON schemas (no save)</p>
+<p>Dry-run an apply: the same request, every check, and the answer it would give, with nothing written</p>
 <p>Requires the <code>read</code> permission (or <code>admin</code>).</p>
 <p><strong>Request</strong></p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">[</span></span>
-<span class="line"><span style="color:#8A8A84">  {</span></span>
-<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">name</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">order_pipeline</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
-<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">tasks</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span></span>
-<span class="line"><span style="color:#8A8A84">      {</span></span>
-<span class="line"><span style="color:#8A8A84">        "</span><span style="color:#D6D6D2">id</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">charge</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
-<span class="line"><span style="color:#8A8A84">        "</span><span style="color:#D6D6D2">action</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> {</span></span>
-<span class="line"><span style="color:#8A8A84">          "</span><span style="color:#D6D6D2">type</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">fetch</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
-<span class="line"><span style="color:#8A8A84">          "</span><span style="color:#D6D6D2">url</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">http://localhost:9001/charge</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
-<span class="line"><span style="color:#8A8A84">          "</span><span style="color:#D6D6D2">method</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">post</span><span style="color:#8A8A84">"</span></span>
-<span class="line"><span style="color:#8A8A84">        },</span></span>
-<span class="line"><span style="color:#8A8A84">        "</span><span style="color:#D6D6D2">switch</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> []</span></span>
-<span class="line"><span style="color:#8A8A84">      }</span></span>
-<span class="line"><span style="color:#8A8A84">    ]</span></span>
-<span class="line"><span style="color:#8A8A84">  }</span></span>
-<span class="line"><span style="color:#8A8A84">]</span></span></code></pre>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
+<span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">definitions</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span></span>
+<span class="line"><span style="color:#8A8A84">    {</span></span>
+<span class="line"><span style="color:#8A8A84">      "</span><span style="color:#D6D6D2">name</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">order_pipeline</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">      "</span><span style="color:#D6D6D2">tasks</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span></span>
+<span class="line"><span style="color:#8A8A84">        {</span></span>
+<span class="line"><span style="color:#8A8A84">          "</span><span style="color:#D6D6D2">id</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">charge</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">          "</span><span style="color:#D6D6D2">action</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> {</span></span>
+<span class="line"><span style="color:#8A8A84">            "</span><span style="color:#D6D6D2">type</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">fetch</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">            "</span><span style="color:#D6D6D2">url</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">http://localhost:9001/charge</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">            "</span><span style="color:#D6D6D2">method</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">post</span><span style="color:#8A8A84">"</span></span>
+<span class="line"><span style="color:#8A8A84">          },</span></span>
+<span class="line"><span style="color:#8A8A84">          "</span><span style="color:#D6D6D2">switch</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> []</span></span>
+<span class="line"><span style="color:#8A8A84">        }</span></span>
+<span class="line"><span style="color:#8A8A84">      ]</span></span>
+<span class="line"><span style="color:#8A8A84">    }</span></span>
+<span class="line"><span style="color:#8A8A84">  ],</span></span>
+<span class="line"><span style="color:#8A8A84">  "</span><span style="color:#D6D6D2">channel</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">latest</span><span style="color:#8A8A84">"</span></span>
+<span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
 <p><strong>Response</strong></p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">[</span></span>
 <span class="line"><span style="color:#8A8A84">  {</span></span>
-<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">process</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">order_pipeline</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
-<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">version</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1</span></span>
+<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">name</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> "</span><span style="color:#8FB996">order_pipeline</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">version</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">saved</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> true</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">    "</span><span style="color:#D6D6D2">previous</span><span style="color:#8A8A84">"</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 0</span></span>
 <span class="line"><span style="color:#8A8A84">  }</span></span>
 <span class="line"><span style="color:#8A8A84">]</span></span></code></pre>
 <p>Fails with <code>400</code>, <code>500</code>.</p>
