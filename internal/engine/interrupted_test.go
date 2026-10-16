@@ -46,9 +46,7 @@ func interruptedFixture(t *testing.T, database *db.DB, name string, status model
 		},
 		{ID: "verify", Switch: model.SwitchMap{{Goto: model.GotoEnd}}},
 	}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, &model.ProcessDefinition{Name: process, Tasks: tasks}, 1)
 
 	id := fmt.Sprintf("%s-i-%d", name, time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
@@ -76,6 +74,15 @@ func interrupt(t *testing.T, database *db.DB, id string) {
 		t.Fatalf("stage interruption: instance %s was not claimable", id)
 	}
 	time.Sleep(5 * time.Millisecond) // let the foreign lease expire
+}
+
+func storeDef(t *testing.T, database *db.DB, def *model.ProcessDefinition, version int, channels ...string) {
+	t.Helper()
+	if err := database.ApplyDefinitions([]db.DefinitionWrite{{
+		Def: def, Name: def.Name, Version: version, Channels: channels,
+	}}); err != nil {
+		t.Fatalf("store %s@v%d: %v", def.Name, version, err)
+	}
 }
 
 func tickEngine(t *testing.T, database *db.DB) *Engine {
@@ -205,9 +212,7 @@ func TestInterrupted_PlainTaskStillReRuns(t *testing.T) {
 		Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: srv.URL},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, &model.ProcessDefinition{Name: process, Tasks: tasks}, 1)
 	id := fmt.Sprintf("plain-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
@@ -290,9 +295,7 @@ func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 		Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://127.0.0.1:1/never"},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, &model.ProcessDefinition{Name: process, Tasks: tasks}, 1)
 	id := fmt.Sprintf("pausingplain-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,

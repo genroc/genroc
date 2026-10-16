@@ -144,64 +144,6 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 	return nil
 }
 
-// SaveDefinition persists a new definition version with its dependencies and, if channel is
-// non-empty, moves that channel pointer in the same transaction.
-func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []DependencyRow, hash string, channel string, actor string) error {
-	data, err := json.Marshal(def)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	now := nowMillis()
-	if err := db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
-		if err := qtx.InsertDefinition(ctx, dbgen.InsertDefinitionParams{
-			Name:        def.Name,
-			Version:     int64(version),
-			Definition:  string(data),
-			ContentHash: hash,
-			CreatedAt:   now,
-			Actor:       actor,
-		}); err != nil {
-			return err
-		}
-		if err := qtx.DeleteDependencies(ctx, dbgen.DeleteDependenciesParams{
-			ParentName:    def.Name,
-			ParentVersion: int64(version),
-		}); err != nil {
-			return err
-		}
-		for _, d := range deps {
-			if err := qtx.InsertDependency(ctx, dbgen.InsertDependencyParams{
-				ParentName:    d.ParentName,
-				ParentVersion: int64(d.ParentVersion),
-				TaskID:        d.TaskID,
-				ChildKey:      d.ChildKey,
-				ChildName:     d.ChildName,
-				ChildVersion:  int64(d.ChildVersion),
-			}); err != nil {
-				return err
-			}
-		}
-		if channel != "" {
-			if err := qtx.UpsertChannel(ctx, dbgen.UpsertChannelParams{
-				Name:      def.Name,
-				Channel:   channel,
-				Version:   int64(version),
-				UpdatedAt: now,
-				Actor:     actor,
-			}); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	// After the commit, for the reason ApplyDefinitions gives.
-	db.defCache.Delete(defKey{name: def.Name, version: version})
-	return nil
-}
-
 func (db *DB) GetDefinition(name string, version int) (*model.ProcessDefinition, error) {
 	key := defKey{name: name, version: version}
 

@@ -25,10 +25,9 @@ func runApplyCmd(server string, args []string) {
 	channelFlag := fs.String("channel", "latest", "channel to apply definitions to")
 	// A check runs everything an apply does except the write — resolvers included, since a
 	// document that does not resolve is one that would not apply.
-	checkOnly := fs.Bool("check-only", false, "report whether the definitions are valid, "+
-		"registering nothing")
-	asJSON := fs.Bool("json", false, "print the server's answer: the inferred schemas under "+
-		"--check-only, what was registered otherwise")
+	checkOnly := fs.Bool("check-only", false, "report what an apply would do, registering nothing")
+	asJSON := fs.Bool("json", false, "print the server's answer: what was registered, or would be "+
+		"under --check-only")
 	files, rest := takeFileValues(args)
 	if pos := parseArgs(fs, rest); len(pos) > 0 {
 		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
@@ -48,32 +47,17 @@ func runApplyCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 
-	endpoint, method, payload := "/api/definitions/batch", http.MethodPut, any(map[string]any{
-		"channel":     *channelFlag,
-		"definitions": defs,
-	})
+	endpoint, method := "/api/definitions/batch", http.MethodPut
 	if *checkOnly {
-		endpoint, method, payload = "/api/definitions/validate", http.MethodPost, defs
+		endpoint, method = "/api/definitions/validate", http.MethodPost
 	}
+	payload := map[string]any{"channel": *channelFlag, "definitions": defs}
 	var raw json.RawMessage
 	if err := call(*serverFlag+endpoint, method, payload, &raw); err != nil {
 		fatalLocated(sources, err)
 	}
 	if *asJSON {
 		printIndented(raw)
-		return
-	}
-
-	if *checkOnly {
-		var schemas []struct {
-			Process string `json:"process"`
-		}
-		if err := json.Unmarshal(raw, &schemas); err != nil {
-			fatal("check: %v", err)
-		}
-		for _, s := range schemas {
-			fmt.Printf("valid: %s\n", s.Process)
-		}
 		return
 	}
 
@@ -102,6 +86,9 @@ func runApplyCmd(server string, args []string) {
 			state = "new"
 		case r.Previous == r.Version:
 			state = "current"
+		}
+		if *checkOnly {
+			state += ", check only"
 		}
 		fmt.Printf("%s: %s %s (%s)\n", *channelFlag, r.Name, move, state)
 	}

@@ -34,7 +34,7 @@ the runtime half and the unknowable set are in
    simply inert (`TestValidateOnlyOnce_IsContextIndependent`).
 3. **`on_error` and `switch` reject unknown keys**, naming the list the key belongs to:
    they select with `code` and `case` respectively, and a silently dropped selector turns an
-   on_error rule into a catch-all. Safe to do in the decoder because `SaveDefinition` stores
+   on_error rule into a catch-all. Safe to do in the decoder because `ApplyDefinitions` stores
    `json.Marshal` of the decoded struct, so stored definitions are canonical.
 
 ## `timeout`: one grammar, two homes
@@ -83,7 +83,7 @@ An `on_error` rule's `retry` is `{retries, delay, factor, max_delay}`, with the 
    `retries` is refused, and without it an author reads "unknown field" for a key that is
    valid one level down. Silently *accepting* it would be worse still — the rule keeps its
    `code` and its `goto`, so it still matches and still routes, and only never retries.
-2. **`MarshalJSON` always writes the object form.** `SaveDefinition` stores the marshalled
+2. **`MarshalJSON` always writes the object form.** `ApplyDefinitions` stores the marshalled
    struct, so this is what canonicalises `retry: 3`; emitting the scalar back would leave
    two stored shapes for every later reader to handle.
 3. **`RetryDuration` keeps the literal it parsed.** Marshalling the parsed length instead

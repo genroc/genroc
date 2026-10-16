@@ -67,8 +67,8 @@ Keep new list/get commands consistent so the surface stays predictable.
   via `printJSONItems` (lossless, same order as the table); a single item prints the raw
   server object (`callGet` into `json.RawMessage`, then indent). Never invent a
   per-command machine format. It is the answer to what the command DID, so `apply --json`
-  prints what was registered and `apply --check-only --json` the inferred schemas — the two
-  are different endpoints, not one shape with a hole in it.
+  prints what was registered and `apply --check-only --json` what would be — the same shape,
+  because the check is the apply's own planning pass without the commit.
 
 Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 

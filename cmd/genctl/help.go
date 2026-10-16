@@ -32,7 +32,7 @@ in the local zone ($TZ).`
 
 var commandDocs = map[string]commandDoc{
 	"apply": {
-		summary: "register definitions; --check-only checks them and stores nothing",
+		summary: "register definitions; --check-only is a dry run that stores nothing",
 		usage:   []string{"apply [-f <path|glob> ...] [--channel latest] [--check-only] [--json]"},
 		detail: "Validates every definition before registering any. An unchanged definition creates no new\n" +
 			"version. Each line says what happened on --channel: `new` version, `existing` version, or\n" +

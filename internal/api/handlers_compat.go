@@ -37,9 +37,10 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 	}
 	// Validate submitted documents before comparing: "unanalysable" is a worse answer than
 	// validate's, which names the task and expression. Stored versions are NOT re-validated.
+	// Normalizes them in place, so they compare as an apply would store them.
 	for _, sel := range []CompatSelector{req.From, req.To} {
 		if len(sel.Definitions) > 0 {
-			if _, err := h.validateSubmitted(sel.Definitions); err != nil {
+			if _, _, err := h.planBatch(sel.Definitions, defaultChannel, ""); err != nil {
 				return errReply(err)
 			}
 		}

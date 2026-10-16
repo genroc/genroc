@@ -15,9 +15,7 @@ import (
 // seedConcluded saves n completed roots, concluded at the current DB clock.
 func seedConcluded(t *testing.T, database *db.DB, prefix string, n int) []string {
 	t.Helper()
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: "ret", Tasks: []*model.Task{{ID: "only"}}}, 1, nil, "ret-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, &model.ProcessDefinition{Name: "ret", Tasks: []*model.Task{{ID: "only"}}}, 1)
 	ids := make([]string, n)
 	for i := range n {
 		ids[i] = fmt.Sprintf("%s-%02d", prefix, i)

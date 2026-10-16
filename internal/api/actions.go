@@ -186,7 +186,7 @@ var registry = func() []actionDef {
 					},
 				},
 			},
-			Resp: map[string]any{"name": "order_pipeline", "version": 1, "saved": true},
+			Resp: BatchApplyResult{Name: "order_pipeline", Version: 1, Saved: true, Previous: 0},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.putDefinition(env.Payload, env.principal.Actor())
 			},
@@ -385,15 +385,18 @@ var registry = func() []actionDef {
 			Allow:   []Perm{PermRead},
 			Method:  http.MethodPost,
 			Path:    "/definitions/validate",
-			Summary: "Validate process definitions and return inferred JSON schemas (no save)",
+			Summary: "Dry-run an apply: the same request, every check, and the answer it would give, with nothing written",
 			Tags:    []string{"Definitions"},
-			Req: []model.ProcessDefinition{
-				{
-					Name:  "order_pipeline",
-					Tasks: []*model.Task{{ID: "charge", Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9001/charge"}}},
+			Req: PutDefinitionsBatchReq{
+				Channel: "latest",
+				Definitions: []model.ProcessDefinition{
+					{
+						Name:  "order_pipeline",
+						Tasks: []*model.Task{{ID: "charge", Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9001/charge"}}},
+					},
 				},
 			},
-			Resp: []map[string]any{{"process": "order_pipeline", "version": 1}},
+			Resp: []BatchApplyResult{{Name: "order_pipeline", Version: 1, Saved: true, Previous: 0}},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.validateDefinitions(env.Payload)
 			},

@@ -15,24 +15,20 @@ import (
 func spawnFixture(t *testing.T, database *db.DB, name string) string {
 	t.Helper()
 	child := fmt.Sprintf("%s-child-%d", name, time.Now().UnixNano())
-	if err := database.SaveDefinition(&model.ProcessDefinition{
+	storeDef(t, database, &model.ProcessDefinition{
 		Name:  child,
 		Tasks: []*model.Task{{ID: "work", Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},
-	}, 1, nil, child+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition (child): %v", err)
-	}
+	}, 1)
 
 	parent := fmt.Sprintf("%s-parent-%d", name, time.Now().UnixNano())
-	if err := database.SaveDefinition(&model.ProcessDefinition{
+	storeDef(t, database, &model.ProcessDefinition{
 		Name: parent,
 		Tasks: []*model.Task{{
 			ID:     "fan",
 			Action: &model.Action{Type: model.ActionTypeChild, Name: child},
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
-	}, 1, nil, parent+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition (parent): %v", err)
-	}
+	}, 1)
 
 	id := database.NextID()
 	if err := database.SaveInstance(&model.ProcessInstance{
@@ -120,16 +116,14 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	eng := tickEngine(t, database)
 
 	process := fmt.Sprintf("arm-pure-%d", time.Now().UnixNano())
-	if err := database.SaveDefinition(&model.ProcessDefinition{
+	storeDef(t, database, &model.ProcessDefinition{
 		Name: process,
 		Tasks: []*model.Task{{
 			ID:     "wait",
 			Action: &model.Action{Type: model.ActionTypeExternal},
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
-	}, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	}, 1)
 	id := fmt.Sprintf("arm-pure-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
@@ -249,16 +243,14 @@ func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 	ctx := context.Background()
 
 	process := fmt.Sprintf("arm-buffered-%d", time.Now().UnixNano())
-	if err := database.SaveDefinition(&model.ProcessDefinition{
+	storeDef(t, database, &model.ProcessDefinition{
 		Name: process,
 		Tasks: []*model.Task{{
 			ID:     "wait",
 			Action: &model.Action{Type: model.ActionTypeExternal},
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
-	}, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	}, 1)
 	id := fmt.Sprintf("arm-buffered-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,

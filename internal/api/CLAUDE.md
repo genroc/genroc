@@ -142,9 +142,12 @@ pass with the cap removed.
 
 ## `applyBatch` plans, then commits — a write in the planning loop reintroduces partial applies
 
-An apply is one logical change. `applyBatch` therefore runs in two passes: the loop decides
+An apply is one logical change. `applyBatch` therefore runs in two passes: `planBatch` decides
 and validates every definition, appending `db.DefinitionWrite` entries and nothing else,
 and `db.ApplyDefinitions` then writes the lot in a single transaction.
+
+`POST /definitions/validate` is `planBatch` alone — a dry run, same request and answer — and
+compat runs it on submitted documents. A check added to the commit instead is one neither sees.
 
 The passes exist because validation is interleaved by nature — a definition validates
 against the versions its batch siblings resolved to, held in `batchVersions`. The original
@@ -188,7 +191,7 @@ them. The comparison itself judges; this decides what is answerable.
   Naming a process and getting silence is a mistake worth catching; a process that came
   along for the ride is simply not moving.
 - **Submitted documents are validated first**, through the same pass `POST
-  /definitions/validate` runs (`validateSubmitted`). A document that does not analyse has
+  /definitions/validate` runs (`planBatch`, on `latest`). A document that does not analyse has
   nothing to compare, and "unanalysable" is a worse answer than the one validate gives.
   Stored versions are not re-validated — see
   [internal/validation/CLAUDE.md](../validation/CLAUDE.md).

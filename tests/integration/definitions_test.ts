@@ -140,3 +140,65 @@ test("PUT /definitions/batch — a null task entry is rejected, not a crash", as
   expect((error as any)?.code).toBe("invalid");
   expect((error as any)?.error).toContain("tasks[0] is empty");
 });
+
+// ── POST /definitions/validate: a dry-run apply ────────────────────────────────
+
+async function dryRun(definitions: object[], channel?: string) {
+  return client.POST("/definitions/validate", { body: { channel, definitions } as never });
+}
+
+async function batch(definitions: object[], channel?: string) {
+  return client.PUT("/definitions/batch", { body: { channel, definitions } as never });
+}
+
+const switchOnly = (name: string, extra: object = {}) => ({
+  name,
+  tasks: [{ id: "route", switch: "end" }],
+  ...extra,
+});
+
+test("POST /definitions/validate — answers what the apply then does, and writes nothing", async () => {
+  const name = `dryrun_${crypto.randomUUID()}`;
+  await batch([switchOnly(name)], "latest");
+  const changed = switchOnly(name, { output: { ok: true } });
+
+  const dry = await dryRun([changed], "staging");
+  expect(dry.error).toBeUndefined();
+
+  const real = await batch([changed], "staging");
+  expect(real.error).toBeUndefined();
+  // Had the dry run written, this apply would find v2 stored (saved: false) or staging moved.
+  expect(dry.data, "the dry run's answer is the apply's, so it wrote nothing").toEqual(real.data);
+  expect(real.data).toEqual([{ name, version: 2, saved: true, previous: 0 }]);
+});
+
+test("POST /definitions/validate — refuses exactly what apply refuses", async () => {
+  const child = `dryrun_child_${crypto.randomUUID()}`;
+  await batch([switchOnly(child)], "latest");
+
+  const cases: Array<[string, object[], string, string]> = [
+    [
+      "a required config var unset on the server",
+      [switchOnly(`dryrun_cfg_${crypto.randomUUID()}`, {
+        config_schema: { type: "object", required: ["e2e_not_set"], properties: { e2e_not_set: { type: "string" } } },
+      })],
+      "latest",
+      "e2e_not_set",
+    ],
+    [
+      "an unpinned child that exists but is not on the requested channel",
+      [{
+        name: `dryrun_parent_${crypto.randomUUID()}`,
+        tasks: [{ id: "spawn", action: { type: "child", name: child }, switch: "end" }],
+      }],
+      "staging",
+      "not on channel",
+    ],
+  ];
+  for (const [why, defs, channel, want] of cases) {
+    const real = await batch(defs, channel);
+    expect(JSON.stringify(real.error), `apply refuses ${why}`).toContain(want);
+    const dry = await dryRun(defs, channel);
+    expect(JSON.stringify(dry.error), `a dry run passing ${why} would promise an apply that fails`).toContain(want);
+  }
+});

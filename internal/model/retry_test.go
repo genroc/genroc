@@ -12,7 +12,7 @@ import (
 // misclassified as an expression.
 func noEval(string) (any, error) { return nil, errors.New("no expression slot expected") }
 
-// SaveDefinition stores json.Marshal of the decoded struct, so whatever these produce is
+// ApplyDefinitions stores json.Marshal of the decoded struct, so whatever these produce is
 // what every later reader — and every later decode — sees.
 func TestRetry_MarshalsCanonically(t *testing.T) {
 	tests := []struct {
@@ -237,7 +237,7 @@ func TestRetry_DecodesExpressionSlots(t *testing.T) {
 		t.Fatal("an all-expression policy reads as absent, so validateOnError would skip every check on it")
 	}
 
-	// SaveDefinition stores the marshalled struct: an expression that did not round-trip
+	// ApplyDefinitions stores the marshalled struct: an expression that did not round-trip
 	// would be re-read as a literal or lost outright.
 	out, err := json.Marshal(r)
 	if err != nil {

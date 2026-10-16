@@ -14,33 +14,17 @@ import (
 	"genroc/internal/validation"
 )
 
+// putDefinition is a one-definition apply to `latest`, so it can never check less than one.
 func (h *Handlers) putDefinition(raw json.RawMessage, actor string) Reply {
-	req, err := decodeBody[PutDefinitionReq](raw)
+	def, err := decodeBody[model.ProcessDefinition](raw)
 	if err != nil {
 		return errReply(err)
 	}
-	// Every Validate failure is the document's, so all are invalid: the hand-written rules return
-	// plain errors that would classify as 500. %w keeps the per-field detail walkable.
-	if err := req.Validate(); err != nil {
-		return errReply(invalid("%w", err))
-	}
-	latestV, _ := h.db.LatestVersion(req.Name)
-	version := latestV + 1
-	if _, err := validation.Generate(&req.ProcessDefinition); err != nil {
-		return invalid("%w", err).reply()
-	}
-	if err := validation.ValidateChildProcessRefs(&req.ProcessDefinition, version, h.db); err != nil {
-		return invalid("%w", err).reply()
-	}
-	// ResolveConfig's instance-start rule, applied now so a missing GENROC_<PROCESS>_<NAME>
-	// surfaces at registration.
-	if _, err := req.ResolveConfig(os.LookupEnv); err != nil {
+	results, err := h.applyBatch([]model.ProcessDefinition{def}, defaultChannel, actor)
+	if err != nil {
 		return errReply(err)
 	}
-	if err := h.db.SaveDefinition(&req.ProcessDefinition, version, nil, "", defaultChannel, actor); err != nil {
-		return errReply(fmt.Errorf("save: %w", err))
-	}
-	return okReply(map[string]interface{}{"saved": true, "name": req.Name, "version": version})
+	return okReply(results[0])
 }
 
 func (h *Handlers) listDefinitions(raw json.RawMessage) Reply {
@@ -100,12 +84,9 @@ func (g *batchGetter) LatestVersion(name string) (int, error) {
 }
 
 func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
-	req, err := decodeBody[PutDefinitionsBatchReq](raw)
+	req, err := decodeBatchReq(raw)
 	if err != nil {
 		return errReply(err)
-	}
-	if req.Channel == "" {
-		req.Channel = defaultChannel
 	}
 	results, err := h.applyBatch(req.Definitions, req.Channel, actor)
 	if err != nil {
@@ -114,9 +95,30 @@ func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
 	return okReply(results)
 }
 
+func decodeBatchReq(raw json.RawMessage) (PutDefinitionsBatchReq, error) {
+	req, err := decodeBody[PutDefinitionsBatchReq](raw)
+	if req.Channel == "" {
+		req.Channel = defaultChannel
+	}
+	return req, err
+}
+
 // applyBatch plans, then commits in one transaction: nothing in planning may write, nothing
 // in the commit may judge (CLAUDE.md).
 func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor string) ([]BatchApplyResult, error) {
+	plan, results, err := h.planBatch(defs, channel, actor)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.db.ApplyDefinitions(plan); err != nil {
+		return nil, fmt.Errorf("apply: %w", err)
+	}
+	return results, nil
+}
+
+// planBatch is every check an apply makes, and writes nothing: a dry run is this without the
+// commit. Normalizes defs in place.
+func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor string) ([]db.DefinitionWrite, []BatchApplyResult, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
@@ -126,13 +128,13 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 	// dereferences.
 	for _, def := range ptrs {
 		if err := def.Validate(); err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, invalid("%s: %w", def.Name, err)
 		}
 	}
 
 	sorted, err := topoSort(ptrs)
 	if err != nil {
-		return nil, invalid("%w", err)
+		return nil, nil, invalid("%w", err)
 	}
 
 	// batchVersions is filled during planning, so a sibling validates against the version
@@ -147,7 +149,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 	for _, def := range sorted {
 		// Normalize schemas to canonical form before any comparison or storage.
 		if err := def.Normalize(); err != nil {
-			return nil, invalid("%s: normalize: %w", def.Name, err)
+			return nil, nil, invalid("%s: normalize: %w", def.Name, err)
 		}
 
 		// Server assigns the next version; user-supplied value is ignored.
@@ -157,7 +159,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		// Build resolved deps without mutating def (raw def is stored as-is).
 		newDeps, err := h.buildResolvedDeps(def, newVersion, channel, batchVersions)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", def.Name, err)
+			return nil, nil, fmt.Errorf("%s: %w", def.Name, err)
 		}
 
 		// Where the requested channel points BEFORE the commit moves it. Read in planning
@@ -184,15 +186,15 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		// Invalid, not internal. ResolveConfig below stays unclassified: an unset GENROC_*
 		// var is the server's environment, not the request.
 		if _, err := validation.Generate(defForValidation); err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, invalid("%s: %w", def.Name, err)
 		}
 		if err := validation.ValidateChildProcessRefs(defForValidation, newVersion, getter); err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, invalid("%s: %w", def.Name, err)
 		}
 		// Reject if a required config var is unset in the server environment, the
 		// same rule ResolveConfig enforces at instance start.
 		if _, err := def.ResolveConfig(os.LookupEnv); err != nil {
-			return nil, fmt.Errorf("%s: %w", def.Name, err)
+			return nil, nil, fmt.Errorf("%s: %w", def.Name, err)
 		}
 
 		plan = append(plan, db.DefinitionWrite{
@@ -205,10 +207,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		})
 	}
 
-	if err := h.db.ApplyDefinitions(plan); err != nil {
-		return nil, fmt.Errorf("apply: %w", err)
-	}
-	return results, nil
+	return plan, results, nil
 }
 
 // channelsFor adds `latest` when the process lacks it. Decided during planning: asked
@@ -463,45 +462,13 @@ func subtree(defs []db.VersionedDef, rootName string) ([]db.VersionedDef, error)
 }
 
 func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
-	defs, err := decodeBody[[]model.ProcessDefinition](raw)
+	req, err := decodeBatchReq(raw)
 	if err != nil {
 		return errReply(err)
 	}
-	schemas, err := h.validateSubmitted(defs)
+	_, results, err := h.planBatch(req.Definitions, req.Channel, "")
 	if err != nil {
 		return errReply(err)
 	}
-	return okReply(schemas)
-}
-
-// validateSubmitted must run before any analysis of user documents. Every failure is
-// invalid; %w keeps ValidationError detail.
-func (h *Handlers) validateSubmitted(defs []model.ProcessDefinition) ([]validation.SchemaFile, error) {
-	ptrs := make([]*model.ProcessDefinition, len(defs))
-	for i := range defs {
-		ptrs[i] = &defs[i]
-	}
-	// The version each member WOULD get, so a child that exists only in the batch resolves.
-	// Sound because validate writes nothing and the getter answers from the batch at these.
-	versions := make(map[string]int, len(ptrs))
-	for _, d := range ptrs {
-		latest, _ := h.db.LatestVersion(d.Name)
-		versions[d.Name] = latest + 1
-	}
-	getter := &batchGetter{batch: ptrs, versions: versions, db: h.db}
-	schemas := make([]validation.SchemaFile, 0, len(ptrs))
-	for _, def := range ptrs {
-		if err := def.Validate(); err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
-		}
-		sf, err := validation.Generate(def)
-		if err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
-		}
-		if err := validation.ValidateChildProcessRefs(def, 0, getter); err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
-		}
-		schemas = append(schemas, sf)
-	}
-	return schemas, nil
+	return okReply(results)
 }

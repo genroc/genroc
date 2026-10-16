@@ -56,9 +56,7 @@ func TestConfigReResolvedEveryTick(t *testing.T) {
 	}`), &def); err != nil {
 		t.Fatalf("unmarshal definition: %v", err)
 	}
-	if err := database.SaveDefinition(&def, 1, nil, "cfgtick-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, &def, 1)
 	inst := &model.ProcessInstance{
 		ID: database.NextID(), ProcessName: "cfgtick", ProcessVersion: 1,
 		Task: "work", State: map[string]any{}, Status: model.StatusRunning,

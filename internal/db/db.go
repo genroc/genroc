@@ -45,7 +45,7 @@ type DB struct {
 	sqliteBaseSync string
 
 	// defCache holds raw JSON, re-unmarshalled per call so callers never share Task pointers;
-	// SaveDefinition must invalidate it (ON CONFLICT overwrites).
+	// ApplyDefinitions must invalidate it (ON CONFLICT overwrites).
 	defCache sync.Map // defKey → string
 
 	// Logs are best-effort (migration 008): AppendLog buffers, logFlusher batch-inserts, and every

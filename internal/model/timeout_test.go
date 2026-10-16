@@ -53,7 +53,7 @@ func TestTimeout_DecodeForms(t *testing.T) {
 	}
 }
 
-// SaveDefinition stores json.Marshal of the decoded struct, so the shorthand must survive
+// ApplyDefinitions stores json.Marshal of the decoded struct, so the shorthand must survive
 // a round trip as the same timeout — canonicalized, not lost.
 func TestTimeout_RoundTripsCanonically(t *testing.T) {
 	var got Timeout

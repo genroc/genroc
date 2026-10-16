@@ -155,9 +155,7 @@ func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		},
 	}}
-	if err := database.SaveDefinition(def, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, def, 1)
 	id := fmt.Sprintf("%s-i", process)
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
@@ -253,9 +251,7 @@ func onlyOnceBehindSwitch(t *testing.T, database *db.DB, name string) (string, *
 			Switch:   model.SwitchMap{{Goto: model.GotoEnd}},
 		},
 	}}
-	if err := database.SaveDefinition(def, 1, nil, process+"-h", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	storeDef(t, database, def, 1)
 	id := process + "-i"
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,

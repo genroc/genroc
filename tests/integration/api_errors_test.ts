@@ -214,7 +214,7 @@ test("api errors — validate_definitions reports paths without saving anything"
   const { status, body } = await errorOf(`/definitions/validate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify([{ name, tasks: [{ switch: [{ goto: "end" }] }] }]),
+    body: JSON.stringify({ definitions: [{ name, tasks: [{ switch: [{ goto: "end" }] }] }] }),
   });
   expect(status).toBe(400);
   expect((body.fields as Field[]).map((f) => f.field)).toEqual(["tasks[0].id"]);
@@ -256,15 +256,17 @@ test("api errors — an inference failure reports its slot address, not just pro
   const { status, body } = await errorOf(`/definitions/validate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify([
-      {
-        name,
-        tasks: [
-          { id: "a", switch: "next", action: { type: "fetch", method: "post", url: "$: nope.x" } },
-          { id: "b", switch: "end", action: { type: "fetch", method: "post", url: "$: alsonope.y" } },
-        ],
-      },
-    ]),
+    body: JSON.stringify({
+      definitions: [
+        {
+          name,
+          tasks: [
+            { id: "a", switch: "next", action: { type: "fetch", method: "post", url: "$: nope.x" } },
+            { id: "b", switch: "end", action: { type: "fetch", method: "post", url: "$: alsonope.y" } },
+          ],
+        },
+      ],
+    }),
   });
   expect(status).toBe(400);
   const fields = body.fields as Field[];

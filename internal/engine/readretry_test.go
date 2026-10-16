@@ -76,12 +76,10 @@ func TestRetryRead_DanglingReferenceFailsTheInstanceLoudly(t *testing.T) {
 	eng := tickEngine(t, database)
 
 	process := "dangling-proc"
-	if err := database.SaveDefinition(&model.ProcessDefinition{
+	storeDef(t, database, &model.ProcessDefinition{
 		Name:  process,
 		Tasks: []*model.Task{{ID: "read", Output: &model.Shape{Raw: map[string]any{"got": "$: input.blob"}}, Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},
-	}, 1, nil, process+"-hash", "", ""); err != nil {
-		t.Fatalf("SaveDefinition: %v", err)
-	}
+	}, 1)
 
 	// A marker for content that was never written: the encode re-emits an existing reference
 	// without storing anything, so the row points at an object that does not exist.

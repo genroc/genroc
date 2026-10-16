@@ -194,21 +194,22 @@ test("apply — a rejected re-apply leaves the existing version untouched", () =
 
 // ── apply --check-only ──────────────────────────────────────────────────────────
 
-test("apply --check-only — reports each definition without registering anything", () => {
+test("apply --check-only — reports what an apply would do without registering anything", () => {
   const name = uid("proc");
   const file = writeDefs([switchDef(name)]);
-  const r = runCli(bin, ["apply", "--check-only", "-f", file]);
+  const r = runCli(bin, ["apply", "--check-only", "--channel", "staging", "-f", file]);
 
   expect(r.ok, r.stderr).toBe(true);
-  expect(r.stdout.trim(), "the same per-definition line an apply prints, minus the version").toBe(
-    `valid: ${name}`,
+  expect(r.stdout.trim(), "the line an apply prints, on the channel asked for, marked a check").toBe(
+    `staging: ${name} - -> v1 (new, check only)`,
   );
   expect(defs(["--since", "1h"]).some((d) => d.name === name)).toBe(false);
 
-  // --json is the inferred schemas, which is what a type generator reads.
   const j = runCli(bin, ["apply", "--check-only", "--json", "-f", file]);
   expect(j.ok, j.stderr).toBe(true);
-  expect(JSON.parse(j.stdout)[0].process).toBe(name);
+  expect(JSON.parse(j.stdout), "--json is the answer apply --json would give").toEqual([
+    { name, version: 1, saved: true, previous: 0 },
+  ]);
   expect(defs(["--since", "1h"]).some((d) => d.name === name)).toBe(false);
 });
 

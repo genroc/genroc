@@ -42,10 +42,6 @@ type PageResp[T any] struct {
 	Page  db.PageInfo `json:"page"`
 }
 
-type PutDefinitionReq struct {
-	model.ProcessDefinition
-}
-
 type StartInstanceReq struct {
 	Process string  `json:"process"`
 	Version *int    `json:"version,omitempty"` // explicit version; takes priority over Channel

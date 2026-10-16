@@ -42,7 +42,7 @@ test("-h — the map is short, and a command's own -h is the long form", () => {
   // The three parts of a page: grammar, the rules that command needs, and its real flags.
   expect(page.stdout).toContain("-f takes several values");
   expect(page.stdout).toMatch(/^Flags:$/m);
-  expect(page.stdout).toMatch(/^ +--check-only +report whether/m);
+  expect(page.stdout).toMatch(/^ +--check-only +report what an apply would do/m);
   expect(page.stdout.split("\n").length, "the page is the long form").toBeGreaterThan(12);
 });
 
