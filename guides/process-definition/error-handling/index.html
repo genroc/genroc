@@ -251,7 +251,9 @@ task directly after the error; later tasks have no access to it.</p>
 <h2 id="panic">Panic<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#panic"><span></span></a></h2>
 <p>An error no rule handles - or one that runs out of retries - fails the process on its own.
 The state switches to <code>failed</code>, execution stops, and <code>error_code</code> is the error&#39;s own code (<code>http.500</code>).
-Failed is a retryable state, so the process can be retried with the <code>genctl retry</code> command.</p>
+Failed is a retryable state, so the process can be retried with the <code>genctl retry</code> command.
+In a child, the failure fails every ancestor up to the root and pauses the rest of the tree
+(<a href="/guides/operating/managing-instances/#retry">managing instances</a>).</p>
 <p><code>panic</code> is that same ending with a code you choose instead. Since <code>error_code</code> is what you filter
 and alert on, a panic is how a failure gets a name from your domain rather than from the transport.
 You can call it from <code>on_error</code> and <code>switch</code> blocks.</p>
