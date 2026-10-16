@@ -167,9 +167,9 @@ doesn&#39;t have influence on already running processes.</p>
 <span class="line"><span style="color:#D6D6D2">  required</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">user_name</span><span style="color:#8A8A84">]</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#D6D6D2">tasks</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task-1</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task1</span></span>
 <span class="line"><span style="color:#D4A76A">    ...</span></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task-2</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task2</span></span>
 <span class="line"><span style="color:#D4A76A">    ...</span></span></code></pre>
 <p>This process would require input of an object with field <code>user_name</code>. Input is something that can be used inside the process.</p>
 <h2 id="the-tasks">The tasks<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-tasks"><span></span></a></h2>
@@ -179,28 +179,28 @@ Each task then needs to specify what should be the following task with a <code>s
 Or you can reference task by id with <code>$</code> prefix.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#D6D6D2">...</span></span>
 <span class="line"><span style="color:#D6D6D2">tasks</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task-1</span><span style="color:#8A8A84;font-style:italic">          # this is a first task</span></span>
-<span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> $task-2</span><span style="color:#8A8A84;font-style:italic">     # next task referenced by id</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task1</span><span style="color:#8A8A84;font-style:italic">          # this is a first task</span></span>
+<span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> $task2</span><span style="color:#8A8A84;font-style:italic">     # next task referenced by id</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task-2</span></span>
-<span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> next</span><span style="color:#8A8A84;font-style:italic">        # same as `$task-3` in this case</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task2</span></span>
+<span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> next</span><span style="color:#8A8A84;font-style:italic">        # same as `$task3` in this case</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task-3</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task3</span></span>
 <span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> end</span><span style="color:#8A8A84;font-style:italic">         # end of the process</span></span></code></pre>
 <p>The switch field is required in every task, there is no default value.</p>
 <h2 id="branching">Branching<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#branching"><span></span></a></h2>
 <p>The switch statement can also be conditional.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#D6D6D2">...</span></span>
 <span class="line"><span style="color:#D6D6D2">tasks</span><span style="color:#8A8A84">:</span></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task-1</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> task1</span></span>
 <span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span></span>
 <span class="line"><span style="color:#8A8A84;font-style:italic">        # condition to check the name</span></span>
 <span class="line"><span style="color:#8A8A84">      -</span><span style="color:#D6D6D2"> case</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#D6D6D2">input</span><span style="color:#8A8A84">.</span><span style="color:#D6D6D2">user_name </span><span style="color:#E07A4F">==</span><span style="color:#8FB996"> &#39;Brenda&#39;</span><span style="color:#8A8A84">&quot;</span></span>
-<span class="line"><span style="color:#D6D6D2">        goto</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> $only-brenda</span></span>
+<span class="line"><span style="color:#D6D6D2">        goto</span><span style="color:#8A8A84">:</span><span style="color:#E07A4F"> $only_brenda</span></span>
 <span class="line"><span style="color:#8A8A84;font-style:italic">        # the default case</span></span>
 <span class="line"><span style="color:#8A8A84">      -</span><span style="color:#D6D6D2"> goto</span><span style="color:#8A8A84">:</span><span style="color:#E07A4F"> $others</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> only-brenda</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> only_brenda</span></span>
 <span class="line"><span style="color:#D6D6D2">    switch</span><span style="color:#8A8A84">:</span><span style="color:#E07A4F"> end</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> id</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> others</span></span>
