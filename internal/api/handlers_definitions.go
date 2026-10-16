@@ -14,19 +14,6 @@ import (
 	"genroc/internal/validation"
 )
 
-// putDefinition is a one-definition apply to `latest`, so it can never check less than one.
-func (h *Handlers) putDefinition(raw json.RawMessage, actor string) Reply {
-	def, err := decodeBody[model.ProcessDefinition](raw)
-	if err != nil {
-		return errReply(err)
-	}
-	results, err := h.applyBatch([]model.ProcessDefinition{def}, defaultChannel, actor)
-	if err != nil {
-		return errReply(err)
-	}
-	return okReply(results[0])
-}
-
 func (h *Handlers) listDefinitions(raw json.RawMessage) Reply {
 	req, err := decodeOptionalBody[ListDefinitionsReq](raw)
 	if err != nil {
@@ -84,7 +71,7 @@ func (g *batchGetter) LatestVersion(name string) (int, error) {
 }
 
 func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
-	req, err := decodeBatchReq(raw)
+	req, err := decodePutDefinitionsReq(raw)
 	if err != nil {
 		return errReply(err)
 	}
@@ -95,8 +82,8 @@ func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
 	return okReply(results)
 }
 
-func decodeBatchReq(raw json.RawMessage) (PutDefinitionsBatchReq, error) {
-	req, err := decodeBody[PutDefinitionsBatchReq](raw)
+func decodePutDefinitionsReq(raw json.RawMessage) (PutDefinitionsReq, error) {
+	req, err := decodeBody[PutDefinitionsReq](raw)
 	if req.Channel == "" {
 		req.Channel = defaultChannel
 	}
@@ -462,7 +449,7 @@ func subtree(defs []db.VersionedDef, rootName string) ([]db.VersionedDef, error)
 }
 
 func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
-	req, err := decodeBatchReq(raw)
+	req, err := decodePutDefinitionsReq(raw)
 	if err != nil {
 		return errReply(err)
 	}

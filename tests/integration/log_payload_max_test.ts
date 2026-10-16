@@ -32,12 +32,12 @@ async function completedEntry(blob: string, name: string) {
 test("a payload over --log-payload-max is left out with its size; one under it is kept whole", async () => {
   const name = `logmax_${crypto.randomUUID()}`;
   const { error } = await server.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { blob: { type: "string" } }, required: ["blob"] },
       tasks: [{ id: "t", switch: [{ goto: "end" }] }],
       output: { echo: "$: input.blob" },
-    } as never,
+    } as never] },
   });
   expect(error, `put failed: ${JSON.stringify(error)}`).toBeUndefined();
 

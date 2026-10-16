@@ -153,11 +153,11 @@ test("an `until` in the past wakes immediately instead of failing", async () => 
 
 test("pause takes effect immediately on a delayed instance — no drain tick needed", async () => {
   await ctx.env.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: "delay_pause",
       tasks: [{ id: "wait", action: { type: "delay", for: 3600000 }, switch: "end" }],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   const id = await ctx.env.start("delay_pause");
 
@@ -188,11 +188,11 @@ test("delay does not resume before the full ms has elapsed", async () => {
 
 test("resume continues a delay toward its original deadline", async () => {
   await ctx.env.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: "delay_resume",
       tasks: [{ id: "wait", action: { type: "delay", for: 60000 }, switch: "end" }],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   const id = await ctx.env.start("delay_resume");
 
@@ -211,11 +211,11 @@ test("resume continues a delay toward its original deadline", async () => {
 
 test("a delay whose deadline passes while paused is due the moment it resumes", async () => {
   await ctx.env.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: "delay_passed",
       tasks: [{ id: "wait", action: { type: "delay", for: 5000 }, switch: "end" }],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   const id = await ctx.env.start("delay_passed");
 

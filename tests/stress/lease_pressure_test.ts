@@ -39,7 +39,7 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
       const processName = `pressure_${crypto.randomUUID()}`;
 
       await api.PUT("/definitions", {
-        body: {
+        body: { definitions: [{
           name: processName,
           input_schema: {
             type: "object",
@@ -87,7 +87,7 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
             processes:
               "$: (outputs.recursion.first.processes ?? 0) + (outputs.recursion.second.processes ?? 0) + 1",
           },
-        },
+        }] },
       });
 
       // Phase 1: advances routinely outlive their leases; the gate repairs what it can and the

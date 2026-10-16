@@ -54,7 +54,7 @@ test("a switch case's proof lets the next task use the value, and the instance r
   const name = `guard_narrow_ok_${crypto.randomUUID()}`;
 
   const { error: putErr } = await client.PUT("/definitions", {
-    body: definition(name, svc.port, "self.output.total != null") as never,
+    body: { definitions: [definition(name, svc.port, "self.output.total != null") as never] },
   });
   expect(putErr, `the case proved total is not null: ${JSON.stringify(putErr)}`).toBeUndefined();
 
@@ -74,7 +74,7 @@ test("the opposite proof is refused at registration", async () => {
   const name = `guard_narrow_bad_${crypto.randomUUID()}`;
 
   const { error } = await client.PUT("/definitions", {
-    body: definition(name, svc.port, "self.output.total == null") as never,
+    body: { definitions: [definition(name, svc.port, "self.output.total == null") as never] },
   });
   expect(error, "that case proves total IS null").toBeDefined();
   expect(JSON.stringify(error)).toContain("non-nullable");
@@ -95,7 +95,7 @@ test("falling past a null check narrows the fall-through, and runs", async () =>
     { goto: "$charge" },
   ];
 
-  const { error: putErr } = await client.PUT("/definitions", { body: def as never });
+  const { error: putErr } = await client.PUT("/definitions", { body: { definitions: [def as never] } });
   expect(putErr, `reaching the fall-through means the null check failed: ${JSON.stringify(putErr)}`).toBeUndefined();
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -119,7 +119,7 @@ test("a null at runtime takes the other edge and the process still completes", a
     { goto: "$charge" },
   ];
 
-  await client.PUT("/definitions", { body: def as never });
+  await client.PUT("/definitions", { body: { definitions: [def as never] } });
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id, 10_000)).toBe("completed");
 

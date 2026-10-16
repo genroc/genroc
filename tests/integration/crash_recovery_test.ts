@@ -59,7 +59,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
   try {
     const processName = `crash_recovery_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: processName,
 
         tasks: [
@@ -75,7 +75,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await genroc1.client.POST("/instances", {
@@ -134,7 +134,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
   try {
     const processName = `crash_only_once_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: processName,
         tasks: [
           {
@@ -149,7 +149,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await genroc1.client.POST("/instances", {
@@ -206,7 +206,7 @@ async function pauseThenCrash(
 ) {
   const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   const { error } = await genroc1.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: processName,
       tasks: [
         {
@@ -224,7 +224,7 @@ async function pauseThenCrash(
         ...(opts.extraTasks ?? []),
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(error).toBeUndefined();
   const { data: startData } = await genroc1.client.POST("/instances", {
@@ -523,7 +523,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
   try {
     const processName = `crash_route_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: processName,
         tasks: [
           {
@@ -548,7 +548,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await genroc1.client.POST("/instances", {
@@ -609,7 +609,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
   try {
     const processName = `crash_rerun_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: processName,
         tasks: [
           {
@@ -643,7 +643,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
             ],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await genroc1.client.POST("/instances", {
@@ -700,7 +700,7 @@ async function interruptedRecovery(
   const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   const { error } = await genroc1.client.PUT("/definitions", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { name: processName, tasks } as any,
+    body: { definitions: [{ name: processName, tasks } as any] },
   });
   expect(error).toBeUndefined();
 
@@ -827,12 +827,12 @@ test("crash recovery — a handler may end the process, and its output is still 
   const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   try {
     const { error } = await genroc1.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: processName,
         output: { recovered: true },
         tasks: [chargeTask(charge.port, [{ code: ["only_once.interrupted"], goto: "end" }])],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as any] },
     });
     expect(error).toBeUndefined();
 

@@ -8,7 +8,7 @@ test("output map remaps an action result — only the projection is exported", a
 
   const name = `output_remap_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -36,7 +36,7 @@ test("output map remaps an action result — only the projection is exported", a
       ],
       output: { id: "$: outputs.create.id" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: startData } = await client.POST("/instances", { body: { process: name } });
@@ -59,7 +59,7 @@ test("single-expression output passes the action result through", async () => {
 
   const name = `output_passthrough_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -80,7 +80,7 @@ test("single-expression output passes the action result through", async () => {
       ],
       output: "$: outputs.create",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: startData } = await client.POST("/instances", { body: { process: name } });
@@ -103,7 +103,7 @@ test("nested output shapes data with nested objects", async () => {
 
   const name = `output_nested_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -123,7 +123,7 @@ test("nested output shapes data with nested objects", async () => {
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: startData } = await client.POST("/instances", { body: { process: name } });

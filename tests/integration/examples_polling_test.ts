@@ -75,7 +75,7 @@ let refCounter = 0;
 // child reference resolves at registration.
 async function applyExample() {
   for (const def of [poller, parent]) {
-    const { error } = await client.PUT("/definitions", { body: def as never });
+    const { error } = await client.PUT("/definitions", { body: { definitions: [def as never] } });
     expect(error).toBeUndefined();
   }
 }

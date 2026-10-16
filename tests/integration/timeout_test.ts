@@ -10,7 +10,7 @@ async function runWithTimeout(timeout: unknown) {
   const mock = await startMockService(0, { response: { ok: true }, firstRequestDelayMs: HELD_MS });
   try {
     const { error: defErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -21,7 +21,7 @@ async function runWithTimeout(timeout: unknown) {
           },
           { id: "handled", switch: [{ raise: { code: "timed_out", message: "deadline fired" } }] },
         ],
-      } as never,
+      } as never] },
     });
     if (defErr) throw new Error(`define failed: ${JSON.stringify(defErr)}`);
 
@@ -53,7 +53,7 @@ test("expression timeout bounds a fetch", async () => {
   const mock = await startMockService(0, { response: { ok: true }, firstRequestDelayMs: HELD_MS });
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         input_schema: {
           type: "object",
@@ -69,7 +69,7 @@ test("expression timeout bounds a fetch", async () => {
           },
           { id: "handled", switch: [{ raise: { code: "timed_out", message: "deadline fired" } }] },
         ],
-      } as never,
+      } as never] },
     });
 
     const { data } = await client.POST("/instances", {
@@ -88,7 +88,7 @@ test("expression timeout bounds a fetch", async () => {
 test("until deadline bounds an external task", async () => {
   const name = `timeout_until_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -104,7 +104,7 @@ test("until deadline bounds an external task", async () => {
         },
         { id: "expired", switch: [{ raise: { code: "timed_out", message: "deadline fired" } }] },
       ],
-    } as never,
+    } as never] },
   });
 
   const { data } = await client.POST("/instances", {
@@ -118,7 +118,7 @@ test("until deadline bounds an external task", async () => {
 
 test("until is rejected on a fetch task", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `timeout_until_fetch_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -127,7 +127,7 @@ test("until is rejected on a fetch task", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(
     JSON.stringify(error ?? {}),
@@ -140,7 +140,7 @@ test("a timeout that resolves into the past fails the instance rather than expir
   const mock = await startMockService(0, { response: { ok: true } });
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         input_schema: {
           type: "object",
@@ -158,7 +158,7 @@ test("a timeout that resolves into the past fails the instance rather than expir
           },
           { id: "handled", switch: [{ goto: "end" }] },
         ],
-      } as never,
+      } as never] },
     });
 
     const { data } = await client.POST("/instances", {

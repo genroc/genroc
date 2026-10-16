@@ -42,14 +42,14 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
       const looper = `stress_loop_${crypto.randomUUID()}`;
 
       await api.PUT("/definitions", {
-        body: {
+        body: { definitions: [{
           name: leaf,
           tasks: [{ id: "t", output: { ok: "$: true" }, switch: [{ goto: "end" }] }],
           output: "$: outputs.t",
-        } as never,
+        } as never] },
       });
       await api.PUT("/definitions", {
-        body: {
+        body: { definitions: [{
           name: looper,
           tasks: [
             { id: "tick", output: { i: "$: (self.previous.i ?? 0) + 1" }, switch: [{ goto: "$call" }] },
@@ -60,7 +60,7 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
             },
           ],
           output: { rounds: "$: outputs.tick.i" },
-        } as never,
+        } as never] },
       });
 
       const rootIds: string[] = [];

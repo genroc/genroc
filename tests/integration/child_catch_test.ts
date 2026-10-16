@@ -7,7 +7,7 @@ import { client, waitForInstance } from "../helpers/client.ts";
 
 async function putChild(name: string, raiseCode: string) {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -21,7 +21,7 @@ async function putChild(name: string, raiseCode: string) {
           ],
         },
       ],
-    },
+    }] },
   });
 }
 
@@ -34,7 +34,7 @@ test("catch — a wildcard pattern matches the child's raised code", async () =>
 
   const parent = `like_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -44,7 +44,7 @@ test("catch — a wildcard pattern matches the child's raised code", async () =>
           switch: "end",
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -61,7 +61,7 @@ test("catch — a matching rule routes the parent to a recovery task", async () 
 
   const parent = `catch_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -76,7 +76,7 @@ test("catch — a matching rule routes the parent to a recovery task", async () 
           switch: "end",
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -101,7 +101,7 @@ test("catch — a rule routes to end, completing the parent (and computes output
 
   const parent = `catchend_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       // Static, so its presence proves resolution's goto:end ran computeOutput.
       output: '$: "handled"',
@@ -113,7 +113,7 @@ test("catch — a rule routes to end, completing the parent (and computes output
           switch: "end",
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -137,7 +137,7 @@ test("catch — a rule panics, failing the parent with the authored code", async
 
   const parent = `catchpanic_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -152,7 +152,7 @@ test("catch — a rule panics, failing the parent with the authored code", async
           switch: "end",
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -176,7 +176,7 @@ test("catch — a rule re-raises, so the error propagates one named level up", a
 
   const parent = `reraise_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -191,7 +191,7 @@ test("catch — a rule re-raises, so the error propagates one named level up", a
           switch: "end",
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -217,7 +217,7 @@ test("unhandled — the parent fails mirroring the child's raised code and messa
   // deliberately allows (D3).
   const child = `unhandled_child_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       tasks: [
         {
@@ -229,11 +229,11 @@ test("unhandled — the parent fails mirroring the child's raised code and messa
           ],
         },
       ],
-    },
+    }] },
   });
   const parent = `unhandled_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -245,7 +245,7 @@ test("unhandled — the parent fails mirroring the child's raised code and messa
         },
         { id: "done", switch: "end" },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -270,7 +270,7 @@ test("batch — the first raised child (by child_index) routes the parent", asyn
   // A child that raises based on its input, so a child_list fan-out raises on some items.
   const child = `fanout_child_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: {
         type: "object",
@@ -289,12 +289,12 @@ test("batch — the first raised child (by child_index) routes the parent", asyn
           ],
         },
       ],
-    },
+    }] },
   });
 
   const parent = `fanout_parent_${suffix}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -323,7 +323,7 @@ test("batch — the first raised child (by child_index) routes the parent", asyn
         },
         { id: "report", output: "$: last_error", switch: "end" },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {

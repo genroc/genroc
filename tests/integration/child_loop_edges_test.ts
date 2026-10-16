@@ -6,7 +6,7 @@ import { client, runToEnd } from "../helpers/client.ts";
 // tests/tick/task_epoch_test.ts) — they earn their place by running on BOTH engines.
 
 async function define(name: string, body: Record<string, unknown>) {
-  const { error } = await client.PUT("/definitions", { body: { name, ...body } as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [{ name, ...body } as never] } });
   expect(error).toBeUndefined();
   return name;
 }

@@ -72,7 +72,7 @@ for (const backend of backends) {
         const processName = `stress_chaos_${crypto.randomUUID()}`;
 
         await api.PUT("/definitions", {
-          body: {
+          body: { definitions: [{
             name: processName,
             input_schema: {
               type: "object",
@@ -120,7 +120,7 @@ for (const backend of backends) {
               processes:
                 "$: (outputs.recursion.first.processes ?? 0) + (outputs.recursion.second.processes ?? 0) + 1",
             },
-          },
+          }] },
         });
 
         const rootIds: string[] = [];

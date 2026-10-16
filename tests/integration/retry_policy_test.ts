@@ -10,7 +10,7 @@ async function define(
 ) {
   const name = `retry_policy_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       ...def,
       tasks: [
@@ -23,14 +23,14 @@ async function define(
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ] as any,
-    },
+    }] },
   });
   return { name, error: error?.error as string | undefined };
 }
 
 test("retry — the pre-policy \"retries\" key is rejected by name", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `retry_old_key_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -41,7 +41,7 @@ test("retry — the pre-policy \"retries\" key is rejected by name", async () =>
           switch: "end",
         },
       ],
-    },
+    }] },
   });
   // Accepting it silently would leave a rule that still matches and still routes, and
   // never retries — so the message has to name the replacement, not just the bad key.
@@ -152,7 +152,7 @@ test("retry — a $: policy is accepted", async () => {
 test("retry — the environment drives how many attempts are made", async () => {
   const name = `retry_from_env_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -178,7 +178,7 @@ test("retry — the environment drives how many attempts are made", async () => 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any,
       ],
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 

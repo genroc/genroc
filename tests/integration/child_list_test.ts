@@ -5,7 +5,7 @@ import { client, listAllInstances, waitForInstance } from "../helpers/client.ts"
 // collect must survive.
 async function defineDoubler(name: string) {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -21,7 +21,7 @@ async function defineDoubler(name: string) {
         { id: "done", switch: [{ goto: "end" }] },
       ],
       output: { doubled: "$: input.n * 2", original: "$: input.n" },
-    },
+    }] },
   });
 }
 
@@ -32,7 +32,7 @@ test("child_list — result is an array in input order despite out-of-order comp
   await defineDoubler(leaf);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -66,7 +66,7 @@ test("child_list — result is an array in input order despite out-of-order comp
         },
       ],
       output: { results: "$: outputs.spread" },
-    },
+    }] },
   });
 
   const items = [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }, { n: 5 }];
@@ -102,7 +102,7 @@ test("child_list — empty array spawns no children and yields an empty array", 
   await defineDoubler(leaf);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -136,7 +136,7 @@ test("child_list — empty array spawns no children and yields an empty array", 
         },
       ],
       output: { results: "$: outputs.spread" },
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {
@@ -162,7 +162,7 @@ test("child_list — registration rejects an element type incompatible with the 
 
   // over is an array of integers, but the child input is an object → not a subset.
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -180,7 +180,7 @@ test("child_list — registration rejects an element type incompatible with the 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeDefined();
   expect(JSON.stringify(error)).toContain("not compatible");
@@ -191,7 +191,7 @@ test("child_list — registration rejects an element type incompatible with the 
 async function overError(inputSchema: unknown, over: string, leaf: string) {
   const parent = `cl_over_parent_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: inputSchema as never,
       tasks: [
@@ -201,7 +201,7 @@ async function overError(inputSchema: unknown, over: string, leaf: string) {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   return error;
 }
@@ -274,7 +274,7 @@ test("child_list — a result_schema the child's output can't satisfy is rejecte
 
   // A static incompatibility, so it is caught at registration rather than per item at collect.
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -302,7 +302,7 @@ test("child_list — a result_schema the child's output can't satisfy is rejecte
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   expect(error).toBeDefined();
@@ -316,7 +316,7 @@ test("child_list — the collected array is usable downstream by index", async (
   await defineDoubler(leaf);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -350,7 +350,7 @@ test("child_list — the collected array is usable downstream by index", async (
         first: "$: outputs.spread[0].doubled",
         third: "$: outputs.spread[2].doubled",
       },
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {

@@ -42,7 +42,7 @@ const accepted: Array<[string, Record<string, unknown>]> = [
 
 for (const [name, action] of accepted) {
   test(`PUT /definitions — accepts ${name}`, async () => {
-    const { error } = await client.PUT("/definitions", { body: delayDef(action) as never });
+    const { error } = await client.PUT("/definitions", { body: { definitions: [delayDef(action) as never] } });
     expect(error).toBeUndefined();
   });
 }
@@ -76,7 +76,7 @@ const rejected: Array<[string, Record<string, unknown>]> = [
 
 for (const [name, action] of rejected) {
   test(`PUT /definitions — rejects ${name}`, async () => {
-    const { data, error } = await client.PUT("/definitions", { body: delayDef(action) as never });
+    const { data, error } = await client.PUT("/definitions", { body: { definitions: [delayDef(action) as never] } });
     expect(error).toBeDefined();
     expect(data).toBeUndefined();
   });
@@ -86,7 +86,7 @@ for (const [name, action] of rejected) {
 // run — so the message has to name the slot and both readings of the ambiguous value.
 test("PUT /definitions — the unitless rejection names both readings", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: delayDef({ for: "5000" }) as never,
+    body: { definitions: [delayDef({ for: "5000" }) as never] },
   });
   const msg = JSON.stringify(error);
   expect(msg).toContain("5000ms");

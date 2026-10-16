@@ -156,7 +156,7 @@ test("auth — read cannot write, and the 403 names the permission needed", asyn
 
   const { status, body } = await req("/api/definitions", reader, {
     method: "PUT",
-    body: JSON.stringify({ name: "nope", tasks: [{ id: "a", switch: [{ goto: "end" }] }] }),
+    body: JSON.stringify({ definitions: [{ name: "nope", tasks: [{ id: "a", switch: [{ goto: "end" }] }] }] }),
   });
   expect(status).toBe(403);
   // Naming the permission is what turns a 403 into an actionable message rather than a guess.
@@ -169,7 +169,7 @@ test("auth — deploy can apply and run, but not mint credentials", async () => 
 
   const applied = await req("/api/definitions", deploy, {
     method: "PUT",
-    body: JSON.stringify({ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }),
+    body: JSON.stringify({ definitions: [{ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }] }),
   });
   expect(applied.status, JSON.stringify(applied.body)).toBe(200);
 
@@ -217,7 +217,7 @@ test("attribution — a deployed version records who deployed it", async () => {
   expect(
     (await req("/api/definitions", deploy, {
       method: "PUT",
-      body: JSON.stringify({ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }),
+      body: JSON.stringify({ definitions: [{ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }] }),
     })).status,
   ).toBe(200);
 
@@ -234,7 +234,7 @@ test("attribution — the source is in the actor, so an asserted identity cannot
   const name = `attrib_src_${crypto.randomUUID().slice(0, 8)}`;
   await req("/api/definitions", deploy, {
     method: "PUT",
-    body: JSON.stringify({ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }),
+    body: JSON.stringify({ definitions: [{ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }] }),
   });
 
   const listed = await req("/api/definitions?limit=100", ADMIN);
@@ -252,10 +252,10 @@ test("attribution — an operator verb names the operator, and the engine's own 
   expect(
     (await req("/api/definitions", op, {
       method: "PUT",
-      body: JSON.stringify({
+      body: JSON.stringify({ definitions: [{
         name,
         tasks: [{ id: "wait", action: { type: "delay", for: "1h" }, switch: [{ goto: "end" }] }],
-      }),
+      }] }),
     })).status,
   ).toBe(200);
 
@@ -300,7 +300,7 @@ test("attribution — a channel records who moved it last, while a definition ke
   });
 
   // alice deploys v1; the default channel follows the deploy, so both name her.
-  expect((await req("/api/definitions", alice, { method: "PUT", body: JSON.stringify(def("a")) })).status).toBe(200);
+  expect((await req("/api/definitions", alice, { method: "PUT", body: JSON.stringify({ definitions: [def("a")] }) })).status).toBe(200);
 
   const afterAlice = await req(`/api/channels?name=${name}`, alice);
   const latest = (afterAlice.body.items as { channel: string; actor?: string }[]).find((c) => c.channel === "latest");
@@ -340,11 +340,11 @@ test("attribution — re-applying identical content re-stamps the pointer it tou
     definitions: [{ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }],
   });
 
-  expect((await req("/api/definitions/batch", alice, { method: "PUT", body })).status).toBe(200);
+  expect((await req("/api/definitions", alice, { method: "PUT", body })).status).toBe(200);
 
   // Identical content takes the channel-only branch, which still stamps updated_at and so must
   // stamp the actor with it.
-  const again = await req("/api/definitions/batch", bob, { method: "PUT", body });
+  const again = await req("/api/definitions", bob, { method: "PUT", body });
   expect(again.status, JSON.stringify(again.body)).toBe(200);
   expect((again.body as { saved: boolean }[])[0].saved, "identical content should not save a version").toBe(false);
 

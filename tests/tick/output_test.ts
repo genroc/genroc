@@ -6,7 +6,7 @@ const ctx = useTickEnv();
 
 test("no-action output map drives a counter via self.previous; switch reads self.output", async () => {
   await ctx.env.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: "out_counter",
       tasks: [
         {
@@ -20,7 +20,7 @@ test("no-action output map drives a counter via self.previous; switch reads self
       ],
       output: { n: "$: outputs.count.n" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const id = await ctx.env.start("out_counter");
@@ -38,7 +38,7 @@ test("cross-task mutual recursion (start <-> loop) type-checks and runs", async 
   // start reads loop's output and loop reads start's, closed by a goto loop —
   // a mutual cycle resolved by the joint SCC fixpoint at validation time.
   await ctx.env.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: "cross_loop",
       input_schema: { type: "object", properties: { ttl: { type: "integer" } }, required: ["ttl"] },
       tasks: [
@@ -54,7 +54,7 @@ test("cross-task mutual recursion (start <-> loop) type-checks and runs", async 
       ],
       output: { num: "$: outputs.start.num" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: startData } = await ctx.env.client.POST("/instances", {

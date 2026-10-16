@@ -9,7 +9,7 @@ const ids: string[] = [];
 
 beforeAll(async () => {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: processName,
       tasks: [
         {
@@ -18,7 +18,7 @@ beforeAll(async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   // Start N instances in sequence so their UUIDv7 ids are strictly time-ordered.
   for (let i = 0; i < N; i++) {

@@ -28,7 +28,7 @@ const itemsSchema = {
 };
 
 async function put(body: unknown) {
-  const { error } = await ctx.env.client.PUT("/definitions", { body: body as never });
+  const { error } = await ctx.env.client.PUT("/definitions", { body: { definitions: [body as never] } });
   if (error) throw new Error(`define failed: ${JSON.stringify(error)}`);
 }
 

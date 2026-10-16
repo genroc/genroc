@@ -16,7 +16,7 @@ test("accepted_status literal array — a covered non-2xx counts as success", as
 
   const { error: putErr } = await client.PUT("/definitions", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: fetchDef(name, `http://localhost:${mock.port}/action`, ["404"]) as any,
+    body: { definitions: [fetchDef(name, `http://localhost:${mock.port}/action`, ["404"]) as any] },
   });
   expect(putErr).toBeUndefined();
 
@@ -33,7 +33,7 @@ test("without accepted_status — a 404 fails (control)", async () => {
 
   await client.PUT("/definitions", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: fetchDef(name, `http://localhost:${mock.port}/action`) as any,
+    body: { definitions: [fetchDef(name, `http://localhost:${mock.port}/action`) as any] },
   });
   const { data } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(data!.id)).toBe("failed");
@@ -47,7 +47,7 @@ test("accepted_status as a $: expression — resolved from input per request", a
   const name = `acc_expr_${crypto.randomUUID()}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -67,7 +67,7 @@ test("accepted_status as a $: expression — resolved from input per request", a
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data } = await client.POST("/instances", {
@@ -82,7 +82,7 @@ test("accepted_status must be an array of strings — a non-string array is reje
   const name = `acc_bad_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: fetchDef(name, "http://localhost/x", [404, 500]) as any,
+    body: { definitions: [fetchDef(name, "http://localhost/x", [404, 500]) as any] },
   });
   // The structural array<string> check still holds; only the per-pattern format was eased.
   expect(error).toBeDefined();
@@ -93,7 +93,7 @@ test("a static (literal) status pattern is still format-checked at registration"
   const name = `acc_fmt_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: fetchDef(name, "http://localhost/x", ["2xx", "banana"]) as any,
+    body: { definitions: [fetchDef(name, "http://localhost/x", ["2xx", "banana"]) as any] },
   });
   // "banana" is a static literal, so its format is checked even though accepted_status is
   // now a shape — only dynamic (expression) elements skip the format check.

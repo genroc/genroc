@@ -11,7 +11,7 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
 
   const name = `error_data_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -41,7 +41,7 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -67,7 +67,7 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
 
   const name = `error_data_invalid_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -95,7 +95,7 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
         { id: "wrong", output: { took: "$: 'http404'" }, switch: [{ goto: "end" }] },
         { id: "handler", output: { took: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -117,7 +117,7 @@ test("error — dropped from the context once the handler routes onward", async 
 
   const name = `error_scope_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -130,7 +130,7 @@ test("error — dropped from the context once the handler routes onward", async 
         { id: "handler", output: { code: "$: last_error.code" }, switch: [{ goto: "next" }] },
         { id: "after", output: { seen: "$: outputs.handler.code" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -152,7 +152,7 @@ test("error.data — a large error body externalizes and is still readable", asy
 
   const name = `error_big_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -178,7 +178,7 @@ test("error.data — a large error body externalizes and is still readable", asy
         // expression unresolved, error.data.detail would read null and this would be false.
         { id: "handler", output: { readable: "$: last_error.data.detail != null" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 

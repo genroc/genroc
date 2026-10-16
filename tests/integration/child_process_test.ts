@@ -8,22 +8,22 @@ test("child — task without result_schema after a task with one does not fail",
   const parentName = `parent_${id}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leafWithOutput,
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { value: "$: 1" },
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leafNoOutput,
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parentName,
       tasks: [
         {
@@ -49,7 +49,7 @@ test("child — task without result_schema after a task with one does not fail",
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data, error } = await client.POST("/instances", {
@@ -67,14 +67,14 @@ test("child — output validation failure error includes process name", async ()
   const parentName = `parent_strict_${id}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: childName,
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parentName,
       tasks: [
         {
@@ -95,7 +95,7 @@ test("child — output validation failure error includes process name", async ()
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data, error } = await client.POST("/instances", {
@@ -119,16 +119,16 @@ test("child — on_error against a child that raises nothing is rejected at regi
 
   // A child that only completes — its raise set is empty.
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: childName,
       tasks: [{ id: "action", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 
   // A failed child is never catchable (it poisons its ancestors), only a raised code is — and
   // this child raises none, so any pattern here is unreachable.
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parentName,
       tasks: [
         {
@@ -138,7 +138,7 @@ test("child — on_error against a child that raises nothing is rejected at regi
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   expect(error).toBeDefined();
@@ -153,7 +153,7 @@ test("child — no on_error cascades to parent failure", async () => {
   const parentName = `parent_no_handler_${id}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: childName,
       tasks: [
         {
@@ -162,11 +162,11 @@ test("child — no on_error cascades to parent failure", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parentName,
       tasks: [
         {
@@ -175,7 +175,7 @@ test("child — no on_error cascades to parent failure", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data } = await client.POST("/instances", { body: { process: parentName } });
@@ -193,7 +193,7 @@ test("child — failure propagates through the entire ancestor chain", async () 
   const grandName = `grand_no_handler_${id}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leafName,
       tasks: [
         {
@@ -202,11 +202,11 @@ test("child — failure propagates through the entire ancestor chain", async () 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: middleName,
       tasks: [
         {
@@ -215,11 +215,11 @@ test("child — failure propagates through the entire ancestor chain", async () 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: grandName,
       tasks: [
         {
@@ -228,7 +228,7 @@ test("child — failure propagates through the entire ancestor chain", async () 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data } = await client.POST("/instances", { body: { process: grandName } });
@@ -248,7 +248,7 @@ test("child — parent error contains child's error message when child fails", a
   const parentName = `parent_err_msg_${id}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: childName,
       tasks: [
         {
@@ -257,11 +257,11 @@ test("child — parent error contains child's error message when child fails", a
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parentName,
       tasks: [
         {
@@ -270,7 +270,7 @@ test("child — parent error contains child's error message when child fails", a
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data } = await client.POST("/instances", { body: { process: parentName } });
@@ -286,7 +286,7 @@ test("child_map — recursive spawn completes with correct aggregated output", a
   const processName = `child_map_${crypto.randomUUID()}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: processName,
       input_schema: {
         type: "object",
@@ -334,7 +334,7 @@ test("child_map — recursive spawn completes with correct aggregated output", a
         processes:
           "$: (outputs.recursion.first.processes ?? 0) + (outputs.recursion.second.processes ?? 0) + 1",
       },
-    },
+    }] },
   });
 
   const { data: startData, error: startError } = await client.POST(
@@ -370,7 +370,7 @@ test("child — two sequential child tasks both spawn and collect", async () => 
 
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: leafName,
         tasks: [
           {
@@ -380,10 +380,10 @@ test("child — two sequential child tasks both spawn and collect", async () => 
           },
         ],
         output: { done: "$: true" },
-      },
+      }] },
     });
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: parentName,
         tasks: [
           {
@@ -423,7 +423,7 @@ test("child — two sequential child tasks both spawn and collect", async () => 
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await client.POST("/instances", {

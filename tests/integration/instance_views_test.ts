@@ -9,12 +9,12 @@ import { BASE_URL } from "../helpers/constants.ts";
 async function completedInstance(): Promise<string> {
   const name = `views_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] },
       tasks: [{ id: "only", output: { v: "$: input.n" }, switch: "end" }],
       output: { v: "$: outputs.only.v" },
-    },
+    }] },
   });
   expect(error).toBeUndefined();
   const { data } = await client.POST("/instances", { body: { process: name, input: { n: 1 } } });
@@ -59,7 +59,7 @@ test("the detail view carries state, bookkeeping included", async () => {
 test("a config value reaches expressions but neither view, nor the state behind them", async () => {
   const name = `views_secret_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -70,7 +70,7 @@ test("a config value reaches expressions but neither view, nor the state behind 
       // stores is a boolean about it, never the value itself.
       tasks: [{ id: "check", output: { ok: '$: config.e2e_token != ""' }, switch: "end" }],
       output: { ok: "$: outputs.check.ok" },
-    },
+    }] },
   });
   expect(error).toBeUndefined();
   const { data: started } = await client.POST("/instances", { body: { process: name, input: {} } });
@@ -89,7 +89,7 @@ test("an oversized error_data is listed, not inlined and not leaked as a marker"
   const name = `views_bigdata_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "B".repeat(8 * 1024);
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -97,7 +97,7 @@ test("an oversized error_data is listed, not inlined and not leaked as a marker"
           switch: [{ panic: { code: "boom", message: "kaboom", data: { blob, small: "inline" } } }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
   const { data: started } = await client.POST("/instances", { body: { process: name, input: {} } });
@@ -122,7 +122,7 @@ test("an oversized output is listed at its own path, not inlined and not leaked 
   const name = `views_bigout_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "B".repeat(8 * 1024);
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -131,7 +131,7 @@ test("an oversized output is listed at its own path, not inlined and not leaked 
       },
       tasks: [{ id: "pass", output: { echo: "$: input.blob" }, switch: "end" }],
       output: { echo: "$: outputs.pass.echo", small: "inline" },
-    },
+    }] },
   });
   expect(error).toBeUndefined();
   const { data: started } = await client.POST("/instances", {
@@ -172,12 +172,12 @@ test("the detail view returns every field the status view does", async () => {
 
   const panicking = `views_super_panic_${crypto.randomUUID().slice(0, 8)}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: panicking,
       tasks: [
         { id: "go", switch: [{ panic: { code: "boom", message: "kaboom", data: { why: "x" } } }] },
       ],
-    },
+    }] },
   });
   const { data: failed } = await client.POST("/instances", { body: { process: panicking, input: {} } });
   expect(await waitForInstance(failed!.id)).toBe("failed");
@@ -185,7 +185,7 @@ test("the detail view returns every field the status view does", async () => {
 
   const parking = `views_super_park_${crypto.randomUUID().slice(0, 8)}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parking,
       tasks: [
         {
@@ -195,7 +195,7 @@ test("the detail view returns every field the status view does", async () => {
           switch: "end",
         },
       ],
-    },
+    }] },
   });
   const { data: parked } = await client.POST("/instances", { body: { process: parking, input: {} } });
   cases.parked = parked!.id;
@@ -219,7 +219,7 @@ test("state can be rebuilt from what the detail view lists", async () => {
   const name = `views_rebuild_${crypto.randomUUID().slice(0, 8)}`;
   const blob = "R".repeat(4 * 1024);
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -228,7 +228,7 @@ test("state can be rebuilt from what the detail view lists", async () => {
       },
       tasks: [{ id: "only", output: { echo: "$: input.blob" }, switch: "end" }],
       output: { echo: "$: outputs.only.echo" },
-    },
+    }] },
   });
   expect(error).toBeUndefined();
   const { data: started } = await client.POST("/instances", {
@@ -250,7 +250,7 @@ test("state can be rebuilt from what the detail view lists", async () => {
 async function parkedOnExternal(extra: Record<string, unknown> = {}): Promise<{ id: string; name: string }> {
   const name = `views_ext_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { amount: { type: "number" } }, required: ["amount"] },
       tasks: [
@@ -268,7 +268,7 @@ async function parkedOnExternal(extra: Record<string, unknown> = {}): Promise<{ 
         },
       ],
       output: { ok: "$: outputs.review.ok" },
-    },
+    }] },
   });
   expect(error).toBeUndefined();
   const { data } = await client.POST("/instances", { body: { process: name, input: { amount: 21 } } });

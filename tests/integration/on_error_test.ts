@@ -9,7 +9,7 @@ test("on_error — HTTP failure routes to recovery task", async () => {
 
   const name = `on_error_route_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -40,7 +40,7 @@ test("on_error — HTTP failure routes to recovery task", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {
@@ -67,7 +67,7 @@ test("on_error — error context available in recovery task input", async () => 
 
   const name = `on_error_ctx_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -99,7 +99,7 @@ test("on_error — error context available in recovery task input", async () => 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {
@@ -124,7 +124,7 @@ test("on_error — unmatched code fails instance", async () => {
 
   const name = `on_error_nomatch_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -151,7 +151,7 @@ test("on_error — unmatched code fails instance", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {
@@ -169,7 +169,7 @@ test("retry — N retries is N+1 requests, then the goto", async () => {
 
   const name = `retry_budget_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -185,7 +185,7 @@ test("retry — N retries is N+1 requests, then the goto", async () => {
         },
         { id: "gave_up", output: { gave_up: true }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", { body: { process: name } });

@@ -114,7 +114,7 @@ test(
     // self.result (churned to log-only each loop), and scratch's output (unlogged, deleted each
     // loop). It returns the big blob in its OUTPUT.
     const { error: leafErr } = await api.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: leaf,
         input_schema: {
           type: "object",
@@ -153,13 +153,13 @@ test(
         ],
         output: { echo: "$: input.blob", rounds: "$: outputs.gen.i" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as any] },
     });
     expect(leafErr).toBeUndefined();
 
     // The ROOT collects the leaf's big output, so the value round-trips parent → child → parent.
     const { error: rootErr } = await api.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: root,
         input_schema: {
           type: "object",
@@ -192,7 +192,7 @@ test(
         ],
         output: { echo: "$: outputs.call.echo" },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as any] },
     });
     expect(rootErr).toBeUndefined();
 

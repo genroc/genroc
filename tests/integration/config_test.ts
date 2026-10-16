@@ -7,7 +7,7 @@ import { client, waitForInstance } from "../helpers/client.ts";
 test("config resolves from the environment and is usable in expressions", async () => {
   const name = `config_resolve_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -25,7 +25,7 @@ test("config resolves from the environment and is usable in expressions", async 
         region: "$: config.e2e_region",
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 
@@ -48,7 +48,7 @@ test("config resolves from the environment and is usable in expressions", async 
 test("registering a definition fails when a required config var is unset", async () => {
   const name = `config_missing_${crypto.randomUUID()}`;
   const { data, error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -57,7 +57,7 @@ test("registering a definition fails when a required config var is unset", async
       },
       tasks: [{ id: "route", switch: "end" }],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(data).toBeUndefined();
   expect(error).toBeDefined();

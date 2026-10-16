@@ -17,14 +17,14 @@ test("oversized response — the instance fails with result.too_large", async ()
   const name = `too_large_${crypto.randomUUID()}`;
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [{
           id: "fetch_blob",
           action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob`, timeout: 10_000 },
           switch: [{ goto: "end" }],
         }],
-      },
+      }] },
     });
 
     const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -43,7 +43,7 @@ test("oversized response — on_error catches result.too_large and routes on", a
   const name = `too_large_caught_${crypto.randomUUID()}`;
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -58,7 +58,7 @@ test("oversized response — on_error catches result.too_large and routes on", a
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -76,14 +76,14 @@ test("oversized response — a body under the cap is unaffected", async () => {
   const name = `under_cap_${crypto.randomUUID()}`;
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [{
           id: "fetch_blob",
           action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob`, timeout: 10_000 },
           switch: [{ goto: "end" }],
         }],
-      },
+      }] },
     });
 
     const { data: started } = await client.POST("/instances", { body: { process: name } });

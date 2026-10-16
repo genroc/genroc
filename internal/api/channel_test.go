@@ -12,7 +12,7 @@ func batchApply(h *Handlers, channel string, defs ...any) Reply {
 	})
 	// In-process callers supply their own identity: the transports attach one, and Handle
 	// refuses an envelope without it rather than defaulting to open.
-	return h.Handle(Envelope{Action: "put_definitions_batch", Payload: payload, principal: anonymousAdmin()})
+	return h.Handle(Envelope{Action: "put_definitions", Payload: payload, principal: anonymousAdmin()})
 }
 
 // Go rather than e2e: it asserts baking via GetDependencyVersion, which no endpoint exposes.

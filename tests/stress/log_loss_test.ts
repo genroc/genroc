@@ -67,7 +67,7 @@ test(
     const root = `log_root_${suffix}`;
 
     const { error: leafErr } = await api.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: leaf,
         tasks: [
           {
@@ -86,12 +86,12 @@ test(
           },
         ],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as any] },
     });
     expect(leafErr).toBeUndefined();
 
     const { error: rootErr } = await api.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: root,
         tasks: [
           {
@@ -104,7 +104,7 @@ test(
           },
         ],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as any] },
     });
     expect(rootErr).toBeUndefined();
 

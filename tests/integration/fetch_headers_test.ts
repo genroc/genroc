@@ -26,7 +26,7 @@ test("fetch stamps X-Genroc-Instance-Id and X-Genroc-Task-Id, and caller headers
   try {
     const name = `fetch_headers_${crypto.randomUUID()}`;
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -41,7 +41,7 @@ test("fetch stamps X-Genroc-Instance-Id and X-Genroc-Task-Id, and caller headers
             switch: [{ goto: "end" }],
           },
         ],
-      } as never,
+      } as never] },
     });
 
     const { data: started } = await client.POST("/instances", { body: { process: name } });

@@ -56,7 +56,7 @@ for (const c of CLAUSES) {
     const name = `clause_${crypto.randomUUID()}`;
 
     const { error: putErr } = await client.PUT("/definitions", {
-      body: definition(name, svc.port, c.responses) as any,
+      body: { definitions: [definition(name, svc.port, c.responses) as any] },
     });
     expect(putErr).toBeUndefined();
 
@@ -71,7 +71,7 @@ for (const c of CLAUSES) {
     // Whether the body may be read at all is the other half of the rule: a status nobody
     // described leaves self.result undeclared, and undeclared data is never accessible.
     const probe = await client.PUT("/definitions", {
-      body: definition(`${name}_probe`, svc.port, c.responses, "$: self.result") as any,
+      body: { definitions: [definition(`${name}_probe`, svc.port, c.responses, "$: self.result") as any] },
     });
     if (c.resultReadable) {
       expect(probe.error, "declared status: self.result must be exportable").toBeUndefined();
@@ -87,7 +87,7 @@ test("responses — a bodyless 2xx reaches the definition as null", async () => 
   const svc = await startMockService(0, { statusCode: 202 });
   const name = `bodyless_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -106,7 +106,7 @@ test("responses — a bodyless 2xx reaches the definition as null", async () => 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -128,7 +128,7 @@ test("responses — a lone error declaration types the failure without accepting
 
   const name = `lone_error_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -152,7 +152,7 @@ test("responses — a lone error declaration types the failure without accepting
         // error.data is non-nullable here: the rule catches exactly the one declared status.
         { id: "missing", output: { reason: "$: last_error.data.detail" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -175,7 +175,7 @@ for (const c of [
     const svc = await startMockService(0, { statusCode: c.status, rawBody: c.body });
     const name = `null_ignores_${crypto.randomUUID()}`;
     const { error: putErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -193,7 +193,7 @@ for (const c of [
           },
           { id: "caught", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
         ],
-      } as never,
+      } as never] },
     });
     expect(putErr).toBeUndefined();
 

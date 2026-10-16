@@ -145,53 +145,6 @@ var registry = func() []actionDef {
 	v1 := 1
 	return []actionDef{
 		{
-			Name:    "put_definition",
-			Allow:   []Perm{PermDeploy},
-			Method:  http.MethodPut,
-			Path:    "/definitions",
-			Summary: "Register or update a process definition",
-			Tags:    []string{"Definitions"},
-			Req: model.ProcessDefinition{
-				Name: "order_pipeline",
-				InputSchema: schemaPtr(schema.Object().
-					WithProperty("order_id", schema.Type("integer"), true)),
-				Tasks: []*model.Task{
-					{
-						ID: "charge",
-						Action: &model.Action{
-							Type:   model.ActionTypeFetch,
-							Method: "post",
-							URL:    "http://localhost:9001/charge",
-							ResultSchema: schemaPtr(schema.Object().
-								WithProperty("charged", schema.Type("boolean"), false)),
-							Timeout: model.TimeoutFor("5s"),
-						},
-						OnError: []model.ErrorCase{{Retry: model.Retries(3)}},
-						Switch: model.SwitchMap{
-							{Case: "self.output.charged == true", Goto: "$ship"},
-							{Goto: "$refund"},
-						},
-					},
-					{
-						ID:      "ship",
-						Action:  &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9002/ship", Timeout: model.TimeoutFor("3s")},
-						Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
-						OnError: []model.ErrorCase{{Retry: model.Retries(2)}},
-					},
-					{
-						ID:      "refund",
-						Action:  &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9003/refund", Timeout: model.TimeoutFor("3s")},
-						Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
-						OnError: []model.ErrorCase{{Retry: model.Retries(1)}},
-					},
-				},
-			},
-			Resp: BatchApplyResult{Name: "order_pipeline", Version: 1, Saved: true, Previous: 0},
-			handle: func(h *Handlers, env Envelope) Reply {
-				return h.putDefinition(env.Payload, env.principal.Actor())
-			},
-		},
-		{
 			Name:    "list_definitions",
 			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
@@ -282,22 +235,52 @@ var registry = func() []actionDef {
 			},
 		},
 		{
-			Name:    "put_definitions_batch",
+			Name:    "put_definitions",
 			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodPut,
-			Path:    "/definitions/batch",
-			Summary: "Apply process definitions to a channel, atomically",
+			Path:    "/definitions",
+			Summary: "Apply process definitions to a channel, atomically. Content already stored is not a new version, so a repeated apply changes nothing",
 			Tags:    []string{"Definitions"},
-			Req: PutDefinitionsBatchReq{
+			Req: PutDefinitionsReq{
 				Channel: "latest",
-				Definitions: []model.ProcessDefinition{
-					{
-						Name:  "child_process",
-						Tasks: []*model.Task{{ID: "run", Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9001/run"}}},
+				Definitions: []model.ProcessDefinition{{
+					Name: "order_pipeline",
+					InputSchema: schemaPtr(schema.Object().
+						WithProperty("order_id", schema.Type("integer"), true)),
+					Tasks: []*model.Task{
+						{
+							ID: "charge",
+							Action: &model.Action{
+								Type:   model.ActionTypeFetch,
+								Method: "post",
+								URL:    "http://localhost:9001/charge",
+								ResultSchema: schemaPtr(schema.Object().
+									WithProperty("charged", schema.Type("boolean"), false)),
+								Timeout: model.TimeoutFor("5s"),
+							},
+							OnError: []model.ErrorCase{{Retry: model.Retries(3)}},
+							Switch: model.SwitchMap{
+								{Case: "self.output.charged == true", Goto: "$ship"},
+								{Goto: "$refund"},
+							},
+						},
+						{
+							ID:      "ship",
+							Action:  &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9002/ship", Timeout: model.TimeoutFor("3s")},
+							Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
+							OnError: []model.ErrorCase{{Retry: model.Retries(2)}},
+						},
+						{
+							ID:      "refund",
+							Action:  &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://localhost:9003/refund", Timeout: model.TimeoutFor("3s")},
+							Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
+							OnError: []model.ErrorCase{{Retry: model.Retries(1)}},
+						},
 					},
 				},
+				},
 			},
-			Resp: []BatchApplyResult{{Name: "child_process", Version: 1, Saved: true, Previous: 0}},
+			Resp: []BatchApplyResult{{Name: "order_pipeline", Version: 1, Saved: true, Previous: 0}},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.putDefinitions(env.Payload, env.principal.Actor())
 			},
@@ -387,7 +370,7 @@ var registry = func() []actionDef {
 			Path:    "/definitions/validate",
 			Summary: "Dry-run an apply: the same request, every check, and the answer it would give, with nothing written",
 			Tags:    []string{"Definitions"},
-			Req: PutDefinitionsBatchReq{
+			Req: PutDefinitionsReq{
 				Channel: "latest",
 				Definitions: []model.ProcessDefinition{
 					{

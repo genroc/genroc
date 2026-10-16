@@ -12,7 +12,7 @@ test("lifecycle — task task completes when service returns ok", async () => {
 
   const name = `lifecycle_ok_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -28,7 +28,7 @@ test("lifecycle — task task completes when service returns ok", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {
@@ -51,7 +51,7 @@ test("lifecycle — task task fails and marks failed", async () => {
 
   const name = `lifecycle_fail_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -60,7 +60,7 @@ test("lifecycle — task task fails and marks failed", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {
@@ -81,7 +81,7 @@ test("lifecycle — conditional routes to correct branch", async () => {
 
   const name = `lifecycle_cond_${crypto.randomUUID()}`;
   const def = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -121,7 +121,7 @@ test("lifecycle — conditional routes to correct branch", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   } as const);
 
   expect(def.error).toBeUndefined();
@@ -164,7 +164,7 @@ test("lifecycle — task fails when the result violates its declared response sc
 
   const name = `lifecycle_result_schema_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -183,7 +183,7 @@ test("lifecycle — task fails when the result violates its declared response sc
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: startData } = await client.POST("/instances", {

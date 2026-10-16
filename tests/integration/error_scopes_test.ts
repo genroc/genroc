@@ -14,7 +14,7 @@ test("a rule sees the error it caught and the one that routed it here, at once",
 
   const name = `err_scopes_both_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -50,7 +50,7 @@ test("a rule sees the error it caught and the one that routed it here, at once",
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(putErr, JSON.stringify(putErr)).toBeUndefined();
 
@@ -72,15 +72,15 @@ test("a rule catching a raised child still sees the failure that routed the task
 
   const child = `err_scopes_child_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       tasks: [{ id: "no", switch: [{ raise: { code: "refused", message: "the child refused" } }] }],
-    } as never,
+    } as never] },
   });
 
   const parent = `err_scopes_batch_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -110,7 +110,7 @@ test("a rule catching a raised child still sees the failure that routed the task
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(putErr, JSON.stringify(putErr)).toBeUndefined();
 
@@ -141,7 +141,7 @@ function routed(name: string, task: Record<string, unknown>, body: unknown = BOD
 // Enforced at registration, so a definition still reading `error` in a handler fails loudly.
 test("a handler's own slots read last_error, and `error` is not in scope there", async () => {
   const bad = await client.PUT("/definitions", {
-    body: routed(`err_scopes_bad_${crypto.randomUUID()}`, { output: { code: "$: error.code" } }) as never,
+    body: { definitions: [routed(`err_scopes_bad_${crypto.randomUUID()}`, { output: { code: "$: error.code" } }) as never] },
   });
   expect(
     (bad.error as { error?: string } | undefined)?.error,
@@ -149,9 +149,9 @@ test("a handler's own slots read last_error, and `error` is not in scope there",
   ).toContain('field "error" not found in schema');
 
   const good = await client.PUT("/definitions", {
-    body: routed(`err_scopes_good_${crypto.randomUUID()}`, {
+    body: { definitions: [routed(`err_scopes_good_${crypto.randomUUID()}`, {
       output: { code: "$: last_error.code" },
-    }) as never,
+    }) as never] },
   });
   expect(good.error, JSON.stringify(good.error)).toBeUndefined();
 });
@@ -164,7 +164,7 @@ test("a retry policy reads the failure it is retrying", async () => {
 
   const name = `err_scopes_retry_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -183,7 +183,7 @@ test("a retry policy reads the failure it is retrying", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(putErr, JSON.stringify(putErr)).toBeUndefined();
 

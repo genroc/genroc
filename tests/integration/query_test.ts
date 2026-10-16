@@ -5,7 +5,7 @@ async function defineWith(query: unknown, urlSuffix = "/search") {
   const svc = await startMockService(0, { response: { ok: true } });
   const name = `query_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -26,7 +26,7 @@ async function defineWith(query: unknown, urlSuffix = "/search") {
           switch: [{ goto: "end" }],
         },
       ],
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
   return { svc, name };
@@ -119,7 +119,7 @@ test("query — an array repeats the parameter, in order", async () => {
   const svc = await startMockService(0, { response: { ok: true } });
   const name = `query_arr_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -138,7 +138,7 @@ test("query — an array repeats the parameter, in order", async () => {
         },
         switch: [{ goto: "end" }],
       }],
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 
@@ -174,7 +174,7 @@ test("query — parameters are ordered by key, and a null element is skipped", a
   const svc = await startMockService(0, { response: { ok: true } });
   const name = `query_order_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -194,7 +194,7 @@ test("query — parameters are ordered by key, and a null element is skipped", a
         },
         switch: [{ goto: "end" }],
       }],
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 

@@ -44,7 +44,7 @@ afterAll(async () => {
 test("a secret config value is scrubbed from stdout and kept verbatim everywhere else", async () => {
   const name = `secretlog_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -65,7 +65,7 @@ test("a secret config value is scrubbed from stdout and kept verbatim everywhere
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(putErr, `put failed: ${JSON.stringify(putErr)}`).toBeUndefined();
 
@@ -120,7 +120,7 @@ test("secret: true is refused outside config_schema", async () => {
     ],
   ] as const) {
     const { error } = await client.PUT("/definitions", {
-      body: { name: `secret_scope_${crypto.randomUUID()}`, ...def } as never,
+      body: { definitions: [{ name: `secret_scope_${crypto.randomUUID()}`, ...def } as never] },
     });
     expect(error, `secret: true in ${where} must be refused`).toBeTruthy();
     expect(JSON.stringify(error)).toContain("config_schema");

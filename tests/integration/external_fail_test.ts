@@ -19,7 +19,7 @@ async function waitForQueued(process: string, timeoutMs = 20_000): Promise<any> 
 // that reads error.data. `extra` merges into the work task so a case can add only_once etc.
 async function define(name: string, extra: Record<string, unknown> = {}) {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -51,7 +51,7 @@ async function define(name: string, extra: Record<string, unknown> = {}) {
         },
         { id: "other", output: { route: "other", code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
@@ -100,7 +100,7 @@ test("a code outside raises is refused — raises is the closed set a worker may
 test("a task with no raises has no error channel", async () => {
   const name = `ext_fail_noraises_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -111,7 +111,7 @@ test("a task with no raises has no error channel", async () => {
         },
         { id: "done", output: { route: "done" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
   await startInstance(name);
@@ -224,7 +224,7 @@ test("a failure submitted while paused is delivered on resume, not discarded", a
 test("a result submitted while paused is delivered on resume, not discarded", async () => {
   const name = `ext_resolve_paused_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -234,7 +234,7 @@ test("a result submitted while paused is delivered on resume, not discarded", as
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
   const id = await startInstance(name);
@@ -254,7 +254,7 @@ test("a result submitted while paused is delivered on resume, not discarded", as
 test("on an only_once task a retry on a worker-reported code is refused at registration", async () => {
   const name = `ext_fail_only_once_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -268,7 +268,7 @@ test("on an only_once task a retry on a worker-reported code is refused at regis
         },
         { id: "gave_up", output: { route: "gave_up" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(error, "only_once must refuse a retry on a code that may have executed").toBeTruthy();
   expect(JSON.stringify(error)).toContain("not_reached");
@@ -277,7 +277,7 @@ test("on an only_once task a retry on a worker-reported code is refused at regis
 test("not_reached:true lets an only_once task re-arm, and the re-arming gets a fresh token", async () => {
   const name = `ext_fail_not_reached_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -298,7 +298,7 @@ test("not_reached:true lets an only_once task re-arm, and the re-arming gets a f
         },
         { id: "gave_up", output: { route: "gave_up" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
 
@@ -356,7 +356,7 @@ test("signal delivers a failure to an armed task, by instance id", async () => {
 test("a failure signalled BEFORE the task arms is buffered, then routed when it arms", async () => {
   const name = `ext_signal_fail_buffered_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         // A delay in front of the external task, so the signal lands while `work` is not yet
@@ -374,7 +374,7 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
         },
         { id: "handled", output: { why: "$: last_error.data.why" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
 
@@ -411,7 +411,7 @@ test("a submission carries one outcome, not both", async () => {
 test("signal validates the failure against the task it names, not another task's raises", async () => {
   const name = `sig_wrong_task_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -428,7 +428,7 @@ test("signal validates the failure against the task it names, not another task's
         },
         { id: "done", switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
   const id = await startInstance(name);
@@ -483,7 +483,7 @@ test("signal runs the same outcome validation as resolve", async () => {
 test("signal validates a result against result_schema", async () => {
   const name = `sig_result_schema_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -501,7 +501,7 @@ test("signal validates a result against result_schema", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
   const id = await startInstance(name);

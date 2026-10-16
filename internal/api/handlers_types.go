@@ -49,9 +49,9 @@ type StartInstanceReq struct {
 	Input   *any    `json:"input,omitempty"`
 }
 
-type PutDefinitionsBatchReq struct {
+type PutDefinitionsReq struct {
 	Definitions []model.ProcessDefinition `json:"definitions"`
-	Channel     string                    `json:"channel"` // default "latest"
+	Channel     string                    `json:"channel,omitempty" description:"The channel to point at the applied versions. Default latest."`
 }
 
 type ChannelEntry struct {

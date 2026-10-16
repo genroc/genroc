@@ -7,7 +7,7 @@ import { client, startMockService, waitForInstance } from "../helpers/client.ts"
 // and the rejection must name the key they meant.
 test("on_error — a code list under \"case\" is rejected by name", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_wrong_key_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -19,7 +19,7 @@ test("on_error — a code list under \"case\" is rejected by name", async () => 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error?.error).toContain(`"case" is a boolean expression, not a list`);
   expect(error?.error).toContain(`select errors by code with "code"`);
@@ -27,7 +27,7 @@ test("on_error — a code list under \"case\" is rejected by name", async () => 
 
 test("switch — an on_error's \"code\" key is rejected by name", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_wrong_key_switch_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -37,7 +37,7 @@ test("switch — an on_error's \"code\" key is rejected by name", async () => {
           switch: [{ code: ["http.500"], goto: "end" } as any],
         },
       ],
-    },
+    }] },
   });
   expect(error?.error).toContain(`unknown field "code"`);
   expect(error?.error).toContain(`a switch case selects with "case"`);
@@ -45,7 +45,7 @@ test("switch — an on_error's \"code\" key is rejected by name", async () => {
 
 test("only_once:true — rejects retries on http.% pattern", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_http_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -56,7 +56,7 @@ test("only_once:true — rejects retries on http.% pattern", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeDefined();
   expect(JSON.stringify(error)).toContain("http.%");
@@ -64,7 +64,7 @@ test("only_once:true — rejects retries on http.% pattern", async () => {
 
 test("only_once:true — rejects retries on exact http.500", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_exact_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -75,7 +75,7 @@ test("only_once:true — rejects retries on exact http.500", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeDefined();
   expect(JSON.stringify(error)).toContain("http.500");
@@ -83,7 +83,7 @@ test("only_once:true — rejects retries on exact http.500", async () => {
 
 test("only_once:true — rejects catch-all with retries", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_catchall_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -94,7 +94,7 @@ test("only_once:true — rejects catch-all with retries", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeDefined();
   expect(JSON.stringify(error)).toContain("catch-all");
@@ -102,7 +102,7 @@ test("only_once:true — rejects catch-all with retries", async () => {
 
 test("only_once:true — rejects wildcard crossing namespaces", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_cross_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -113,7 +113,7 @@ test("only_once:true — rejects wildcard crossing namespaces", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeDefined();
   expect(JSON.stringify(error)).toContain("s%");
@@ -121,7 +121,7 @@ test("only_once:true — rejects wildcard crossing namespaces", async () => {
 
 test("only_once:true — accepts retries on pre.%", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_start_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -135,14 +135,14 @@ test("only_once:true — accepts retries on pre.%", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 });
 
 test("only_once:true — accepts retries on exact pre.* codes", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_exact_start_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -153,14 +153,14 @@ test("only_once:true — accepts retries on exact pre.* codes", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 });
 
 test("only_once:true — accepts not_reached:true override for http.422", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_exec_false_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -174,7 +174,7 @@ test("only_once:true — accepts not_reached:true override for http.422", async 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 });
@@ -183,7 +183,7 @@ test("only_once:true — accepts not_reached:true override for http.422", async 
 // only_once.interrupted), so not_reached cannot license its retries.
 test("only_once:true — not_reached:true does not rescue a catch-all with retries", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_catchall_exec_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -194,7 +194,7 @@ test("only_once:true — not_reached:true does not rescue a catch-all with retri
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error?.error).toContain(
     "catch-all rule cannot have retries on an only_once task",
@@ -204,7 +204,7 @@ test("only_once:true — not_reached:true does not rescue a catch-all with retri
 // The message must say not_reached cannot go through a wildcard, not name whichever code it reached.
 test("only_once:true — not_reached:true cannot be asserted through a wildcard", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_timeout_exec_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -215,7 +215,7 @@ test("only_once:true — not_reached:true cannot be asserted through a wildcard"
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error?.error).toContain(`pattern "http.%" cannot be a wildcard`);
   expect(error?.error).toContain("name the exact codes instead");
@@ -225,7 +225,7 @@ test("only_once:true — not_reached:true cannot be asserted through a wildcard"
 // than repeating the wildcard advice that would lead nowhere.
 test("only_once:true — an unknowable code cannot be retried even when named exactly", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_unknowable_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -236,7 +236,7 @@ test("only_once:true — an unknowable code cannot be retried even when named ex
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error?.error).toContain("http.timeout can never be retried on an only_once task");
   expect(error?.error).toContain("check the system of record instead");
@@ -245,7 +245,7 @@ test("only_once:true — an unknowable code cannot be retried even when named ex
 // The shape the rules push authors towards, so it must keep working.
 test("only_once:true — exact codes asserted with not_reached:true are retryable", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_exact_exec_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -259,7 +259,7 @@ test("only_once:true — exact codes asserted with not_reached:true are retryabl
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 });
@@ -268,7 +268,7 @@ test("only_once:true — exact codes asserted with not_reached:true are retryabl
 // retrying it is refused.
 test("only_once:true — routing only_once.interrupted without retries is accepted", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_interrupted_route_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -289,14 +289,14 @@ test("only_once:true — routing only_once.interrupted without retries is accept
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 });
 
 test("only_once:true — next-only rule on http.% is accepted (no retries)", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `ni_static_goto_only_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -312,7 +312,7 @@ test("only_once:true — next-only rule on http.% is accepted (no retries)", asy
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 });
@@ -325,7 +325,7 @@ test("only_once:true — http.500 routes to handler and is called exactly once",
 
   const name = `ni_rt_no_retry_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -360,7 +360,7 @@ test("only_once:true — http.500 routes to handler and is called exactly once",
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data } = await client.POST("/instances", { body: { process: name } });
@@ -382,7 +382,7 @@ test("only_once:true — connection refused triggers pre.% retries", async () =>
 
   const name = `ni_rt_start_retry_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -401,7 +401,7 @@ test("only_once:true — connection refused triggers pre.% retries", async () =>
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data } = await client.POST("/instances", { body: { process: name } });
@@ -417,7 +417,7 @@ test("only_once:true — not_reached:true allows retry on http.422", async () =>
 
   const name = `ni_rt_exec_false_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -438,7 +438,7 @@ test("only_once:true — not_reached:true allows retry on http.422", async () =>
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(defErr).toBeUndefined();
 
@@ -454,7 +454,7 @@ test("default task (no only_once) — http.500 retries normally", async () => {
 
   const name = `default_retry_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -470,7 +470,7 @@ test("default task (no only_once) — http.500 retries normally", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data } = await client.POST("/instances", { body: { process: name } });

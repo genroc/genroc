@@ -7,12 +7,12 @@ import { client, waitForInstance, childrenOfTask } from "../helpers/client.ts";
 // Echoes its input, leaving its output untyped.
 async function putForwarder(name: string) {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { value: {} } },
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: "$: input.value",
-    },
+    }] },
   });
 }
 
@@ -23,7 +23,7 @@ test("a lost narrowing bet is result.invalid, and an on_error rule catches it", 
   await putForwarder(child);
 
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -41,7 +41,7 @@ test("a lost narrowing bet is result.invalid, and an on_error rule catches it", 
         { id: "fallback", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.fallback",
-    },
+    }] },
   });
   expect(putErr, "a child task may name result.invalid in on_error").toBeUndefined();
 
@@ -63,7 +63,7 @@ test("with no rule the parent still fails terminally — as result.invalid, not 
   await putForwarder(child);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -77,7 +77,7 @@ test("with no rule the parent still fails terminally — as result.invalid, not 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });
@@ -106,7 +106,7 @@ test("only result.invalid joins the set — another engine code is still refused
   await putForwarder(child);
 
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `oi_narrow_${uid}`,
       tasks: [
         {
@@ -116,7 +116,7 @@ test("only result.invalid joins the set — another engine code is still refused
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(JSON.stringify(error)).toContain("no child of this task can raise");
 });
@@ -129,7 +129,7 @@ test("a child_map entry that fails its own narrowing reports result.invalid", as
   await putForwarder(child);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -152,7 +152,7 @@ test("a child_map entry that fails its own narrowing reports result.invalid", as
         { id: "fallback", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.fallback",
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });
@@ -168,7 +168,7 @@ test("a child_list element that fails the narrowing reports result.invalid", asy
   await putForwarder(child);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -185,7 +185,7 @@ test("a child_list element that fails the narrowing reports result.invalid", asy
         { id: "fallback", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.fallback",
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });

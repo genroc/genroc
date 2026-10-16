@@ -7,7 +7,7 @@ test("rest endpoint is evaluated as a template", async () => {
 
   const name = `endpoint_tmpl_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -33,7 +33,7 @@ test("rest endpoint is evaluated as a template", async () => {
       ],
       output: "$: outputs.call",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 
@@ -61,7 +61,7 @@ test("a config value can build a rest endpoint URL", async () => {
 
   const name = `config_endpoint_${crypto.randomUUID()}`;
   const { error: putErr } = await api.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -87,7 +87,7 @@ test("a config value can build a rest endpoint URL", async () => {
       ],
       output: "$: outputs.call",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 

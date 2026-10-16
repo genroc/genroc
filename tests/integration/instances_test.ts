@@ -5,7 +5,7 @@ const processName = `test_proc_${crypto.randomUUID()}`;
 
 async function ensureDefinition() {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: processName,
 
       input_schema: {
@@ -20,7 +20,7 @@ async function ensureDefinition() {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 }
 
@@ -59,7 +59,7 @@ test("GET /instances/{id} — returns instance status", async () => {
 test("GET /instances — task reports where the instance is, and clears when it ends", async () => {
   const name = `task_field_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -69,7 +69,7 @@ test("GET /instances — task reports where the instance is, and clears when it 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   const { data: started } = await client.POST("/instances", {
     body: { process: name },
@@ -94,13 +94,13 @@ test("GET /instances — task reports where the instance is, and clears when it 
 test("GET /instances/{id} — a completed process reports the task it finished at", async () => {
   const name = `task_field_done_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         { id: "first", switch: [{ goto: "$last" }] },
         { id: "last", switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   const { data: started } = await client.POST("/instances", {
     body: { process: name },
@@ -188,7 +188,7 @@ test("POST /instances — fails when input is invalid", async () => {
 
 test("POST /instances — what happens when referencing types?", async () => {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: processName,
 
       input_schema: {
@@ -210,7 +210,7 @@ test("POST /instances — what happens when referencing types?", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data, error } = await client.POST("/instances", {

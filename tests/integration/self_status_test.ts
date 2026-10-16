@@ -8,7 +8,7 @@ test("self.status / self.headers — readable beside the body", async () => {
 
   const name = `selfmeta_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -33,7 +33,7 @@ test("self.status / self.headers — readable beside the body", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -57,7 +57,7 @@ test("self.status / self.headers — readable beside the body", async () => {
 test("self.status — does not exist on a non-fetch task", async () => {
   const name = `selfmeta_gate_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -67,7 +67,7 @@ test("self.status — does not exist on a non-fetch task", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    } as any,
+    } as any] },
   });
   expect(error, "self.status must not resolve on a delay task").toBeDefined();
 });

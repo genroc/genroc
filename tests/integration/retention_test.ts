@@ -8,7 +8,7 @@ test("retention — a concluded process answers 404 once past --instance-retenti
   try {
     const name = `retention_${crypto.randomUUID()}`;
     await g.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         input_schema: { type: "object", properties: { wait: { type: "boolean" } } },
         tasks: [
@@ -18,7 +18,7 @@ test("retention — a concluded process answers 404 once past --instance-retenti
           },
           { id: "wait", action: { type: "delay" as const, for: "1d" }, switch: [{ goto: "end" }] },
         ],
-      },
+      }] },
     });
     const start = async (wait: boolean) =>
       (await g.client.POST("/instances", { body: { process: name, input: { wait } } })).data!.id;
@@ -47,7 +47,7 @@ test("retention — off by default: nothing concluded is ever deleted without th
   const g = await startGenroc({ poll: 0 });
   try {
     const name = `retention_default_${crypto.randomUUID()}`;
-    await g.client.PUT("/definitions", { body: { name, tasks: [{ id: "only", switch: [{ goto: "end" }] }] } });
+    await g.client.PUT("/definitions", { body: { definitions: [{ name, tasks: [{ id: "only", switch: [{ goto: "end" }] }] }] } });
     const id = (await g.client.POST("/instances", { body: { process: name } })).data!.id;
     await g.client.POST("/tick", {});
     await g.client.POST("/tick", { body: { advance_ms: 10 * 365 * 24 * 3_600_000 } }); // ten years

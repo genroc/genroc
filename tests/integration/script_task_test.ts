@@ -75,7 +75,7 @@ const AMOUNT_SCHEMA = { type: "object", properties: { amount: { type: "number" }
 async function run(name: string, tasks: unknown[], input?: unknown, inputSchema?: unknown) {
   const body: Record<string, unknown> = { name, tasks };
   if (inputSchema) body.input_schema = inputSchema;
-  const { error } = await client.PUT("/definitions", { body: body as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [body as never] } });
   expect(error, `put definition failed: ${JSON.stringify(error)}`).toBeUndefined();
   const { data: started } = await client.POST("/instances", { body: { process: name, input } as never });
   const id = started!.id;
@@ -214,11 +214,11 @@ test("script task — a template literal in the code escapes ${ as $${", async (
 test("script task — the unescaped ${ is read by genroc and refused at registration", async () => {
   const t = withInput(scriptTask(TEMPLATE_SCRIPT("$")));
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `script_unescaped_${crypto.randomUUID()}`,
       input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
       tasks: [{ ...t, output: "$: self.result", switch: [{ goto: "end" }] }],
-    } as never,
+    } as never] },
   });
   // `who` is a JS binding genroc cannot resolve.
   expect(JSON.stringify(error), "an unescaped ${ must be refused, not silently interpolated").toContain("who");
@@ -228,11 +228,11 @@ test("script task — a backlog drains", async () => {
   const name = PROCESS;
   const t = withInput(scriptTask("export default (input) => ({ doubled: input.n * 2 });"));
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] },
       tasks: [{ ...t, output: "$: self.result", switch: [{ goto: "end" }] }],
-    } as never,
+    } as never] },
   });
 
   const ids = await Promise.all(
@@ -390,11 +390,11 @@ test("script task — a large script is shared, not copied, and still runs", asy
   const t = withInput(scriptTask(`${pad}\nexport default (input) => ({ doubled: input.n * 2 });`));
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] },
       tasks: [{ ...t, output: "$: self.result", switch: [{ goto: "end" }] }],
-    } as never,
+    } as never] },
   });
 
   const ids = await Promise.all(
@@ -419,7 +419,7 @@ test("script task — a large script leaves the instance and is listed, not carr
   const code = `${pad}\nexport default () => ({ ok: true });`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] },
       tasks: [
@@ -429,7 +429,7 @@ test("script task — a large script leaves the instance and is listed, not carr
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   await Promise.all(
     [1, 2].map((n) => client.POST("/instances", { body: { process: name, input: { n } } as never })),

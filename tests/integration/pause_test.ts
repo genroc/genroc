@@ -23,7 +23,7 @@ test("pause between tasks — step2 waits for the resume, then runs exactly once
 
   try {
     await genroc.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: processName,
         tasks: [
           {
@@ -47,7 +47,7 @@ test("pause between tasks — step2 waits for the resume, then runs exactly once
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await genroc.client.POST("/instances", {

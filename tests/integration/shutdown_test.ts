@@ -10,7 +10,7 @@ type Mock = Awaited<ReturnType<typeof startMockService>>;
 async function startCall(g: GenrocProcess, mock: Mock, onlyOnce = false): Promise<string> {
   const name = `shutdown_${crypto.randomUUID()}`;
   await g.client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -25,7 +25,7 @@ async function startCall(g: GenrocProcess, mock: Mock, onlyOnce = false): Promis
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   const { data } = await g.client.POST("/instances", { body: { process: name } });
   await Promise.race([

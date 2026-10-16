@@ -4,7 +4,7 @@ import { uid } from "../helpers/genctl.ts";
 
 // Unique names per test to avoid cross-test interference.
 async function applyBatch(defs: object[], channel = "latest") {
-  const { data, error } = await client.PUT("/definitions/batch", {
+  const { data, error } = await client.PUT("/definitions", {
     body: { channel, definitions: defs } as never,
   });
   if (error) throw new Error(`applyBatch failed: ${JSON.stringify(error)}`);
@@ -326,7 +326,7 @@ test("channels — parent with omitted child version resolves to the child's cha
 // ── batch validation errors ─────────────────────────────────────────────────────
 
 async function rawBatch(defs: object[], channel = "latest") {
-  return client.PUT("/definitions/batch", {
+  return client.PUT("/definitions", {
     body: { channel, definitions: defs } as never,
   });
 }

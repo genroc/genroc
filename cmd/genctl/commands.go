@@ -47,7 +47,7 @@ func runApplyCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 
-	endpoint, method := "/api/definitions/batch", http.MethodPut
+	endpoint, method := "/api/definitions", http.MethodPut
 	if *checkOnly {
 		endpoint, method = "/api/definitions/validate", http.MethodPost
 	}

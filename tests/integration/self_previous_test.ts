@@ -47,7 +47,7 @@ function makeDef(name: string, actionPort?: number) {
 }
 
 async function register(def: ReturnType<typeof makeDef>) {
-  const { error } = await client.PUT("/definitions", { body: def as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [def as never] } });
   if (error) throw new Error(`register failed: ${JSON.stringify(error)}`);
 }
 

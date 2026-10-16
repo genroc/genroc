@@ -14,7 +14,7 @@ async function post(path: string) {
 }
 
 async function apply(def: object & { name: string }) {
-  const { error } = await client.PUT("/definitions", { body: def as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [def as never] } });
   expect(error, `apply ${def.name}`).toBeUndefined();
   return def.name;
 }

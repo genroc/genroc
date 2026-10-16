@@ -8,7 +8,7 @@ import type { components } from "../generated/api.ts";
 test("a raise carries data onto its own row, evaluated in the clause's scope", async () => {
   const name = `raise_data_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -33,7 +33,7 @@ test("a raise carries data onto its own row, evaluated in the clause's scope", a
           ],
         },
       ],
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -56,7 +56,7 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
   const parent = `panic_data_parent_${uid}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       tasks: [
         {
@@ -74,10 +74,10 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
           ],
         },
       ],
-    },
+    }] },
   });
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -86,7 +86,7 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });
@@ -126,7 +126,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
       ...(data !== undefined ? { data } : {}),
     };
     const { error } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -149,7 +149,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
     expect(error).toBeUndefined();
   }
@@ -198,7 +198,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
 test("a data expression is type-checked at registration, in the clause's own scope", async () => {
   const name = `fault_data_check_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -216,7 +216,7 @@ test("a data expression is type-checked at registration, in the clause's own sco
           ],
         },
       ],
-    },
+    }] },
   });
   expect(
     JSON.stringify(error),

@@ -5,7 +5,7 @@ import { client, startMockService, waitForInstance } from "../helpers/client.ts"
 // the PREVIOUS output in every slot; the switch runs after the write, so the engine must shadow it.
 
 async function register(def: unknown) {
-  const { error } = await client.PUT("/definitions", { body: def as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [def as never] } });
   if (error) throw new Error(`register failed: ${JSON.stringify(error)}`);
 }
 

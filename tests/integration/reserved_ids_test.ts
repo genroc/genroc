@@ -7,7 +7,7 @@ import { client, waitForInstance } from "../helpers/client.ts";
 test("a task may be named `end`, and `$end` routes to it while `end` terminates", async () => {
   const name = `reserved_end_${crypto.randomUUID().replace(/-/g, "")}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         // Two ways out of one task: the keyword and the task that shares its spelling.
@@ -20,7 +20,7 @@ test("a task may be named `end`, and `$end` routes to it while `end` terminates"
         reached_next: "$: outputs.next.step",
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: startData } = await client.POST("/instances", { body: { process: name } });
@@ -37,11 +37,11 @@ test("a task may be named `end`, and `$end` routes to it while `end` terminates"
 test("`$end` with no task named end is still rejected at registration", async () => {
   const name = `reserved_missing_${crypto.randomUUID().replace(/-/g, "")}`;
   const { response } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [{ id: "first", switch: [{ goto: "$end" }] }],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(response.status).toBe(400);
 });
@@ -51,14 +51,14 @@ test("`$end` with no task named end is still rejected at registration", async ()
 test("two tasks sharing an id are rejected", async () => {
   const name = `duplicate_id_${crypto.randomUUID().replace(/-/g, "")}`;
   const { response } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         { id: "tick", switch: [{ goto: "next" }] },
         { id: "tick", switch: [{ goto: "end" }] },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(response.status).toBe(400);
 });

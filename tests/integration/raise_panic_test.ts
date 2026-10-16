@@ -11,7 +11,7 @@ import {
 test("raise — switch case concludes the process as raised, with its code", async () => {
   const name = `raise_switch_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -33,7 +33,7 @@ test("raise — switch case concludes the process as raised, with its code", asy
           ],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -65,7 +65,7 @@ test("raise — on_error rule raises instead of routing", async () => {
 
   const name = `raise_onerror_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -88,7 +88,7 @@ test("raise — on_error rule raises instead of routing", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -115,7 +115,7 @@ test("raise — on_error rule raises instead of routing", async () => {
 test("panic — fails the process with the authored code, and stays retryable", async () => {
   const name = `panic_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -132,7 +132,7 @@ test("panic — fails the process with the authored code, and stays retryable", 
           ],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -161,7 +161,7 @@ test("panic — an on_error rule panics on an action task", async () => {
 
   const name = `panic_onerror_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -184,7 +184,7 @@ test("panic — an on_error rule panics on an action task", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -214,7 +214,7 @@ test("on_error → end computes the process output, like a normal completion", a
 
   const name = `onerror_end_output_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       output: '$: "recovered"',
       tasks: [
@@ -230,7 +230,7 @@ test("on_error → end computes the process output, like a normal completion", a
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -253,7 +253,7 @@ test("error_code — engine failures carry their own dotted code", async () => {
 
   const name = `engine_code_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -267,7 +267,7 @@ test("error_code — engine failures carry their own dotted code", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -292,7 +292,7 @@ test("error_code — is a list filter, and raised is a status filter", async () 
     "_",
   );
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -303,7 +303,7 @@ test("error_code — is a list filter, and raised is a status filter", async () 
           ],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -328,7 +328,7 @@ test("error_code — is a list filter, and raised is a status filter", async () 
 test("raises — the derived set is published, and excludes panic codes", async () => {
   const name = `raises_set_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -344,7 +344,7 @@ test("raises — the derived set is published, and excludes panic codes", async 
           ],
         },
       ],
-    },
+    }] },
   });
 
   // The shared test DB holds far more than one page of definitions, so page through
@@ -370,7 +370,7 @@ test("raises — the derived set is published, and excludes panic codes", async 
 test("raise message — interpolates the scope the clause fires in", async () => {
   const name = `raise_msg_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -392,7 +392,7 @@ test("raise message — interpolates the scope the clause fires in", async () =>
           ],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -410,7 +410,7 @@ test("raise message — interpolates the scope the clause fires in", async () =>
 test("raise message — $${ is an escape, so a literal ${ survives", async () => {
   const name = `raise_esc_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -418,7 +418,7 @@ test("raise message — $${ is an escape, so a literal ${ survives", async () =>
           switch: [{ raise: { code: "syntax_help", message: "write $${x} to escape" } }],
         },
       ],
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -434,7 +434,7 @@ test("raise message — $${ is an escape, so a literal ${ survives", async () =>
 test("raise message — a non-string message is refused at registration", async () => {
   const name = `raise_nonstr_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -449,7 +449,7 @@ test("raise message — a non-string message is refused at registration", async 
           switch: [{ raise: { code: "too_big", message: "$: input.amount" } }],
         },
       ],
-    },
+    }] },
   });
   expect(JSON.stringify(error)).toMatch(/message must be a string/);
 });
@@ -457,7 +457,7 @@ test("raise message — a non-string message is refused at registration", async 
 test("raise message — a possibly-null message is refused, with the fix named", async () => {
   const name = `raise_null_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { who: { type: "string" } } },
       tasks: [
@@ -466,7 +466,7 @@ test("raise message — a possibly-null message is refused, with the fix named",
           switch: [{ raise: { code: "unknown_who", message: "$: input.who" } }],
         },
       ],
-    },
+    }] },
   });
   expect(JSON.stringify(error)).toMatch(/may be null/);
   expect(JSON.stringify(error)).toMatch(/\?\?/);
@@ -477,7 +477,7 @@ test("raise message — an on_error rule reads the error it caught", async () =>
   try {
     const name = `raise_onerr_${crypto.randomUUID()}`;
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -505,7 +505,7 @@ test("raise message — an on_error rule reads the error it caught", async () =>
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: started } = await client.POST("/instances", {

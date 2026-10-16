@@ -23,7 +23,7 @@ function workThenFailed(work = "work") {
 }
 
 async function define(name: string, tasks: unknown[] = workThenFailed()) {
-  const { error } = await client.PUT("/definitions", { body: { name, tasks: tasks as never } });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [{ name, tasks: tasks as never }] } });
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
 
@@ -210,7 +210,7 @@ test("claim rejects a missing worker_id, process or task, and renew rejects a no
 
 async function defineOnlyOnce(name: string, extra: Record<string, unknown> = {}) {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -223,7 +223,7 @@ async function defineOnlyOnce(name: string, extra: Record<string, unknown> = {})
         },
         { id: "checked", output: { route: "checked", code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ] as never,
-    },
+    }] },
   });
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
@@ -260,7 +260,7 @@ test("a lapsed claim on an only_once task is never handed out again, and raises 
 test("external.lost is unknowable — an only_once task cannot buy a retry with not_reached", async () => {
   const name = `claim_lost_retry_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -274,7 +274,7 @@ test("external.lost is unknowable — an only_once task cannot buy a retry with 
         },
         { id: "checked", switch: [{ goto: "end" }] },
       ] as never,
-    },
+    }] },
   });
   expect(error, "not_reached must be refused for external.lost").toBeTruthy();
   expect(JSON.stringify(error)).toContain("external.lost");

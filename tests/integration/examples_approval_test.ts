@@ -60,7 +60,7 @@ async function startExpenseService() {
 type ApiClient = typeof client;
 
 async function applyExample(api: ApiClient = client) {
-  const { error } = await api.PUT("/definitions", { body: approval as never });
+  const { error } = await api.PUT("/definitions", { body: { definitions: [approval as never] } });
   expect(error).toBeUndefined();
 }
 

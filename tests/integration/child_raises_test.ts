@@ -15,12 +15,12 @@ async function putDecliner(name: string, data?: unknown) {
   const raise: Record<string, unknown> = { code: "card_declined", message: "the card was declined" };
   if (data !== undefined) raise.data = data;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         { id: "charge", switch: [{ case: "true", raise: raise as never }, { goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 }
@@ -29,7 +29,7 @@ async function putDecliner(name: string, data?: unknown) {
 // tested through this child.
 async function putOpaqueDecliner(name: string) {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { payload: {} } },
       tasks: [
@@ -41,7 +41,7 @@ async function putOpaqueDecliner(name: string) {
           ],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(error).toBeUndefined();
 }
@@ -53,7 +53,7 @@ test("a declared code makes the payload readable as error.data at the routed tas
   await putDecliner(child, { decline_code: "51", retry_after: 3600 });
 
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -75,7 +75,7 @@ test("a declared code makes the payload readable as error.data at the routed tas
         },
       ],
       output: "$: outputs.backoff",
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -94,7 +94,7 @@ test("an undeclared code leaves error.data absent — the read is a registration
   await putDecliner(child, { decline_code: "51", retry_after: 3600 });
 
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -106,7 +106,7 @@ test("an undeclared code leaves error.data absent — the read is a registration
         },
         { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
       ],
-    },
+    }] },
   });
   expect(
     error,
@@ -122,7 +122,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
   await putOpaqueDecliner(child);
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -143,7 +143,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
         { id: "by_mismatch", output: { via: "mismatch", code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.by_mismatch ?? outputs.by_code",
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });
@@ -186,7 +186,7 @@ test("a payload the child can never produce is refused where it is declared", as
   });
 
   const { error: typeErr } = await client.PUT("/definitions", {
-    body: parent(`raises_static_type_parent_${uid}`, wrongType),
+    body: { definitions: [parent(`raises_static_type_parent_${uid}`, wrongType)] },
   });
   expect(
     JSON.stringify(typeErr),
@@ -194,7 +194,7 @@ test("a payload the child can never produce is refused where it is declared", as
   ).toContain("string is not accepted where object is expected");
 
   const { error: nodataErr } = await client.PUT("/definitions", {
-    body: parent(`raises_static_nodata_parent_${uid}`, noData),
+    body: { definitions: [parent(`raises_static_nodata_parent_${uid}`, noData)] },
   });
   expect(
     JSON.stringify(nodataErr),
@@ -206,7 +206,7 @@ test("a code raised from two clauses is checked against both", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_union_child_${uid}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: { type: "object", properties: { early: { type: "boolean" } } },
       tasks: [
@@ -228,12 +228,12 @@ test("a code raised from two clauses is checked against both", async () => {
           ],
         },
       ],
-    } as never,
+    } as never] },
   });
 
   const call = (name: string, shape: unknown) =>
     client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -242,7 +242,7 @@ test("a code raised from two clauses is checked against both", async () => {
             switch: [{ goto: "end" }],
           },
         ],
-      } as never,
+      } as never] },
     });
 
   const { error: bothErr } = await call(`raises_union_both_${uid}`, DECLINE_SHAPE);
@@ -266,7 +266,7 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
 
   const perEntry = `raises_map_ok_${uid}`;
   const { error: okErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: perEntry,
       tasks: [
         {
@@ -281,7 +281,7 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
         { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.backoff",
-    },
+    }] },
   });
   expect(okErr).toBeUndefined();
 
@@ -292,7 +292,7 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
 
   const wrong = `raises_map_bad_${uid}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: wrong,
       tasks: [
         {
@@ -305,7 +305,7 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(JSON.stringify(error), "entries can be different processes, so the slot is theirs").toContain(
     "children",
@@ -318,7 +318,7 @@ test("declaring a code the child never raises is refused, like a rule for one", 
   await putDecliner(child, { decline_code: "51", retry_after: 3600 });
 
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `raises_typo_parent_${uid}`,
       tasks: [
         {
@@ -327,7 +327,7 @@ test("declaring a code the child never raises is refused, like a rule for one", 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(JSON.stringify(error)).toContain("never raises");
 });
@@ -369,13 +369,13 @@ test("a code only some child_map entries declare is nullable; declared by all, i
     ],
   });
 
-  const { error: gapErr } = await client.PUT("/definitions", { body: def(`raises_gap_${uid}`, false) });
+  const { error: gapErr } = await client.PUT("/definitions", { body: { definitions: [def(`raises_gap_${uid}`, false)] } });
   expect(
     JSON.stringify(gapErr),
     "entry b declares nothing, so a card_declined from b arrives with no data at all",
   ).toContain("may be null");
 
-  const { error: fullErr } = await client.PUT("/definitions", { body: def(`raises_full_${uid}`, true) });
+  const { error: fullErr } = await client.PUT("/definitions", { body: { definitions: [def(`raises_full_${uid}`, true)] } });
   expect(fullErr, "with every entry covered the same read is sound").toBeUndefined();
 });
 
@@ -386,10 +386,10 @@ test("raises refuses a boolean, a non-declaring action, and a code that is not o
 
   async function refused(suffix: string, action: unknown, expected: string) {
     const { error } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: `raises_refuse_${suffix}_${uid}`,
         tasks: [{ id: "pay", action: action as never, switch: [{ goto: "end" }] }],
-      },
+      }] },
     });
     expect(JSON.stringify(error), `${suffix} must be refused with its own message`).toContain(expected);
   }
@@ -433,14 +433,14 @@ test("{} exposes the payload opaquely: forwardable, but a field read is refused"
   });
 
   const { error: fieldErr } = await client.PUT("/definitions", {
-    body: def(`raises_open_field_${uid}`, { why: "$: last_error.data.decline_code" }),
+    body: { definitions: [def(`raises_open_field_${uid}`, { why: "$: last_error.data.decline_code" })] },
   });
   expect(JSON.stringify(fieldErr), "the top type is carried, never read").toBeTruthy();
   expect(fieldErr).toBeDefined();
 
   const whole = `raises_open_whole_${uid}`;
   const { error: wholeErr } = await client.PUT("/definitions", {
-    body: def(whole, { payload: "$: last_error.data" }),
+    body: { definitions: [def(whole, { payload: "$: last_error.data" })] },
   });
   expect(wholeErr).toBeUndefined();
 
@@ -457,7 +457,7 @@ test("the payload is conformed, not passed through: extras dropped, defaults fil
 
   const name = `raises_norm_${uid}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -483,7 +483,7 @@ test("the payload is conformed, not passed through: extras dropped, defaults fil
         { id: "carry", output: { seen: "$: last_error.data" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.carry",
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -500,7 +500,7 @@ test("child_list declares on the action, and the first raised slot's payload cro
 
   const name = `raises_list_${uid}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -521,7 +521,7 @@ test("child_list declares on the action, and the first raised slot's payload cro
         },
       ],
       output: "$: outputs.backoff",
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -539,7 +539,7 @@ test("a raises schema may be a $ref into the process $defs", async () => {
 
   const name = `raises_ref_${uid}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       $defs: { decline: DECLINE_SHAPE },
       tasks: [
@@ -556,7 +556,7 @@ test("a raises schema may be a $ref into the process $defs", async () => {
         { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.backoff",
-    },
+    }] },
   });
   expect(putErr).toBeUndefined();
 
@@ -575,7 +575,7 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
 
   const name = `raises_big_${uid}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -593,7 +593,7 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
         { id: "keep", output: { trace: "$: last_error.data.trace" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.keep",
-    },
+    }] },
   });
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
@@ -639,10 +639,10 @@ test("a wildcard rule widens the type to admit null; the literal does not", asyn
     ],
   });
 
-  const { error: wildErr } = await client.PUT("/definitions", { body: def(`raises_wild_${uid}`, "card_%") });
+  const { error: wildErr } = await client.PUT("/definitions", { body: { definitions: [def(`raises_wild_${uid}`, "card_%")] } });
   expect(JSON.stringify(wildErr), "a wildcard can reach a code nothing declares").toContain("may be null");
 
-  const { error: litErr } = await client.PUT("/definitions", { body: def(`raises_lit_${uid}`, "card_declined") });
+  const { error: litErr } = await client.PUT("/definitions", { body: { definitions: [def(`raises_lit_${uid}`, "card_declined")] } });
   expect(litErr, "the declared literal is exactly covered").toBeUndefined();
 });
 
@@ -658,10 +658,10 @@ test("a declaration is checked against the raise set on every child shape", asyn
   ];
   for (const [label, action] of cases) {
     const { error } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: `raises_shape_${label}_${uid}`,
         tasks: [{ id: "pay", action: action as never, switch: [{ goto: "end" }] }],
-      },
+      }] },
     });
     expect(JSON.stringify(error), `${label} must check its own declarations`).toContain("never raises");
   }
@@ -671,7 +671,7 @@ test("a panic-only code cannot be declared — nothing can ever catch it", async
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_panic_child_${uid}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       tasks: [
         {
@@ -682,11 +682,11 @@ test("a panic-only code cannot be declared — nothing can ever catch it", async
           ],
         },
       ],
-    },
+    }] },
   });
 
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `raises_panic_parent_${uid}`,
       tasks: [
         {
@@ -695,7 +695,7 @@ test("a panic-only code cannot be declared — nothing can ever catch it", async
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   expect(JSON.stringify(error), "a panic code is not in the raise set").toContain("never raises");
 });
@@ -732,10 +732,10 @@ test("a self-referencing call checks declarations against the definition being r
     ],
   });
 
-  const { error: ok } = await client.PUT("/definitions", { body: def("too_deep") });
+  const { error: ok } = await client.PUT("/definitions", { body: { definitions: [def("too_deep")] } });
   expect(ok, "the code this definition raises is declarable on a call to itself").toBeUndefined();
 
-  const { error: typo } = await client.PUT("/definitions", { body: def("too_shallow") });
+  const { error: typo } = await client.PUT("/definitions", { body: { definitions: [def("too_shallow")] } });
   expect(JSON.stringify(typo)).toContain("never raises");
 });
 
@@ -753,7 +753,7 @@ const EXPIRED_SHAPE = {
 // A child that picks its code from its input, so one definition produces both arms.
 async function putTwoCoded(name: string) {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { expired: { type: "boolean" } } },
       tasks: [
@@ -772,7 +772,7 @@ async function putTwoCoded(name: string) {
           ],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(error).toBeUndefined();
 }
@@ -784,7 +784,7 @@ test("a % rule unions every declared shape it can reach, and the raised code dec
   await putTwoCoded(child);
 
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: { type: "object", properties: { expired: { type: "boolean" } } },
       tasks: [
@@ -813,7 +813,7 @@ test("a % rule unions every declared shape it can reach, and the raised code dec
         },
       ],
       output: "$: outputs.handle",
-    } as never,
+    } as never] },
   });
   expect(putErr).toBeUndefined();
 
@@ -841,7 +841,7 @@ test("a field only one arm of the union declares reads as null when the other ar
   await putTwoCoded(child);
 
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: { type: "object", properties: { expired: { type: "boolean" } } },
       tasks: [
@@ -859,7 +859,7 @@ test("a field only one arm of the union declares reads as null when the other ar
         { id: "handle", output: { code: "$: last_error.data.decline_code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.handle",
-    } as never,
+    } as never] },
   });
   expect(putErr, "a one-arm field is nullable, not unreadable").toBeUndefined();
 
@@ -877,7 +877,7 @@ const NUMBERED = { type: "object", properties: { digits: { type: "integer" } }, 
 
 async function putCaseScopeChild(name: string) {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       // Both codes from ONE task: raises(D) is a syntactic scan, so a never-firing case still
       // counts, and a second task nothing routes to would be rejected as unreachable.
@@ -890,14 +890,14 @@ async function putCaseScopeChild(name: string) {
           ],
         },
       ],
-    },
+    }] },
   });
   expect(error).toBeUndefined();
 }
 
 async function callerWithCase(child: string, code: string, caseExpr: string) {
   return client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `case_scope_${crypto.randomUUID().slice(0, 8)}`,
       tasks: [
         {
@@ -908,7 +908,7 @@ async function callerWithCase(child: string, code: string, caseExpr: string) {
         },
         { id: "handled", output: { ok: true }, switch: [{ goto: "end" }] },
       ],
-    } as never,
+    } as never] },
   });
 }
 

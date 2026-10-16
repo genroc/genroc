@@ -83,7 +83,7 @@ test("api errors — resuming a SETTLED process is 409 conflict (a live one is 2
   const mock = await startMockService(0, { response: { ok: true } });
   const name = `err_resume_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -92,7 +92,7 @@ test("api errors — resuming a SETTLED process is 409 conflict (a live one is 2
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   const { data } = await client.POST("/instances", { body: { process: name, input: {} } });
   const id = data!.id;
@@ -110,7 +110,7 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
   const mock = await startMockService(0, { response: { ok: true } });
   const name = `err_retry_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -119,7 +119,7 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
   const { data } = await client.POST("/instances", { body: { process: name, input: {} } });
   const id = data!.id;
@@ -140,7 +140,7 @@ test("api errors — a definition validation failure reports the offending field
   const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: `nofields_${crypto.randomUUID()}`, tasks: [] }),
+    body: JSON.stringify({ definitions: [{ name: `nofields_${crypto.randomUUID()}`, tasks: [] }] }),
   });
   expect(status).toBe(400);
   expect(body.code).toBe("invalid");
@@ -155,14 +155,14 @@ test("api errors — a nested validation failure carries the indexed path to the
   const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: JSON.stringify({ definitions: [{
       name: `nested_${crypto.randomUUID()}`,
       tasks: [
         { id: "first", switch: [{ goto: "end" }] },
         { switch: [{ goto: "end" }] }, // no id
         { id: "third", switch: [{ goto: "end" }] },
       ],
-    }),
+    }] }),
   });
   expect(status).toBe(400);
   expect(body.code).toBe("invalid");
@@ -175,14 +175,14 @@ test("api errors — every failing element is reported with its own index", asyn
   const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: JSON.stringify({ definitions: [{
       name: `multi_${crypto.randomUUID()}`,
       tasks: [
         { switch: [{ goto: "end" }] },
         { id: "ok", switch: [{ goto: "end" }] },
         { switch: [{ goto: "end" }] },
       ],
-    }),
+    }] }),
   });
   expect(status).toBe(400);
   const fields = body.fields as Field[];
@@ -195,7 +195,7 @@ test("api errors — the field path survives the batch handler's name prefix", a
   // applyBatch wraps each definition's failure with the process name, so the detail
   // only reaches the client if errReply unwraps through that prefix.
   const name = `batch_${crypto.randomUUID()}`;
-  const { status, body } = await errorOf(`/definitions/batch`, {
+  const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -72,7 +72,7 @@ function defineAndStart(mockPort: number, onlyOnce: boolean) {
   const name = `fence_${onlyOnce ? "oo" : "plain"}_${crypto.randomUUID()}`;
   return (async () => {
     const { error } = await genroc.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -82,7 +82,7 @@ function defineAndStart(mockPort: number, onlyOnce: boolean) {
             switch: [{ goto: "end" }],
           },
         ],
-      } as never,
+      } as never] },
     });
     expect(error).toBeUndefined();
     const { data, error: startErr } = await genroc.client.POST("/instances", {

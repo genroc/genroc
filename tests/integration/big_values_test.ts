@@ -8,7 +8,7 @@ const BLOB = "B".repeat(20 * 1024);
 
 async function defineProc() {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: proc,
       input_schema: {
         type: "object",
@@ -18,7 +18,7 @@ async function defineProc() {
       // Reads the externalized input, exercising lazy resolution through the output projection.
       output: { echo: "$: input.blob" },
       tasks: [{ id: "work", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 }
 
@@ -103,7 +103,7 @@ test("large log payloads are cut per-leaf and share the instance's object", asyn
 test("only oversized slots become references; small ones stay inline", async () => {
   const name = `mixed_slots_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -113,7 +113,7 @@ test("only oversized slots become references; small ones stay inline", async () 
       // input is big (externalized); output is a small constant (stays inline).
       output: { ok: "done" },
       tasks: [{ id: "work", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
   const { data: started } = await client.POST("/instances", {
     body: { process: name, input: { blob: BLOB } },
@@ -135,12 +135,12 @@ test("an externalized value is listed, and comes back whole when fetched", async
   const name = `secret_big_ctx_${crypto.randomUUID()}`;
   const secret = "S".repeat(20 * 1024); // > threshold → the leaf is externalized
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { token: { type: "string" } } },
       tasks: [{ id: "t", output: { got: "$: input.token" }, switch: [{ goto: "end" }] }],
       output: "$: outputs.t",
-    } as never,
+    } as never] },
   });
   const { data: started } = await client.POST("/instances", {
     body: { process: name, input: { token: secret } },
@@ -162,7 +162,7 @@ test("a subtree log lists a child instance's externalized payload", async () => 
   const child = `recos_child_${crypto.randomUUID()}`;
   const parent = `recos_parent_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: {
         type: "object",
@@ -170,10 +170,10 @@ test("a subtree log lists a child instance's externalized payload", async () => 
         required: ["blob"],
       },
       tasks: [{ id: "leaf", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -193,7 +193,7 @@ test("a subtree log lists a child instance's externalized payload", async () => 
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -225,7 +225,7 @@ test("a big value round-trips through a child's input and output back to the par
   const child = `bv_rt_child_${crypto.randomUUID()}`;
   const parent = `bv_rt_parent_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: {
         type: "object",
@@ -235,10 +235,10 @@ test("a big value round-trips through a child's input and output back to the par
       // The child returns the big value it received straight back in its output.
       output: { echo: "$: input.blob" },
       tasks: [{ id: "leaf", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -270,7 +270,7 @@ test("a big value round-trips through a child's input and output back to the par
       // …and surface it again as the parent's own output.
       output: { echo: "$: outputs.spawn.echo" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -297,11 +297,11 @@ test("a big value round-trips through a child's input and output back to the par
 test("objects — absent when nothing is externalized, and a 404 for a ref that is not there", async () => {
   const name = `objects_shape_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [{ id: "t", output: { small: "inline" }, switch: [{ goto: "end" }] }],
       output: "$: outputs.t",
-    } as never,
+    } as never] },
   });
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   await waitForInstance(started!.id);
@@ -325,7 +325,7 @@ test("objects — absent when nothing is externalized, and a 404 for a ref that 
 test("a copied slot keeps its reference rather than being loaded and rewritten", async () => {
   const name = `bv_copy_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -335,7 +335,7 @@ test("a copied slot keeps its reference rather than being loaded and rewritten",
       // The process output COPIES task a's output whole -- it never reads into it.
       output: { final: "$: outputs.a" },
       tasks: [{ id: "a", output: { kept: "$: input.blob" }, switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
   const { data: started } = await client.POST("/instances", {
     body: { process: name, input: { blob: BLOB } },

@@ -9,7 +9,7 @@ test("map — child_list fans out over a reshaped array", async () => {
 
   // The leaf takes {sku, qty}: a different shape from the parent's rows.
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leaf,
       input_schema: {
         type: "object",
@@ -18,11 +18,11 @@ test("map — child_list fans out over a reshaped array", async () => {
       },
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { line: "${ input.sku }x${ input.qty }" },
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -60,7 +60,7 @@ test("map — child_list fans out over a reshaped array", async () => {
         },
       ],
       output: { lines: "$: outputs.spread.lines" },
-    },
+    }] },
   });
 
   const { data: startData, error: startError } = await client.POST("/instances", {
@@ -87,7 +87,7 @@ test("map — child_list fans out over a reshaped array", async () => {
 test("map — a bad field in the lambda body is rejected at registration", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const res = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `map_badfield_${uid}`,
       input_schema: {
         type: "object",
@@ -105,7 +105,7 @@ test("map — a bad field in the lambda body is rejected at registration", async
       },
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { bad: "$: map(input.rows, r => r.code + r.nope)" },
-    },
+    }] },
   });
   expect(res.response.status).toBe(400);
 });
@@ -128,22 +128,22 @@ test("map — a nullable source is rejected, and ?? [] fixes it", async () => {
   };
 
   const bad = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `map_nullsrc_${uid}`,
       input_schema: inputSchema,
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { codes: "$: map(input.rows, r => r.code)" },
-    },
+    }] },
   });
   expect(bad.response.status).toBe(400);
 
   const good = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `map_nullsrc_ok_${uid}`,
       input_schema: inputSchema,
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { codes: "$: map(input.rows ?? [], r => r.code)" },
-    },
+    }] },
   });
   expect(good.response.status).toBe(200);
 });

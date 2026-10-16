@@ -35,7 +35,7 @@ async function startWorker(env: Record<string, string | undefined>): Promise<Chi
 }
 
 beforeAll(async () => {
-  const { error } = await client.PUT("/definitions", { body: script });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [script] } });
   expect(error, `the playground's script.yaml no longer registers: ${JSON.stringify(error)}`).toBeUndefined();
 
   // TASK and PROCESS are left to their defaults on purpose: the tests at the end check them.
@@ -65,7 +65,7 @@ async function callScript(name: string, code: string, caller: Record<string, unk
       switch: [{ goto: "end" }],
     });
   }
-  const { error } = await client.PUT("/definitions", { body: { name, tasks } as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [{ name, tasks } as never] } });
   expect(error, `put ${name} failed: ${JSON.stringify(error)}`).toBeUndefined();
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   const status = await waitForInstance(started!.id, 30_000);
@@ -125,7 +125,7 @@ test("script child — script_threw's name and text both reach a caller that dec
 
 test("script child — a caller declaring a slot script_threw never sets is refused", async () => {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `script_child_bad_${crypto.randomUUID()}`,
       tasks: [
         {
@@ -145,7 +145,7 @@ test("script child — a caller declaring a slot script_threw never sets is refu
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(
     JSON.stringify(error),
@@ -167,7 +167,7 @@ test("script child — a broken script panics rather than raising something catc
 
 async function parkOne(name: string, taskId: string): Promise<string> {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -176,7 +176,7 @@ async function parkOne(name: string, taskId: string): Promise<string> {
           switch: [{ goto: "end" }],
         },
       ],
-    } as never,
+    } as never] },
   });
   expect(error, `put ${name} failed: ${JSON.stringify(error)}`).toBeUndefined();
   const { data: started } = await client.POST("/instances", { body: { process: name } });

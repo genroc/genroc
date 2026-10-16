@@ -213,7 +213,7 @@ async function benchEngine(
     try {
       for (const def of DEFS) {
         const { error } = await loader.client.PUT("/definitions", {
-          body: def as never,
+          body: { definitions: [def as never] },
         });
         if (error) throw new Error(`register failed: ${JSON.stringify(error)}`);
       }

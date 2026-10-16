@@ -8,7 +8,7 @@ test("process-level $defs are shared by input_schema and result_schemas", async 
 
   const name = `shared_defs_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       $defs: {
         User: {
@@ -44,7 +44,7 @@ test("process-level $defs are shared by input_schema and result_schemas", async 
       ],
       output: { who: "$: outputs.fetch.who", requester: "$: input.requester.name" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(error).toBeUndefined();
 
@@ -69,7 +69,7 @@ test("process-level $defs are shared by input_schema and result_schemas", async 
 test("input_schema as a bare $ref to a def named 'input' works", async () => {
   const name = `shared_defs_bare_ref_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       $defs: {
         input: {
@@ -85,7 +85,7 @@ test("input_schema as a bare $ref to a def named 'input' works", async () => {
       tasks: [{ id: "route", output: "$: input.blob", switch: "end" }],
       output: "$: outputs.route",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(error).toBeUndefined();
 
@@ -109,7 +109,7 @@ test("$defs colliding with generated schema names are safely renamed", async () 
 
   const name = `shared_defs_renamed_${crypto.randomUUID()}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       $defs: {
         fetch_output: { type: "object", properties: { n: { type: "integer" } }, required: ["n"] },
@@ -133,7 +133,7 @@ test("$defs colliding with generated schema names are safely renamed", async () 
       ],
       output: { num: "$: outputs.fetch.num" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(error).toBeUndefined();
 

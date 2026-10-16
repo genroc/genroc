@@ -21,7 +21,7 @@ function nullableOutput(name: string, outputSchema: Record<string, unknown>) {
 
 async function run(def: object, input: Record<string, unknown>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: putErr } = await client.PUT("/definitions", { body: def as any });
+  const { error: putErr } = await client.PUT("/definitions", { body: { definitions: [def as any] } });
   expect(putErr).toBeUndefined();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const name = (def as any).name;
@@ -99,7 +99,7 @@ test("a declaration that matches exactly changes nothing", async () => {
 test("a body that sets a key its declaration does not name is refused at registration", async () => {
   const name = `decl_reject_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [
         {
@@ -118,7 +118,7 @@ test("a body that sets a key its declaration does not name is refused at registr
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(JSON.stringify(error ?? {})).toContain("amont");
 });
@@ -126,7 +126,7 @@ test("a body that sets a key its declaration does not name is refused at registr
 test("additionalProperties in a declared schema is refused at registration", async () => {
   const name = `decl_ap_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: [{ id: "only", switch: "end" }],
       output: { a: 1 },
@@ -136,7 +136,7 @@ test("additionalProperties in a declared schema is refused at registration", asy
         additionalProperties: { type: "string" },
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(JSON.stringify(error ?? {})).toContain("additionalProperties");
 });
@@ -147,7 +147,7 @@ test("child_list conforms each element, repairing one without disturbing the oth
 
   // The child echoes what it was sent, so the parent's output shows what each child received.
   const { error: childErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: {
         type: "object",
@@ -156,12 +156,12 @@ test("child_list conforms each element, repairing one without disturbing the oth
       tasks: [{ id: "only", switch: "end" }],
       output: { seen: "$: input" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(childErr).toBeUndefined();
 
   const { error: parentErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -202,7 +202,7 @@ test("child_list conforms each element, repairing one without disturbing the oth
       ],
       output: { got: "$: outputs.fan" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(parentErr).toBeUndefined();
 
@@ -226,7 +226,7 @@ test("child_list conforms each element, repairing one without disturbing the oth
 test("a declaration that does not fit the child is refused, naming both sides", async () => {
   const child = `decl_fit_child_${crypto.randomUUID().slice(0, 8)}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: {
         type: "object",
@@ -235,11 +235,11 @@ test("a declaration that does not fit the child is refused, naming both sides", 
       },
       tasks: [{ id: "only", switch: "end" }],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: `decl_fit_${crypto.randomUUID().slice(0, 8)}`,
       tasks: [
         {
@@ -261,7 +261,7 @@ test("a declaration that does not fit the child is refused, naming both sides", 
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(JSON.stringify(error ?? {})).toContain("input_schema");
 });
@@ -271,19 +271,19 @@ test("a declaration that does not fit the child is refused, naming both sides", 
 test("a nullable input a declaration repairs is accepted against a child that forbids null", async () => {
   const child = `decl_rep_child_${crypto.randomUUID().slice(0, 8)}`;
   const { error: childErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: { type: "object", properties: { discount: { type: "number" } } },
       tasks: [{ id: "only", switch: "end" }],
       output: { seen: "$: input" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(childErr).toBeUndefined();
 
   const parent = `decl_rep_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -311,7 +311,7 @@ test("a nullable input a declaration repairs is accepted against a child that fo
       ],
       output: { got: "$: outputs.call" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(error).toBeUndefined();
 
@@ -334,7 +334,7 @@ test("a fetch body drops an optional null before the request is sent", async () 
   const mock = await startMockService(0, { response: { ok: true } });
   const name = `decl_body_rt_${crypto.randomUUID().slice(0, 8)}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
       tasks: [
@@ -354,7 +354,7 @@ test("a fetch body drops an optional null before the request is sent", async () 
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 
@@ -375,7 +375,7 @@ test("a declared query and the null-omit rule agree on what is sent", async () =
   const mock = await startMockService(0, { response: { ok: true } });
   const name = `decl_query_rt_${crypto.randomUUID().slice(0, 8)}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
       tasks: [
@@ -395,7 +395,7 @@ test("a declared query and the null-omit rule agree on what is sent", async () =
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   const { data } = await client.POST("/instances", { body: { process: name, input: { n: null } } });
   expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
@@ -406,7 +406,7 @@ test("a declared query and the null-omit rule agree on what is sent", async () =
 test("an external input snapshot is conformed before a worker ever sees it", async () => {
   const name = `decl_ext_rt_${crypto.randomUUID().slice(0, 8)}`;
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
       tasks: [
@@ -424,7 +424,7 @@ test("an external input snapshot is conformed before a worker ever sees it", asy
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   const { data } = await client.POST("/instances", { body: { process: name, input: { n: null } } });
   const parked = await waitForParked(data!.id);
@@ -438,7 +438,7 @@ test("an external input snapshot is conformed before a worker ever sees it", asy
 test("a task output is conformed, and what later tasks read is the repaired value", async () => {
   const name = `decl_task_rt_${crypto.randomUUID().slice(0, 8)}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
       tasks: [
@@ -455,7 +455,7 @@ test("a task output is conformed, and what later tasks read is the repaired valu
       ],
       output: { got: "$: outputs.first" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 
@@ -490,13 +490,13 @@ test("a required nullable property the shape never sets is written in as null", 
 test("a child_map entry conforms its own input, per entry", async () => {
   const child = `decl_cm_child_${crypto.randomUUID().slice(0, 8)}`;
   const { error: childErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: child,
       input_schema: { type: "object", properties: { discount: { type: "number" } } },
       tasks: [{ id: "only", switch: "end" }],
       output: { seen: "$: input" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(childErr).toBeUndefined();
 
@@ -508,7 +508,7 @@ test("a child_map entry conforms its own input, per entry", async () => {
   };
   const parent = `decl_cm_${crypto.randomUUID().slice(0, 8)}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
       tasks: [
@@ -533,7 +533,7 @@ test("a child_map entry conforms its own input, per entry", async () => {
       ],
       output: { got: "$: outputs.fan" },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 

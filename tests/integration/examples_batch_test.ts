@@ -74,7 +74,7 @@ async function startBillingService() {
 // Children before the parent, so the parent's child references resolve at registration.
 async function applyExample() {
   for (const def of [invoice, rate, run]) {
-    const { error } = await client.PUT("/definitions", { body: def as never });
+    const { error } = await client.PUT("/definitions", { body: { definitions: [def as never] } });
     expect(error).toBeUndefined();
   }
 }

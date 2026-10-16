@@ -21,7 +21,7 @@ const BLOB = "B".repeat(20 * 1024);
 
 async function defineChild(name: string) {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -30,7 +30,7 @@ async function defineChild(name: string) {
       },
       output: { got: "$: input.blob" },
       tasks: [{ id: "leaf", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 }
 
@@ -43,7 +43,7 @@ test("child — a copied input slot is materialized at the boundary", async () =
   const parent = `cmk_parent_${crypto.randomUUID()}`;
   await defineChild(child);
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -58,7 +58,7 @@ test("child — a copied input slot is materialized at the boundary", async () =
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -75,7 +75,7 @@ test("child_map — a copied input slot is materialized at the boundary", async 
   const parent = `cmk_m_parent_${crypto.randomUUID()}`;
   await defineChild(child);
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -93,7 +93,7 @@ test("child_map — a copied input slot is materialized at the boundary", async 
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: started } = await client.POST("/instances", {
@@ -110,7 +110,7 @@ test("child_list — copied fan-out elements are materialized at the boundary", 
   const parent = `cmk_l_parent_${crypto.randomUUID()}`;
   await defineChild(child);
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -126,7 +126,7 @@ test("child_list — copied fan-out elements are materialized at the boundary", 
         },
       ],
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
 
   const { data: started } = await client.POST("/instances", {

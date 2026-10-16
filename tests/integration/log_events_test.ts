@@ -5,7 +5,7 @@ const proc = `log_io_${crypto.randomUUID()}`;
 
 async function defineProc() {
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: proc,
       input_schema: {
         type: "object",
@@ -14,7 +14,7 @@ async function defineProc() {
       },
       output: { greeting: "$: input.name" },
       tasks: [{ id: "work", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 }
 

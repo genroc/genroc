@@ -15,7 +15,7 @@ test("numbers — large integers survive a round trip untouched", async () => {
   const name = `numpass_${uid}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -24,7 +24,7 @@ test("numbers — large integers survive a round trip untouched", async () => {
       },
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { id: "$: input.id", amount: "$: input.amount" },
-    },
+    }] },
   });
 
   // 9007199254740993 is 2^53+1 — the smallest integer float64 cannot represent.
@@ -49,7 +49,7 @@ test("numbers — decimal arithmetic is exact", async () => {
   const name = `nummath_${uid}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       input_schema: {
         type: "object",
@@ -63,7 +63,7 @@ test("numbers — decimal arithmetic is exact", async () => {
         bigPlusOne: "$: input.big + 1",
         money: "$: input.a * 3",
       },
-    },
+    }] },
   });
 
   const started = await fetch(`${BASE_URL}/api/instances`, {

@@ -20,7 +20,7 @@ test("retry failed instance — resumes from the failed task", async () => {
 
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -34,7 +34,7 @@ test("retry failed instance — resumes from the failed task", async () => {
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await client.POST("/instances", { body: { process: name } });
@@ -70,7 +70,7 @@ test("retry on a paused instance — rejected, pointing at resume", async () => 
 
   try {
     await genroc.client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -84,7 +84,7 @@ test("retry on a paused instance — rejected, pointing at resume", async () => 
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await genroc.client.POST("/instances", { body: { process: name } });
@@ -123,7 +123,7 @@ test("retry only_once task — rejected without force, allowed with force", asyn
 
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         tasks: [
           {
@@ -133,7 +133,7 @@ test("retry only_once task — rejected without force, allowed with force", asyn
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await client.POST("/instances", { body: { process: name } });
@@ -169,7 +169,7 @@ test("retry and pause on non-root instance — rejected naming the root", async 
 
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: leafName,
         tasks: [
           {
@@ -178,10 +178,10 @@ test("retry and pause on non-root instance — rejected naming the root", async 
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: rootName,
         tasks: [
           {
@@ -190,7 +190,7 @@ test("retry and pause on non-root instance — rejected naming the root", async 
             switch: [{ goto: "end" }],
           },
         ],
-      },
+      }] },
     });
 
     const { data: startData } = await client.POST("/instances", { body: { process: rootName } });
@@ -229,7 +229,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
 
   try {
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: goodName,
         tasks: [
           {
@@ -239,10 +239,10 @@ test("retry with parallel children — only the failed child re-runs", async () 
           },
         ],
         output: { slot: "good" },
-      },
+      }] },
     });
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: badName,
         tasks: [
           {
@@ -252,10 +252,10 @@ test("retry with parallel children — only the failed child re-runs", async () 
           },
         ],
         output: { slot: "bad" },
-      },
+      }] },
     });
     await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: rootName,
         tasks: [
           {
@@ -272,7 +272,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
           },
         ],
         output: { kids: "$: outputs.fanout" },
-      },
+      }] },
     });
 
     const { data: startData } = await client.POST("/instances", { body: { process: rootName } });
@@ -334,7 +334,7 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
   const port = mock.port;
   try {
     const { error: childErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: childName,
         tasks: [
           {
@@ -352,12 +352,12 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
           },
         ],
         output: { reached: true },
-      } as never,
+      } as never] },
     });
     expect(childErr).toBeUndefined();
 
     const { error: rootErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: rootName,
         tasks: [
           {
@@ -368,7 +368,7 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
           },
         ],
         output: { kid: "$: outputs.run" },
-      } as never,
+      } as never] },
     });
     expect(rootErr).toBeUndefined();
 
@@ -412,7 +412,7 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
   const mock = await startMockService(0, { statusCode: 503 });
   try {
     const { error: childErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: childName,
         tasks: [
           {
@@ -430,12 +430,12 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
           },
         ],
         output: { reached: true },
-      } as never,
+      } as never] },
     });
     expect(childErr).toBeUndefined();
 
     const { error: rootErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: rootName,
         tasks: [
           {
@@ -448,7 +448,7 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
           { id: "gave_up", output: { gave_up: true }, switch: [{ goto: "end" }] },
         ],
         output: "$: outputs.gave_up",
-      } as never,
+      } as never] },
     });
     expect(rootErr).toBeUndefined();
 
@@ -481,7 +481,7 @@ test("child task retry — one slot retries while its completed sibling stands",
       [flakyName, flakyMock.port, true],
     ] as const) {
       const { error } = await client.PUT("/definitions", {
-        body: {
+        body: { definitions: [{
           name,
           tasks: [
             {
@@ -495,13 +495,13 @@ test("child task retry — one slot retries while its completed sibling stands",
             },
           ],
           output: { from: name },
-        } as never,
+        } as never] },
       });
       expect(error).toBeUndefined();
     }
 
     const { error: rootErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name: rootName,
         tasks: [
           {
@@ -520,7 +520,7 @@ test("child task retry — one slot retries while its completed sibling stands",
           { id: "gave_up", output: { gave_up: true }, switch: [{ goto: "end" }] },
         ],
         output: "$: outputs.gave_up",
-      } as never,
+      } as never] },
     });
     expect(rootErr).toBeUndefined();
 

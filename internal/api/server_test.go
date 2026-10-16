@@ -133,8 +133,8 @@ func TestListenHTTP_ShutsDownImmediatelyWhenIdle(t *testing.T) {
 	}
 }
 
-// putDefinition submits body to PUT /definitions and returns the status and reply.
-func putDefinition(t *testing.T, addr, body string) (int, string) {
+// putDefinitions submits body to PUT /definitions and returns the status and reply.
+func putDefinitions(t *testing.T, addr, body string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPut, "http://"+addr+"/api/definitions", strings.NewReader(body))
 	if err != nil {
@@ -153,14 +153,14 @@ func putDefinition(t *testing.T, addr, body string) (int, string) {
 // oversizedDefinition is valid apart from its size, so a rejection can only be the cap.
 func oversizedDefinition(pad int) string {
 	return fmt.Sprintf(
-		`{"name":"size_probe","tasks":[{"id":"t","action":{"type":"fetch","method":"post","url":"http://127.0.0.1:1/%s"},"switch":"end"}]}`,
+		`{"definitions":[{"name":"size_probe","tasks":[{"id":"t","action":{"type":"fetch","method":"post","url":"http://127.0.0.1:1/%s"},"switch":"end"}]}]}`,
 		strings.Repeat("x", pad))
 }
 
 func TestListenHTTP_RejectsAnOversizedRequestBody(t *testing.T) {
 	addr, _ := startTestServer(t, nil)
 
-	status, body := putDefinition(t, addr, oversizedDefinition(maxRequestBytes))
+	status, body := putDefinitions(t, addr, oversizedDefinition(maxRequestBytes))
 
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body: %.200s", status, body)
@@ -178,7 +178,7 @@ func TestListenHTTP_RejectsAnOversizedRequestBody(t *testing.T) {
 func TestListenHTTP_AcceptsABodyUnderTheCap(t *testing.T) {
 	addr, _ := startTestServer(t, nil)
 
-	status, body := putDefinition(t, addr, oversizedDefinition(maxRequestBytes/2))
+	status, body := putDefinitions(t, addr, oversizedDefinition(maxRequestBytes/2))
 
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %.200s", status, body)

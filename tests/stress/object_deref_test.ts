@@ -50,7 +50,7 @@ test("a released context object is carried by its release mark, and every claim 
   try {
     const name = `obj_deref_${Date.now()}`;
     const { error: defErr } = await client.PUT("/definitions", {
-      body: {
+      body: { definitions: [{
         name,
         input_schema: {
           type: "object",
@@ -78,7 +78,7 @@ test("a released context object is carried by its release mark, and every claim 
             ],
           },
         ],
-      } as never,
+      } as never] },
     });
     expect(defErr, `register failed: ${JSON.stringify(defErr)}`).toBeUndefined();
 

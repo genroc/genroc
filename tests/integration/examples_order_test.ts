@@ -101,7 +101,7 @@ async function startCommerceService(opts: CommerceOptions = {}) {
 type ApiClient = typeof client;
 
 async function applyExample(api: ApiClient = client) {
-  const { error } = await api.PUT("/definitions", { body: order as never });
+  const { error } = await api.PUT("/definitions", { body: { definitions: [order as never] } });
   expect(error).toBeUndefined();
 }
 

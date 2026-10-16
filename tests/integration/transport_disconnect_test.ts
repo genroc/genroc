@@ -29,7 +29,7 @@ async function startVanishingRemote() {
 }
 
 async function runToCompletion(name: string, task: Record<string, unknown>) {
-  const { error } = await client.PUT("/definitions", { body: { name, tasks: [task] } as never });
+  const { error } = await client.PUT("/definitions", { body: { definitions: [{ name, tasks: [task] } as never] } });
   if (error) throw new Error(`register failed: ${JSON.stringify(error)}`);
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   const id = started!.id;

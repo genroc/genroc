@@ -7,7 +7,7 @@ import { waitForParked } from "../helpers/external.ts";
 
 async function define(name: string, tasks?: unknown[]) {
   const { error } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       tasks: (tasks ?? [
         {
@@ -17,7 +17,7 @@ async function define(name: string, tasks?: unknown[]) {
           switch: [{ goto: "end" }],
         },
       ]) as never,
-    },
+    }] },
   });
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
@@ -145,7 +145,7 @@ test("cancel takes the whole tree, and is refused on a descendant", async () => 
   await define(child);
   const parent = `cancel_parent_${crypto.randomUUID()}`;
   const { error: defErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -154,7 +154,7 @@ test("cancel takes the whole tree, and is refused on a descendant", async () => 
           switch: [{ goto: "end" }],
         },
       ] as never,
-    },
+    }] },
   });
   if (defErr) throw new Error(`put parent failed: ${JSON.stringify(defErr)}`);
 

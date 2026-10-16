@@ -8,7 +8,7 @@ test("child — result is the child's output unwrapped (not keyed)", async () =>
 
   // Leaf echoes its input number back as { value: n }.
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leaf,
       input_schema: {
         type: "object",
@@ -17,11 +17,11 @@ test("child — result is the child's output unwrapped (not keyed)", async () =>
       },
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
       output: { value: "$: input.n" },
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       input_schema: {
         type: "object",
@@ -48,7 +48,7 @@ test("child — result is the child's output unwrapped (not keyed)", async () =>
         },
       ],
       output: { got: "$: outputs.run" },
-    },
+    }] },
   });
 
   const { data, error } = await client.POST("/instances", {
@@ -73,14 +73,14 @@ test("child — output validation failure fails the parent and names the child",
   // No declared output, so registration's output-subset check is skipped; at runtime the
   // empty output cannot satisfy required: ["required_field"].
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leaf,
       tasks: [{ id: "done", switch: [{ goto: "end" }] }],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -97,7 +97,7 @@ test("child — output validation failure fails the parent and names the child",
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data, error } = await client.POST("/instances", {
@@ -119,7 +119,7 @@ test("child — parent on_error catches the child's raised code", async () => {
   const parent = `single_catcher_${uid}`;
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: leaf,
       tasks: [
         {
@@ -127,11 +127,11 @@ test("child — parent on_error catches the child's raised code", async () => {
           switch: [{ raise: { code: "card_declined", message: "declined" } }],
         },
       ],
-    },
+    }] },
   });
 
   await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name: parent,
       tasks: [
         {
@@ -141,7 +141,7 @@ test("child — parent on_error catches the child's raised code", async () => {
           switch: [{ goto: "end" }],
         },
       ],
-    },
+    }] },
   });
 
   const { data, error } = await client.POST("/instances", {

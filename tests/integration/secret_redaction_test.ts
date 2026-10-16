@@ -6,7 +6,7 @@ import { client, waitForInstance } from "../helpers/client.ts";
 test("a secret config value is returned by the API, not redacted", async () => {
   const name = `secret_redact_${crypto.randomUUID()}`;
   const { error: putErr } = await client.PUT("/definitions", {
-    body: {
+    body: { definitions: [{
       name,
       config_schema: {
         type: "object",
@@ -19,7 +19,7 @@ test("a secret config value is returned by the API, not redacted", async () => {
         note: "public value",
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as any] },
   });
   expect(putErr).toBeUndefined();
 
