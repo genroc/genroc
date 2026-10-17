@@ -315,6 +315,20 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 	})
 }
 
+// refuseInTransition: an -ing root takes no new verb until it settles. A verb landing mid-way
+// would race the settle that ends the transition. specs/pause-resume.md §8.
+func refuseInTransition(root model.Status) error {
+	settles := map[model.Status]model.Status{
+		model.StatusPausing: model.StatusPaused, model.StatusFailing: model.StatusFailed,
+		model.StatusCancelling: model.StatusCancelled,
+	}[root]
+	if settles == "" {
+		return nil
+	}
+	return fmt.Errorf("process is %s, which is a transition: wait until it is %s, then try again: %w",
+		root, settles, ErrConflict)
+}
+
 // treeRow is one row a tree-wide stop wrote, and the status it wrote.
 type treeRow struct{ ID, Status string }
 
@@ -358,6 +372,12 @@ func (db *DB) stopTree(ctx context.Context, id, actor string, v stopVerb) (Lifec
 		// cancel there would leave the retried parent waiting on cancelled children.
 		if rootStatus.Terminal() {
 			return nil
+		}
+		// Asking again for the stop under way is not a new verb; any other transition is.
+		if rootStatus != v.draining {
+			if err := refuseInTransition(rootStatus); err != nil {
+				return err
+			}
 		}
 		if rows, err = v.update(ctx, qtx, id, nowMillis()); err != nil {
 			return fmt.Errorf("%s process: %w", v.op, err)
@@ -463,8 +483,8 @@ func (db *DB) logInstances(ids []string, event, msg, actor string) {
 }
 
 // ResumeProcess atomically un-suspends a paused tree — a plain status flip, since PauseProcess
-// preserved everything else. 'pausing' rows are included, so a resume before a pause landed
-// un-requests it. A failing or failed root is refused: its paused rows wait for a retry.
+// preserved everything else. A tree still in transition is refused until it settles, and a failed
+// one outright: its paused rows wait for a retry.
 func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -480,7 +500,7 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		if err := db.lockTree(ctx, exec, `id`, `status IN ('paused', 'pausing')`, func(rows *sql.Rows) error {
+		if err := db.lockTree(ctx, exec, `id`, `status = 'paused'`, func(rows *sql.Rows) error {
 			var rowID string
 			if err := rows.Scan(&rowID); err != nil {
 				return err
@@ -498,15 +518,12 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 			return fmt.Errorf("read root status: %w", err)
 		}
 		rootStatus := model.Status(status)
+		if err := refuseInTransition(rootStatus); err != nil {
+			return err
+		}
 		// Resuming these would run siblings under a parent that can no longer collect them.
-		switch rootStatus {
-		case model.StatusFailing:
-			return fmt.Errorf("process is failing and settles to failed once its in-flight tasks land; "+
-				"retry it then, which resumes its paused branches too: %w", ErrConflict)
-		case model.StatusFailed:
-			if len(resumed) > 0 {
-				return fmt.Errorf("process failed; retry it, which resumes its paused branches too: %w", ErrConflict)
-			}
+		if rootStatus == model.StatusFailed && len(resumed) > 0 {
+			return fmt.Errorf("process failed; retry it, which resumes its paused branches too: %w", ErrConflict)
 		}
 
 		if len(resumed) == 0 {
@@ -574,7 +591,7 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	return db.stopTree(ctx, id, actor, stopVerb{
 		op: "cancel", draining: model.StatusCancelling, stopped: model.StatusCancelled,
-		lockWhere: `status IN ('running', 'failing', 'pausing', 'paused')`,
+		lockWhere: `status IN ('running', 'paused')`,
 		requested: model.EventCancelRequested, stoppedEvent: model.EventCancelled, drainingEvent: model.EventCancelling,
 		update: func(ctx context.Context, qtx *dbgen.Queries, root string, now int64) ([]treeRow, error) {
 			rows, err := qtx.CancelTree(ctx, dbgen.CancelTreeParams{Root: root, UpdatedAt: now})
@@ -599,8 +616,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		return LifecycleResult{}, err
 	}
 	if status := model.Status(rootRow.Status); status != model.StatusFailed {
-		if status == model.StatusPaused || status == model.StatusPausing {
-			return LifecycleResult{}, fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
+		if status == model.StatusPausing || status == model.StatusFailing {
+			return LifecycleResult{}, refuseInTransition(status)
+		}
+		if status == model.StatusPaused {
+			return LifecycleResult{}, fmt.Errorf("process is paused, not failed; resume it instead: %w", ErrConflict)
 		}
 		// Retry revives a tree whose DEFINITION ran out of attempts; an operator's stop was
 		// never an attempt. specs/pause-resume.md.

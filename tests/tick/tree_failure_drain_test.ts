@@ -79,8 +79,8 @@ test("the root fails only once the in-flight sibling lands, and the sibling's ne
       b: "pausing",
     });
     const { error } = await ctx.env.client.POST("/instances/{id}/retry", { params: { path: { id: t.root } } });
-    expect(JSON.stringify(error), "a draining root has something in flight, so it is not retryable yet").toContain(
-      "not retryable",
+    expect(JSON.stringify(error), "a draining root is a transition, so a retry must wait for it").toContain(
+      "wait until it is failed",
     );
 
     // b's task finishes; its own write keeps the pause, so the root is still draining.
@@ -127,31 +127,32 @@ test("a sibling whose in-flight task concludes it settles the failure itself", a
   }
 });
 
-test("cancelling a draining failure stops it as cancelled, not failed", async () => {
+test("a draining failure refuses a cancel until it settles", async () => {
   const t = await heldTree({ bHasNextTask: true });
   try {
-    // The cancel takes 'failing' because a drain is when an operator reaches for it; b is held, so
-    // it and the root above it can only be asked.
-    expect(await ctx.env.cancel(t.root)).toBe("accepted");
+    // 'failing' is a transition: a cancel landing mid-way would race the settle that ends it. It
+    // would add nothing anyway — nothing new starts in a failing tree.
+    const { error } = await ctx.env.client.POST("/instances/{id}/cancel", { params: { path: { id: t.root } } });
+    expect(JSON.stringify(error)).toContain("wait until it is failed");
     expect(await ctx.env.statuses({ root: t.root, a: t.a, b: t.b })).toEqual({
-      root: "cancelling children",
-      a: "failed", // already terminal: the work really did break, and that is kept
-      b: "cancelling",
+      root: "failing children",
+      a: "failed",
+      b: "pausing",
     });
 
     t.held.release();
     await t.inFlight;
     expect(await ctx.env.tick()).toBe(1); // b's settle, which climbs to the root
     expect(await ctx.env.statuses({ root: t.root, a: t.a, b: t.b })).toEqual({
-      root: "cancelled",
+      root: "failed",
       a: "failed",
-      b: "cancelled",
+      b: "paused",
     });
+    expect(t.next.requestCount(), "a doomed sibling must not start its next task").toBe(0);
 
-    // Nothing may settle the fault over the stop: that would make a cancelled tree retryable.
-    expect(await ctx.env.tick()).toBe(0);
-    expect(await ctx.env.status(t.root)).toBe("cancelled");
-    expect(t.next.requestCount()).toBe(0);
+    // Settled, and concluded: a cancel now has nothing to stop, and the tree waits for a retry.
+    expect(await ctx.env.cancel(t.root)).toBe("unchanged");
+    expect(await ctx.env.status(t.root)).toBe("failed");
   } finally {
     t.held.release();
     await t.inFlight;

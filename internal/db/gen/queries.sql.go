@@ -27,7 +27,7 @@ SET status = CASE WHEN worker_id IS NOT NULL
                               WHERE h.root_id = ?1 AND h.worker_id IS NOT NULL)
                   THEN 'cancelling' ELSE 'cancelled' END,
     updated_at = ?2
-WHERE root_id = ?1 AND status IN ('running', 'failing', 'pausing', 'paused')
+WHERE root_id = ?1 AND status IN ('running', 'paused')
 RETURNING id, status
 `
 
@@ -41,7 +41,8 @@ type CancelTreeRow struct {
 	Status string
 }
 
-// PauseTree's split over every live status: a paused or failing tree is what a cancel disposes of.
+// PauseTree's split over a running or paused tree; an -ing root is refused before this runs, so
+// no 'pausing' or 'failing' row can be under it.
 func (q *Queries) CancelTree(ctx context.Context, arg CancelTreeParams) ([]CancelTreeRow, error) {
 	rows, err := q.db.QueryContext(ctx, cancelTree, arg.Root, arg.UpdatedAt)
 	if err != nil {
@@ -1823,12 +1824,7 @@ SET task             = ?1,
     wake_at    = ?13,
     status           = CASE WHEN status IN ('pausing', 'cancelling')
                             AND CAST(?14 AS TEXT) = 'running'
-                            THEN status
-                            WHEN CAST(?14 AS TEXT) = 'paused' AND status = 'cancelling'
-                            THEN 'cancelled'
-                            WHEN CAST(?14 AS TEXT) = 'paused' AND status = 'running'
-                            THEN status
-                            ELSE CAST(?14 AS TEXT) END,
+                            THEN status ELSE CAST(?14 AS TEXT) END,
     phase       = ?15,
     error_message    = ?16,
     error_code       = ?17,
@@ -1866,8 +1862,7 @@ type UpdateInstanceParams struct {
 }
 
 // input_data is never written. The status CASE keeps a pause/cancel that arrived mid-lease for
-// the next claim to settle; landing it here would skip the parent's settle-up. A settle's 'paused'
-// yields to a verb that came after its claim: a cancel lands, a resume stands. Moving task_epoch
+// the next claim to settle; landing it here would skip the parent's settle-up. Moving task_epoch
 // drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE so a lease-less
 // caller's unheld row still matches.
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {

@@ -128,12 +128,13 @@ rows this call wrote, both already computed. A 204 has no body.
 
 ### 202 — asked is not stopped
 
-`pause` cannot promise synchronously that a tree has stopped: a leased row goes to `pausing` and
-lands only when the worker's own write releases the lease. A second `pause` on a draining tree
-selects nothing (`status = 'running'` only), so without `CountDrainingInTree` it would report
-`unchanged` while a worker is still inside a task. Hence the promise "asked to stop and will start
-no new work", and 202 to tell asked-and-stopped from asked-and-draining. `cancel` works the same
-way. `resume` never returns 202 (a resume is atomic — pause-resume.md §7), and neither does
+`pause` cannot promise synchronously that a tree has stopped: a leased row and every row above it
+go to `pausing`, landing only once the worker's own write is settled. A second `pause` on a
+draining tree selects nothing (`status = 'running'` only), so it reads the root's own `pausing` —
+reporting `unchanged` would call a tree with a worker mid-task stopped. Hence the promise "asked
+to stop and will start no new work", and 202 to tell asked-and-stopped from asked-and-draining.
+`cancel` works the same way. Any other verb on a draining tree is a 409: it waits for the settle
+(pause-resume.md §8). `resume` never returns 202 (a resume is atomic — pause-resume.md §7), and neither does
 `retry`.
 
 ### The 204 trade

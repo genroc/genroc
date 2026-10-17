@@ -366,9 +366,9 @@ Four invariants that are easy to break:
    that lands a stop elsewhere — in the holder's write, or at spawn (children INHERIT a pending
    stop) — skips the climb, and the ancestors drain forever with nothing left to land. The split
    statement runs under `lockTree`, or a claim between its snapshot and its write stops a parent
-   over a running child. The settle's own `paused` must yield in the same CASE to a verb that
-   landed after its claim, or a cancel or resume in that window leaves a paused row under a
-   cancelled or running parent (`TestSettle_AVerbBetweenTheClaimAndTheWriteWins`).
+   over a running child. Cancel and resume refuse an `-ing` root (`refuseInTransition`), and
+   that refusal is what keeps the settle's `paused` from going stale: without it a verb between
+   the settling claim and its write strands paused rows (`TestDrainModel` fails within a run).
 2. **The settle-up's locks widen only on demand, before the first write.** `withChildTx` locks
    the child and parent, the call stack once the parent is draining, every live row for a
    failure that poisons the root; `errWiden` reruns the transaction. Widening after a write

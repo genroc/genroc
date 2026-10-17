@@ -20,8 +20,7 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
 
 - `pause` — root only; a `running` row goes to `pausing` if a worker holds it or a row below
   it, else `paused`. The root's status is the whole tree's.
-- `resume` — `paused`/`pausing` rows anywhere in the subtree go to `running`; refused on a
-  `failing`/`failed` root.
+- `resume` — `paused` rows anywhere in the subtree go to `running`; refused on a `failed` root.
 - `retry` — root only, `failed` only; resumes what the failure paused; `force` overrides
   `only_once`.
 - `cancel` — root only, terminal (§Cancel). `cancelled` is settled beside `failed`,
@@ -47,8 +46,7 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
 3. **A stop settles bottom-up, so the root reports the tree.** A held row's own write keeps
    `pausing` (the CASE in `UpdateInstance`, only where the new status is `running`, so real
    outcomes win; `UpdateInstanceProgress` does not write status). The claim predicate grants a
-   draining row whatever its `wake_at` or park, so the next claim settles it (`settlePausing`; its
-   `paused` yields to a verb landing after that claim — a cancel lands, a resume stands), and
+   draining row whatever its `wake_at` or park, so the next claim settles it (`settlePausing`), and
    `FinishChild` climbs from there: every parent whose batch has nothing busy settles in the same
    transaction (`settleUp`; paused is not busy). Settling in the holder's write instead skips the
    climb and leaves the ancestors draining forever — which is also why a spawn hands a pending stop
@@ -76,12 +74,18 @@ keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep runnin
    order every tree verb shares) and write through a statement that returns each row's outcome,
    which a row count cannot.
 
+8. **An `-ing` root is a transition, and takes no new verb until it settles** (`refuseInTransition`).
+   Pause, resume, cancel and retry answer 409 naming the status it will settle to; asking again
+   for the transition under way (pause on `pausing`, cancel on `cancelling`) is 202, so a re-run
+   sweep converges. The refusal is load-bearing: the settle writes `paused` between a claim and
+   its write, and a cancel or resume landing there would be overwritten — a paused row under a
+   cancelled or running parent. Rejected: letting the settle yield to the later verb in SQL; it
+   works, but leaves the transition with two meanings and the engine's audit naming the wrong one.
+   The cost is an operator waiting out the in-flight tasks to take back a pause or escalate it.
+
 ## Known gaps
 
-Resume has no info-level trace; attribution needs `?level=debug`. When a settle's `paused`
-yields to a cancel or resume that landed after its claim (§3), the engine's audit still reads
-"instance paused": it is written before the write that decides. The status is right; fixing the
-line needs the write to report what it landed. Migration 022's data mapping is untested (test databases never hold legacy rows).
+Resume has no info-level trace; attribution needs `?level=debug`. Migration 022's data mapping is untested (test databases never hold legacy rows).
 
 ## Cancel
 
@@ -91,8 +95,8 @@ and `settleCancelling` has `settlePausing`'s shape. A concluded root is left alo
 cancelling what a failure paused would leave a retried parent waiting on cancelled children.
 Three things differ, each because cancel is terminal where pause is reversible:
 
-1. **The selector is every live status, not `running` alone.** A paused tree is exactly what an
-   operator needs to dispose of, and a `failing` one draining a dead branch is the other.
+1. **The selector takes `paused`, not `running` alone.** A paused tree is exactly what an
+   operator needs to dispose of. A draining one waits for its settle first (§8).
 2. **A failure does not outrank a cancel** — the reverse of §4. There is no later run for the
    failure to matter to, so `FailAncestors` excludes both cancel states and the operator's stop
    stands.

@@ -98,6 +98,10 @@ You have four commands at your disposal: `pause`, `resume`, `cancel` and `retry`
 They can only be applied to root instances, and they apply to the whole
 tree. They are refused on children.
 
+`pausing`, `failing` and `cancelling` are transitions: while the root is in one, every command
+is refused until it settles, except repeating the one under way. To take back a pause or turn it
+into a cancel, wait until the tree is `paused`.
+
 ### Pause (and resume)
 
 ```sh

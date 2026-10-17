@@ -82,8 +82,7 @@ VALUES
 
 -- name: UpdateInstance :execrows
 -- input_data is never written. The status CASE keeps a pause/cancel that arrived mid-lease for
--- the next claim to settle; landing it here would skip the parent's settle-up. A settle's 'paused'
--- yields to a verb that came after its claim: a cancel lands, a resume stands. Moving task_epoch
+-- the next claim to settle; landing it here would skip the parent's settle-up. Moving task_epoch
 -- drops the external claim. Fence: CLAUDE.md, the lease fence -- COALESCE so a lease-less
 -- caller's unheld row still matches.
 UPDATE process_instances
@@ -102,12 +101,7 @@ SET task             = sqlc.arg(task),
     wake_at    = sqlc.arg(wake_at),
     status           = CASE WHEN status IN ('pausing', 'cancelling')
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
-                            THEN status
-                            WHEN CAST(sqlc.arg(status) AS TEXT) = 'paused' AND status = 'cancelling'
-                            THEN 'cancelled'
-                            WHEN CAST(sqlc.arg(status) AS TEXT) = 'paused' AND status = 'running'
-                            THEN status
-                            ELSE CAST(sqlc.arg(status) AS TEXT) END,
+                            THEN status ELSE CAST(sqlc.arg(status) AS TEXT) END,
     phase       = sqlc.arg(phase),
     error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),
@@ -296,14 +290,15 @@ WHERE root_id = sqlc.arg(root) AND status = 'running'
 RETURNING id, status;
 
 -- name: CancelTree :many
--- PauseTree's split over every live status: a paused or failing tree is what a cancel disposes of.
+-- PauseTree's split over a running or paused tree; an -ing root is refused before this runs, so
+-- no 'pausing' or 'failing' row can be under it.
 UPDATE process_instances
 SET status = CASE WHEN worker_id IS NOT NULL
                     OR id IN (SELECT a.value FROM process_instances h, json_each(h.call_stack) a
                               WHERE h.root_id = sqlc.arg(root) AND h.worker_id IS NOT NULL)
                   THEN 'cancelling' ELSE 'cancelled' END,
     updated_at = sqlc.arg(updated_at)
-WHERE root_id = sqlc.arg(root) AND status IN ('running', 'failing', 'pausing', 'paused')
+WHERE root_id = sqlc.arg(root) AND status IN ('running', 'paused')
 RETURNING id, status;
 
 -- name: NextWorkerNumber :one

@@ -3,6 +3,7 @@ package dbtest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -317,8 +318,9 @@ func TestResumeProcess_RestoresSubtree(t *testing.T) {
 	}
 }
 
-// A resume issued before a pause landed un-requests it.
-func TestResumeProcess_FlipsPausing(t *testing.T) {
+// A tree still pausing takes no new verb: a resume is refused, not folded into the drain, and once
+// the pause has settled the same resume applies.
+func TestResumeProcess_WaitsForAPendingPause(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusRunning, "", nil, "")
@@ -326,17 +328,40 @@ func TestResumeProcess_FlipsPausing(t *testing.T) {
 			if _, err := b.db.PauseProcess(context.Background(), "root", ""); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
+			_, err := b.db.ResumeProcess(context.Background(), "root", "")
+			if !errors.Is(err, dbpkg.ErrConflict) || !strings.Contains(err.Error(), "wait until it is paused") {
+				t.Fatalf("a resume of a pausing tree must be refused with the reason, got %v", err)
+			}
 			if got := mustStatus(t, b.db, "root"); got != model.StatusPausing {
-				t.Fatalf("root: expected pausing before resume, got %q", got)
+				t.Fatalf("root: a refused resume changed it to %q", got)
 			}
 
+			settlePending(t, b.db, "root", model.StatusPaused)
 			if _, err := b.db.ResumeProcess(context.Background(), "root", ""); err != nil {
-				t.Fatalf("ResumeProcess: %v", err)
+				t.Fatalf("ResumeProcess once paused: %v", err)
 			}
 			if got := mustStatus(t, b.db, "root"); got != model.StatusRunning {
 				t.Errorf("root: expected running, got %q", got)
 			}
 		})
+	}
+}
+
+// settlePending plays the held task's own write, then the claim that settles the stop it kept.
+func settlePending(t *testing.T, db *dbpkg.DB, id string, settled model.Status) {
+	t.Helper()
+	held, err := db.GetInstance(id)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	held.Status = model.StatusRunning
+	if err := db.UpdateInstance(held); err != nil {
+		t.Fatalf("the held task's write: %v", err)
+	}
+	settle := mustClaim(t, db, id, "a kept stop must reach a worker")
+	settle.Status = settled
+	if err := db.FinishChild(settle); err != nil {
+		t.Fatalf("settle: %v", err)
 	}
 }
 
@@ -355,8 +380,10 @@ func TestResumeProcess_RefusesAFailedTree(t *testing.T) {
 				if !errors.Is(err, dbpkg.ErrConflict) {
 					t.Fatalf("%s root: expected ErrConflict, got %v", root, err)
 				}
-				if !strings.Contains(err.Error(), "retry") {
-					t.Errorf("%s root: the refusal must point at retry, got %q", root, err)
+				// A failing root is still in transition, so it is told to wait; a failed one, to retry.
+				want := map[model.Status]string{model.StatusFailing: "wait until it is failed", model.StatusFailed: "retry"}[root]
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%s root: the refusal must say %q, got %q", root, want, err)
 				}
 				if got := mustStatus(t, b.db, id+"-paused"); got != model.StatusPaused {
 					t.Errorf("%s root: a refused resume still flipped the paused sibling: %q", root, got)
@@ -721,9 +748,9 @@ func TestRetryProcess_NonRetryableStatuses(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			for status, wantMsg := range map[model.Status]string{
 				model.StatusRunning:   "not retryable",
-				model.StatusFailing:   "not retryable",
+				model.StatusFailing:   "wait until it is failed",
 				model.StatusCompleted: "not retryable",
-				model.StatusPausing:   "resume it instead",
+				model.StatusPausing:   "wait until it is paused",
 				model.StatusPaused:    "resume it instead",
 			} {
 				id := "inst-" + string(status)
@@ -1767,9 +1794,10 @@ func TestRespawnSlotsAndWait_InheritsAPendingPause(t *testing.T) {
 	}
 }
 
-// A verb landing between the settling claim and its write. The settle writes 'paused' for the pause
-// it saw; it must not overwrite a newer decision: a cancel lands instead, a resume stands.
-func TestSettle_AVerbBetweenTheClaimAndTheWriteWins(t *testing.T) {
+// A verb cannot land between the settling claim and its write: while the tree is pausing, cancel
+// and resume are refused and change nothing, so the settle's 'paused' is never stale. Once it has
+// landed, both apply.
+func TestSettle_NoVerbLandsWhileATreeIsPausing(t *testing.T) {
 	for _, verb := range []string{"cancel", "resume"} {
 		for _, b := range testBackends(t) {
 			t.Run(b.name+"/"+verb, func(t *testing.T) {
@@ -1786,31 +1814,88 @@ func TestSettle_AVerbBetweenTheClaimAndTheWriteWins(t *testing.T) {
 				}
 				settle := mustClaim(t, b.db, "leaf", "the kept pause must reach a worker")
 
-				var want model.Status
-				switch verb {
-				case "cancel":
-					if _, err := b.db.CancelProcess(ctx, "root", ""); err != nil {
-						t.Fatalf("CancelProcess: %v", err)
+				do := func() error {
+					if verb == "cancel" {
+						_, err := b.db.CancelProcess(ctx, "root", "")
+						return err
 					}
-					want = model.StatusCancelled
-				default:
-					if _, err := b.db.ResumeProcess(ctx, "root", ""); err != nil {
-						t.Fatalf("ResumeProcess: %v", err)
+					_, err := b.db.ResumeProcess(ctx, "root", "")
+					return err
+				}
+				if err := do(); !errors.Is(err, dbpkg.ErrConflict) {
+					t.Fatalf("a %s inside the settle window must be refused, got %v", verb, err)
+				}
+				for id, want := range map[string]model.Status{"root": model.StatusPausing, "leaf": model.StatusPausing} {
+					if got := mustStatus(t, b.db, id); got != want {
+						t.Errorf("%s: a refused %s changed it to %q", id, verb, got)
 					}
-					want = model.StatusRunning
 				}
 
-				settle.Status = model.StatusPaused // what settlePausing writes, unaware of the verb
+				settle.Status = model.StatusPaused
 				if err := b.db.FinishChild(settle); err != nil {
 					t.Fatalf("FinishChild: %v", err)
 				}
-				if got := mustStatus(t, b.db, "leaf"); got != want {
-					t.Errorf("leaf: the %s in the window was overwritten: got %q, want %q", verb, got, want)
+				if got := mustStatus(t, b.db, "root"); got != model.StatusPaused {
+					t.Fatalf("root: expected paused once the leaf settled, got %q", got)
 				}
-				if got := mustStatus(t, b.db, "root"); got != want {
-					t.Errorf("root: expected %q after the %s, got %q", want, verb, got)
+				if err := do(); err != nil {
+					t.Fatalf("the %s once settled: %v", verb, err)
+				}
+				want := map[string]model.Status{"cancel": model.StatusCancelled, "resume": model.StatusRunning}[verb]
+				for _, id := range []string{"root", "leaf"} {
+					if got := mustStatus(t, b.db, id); got != want {
+						t.Errorf("%s: expected %q after the %s, got %q", id, want, verb, got)
+					}
 				}
 			})
 		}
+	}
+}
+
+// An -ing root is a transition: every verb waits for it to settle, except the one asking again for
+// the transition already under way, which is accepted so a re-run sweep converges.
+func TestVerbsWaitForATreeInTransition(t *testing.T) {
+	type verb struct {
+		name string
+		do   func(*dbpkg.DB, string) (dbpkg.LifecycleResult, error)
+	}
+	verbs := []verb{
+		{"pause", func(d *dbpkg.DB, id string) (dbpkg.LifecycleResult, error) {
+			return d.PauseProcess(context.Background(), id, "")
+		}},
+		{"resume", func(d *dbpkg.DB, id string) (dbpkg.LifecycleResult, error) {
+			return d.ResumeProcess(context.Background(), id, "")
+		}},
+		{"cancel", func(d *dbpkg.DB, id string) (dbpkg.LifecycleResult, error) {
+			return d.CancelProcess(context.Background(), id, "")
+		}},
+		{"retry", func(d *dbpkg.DB, id string) (dbpkg.LifecycleResult, error) {
+			return d.RetryProcess(context.Background(), id, false, "")
+		}},
+	}
+	again := map[model.Status]string{model.StatusPausing: "pause", model.StatusCancelling: "cancel"}
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			for _, root := range []model.Status{model.StatusPausing, model.StatusFailing, model.StatusCancelling} {
+				for _, v := range verbs {
+					id := fmt.Sprintf("%s-%s", root, v.name)
+					insertInstW(t, b.db, id, root, model.PhaseChildren, "", nil, "")
+					insertChild(t, b.db, id+"-kid", root, id, "step1", []string{id}, "")
+					res, err := v.do(b.db, id)
+					if again[root] == v.name {
+						if err != nil || res.Outcome != model.OutcomeAccepted {
+							t.Errorf("%s on a %s tree asks for what is under way: want accepted, got %v %v", v.name, root, res.Outcome, err)
+						}
+					} else if !errors.Is(err, dbpkg.ErrConflict) {
+						t.Errorf("%s on a %s tree must wait for it to settle, got %v", v.name, root, err)
+					}
+					for _, row := range []string{id, id + "-kid"} {
+						if got := mustStatus(t, b.db, row); got != root {
+							t.Errorf("%s on a %s tree changed %s to %q", v.name, root, row, got)
+						}
+					}
+				}
+			}
+		})
 	}
 }

@@ -361,9 +361,9 @@ func TestCancelStatesAreClaimableOrNot(t *testing.T) {
 	}
 }
 
-// The later, more final cancel replaces a draining pause, and the worker's write keeps it: an
-// operator who asked to stop the tree must not have to resume it to get rid of it.
-func TestCancelOverAPendingPause(t *testing.T) {
+// A cancel of a tree still pausing is refused until the pause lands, then applies: the cancel
+// changes nothing a drain does not already promise — no new work starts — so it waits its turn.
+func TestCancelWaitsForAPendingPause(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
@@ -371,26 +371,21 @@ func TestCancelOverAPendingPause(t *testing.T) {
 			if _, err := b.db.PauseProcess(context.Background(), "held", ""); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
+			_, err := b.db.CancelProcess(context.Background(), "held", "")
+			if !errors.Is(err, dbpkg.ErrConflict) || !strings.Contains(err.Error(), "wait until it is paused") {
+				t.Fatalf("a cancel of a pausing tree must be refused with the reason, got %v", err)
+			}
 			if got := mustStatus(t, b.db, "held"); got != model.StatusPausing {
-				t.Fatalf("setup: expected pausing, got %q", got)
-			}
-			if _, err := b.db.CancelProcess(context.Background(), "held", ""); err != nil {
-				t.Fatalf("CancelProcess: %v", err)
-			}
-			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelling {
-				t.Fatalf("cancel must take a draining pause: got %q", got)
+				t.Fatalf("a refused cancel changed the row to %q", got)
 			}
 
-			held, err := b.db.GetInstance("held")
-			if err != nil {
-				t.Fatalf("GetInstance: %v", err)
+			settlePending(t, b.db, "held", model.StatusPaused)
+			res, err := b.db.CancelProcess(context.Background(), "held", "")
+			if err != nil || res.Outcome != model.OutcomeApplied {
+				t.Fatalf("the cancel once paused: %v %v", res.Outcome, err)
 			}
-			held.Status = model.StatusRunning // the worker knows about neither request
-			if err := b.db.UpdateInstance(held); err != nil {
-				t.Fatalf("UpdateInstance: %v", err)
-			}
-			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelling {
-				t.Errorf("the later, final decision must be the one kept: expected cancelling, got %q", got)
+			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelled {
+				t.Errorf("expected cancelled, got %q", got)
 			}
 		})
 	}
