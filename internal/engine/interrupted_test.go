@@ -332,8 +332,6 @@ func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 	}
 }
 
-
-
 // The runtime half of the unknowable-set ban: all that stands behind definitions stored
 // before validation learned to refuse them.
 func TestIsRetryAllowed_UnknowableSet(t *testing.T) {

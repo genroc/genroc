@@ -34,7 +34,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	db := sharedPgDB
 
 	const iterations = 30
-	var successCount, nothingToPause int
+	var successCount, refused int
 
 	for i := 0; i < iterations; i++ {
 		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
@@ -63,10 +63,10 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 				successCount++
 			case pgDeadlock(err):
 				t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
-			// The failure won the race and left nothing running, so the pause had
-			// no rows to touch — a legitimate serial outcome, not an inconsistency.
-			case strings.Contains(err.Error(), "no running instances to pause"):
-				nothingToPause++
+			// The failure won the race: its root is 'failing', a transition, which takes no new
+			// verb until it settles. A legitimate serial outcome, not an inconsistency.
+			case errors.Is(err, dbpkg.ErrConflict) && strings.Contains(err.Error(), "failing"):
+				refused++
 			default:
 				t.Errorf("iteration %d: unexpected error: %v", i, err)
 			}
@@ -87,7 +87,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	total := iterations * 2
 	t.Logf("ran %d iterations (%d total operations)", iterations, total)
 	t.Logf("  success:   %d/%d (%.0f%%)", successCount, total, 100*float64(successCount)/float64(total))
-	t.Logf("  no-op pause: %d/%d", nothingToPause, total)
+	t.Logf("  pause refused mid-failure: %d/%d", refused, total)
 }
 
 // Many workers polling a small pool with a 100ms lease, so rows expire and are reclaimed
@@ -427,7 +427,7 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	db := sharedPgDB
 
 	const iterations = 30
-	var successCount int
+	var successCount, refused int
 
 	for i := 0; i < iterations; i++ {
 		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
@@ -455,6 +455,9 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 				successCount++
 			case pgDeadlock(err):
 				t.Errorf("iteration %d: %s: %v", i, deadlockHint, err)
+			// The failure won: a 'failing' root takes no new verb until it settles.
+			case errors.Is(err, dbpkg.ErrConflict) && strings.Contains(err.Error(), "failing"):
+				refused++
 			default:
 				t.Errorf("iteration %d: unexpected error: %v", i, err)
 			}
@@ -471,7 +474,7 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("ran %d iterations: %d ok", iterations, successCount)
+	t.Logf("ran %d iterations: %d ok, %d cancels refused mid-failure", iterations, successCount, refused)
 }
 
 // Either serial order ends cancelled; an interleave leaving it merely paused would downgrade an
