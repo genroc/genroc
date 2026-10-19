@@ -1,9 +1,11 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import "./style.css";
 
 // The login page, its own bundle: it must render before any session exists, so it shares no code
-// path with the app behind the session (specs/ui-issued-tokens.md §5).
+// path with the app behind the session (specs/ui-issued-tokens.md §5). It talks to genroc-ui's
+// /auth, which is outside genroc's spec, so these calls are plain fetches.
 
 type Options = { providers: { id: string; name: string }[]; passwords: boolean };
 
@@ -14,47 +16,46 @@ function returnTo(): string {
   return rd.startsWith("/") && !rd.startsWith("//") && !rd.startsWith("/auth/") ? rd : "/";
 }
 
+const unreachable = "Could not reach the server.";
+
 function Login() {
-  const [opts, setOpts] = useState<Options | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const rd = returnTo();
 
   // Which ways in exist is not a secret -- the buttons announce it -- so this is served without
   // a credential, which it has to be: nothing here has one yet.
-  useEffect(() => {
-    fetch("/auth/options")
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setOpts)
-      .catch(() => setError("Could not reach the server."));
-  }, []);
+  const options = useQuery({
+    queryKey: ["auth", "options"],
+    queryFn: async () => {
+      const r = await fetch("/auth/options");
+      if (!r.ok) throw new Error(unreachable);
+      return (await r.json()) as Options;
+    },
+    staleTime: Infinity,
+    retry: false, // the page has nothing to show until this answers, so say so at once
+  });
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
+  const signIn = useMutation({
+    mutationFn: async () => {
       const res = await fetch("/auth/password", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, password }),
+      }).catch(() => {
+        throw new Error(unreachable);
       });
-      if (res.ok) {
-        // The session cookie arrived on this response; a full navigation is what picks it up
-        // for the app, and it lands where the login was started from.
-        location.href = rd;
-        return;
-      }
+      if (res.ok) return;
       const body = await res.json().catch(() => null);
-      setError(body?.error ?? "That email and password did not match.");
-    } catch {
-      setError("Could not reach the server.");
-    } finally {
-      setBusy(false);
-    }
-  }
+      throw new Error(body?.error ?? "That email and password did not match.");
+    },
+    // The session cookie arrived on this response; a full navigation is what picks it up for the
+    // app, and it lands where the login was started from.
+    onSuccess: () => location.assign(rd),
+  });
+
+  const error = options.error ? unreachable : signIn.error?.message;
+  const opts = options.data;
 
   if (!opts) return <main className="login"><h1>genroc</h1>{error && <p className="err">{error}</p>}</main>;
 
@@ -76,7 +77,12 @@ function Login() {
       {opts.providers.length > 0 && opts.passwords && <div className="sep">or</div>}
 
       {opts.passwords && (
-        <form onSubmit={submit}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            signIn.mutate();
+          }}
+        >
           <input
             type="email" placeholder="email" autoComplete="username" required autoFocus
             value={email} onChange={(e) => setEmail(e.target.value)}
@@ -85,7 +91,7 @@ function Login() {
             type="password" placeholder="password" autoComplete="current-password" required
             value={password} onChange={(e) => setPassword(e.target.value)}
           />
-          <button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+          <button type="submit" disabled={signIn.isPending}>{signIn.isPending ? "Signing in…" : "Sign in"}</button>
         </form>
       )}
 
@@ -98,6 +104,8 @@ function Login() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Login />
+    <QueryClientProvider client={new QueryClient()}>
+      <Login />
+    </QueryClientProvider>
   </StrictMode>,
 );

@@ -726,7 +726,7 @@ var registry = func() []actionDef {
 			Path:    "/tokens",
 			Summary: "List API tokens. Secrets are never included — the row cannot produce one",
 			Tags:    []string{"Tokens"},
-			Resp:    map[string]any{"items": []TokenResp{}},
+			Resp:    ListTokensResp{Items: []TokenResp{}},
 			handle:  func(h *Handlers, _ Envelope) Reply { return h.listTokens() },
 		},
 		{
@@ -740,7 +740,7 @@ var registry = func() []actionDef {
 			PathQuery: struct {
 				ID string `path:"id" description:"The token id, as GET /tokens lists it"`
 			}{},
-			Resp: map[string]any{"revoked": true},
+			Resp: RevokeTokenResp{Revoked: true},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				return Envelope{Action: "revoke_token", ID: r.PathValue("id")}, nil
 			},

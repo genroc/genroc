@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/tokens.tsx","./src/api.ts","./src/login.tsx","./src/main.tsx","./vite.config.ts"],"version":"5.9.3"}
+{"root":["./src/api.ts","./src/components.tsx","./src/login.tsx","./src/main.tsx","./src/queries.ts","./src/routetree.gen.ts","./src/generated/api.ts","./src/routes/__root.tsx","./src/routes/index.tsx","./src/routes/instances.$id.tsx","./src/routes/instances.tsx","./src/routes/tokens.tsx","./vite.config.ts"],"version":"5.9.3"}

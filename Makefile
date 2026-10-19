@@ -81,8 +81,10 @@ swagger:
 schema:
 	$(BUILD_FLAGS) go run ./cmd/genrocschema $(ARGS)
 
+# The UI's copy is committed, so its image builds without Go; CI fails if it drifts from the spec.
 client: swagger
 	pnpm -C tests run generate
+	pnpm -C ui/frontend run generate
 
 test-int: client
 	pnpm -C tests run typecheck && pnpm -C tests test

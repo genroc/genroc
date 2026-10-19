@@ -434,6 +434,15 @@ type CreateTokenResp struct {
 	Perms []string `json:"perms"`
 }
 
+// ListTokensResp is every token, revoked and expired ones included: the listing is the audit.
+type ListTokensResp struct {
+	Items []TokenResp `json:"items"`
+}
+
+type RevokeTokenResp struct {
+	Revoked bool `json:"revoked"`
+}
+
 // TokenResp is a token as a listing shows it — deliberately without the secret.
 type TokenResp struct {
 	ID         string   `json:"id"`

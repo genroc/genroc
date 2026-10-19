@@ -38,3 +38,11 @@ Instances list with a status filter, and a detail panel with the stored state. T
 same question `genctl instances` answers, with a mouse. It polls every 3s rather than holding a
 socket — genroc has no change feed, and a poll of one page is cheaper to reason about for a
 screen someone watches for a minute. Polling pauses while a detail panel is open.
+
+Every call goes through `$api` (`src/api.ts`): TanStack Query hooks typed from genroc's
+`openapi.json`, so a renamed path or field stops compiling here. `make client` regenerates
+`src/generated/`; it is committed so the image builds without Go, and CI fails if it drifts.
+Routes are files under `src/routes/` (TanStack Router; the Vite plugin regenerates
+`src/routeTree.gen.ts`, which is committed). They are real paths — `/instances?status=…`,
+`/instances/<id>`, `/tokens` — which works because genroc-ui answers any path that is not a file
+or `/api` with this app.

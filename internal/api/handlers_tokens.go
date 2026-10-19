@@ -44,7 +44,7 @@ func (h *Handlers) listTokens() Reply {
 			RevokedBy:  r.RevokedBy,
 		})
 	}
-	return okReply(map[string]any{"items": out})
+	return okReply(ListTokensResp{Items: out})
 }
 
 func (h *Handlers) revokeToken(id string, actor string) Reply {
@@ -54,7 +54,7 @@ func (h *Handlers) revokeToken(id string, actor string) Reply {
 	if err := h.db.RevokeToken(context.Background(), id, actor); err != nil {
 		return errReply(err)
 	}
-	return okReply(map[string]any{"revoked": true})
+	return okReply(RevokeTokenResp{Revoked: true})
 }
 
 // ValidPerms returns in, or an error naming the first unknown permission and the valid set; an

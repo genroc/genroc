@@ -90,6 +90,12 @@ jobs:
         run: pnpm -C editors/vscode run compile
       - name: make test
         run: make test
+      - name: The UI builds, and its committed generated files are current
+        # make test regenerated the API types (make client) and the build regenerates the route
+        # tree from src/routes: a diff in either is a change nobody carried into the UI.
+        run: |
+          pnpm -C ui/frontend run build
+          git diff --exit-code -- ui/frontend/src/generated ui/frontend/src/routeTree.gen.ts
 
   stress:
     name: stress (concurrency / deadlock, x3)

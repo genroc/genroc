@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { ApiError, PERMS, createToken, listTokens, revokeToken, type ApiToken } from "./api.ts";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import { $api, ApiError, PERMS, type ApiToken } from "../api.ts";
 
 // Credential management (specs/api-auth.md §5): an operator signed in as a person mints machine
 // tokens here, so a deployment needs no seeded credential.
@@ -22,56 +24,32 @@ function status(t: ApiToken): string {
 
 const when = (s?: string) => (s ? new Date(s).toLocaleString() : "—");
 
-export function Tokens() {
-  const [rows, setRows] = useState<ApiToken[]>([]);
-  const [error, setError] = useState<Error | null>(null);
+export const Route = createFileRoute("/tokens")({ component: Tokens });
+
+function Tokens() {
+  const queryClient = useQueryClient();
+  const tokens = $api.useQuery("get", "/tokens");
+  const rows = tokens.data?.items ?? [];
   const [label, setLabel] = useState("");
   const [perms, setPerms] = useState<string[]>(["read"]);
   const [minted, setMinted] = useState<{ token: string; label?: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["get", "/tokens"] });
 
-  const load = useCallback(async () => {
-    try {
-      setRows((await listTokens()).items ?? []);
-      setError(null);
-    } catch (e) {
-      setError(e as Error);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  async function mint(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const t = await createToken(label.trim(), perms);
-      // Held in component state only, never in localStorage: this is the one moment the
-      // plaintext exists, and persisting it would make a copy nothing later can revoke.
+  const mint = $api.useMutation("post", "/tokens", {
+    onSuccess: (t) => {
+      // Held in component state only, never in the query cache or localStorage: this is the one
+      // moment the plaintext exists, and a persisted copy is one nothing later can revoke.
       setMinted({ token: t.token, label: t.label });
       setCopied(false);
       setLabel("");
-      await load();
-    } catch (e) {
-      setError(e as Error);
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+    onSettled: refresh,
+  });
 
-  async function revoke(t: ApiToken) {
-    if (!confirm(`Revoke ${t.label || t.id}? Callers presenting it are refused from the next request.`)) return;
-    try {
-      await revokeToken(t.id);
-      await load();
-    } catch (e) {
-      setError(e as Error);
-    }
-  }
+  const revoke = $api.useMutation("delete", "/tokens/{id}", { onSettled: refresh });
 
+  const error: unknown = tokens.error ?? mint.error ?? revoke.error;
   const denied = error instanceof ApiError && error.status === 403;
   if (denied) {
     return (
@@ -85,7 +63,7 @@ export function Tokens() {
 
   return (
     <>
-      {error && !denied && <p className="problem">{error.message}</p>}
+      {error != null && !denied && <p className="problem">{error instanceof Error ? error.message : String(error)}</p>}
 
       {minted && (
         <div className="minted">
@@ -110,7 +88,13 @@ export function Tokens() {
         </div>
       )}
 
-      <form className="mint" onSubmit={mint}>
+      <form
+        className="mint"
+        onSubmit={(e) => {
+          e.preventDefault();
+          mint.mutate({ body: { label: label.trim(), perms } });
+        }}
+      >
         <div className="bar">
           <input
             value={label}
@@ -118,7 +102,7 @@ export function Tokens() {
             placeholder="label — e.g. laptop, ci, evaluator"
             aria-label="label"
           />
-          <button disabled={busy || perms.length === 0}>{busy ? "minting…" : "mint token"}</button>
+          <button disabled={mint.isPending || perms.length === 0}>{mint.isPending ? "minting…" : "mint token"}</button>
         </div>
         <ul className="perms">
           {PERMS.map((p) => (
@@ -156,14 +140,21 @@ export function Tokens() {
           {rows.map((t) => (
             <tr key={t.id}>
               <td>{t.label || <span className="muted">{t.id}</span>}</td>
-              <td>{t.perms.join(", ")}</td>
+              <td>{(t.perms ?? []).join(", ")}</td>
               <td className="mono">{when(t.created_at)}</td>
               <td className="mono">{when(t.last_used_at)}</td>
               <td className="mono">{t.expires_at ? when(t.expires_at) : <span className="muted">never</span>}</td>
               <td className={`status ${status(t)}`}>{status(t)}</td>
               <td>
                 {status(t) !== "revoked" && (
-                  <button className="link" onClick={() => void revoke(t)}>
+                  <button
+                    className="link"
+                    onClick={() => {
+                      if (confirm(`Revoke ${t.label || t.id}? Callers presenting it are refused from the next request.`)) {
+                        revoke.mutate({ params: { path: { id: t.id } } });
+                      }
+                    }}
+                  >
                     revoke
                   </button>
                 )}

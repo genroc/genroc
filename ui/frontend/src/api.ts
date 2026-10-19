@@ -1,6 +1,9 @@
 // The genroc client. Always same-origin (Vite proxies /api in dev), so no base URL and no CORS.
 // A stored bearer token is the no-proxy case, where a person pastes one; behind genroc-ui
 // nothing is sent, and the proxy attaches a JWT minted from the session cookie.
+import createFetchClient, { type Middleware } from "openapi-fetch";
+import createClient from "openapi-react-query";
+import type { components, paths } from "./generated/api.ts";
 
 const TOKEN_KEY = "genroc.token";
 
@@ -21,6 +24,8 @@ export function setToken(v: string) {
   }
 }
 
+/** Every failed call surfaces as this, whatever the endpoint: the generated types name the error
+ *  body, but the status is what the UI branches on. Narrow with `instanceof`. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -39,85 +44,68 @@ export class ApiError extends Error {
 /** Who genroc says we are on the last response (`source:subject`), null when it did not say, as
  *  on a 401. Reported, never inferred: behind a proxy we send nothing and still succeed. */
 let lastActor: string | null = null;
+const actorListeners = new Set<() => void>();
 export const actor = () => lastActor;
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const t = token();
-  const headers: Record<string, string> = init?.body ? { "content-type": "application/json" } : {};
-  if (t) headers.authorization = `Bearer ${t}`;
-  const res = await fetch(path, { ...init, headers });
-  // Unconditional, so a 401 CLEARS a stale identity rather than leaving the last good one up.
-  lastActor = res.headers.get("X-Genroc-Actor");
-  const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new ApiError(res.status, body?.code ?? "", body?.error ?? `HTTP ${res.status}`);
-  return body as T;
+/** For useSyncExternalStore: the header follows whichever identity the last response named. */
+export function onActorChange(listener: () => void): () => void {
+  actorListeners.add(listener);
+  return () => actorListeners.delete(listener);
 }
 
-const get = <T,>(path: string) => call<T>(path);
+function setActor(v: string | null) {
+  if (v === lastActor) return;
+  lastActor = v;
+  actorListeners.forEach((l) => l());
+}
 
-export type Instance = {
-  id: string;
-  process: string;
-  version: number;
-  status: string;
-  task?: string;
-  phase?: string;
-  error_code?: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
+const session: Middleware = {
+  onRequest({ request }) {
+    const t = token();
+    if (t) request.headers.set("authorization", `Bearer ${t}`);
+    return request;
+  },
+  async onResponse({ response }) {
+    // Unconditional, so a 401 CLEARS a stale identity rather than leaving the last good one up.
+    setActor(response.headers.get("X-Genroc-Actor"));
+    if (!response.ok) {
+      const body = (await response.clone().json().catch(() => null)) as components["schemas"]["ApiErrorBody"] | null;
+      throw new ApiError(response.status, body?.code ?? "", body?.error ?? `HTTP ${response.status}`);
+    }
+    return response;
+  },
 };
 
-export type Page<T> = { items: T[] | null; page: { after?: string } };
+const fetchClient = createFetchClient<paths>({ baseUrl: "/api" });
+fetchClient.use(session);
 
-export const listInstances = (q: string) => get<Page<Instance>>(`/api/instances${q ? `?${q}` : ""}`);
+/** Every endpoint, typed from openapi.json: `$api.useQuery("get", "/instances", init, options)`.
+ *  A query's key is `[method, path, init]`, so `["get", "/tokens"]` invalidates every token read. */
+export const $api = createClient(fetchClient);
 
-export const getInstance = (id: string) =>
-  get<Instance & {
-    /** The server moves these three out of `state` into fields of their own, so `state` never has them. */
-    output?: unknown;
-    error_data?: unknown;
-    external_input?: unknown;
-    state?: Record<string, unknown>;
-  }>(`/api/instances/${encodeURIComponent(id)}/detail`);
+type Schemas = components["schemas"];
+export type Instance = Schemas["ApiInstanceSummaryResp"];
+export type ApiToken = Schemas["ApiTokenResp"];
+export type Status = Schemas["ModelStatus"];
+
+/** In the order an instance passes through them. A status the spec gains and this list lacks
+ *  fails the build on the line below, rather than going missing from the filter. */
+export const STATUSES = [
+  "running", "pausing", "paused", "failing", "cancelling", "completed", "failed", "raised", "cancelled",
+] as const satisfies readonly Status[];
+const everyStatusListed: Exclude<Status, (typeof STATUSES)[number]> extends never ? true : never = true;
+void everyStatusListed;
 
 /** The five permissions, weakest first (specs/api-auth.md §3). The server rejects anything else
  *  at mint time. */
 export const PERMS = ["worker", "read", "operate", "deploy", "admin"] as const;
 
-export type ApiToken = {
-  id: string;
-  label?: string;
-  perms: string[];
-  created_at: string;
-  last_used_at?: string;
-  revoked_at?: string;
-  /** Absent for a machine token, which never expires. A session token always has one. */
-  expires_at?: string;
-};
-
-export const listTokens = () => get<{ items: ApiToken[] | null }>("/api/tokens");
-
-/** The response carries the secret, and it is the only time it exists anywhere — the row stores
- *  a hash and cannot produce it again. A caller that drops this value has to mint another. */
-export const createToken = (label: string, perms: string[]) =>
-  call<{ id: string; token: string; label?: string; perms: string[] }>("/api/tokens", {
-    method: "POST",
-    body: JSON.stringify({ label, perms }),
-  });
-
-export const revokeToken = (id: string) =>
-  call<{ revoked: boolean }>(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
-
 /** Signs out: clears the session cookie and reloads into the login. Also how someone picks up
- *  changed GROUPS, captured at login; the role map is read per request. */
+ *  changed GROUPS, captured at login; the role map is read per request. Outside the spec: /auth
+ *  is genroc-ui's, not genroc's. */
 export async function signOut(): Promise<void> {
   await fetch("/auth/logout", { method: "POST" });
-  lastActor = null;
+  setActor(null);
   setToken("");
   location.href = "/";
 }
-
-export const listDefinitions = () =>
-  get<Page<{ name: string; version: number; created_at: string }>>("/api/definitions");
