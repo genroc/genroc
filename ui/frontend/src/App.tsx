@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { stringify } from "yaml";
 import { ApiError, actor, getInstance, listInstances, setToken, signOut, token, type Instance } from "./api.ts";
 import { Tokens } from "./Tokens.tsx";
 
@@ -189,8 +190,11 @@ function Detail({ id, onClose }: { id: string; onClose: () => void }) {
               <dt>task</dt><dd className="mono">{data.task ?? "-"}</dd>
               {data.error_code && (<><dt>error</dt><dd className="mono">{data.error_code}: {data.error_message}</dd></>)}
             </dl>
+            {data.output !== undefined && (<><h3>output</h3><pre>{stringify(data.output)}</pre></>)}
+            {data.error_data !== undefined && (<><h3>error data</h3><pre>{stringify(data.error_data)}</pre></>)}
+            {data.external_input !== undefined && (<><h3>external input</h3><pre>{stringify(data.external_input)}</pre></>)}
             <h3>state</h3>
-            <pre>{JSON.stringify(data.state ?? {}, null, 2)}</pre>
+            <pre>{stringify(data.state ?? {})}</pre>
           </>
         )}
       </div>

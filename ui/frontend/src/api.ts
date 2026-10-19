@@ -74,7 +74,13 @@ export type Page<T> = { items: T[] | null; page: { after?: string } };
 export const listInstances = (q: string) => get<Page<Instance>>(`/api/instances${q ? `?${q}` : ""}`);
 
 export const getInstance = (id: string) =>
-  get<Instance & { state?: Record<string, unknown> }>(`/api/instances/${encodeURIComponent(id)}/detail`);
+  get<Instance & {
+    /** The server moves these three out of `state` into fields of their own, so `state` never has them. */
+    output?: unknown;
+    error_data?: unknown;
+    external_input?: unknown;
+    state?: Record<string, unknown>;
+  }>(`/api/instances/${encodeURIComponent(id)}/detail`);
 
 /** The five permissions, weakest first (specs/api-auth.md §3). The server rejects anything else
  *  at mint time. */
