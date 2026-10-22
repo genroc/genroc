@@ -362,6 +362,21 @@ test("logs — an externalized payload shows its ref, and `object` fetches it", 
   expect(fetched.stdout).toContain("BBBBBBBBBB");
 }, 15_000);
 
+test("logs — a payload cut whole shows its ref, not an empty field", async () => {
+  const name = uid("wholelog");
+  const def = { ...blobInputDef(name), output: "$: input.blob" };
+  runCli(bin, ["apply", "-f", writeDefs([def])]);
+  const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob: BIG_BLOB }), "-q"])
+    .stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const plain = runCli(bin, ["logs", id], { COLUMNS: "500" });
+  expect(plain.ok, plain.stderr).toBe(true);
+  const done = plain.stdout.split("\n").find((l) => l.includes("inst_completed"));
+  expect(done, "the output is the whole payload, so the row has no data left but its ref")
+    .toMatch(/output=\{"ref":"[0-9a-f]{32}","size":\d+\}/);
+}, 15_000);
+
 // ── missing instance ────────────────────────────────────────────────────────────
 
 test("logs — an id that does not exist is silently empty, unlike every other verb", () => {

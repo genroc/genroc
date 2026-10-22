@@ -30,7 +30,7 @@ const (
 // ChildEntry describes a single named child process in a "child_map" call.
 type ChildEntry struct {
 	Name         string         `json:"name"                    description:"Name of the child process to invoke."`
-	Version      int            `json:"version,omitempty"       description:"Version to run; 0 means latest published version."`
+	Version      int            `json:"version,omitempty"       description:"Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel."`
 	Input        *Shape         `json:"input,omitempty"         description:"Templated value building the child's input payload."`
 	InputSchema  *schema.Schema `json:"input_schema,omitempty"  description:"JSON Schema this entry's input is checked against and conformed to before it is sent."`
 	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema validating and exposing this child's output."`
@@ -209,7 +209,7 @@ var actionSchemaTemplate = `{
 				"properties": {
 					"type":          {"type": "string", "const": "child"},
 					"name":          {"type": "string", "description": "Name of the child process to invoke."},
-					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
+					"version":       {"type": "integer", "description": "Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel."},
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload."},
 					"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema the input is checked against and conformed to before it is sent. Checkable with no server."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing the child's output."},
@@ -235,7 +235,7 @@ var actionSchemaTemplate = `{
 							"type": "object",
 							"properties": {
 								"name":          {"type": "string", "description": "Name of the child process to invoke."},
-								"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
+								"version":       {"type": "integer", "description": "Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel."},
 								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload."},
 								"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema this entry's input is checked against and conformed to before it is sent."},
 								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing this child's output."},
@@ -261,7 +261,7 @@ var actionSchemaTemplate = `{
 				"properties": {
 					"type":          {"type": "string", "const": "child_list"},
 					"name":          {"type": "string", "description": "Name of the child process to invoke for every element."},
-					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
+					"version":       {"type": "integer", "description": "Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel."},
 					"over":          {"type": "string", "description": "A $: expression evaluating to an array; one child is spawned per element, with it as input."},
 					"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema EACH element is checked against and conformed to before it is sent as one child's input."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing EACH child's output; the result is an array."},

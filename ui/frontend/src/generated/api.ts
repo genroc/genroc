@@ -678,6 +678,7 @@ export interface components {
         };
         ApiStartInstanceReq: {
             channel?: null | string;
+            /** @description The process input. Omitted when the input_schema is an object, the instance starts from {} so its defaults apply; null is a value, checked like any other. */
             input?: unknown;
             process: string;
             version?: null | number;
@@ -793,7 +794,7 @@ export interface components {
             };
             /** @constant */
             type: "child";
-            /** @description Version to run; 0 means latest published version. */
+            /** @description Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel. */
             version?: number;
         } | {
             /** @description Keyed map of child processes to run concurrently. Keys become the access names in outputs.taskID. */
@@ -817,7 +818,7 @@ export interface components {
                     result_schema?: {
                         [key: string]: unknown;
                     };
-                    /** @description Version to run; 0 means latest published version. */
+                    /** @description Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel. */
                     version?: number;
                 };
             };
@@ -844,7 +845,7 @@ export interface components {
             };
             /** @constant */
             type: "child_list";
-            /** @description Version to run; 0 means latest published version. */
+            /** @description Version to run. Omitted, it is fixed when the parent is applied: the version applied alongside it, else the one on the parent's channel. */
             version?: number;
         } | ({
             /** @description A duration from when the task is reached: "2h30m", a number of milliseconds, or a $: expression. */
@@ -1011,7 +1012,7 @@ export interface components {
                 properties?: unknown;
                 /** @description Which properties must be present. A property not listed here may be absent, and reading it yields null. */
                 required?: unknown;
-                /** @description Redacts the value from logs. Only meaningful in a process config_schema. */
+                /** @description Keeps the value out of the server's console output. Only valid on a string in a process config_schema. */
                 secret?: unknown;
                 /** @description The value's JSON type, or a list of types it may take. */
                 type?: unknown;
@@ -1057,7 +1058,7 @@ export interface components {
             properties?: unknown;
             /** @description Which properties must be present. A property not listed here may be absent, and reading it yields null. */
             required?: unknown;
-            /** @description Redacts the value from logs. Only meaningful in a process config_schema. */
+            /** @description Keeps the value out of the server's console output. Only valid on a string in a process config_schema. */
             secret?: unknown;
             /** @description The value's JSON type, or a list of types it may take. */
             type?: unknown;

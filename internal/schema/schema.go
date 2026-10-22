@@ -67,7 +67,7 @@ var allowedKeywords = map[string]keyword{
 	"$anchor":              {"string", "A name this schema can be referenced by."},
 	"$id":                  {"string", "An identifier for this schema."},
 	"default":              {"", "The value used when this one is absent. Annotation only — it does not make a required property optional."},
-	"secret":               {"boolean", "Redacts the value from logs. Only meaningful in a process config_schema."},
+	"secret":               {"boolean", "Keeps the value out of the server's console output. Only valid on a string in a process config_schema."},
 	"description":          {"string", "Free text. Shown in the editor, and never a constraint."},
 	// No "allOf": navigation cannot resolve a member through an intersection. node.AllOf is
 	// only normalization's ref-bundling vehicle.

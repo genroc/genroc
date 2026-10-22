@@ -304,6 +304,11 @@ func TestValidateConfigSchema(t *testing.T) {
 		{"required unknown property", cfgSchema(`{"type":"object","required":["NOPE"],"properties":{"X":{"type":"string"}}}`), "unknown property"},
 		{"invalid name", cfgSchema(`{"type":"object","properties":{"bad-name":{"type":"string"}}}`), "valid identifier"},
 		{"env-key collision", cfgSchema(`{"type":"object","properties":{"server_url":{"type":"string"},"SERVER_URL":{"type":"string"}}}`), "same environment variable suffix"},
+		{"secret string", cfgSchema(`{"type":"object","properties":{"X":{"type":"string","secret":true}}}`), ""},
+		// `pin + 1` prints a number the scrubber has never seen.
+		{"secret integer", cfgSchema(`{"type":"object","properties":{"X":{"type":"integer","secret":true}}}`), "secret: true needs type string"},
+		{"secret number", cfgSchema(`{"type":"object","properties":{"X":{"type":"number","secret":true}}}`), "secret: true needs type string"},
+		{"secret boolean", cfgSchema(`{"type":"object","properties":{"X":{"type":"boolean","secret":true}}}`), "secret: true needs type string"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

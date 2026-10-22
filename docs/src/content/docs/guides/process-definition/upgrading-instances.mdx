@@ -146,7 +146,7 @@ welcome-user  v1 → (new)  breaking: upgrade; compatible
 Compat reads two definitions and never an instance, so it answers the pessimistic
 question - could *any* instance fail to move. Our change breaks one parked at
 `wait_for_reply`, so the whole comparison reads `breaking`, even though the instance
-still in `wait_some_time` would upgrade fine. `upgrade` is the one that looks at a
+still at `welcome` would upgrade fine. `upgrade` is the one that looks at a
 real row.
 
 Under the verdict is what it compared: a break names the task and the field, `(ok)`

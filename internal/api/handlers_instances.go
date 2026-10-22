@@ -11,6 +11,7 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/schema"
 )
 
 func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
@@ -46,8 +47,13 @@ func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
 	}
 
 	var input any
-	if req.Input != nil {
+	switch {
+	case req.Input != nil:
 		input = *req.Input
+	case !hasField(raw, "input") && takesObject(def.InputSchema):
+		// Absent says nothing, so the schema's defaults fill it; an explicit null is still a
+		// value, and still the wrong type.
+		input = map[string]any{}
 	}
 
 	input, err = def.ValidateInput(input)
@@ -94,6 +100,22 @@ func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
 		Version: inst.ProcessVersion,
 		Status:  inst.Status,
 	})
+}
+
+// hasField is needed because a *any field decodes an absent key and a null alike, to nil.
+func hasField(raw json.RawMessage, key string) bool {
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	_, ok := fields[key]
+	return ok
+}
+
+func takesObject(s *schema.Schema) bool {
+	if s == nil {
+		return false
+	}
+	t := s.Type()
+	return len(t) == 1 && t.Contains("object")
 }
 
 // splitCSV reads a comma-separated filter into its values, dropping blanks -- so `?status=` and

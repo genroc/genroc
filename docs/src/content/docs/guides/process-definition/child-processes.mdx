@@ -54,9 +54,8 @@ tasks:
 output: "$: outputs.spawn_child.message"
 ```
 
-The `child` action is quite similar to the `fetch` action, as it also
-has an input and a `result_schema`. Additionally, it needs the `name` of the
-child process.
+The `child` action needs the `name` of the child process, its `input`,
+and a `result_schema` declaring the child's output as the parent reads it.
 
 Let's now apply the processes and run the parent.
 
@@ -183,13 +182,13 @@ The three child actions share most of their fields:
 | Field           | Used by                         | Meaning                                                                  |
 |-----------------|---------------------------------|--------------------------------------------------------------------------|
 | `name`          | all                             | The process to start. Required.                                          |
-| `version`       | all                             | The version to run; the latest when omitted.                             |
+| `version`       | all                             | The version to run. When omitted, it's fixed when the parent is applied ([more](./versioning.mdx#childparent-versioning)). |
 | `input`         | `child`, `child_map` entries    | The child's input.                                                       |
 | `over`          | `child_list`                    | An array expression; one child is started per item, with the item as its input. Required. |
 | `children`      | `child_map`                     | Named entries, each with the fields above. Required.                     |
 | `input_schema`  | all                             | Declares the input sent to the child.                                    |
 | `result_schema` | all                             | Declares the child's output, as the parent reads it.                     |
-| `raises`        | all                             | The `raise` codes the parent can catch, with their data schemas ([more](#the-raises-field)). |
+| `raises`        | all                             | Data schemas of the codes the child raises, so `error.data` can be read ([more](#the-raises-field)). |
 
 On `child_map`, each entry under `children` has its own `name`, `version`, `input`, schemas and `raises`.
 
@@ -221,8 +220,6 @@ on_error:
       message: "Item ${input.item_id} not found"
 
 # parent (child action)
-raises:
-  item_not_found: null  # we need to specify explicitly what errors we expect
 on_error:
   - code: ["item_not_found"]
     goto: $handle_item_not_found
@@ -232,8 +229,9 @@ on_error:
 
 ### The `raises` field
 
-Specifies which errors we expect. It's an object whose keys are error codes and whose values are (optional) JSON schemas.
-If you define an error schema, you can then access `error.data` (like with `fetch` error responses).
+The parent can catch any code the child raises without declaring it. `raises` is optional and goes under `action:`;
+it's an object whose keys are the child's raise codes and whose values are JSON schemas of their data.
+If you declare one, you can then access `error.data` (like with `fetch` error responses).
 
 ## Importing child process
 

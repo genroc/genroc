@@ -481,19 +481,20 @@ func runGetCmd(server string, args []string) {
 // printReported prints the values the instance reports outward. `detail` calls it too: the
 // server moves these slots out of `state`, so skipping it there drops them from the view.
 func printReported(inst instanceView) {
+	// Marked BEFORE the nil test: a field cut whole is omitted, and only `objects` says it exists.
 	// The machine-readable half of the error the head printed.
-	if inst.ErrorData != nil {
+	if v := withObjectRefs(inst.ErrorData, inst.Objects, "error_data"); v != nil {
 		fmt.Println("\nError data:")
-		fmt.Println(yamlBlock(withObjectRefs(inst.ErrorData, inst.Objects, "error_data")))
+		fmt.Println(yamlBlock(v))
 	}
-	if inst.Output != nil {
+	if v := withObjectRefs(inst.Output, inst.Objects, "output"); v != nil {
 		fmt.Println("\nOutput:")
-		fmt.Println(yamlBlock(withObjectRefs(inst.Output, inst.Objects, "output")))
+		fmt.Println(yamlBlock(v))
 	}
 	// What a parked instance is ASKING for; present only while the task is unanswered.
-	if inst.ExternalInput != nil {
+	if v := withObjectRefs(inst.ExternalInput, inst.Objects, "external_input"); v != nil {
 		fmt.Println("\nExternal input:")
-		fmt.Println(yamlBlock(withObjectRefs(inst.ExternalInput, inst.Objects, "external_input")))
+		fmt.Println(yamlBlock(v))
 	}
 }
 

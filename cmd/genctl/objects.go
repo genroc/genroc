@@ -55,15 +55,18 @@ func pathUnder(path, at []any) ([]any, bool) {
 
 // logData never fetches: a trail is scanned and these payloads are large by definition, so
 // `genctl object <ref>` gets the one that matters.
+// An empty raw is not "no payload" until the objects say so: one cut whole is absent from the row.
 func logData(raw json.RawMessage, objects []objectEntry) string {
-	if len(raw) == 0 {
-		return ""
-	}
 	var value any
-	if err := numeric.Decode(raw, &value); err != nil {
-		return string(raw)
+	if len(raw) > 0 {
+		if err := numeric.Decode(raw, &value); err != nil {
+			return string(raw)
+		}
 	}
 	value = withObjectRefs(value, objects, "data")
+	if value == nil {
+		return ""
+	}
 	if str, ok := value.(string); ok {
 		return str
 	}

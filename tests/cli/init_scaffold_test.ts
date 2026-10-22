@@ -1,5 +1,5 @@
 import { spawnSync } from "child_process";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
@@ -153,4 +153,14 @@ test("--auth without the UI names the admin-token command, since there is no log
     "docker compose run --rm genroc token create --perms admin --label admin",
   );
   expect(readdirSync(dir), "ui.yaml configures a login nothing serves").not.toContain("ui.yaml");
+});
+
+test("data/ is created writable for everyone, with or without --auth", () => {
+  for (const flags of [[], ["--auth", "--no-ui"]]) {
+    const dir = scaffold(...flags);
+    expect(
+      (statSync(join(dir, "data")).mode & 0o777).toString(8),
+      `${flags.join(" ") || "default"}: a Linux bind mount keeps this mode, and genroc's uid 65532 must create the database in it`,
+    ).toBe("777");
+  }
 });

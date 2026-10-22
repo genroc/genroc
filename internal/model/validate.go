@@ -795,6 +795,10 @@ func validateConfigSchema(cs *schema.Schema) error {
 		if prop.HasProperties() || prop.HasItems() || prop.HasCombinators() || prop.HasRef() {
 			return fmt.Errorf("config %q: must be a primitive value (no nested objects, arrays, combinators, or $ref)", name)
 		}
+		// The scrubber matches the value verbatim, and arithmetic would print an altered number.
+		if prop.IsSecret() && pt[0] != "string" {
+			return fmt.Errorf("config %q: secret: true needs type string, not %s — redaction matches the value verbatim, and a computed value no longer does", name, pt[0])
+		}
 	}
 	return nil
 }

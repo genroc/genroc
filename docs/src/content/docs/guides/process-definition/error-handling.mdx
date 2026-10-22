@@ -28,7 +28,7 @@ You might be wondering what happens when a fetch action fails. Let's look at tha
       - code: ["http.409"]
         case: "error.data.user_is_protected == true"
         # a known error from the server
-        goto: $user-protected
+        goto: $user_protected
       - code: ["pre.%", "http.timeout", "http.disconnected", "http.503"]
         # server is down, or the connection was aborted
         retry: 3
@@ -121,9 +121,9 @@ task directly after the error; later tasks have no access to it.
       ...
     on_error:
       - code: ["http.409"]
-        goto: $user-protected
+        goto: $user_protected
     ...
-  - id: user-protected
+  - id: user_protected
     # you can access the `last_error` variable
     output:
       is_protected: "$: last_error.data.user_is_protected"

@@ -159,6 +159,25 @@ test("run — input that fails the schema is reported before anything starts", (
   expect(instances(["--since", "1h"]).filter((i) => i.process === name)).toEqual([]);
 });
 
+test("run — no input on an object schema starts from {}, so its defaults fill it", async () => {
+  const def = {
+    name: uid("defaulted"),
+    input_schema: { type: "object", properties: { who: { type: "string", default: "world" } } },
+    tasks: [{ id: "t", switch: [{ goto: "end" }] }],
+    output: "$: input.who",
+  };
+  const name = apply(def);
+  const r = runCli(bin, ["run", name]);
+  expect(r.ok, r.stderr).toBe(true);
+  const id = startedID(r.stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+  expect(JSON.parse(runCli(bin, ["get", id, "--json"]).stdout).output, "the default fills the absent input")
+    .toBe("world");
+
+  const { error } = await client.POST("/instances", { body: { process: name, input: null } as never });
+  expect(error, "an explicit null is a value, and still the wrong type").toBeTruthy();
+});
+
 // ── get: displayed fields ───────────────────────────────────────────────────────
 
 // Keep the views apart: state is engine bookkeeping, and an everyday read must not hand it back.
@@ -482,6 +501,13 @@ test("get --resolve — an output cut whole is put back as the output", async ()
 
   const got = JSON.parse(runCli(bin, ["get", id, "--resolve", "--json"]).stdout);
   expect(got.output, "the path is the field itself, so the value becomes the field").toBe(blob);
+
+  for (const verb of ["get", "detail"]) {
+    const text = runCli(bin, [verb, id]);
+    expect(text.ok, text.stderr).toBe(true);
+    expect(text.stdout, `${verb}: the field is omitted on the wire, so only the marker says an output exists`)
+      .toMatch(/Output:\s+ref: [0-9a-f]{32}\s+size: \d+/);
+  }
 }, 15_000);
 
 // ── instances: displayed fields ─────────────────────────────────────────────────

@@ -5,7 +5,8 @@ order: 11
 ---
 
 If you want to have custom scripts as part of the process,
-initialize your project with `genctl init --eval-node`.
+initialize your project with `genctl init --eval-node` and run `npm install` in it:
+the resolver that bundles your scripts comes from the `@genroc/eval-node` package.
 
 
 ## The setup
@@ -90,7 +91,7 @@ export default function (input: Input): Output {
 
 The bundler will also include any imported files and imported libraries.
 
-Node built-ins stay as imports and need `"types": ["node"]` in `tsconfig.json`.
+Node built-ins stay as imports. To type them, `npm install -D @types/node` and set `"types": ["node"]` in `tsconfig.json`.
 
 ### How does it work?
 

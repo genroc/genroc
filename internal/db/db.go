@@ -7,6 +7,9 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,16 +96,32 @@ func OpenSQLite(path, synchronous string, opts ...SQLiteOption) (*DB, error) {
 		for _, p := range []string{"PRAGMA fullfsync = 1", "PRAGMA checkpoint_fullfsync = 1"} {
 			if _, err := sqldb.Exec(p); err != nil {
 				sqldb.Close()
-				return nil, fmt.Errorf("%s: %w", p, err)
+				return nil, sqliteOpenErr(path, fmt.Errorf("%s: %w", p, err))
 			}
 		}
 	}
 	db, err := open(sqldb, "sqlite")
 	if err != nil {
-		return nil, err
+		return nil, sqliteOpenErr(path, err)
 	}
 	db.sqliteBaseSync = sync
 	return db, nil
+}
+
+// sqliteOpenErr names the cause SQLite misreports as "no such file or directory": a directory it
+// may not create files in. A bind mount keeps its host owner, so this is the usual Docker failure.
+func sqliteOpenErr(path string, err error) error {
+	dir := filepath.Dir(path)
+	probe, perr := os.CreateTemp(dir, ".genroc-probe-*")
+	if perr == nil {
+		probe.Close()
+		os.Remove(probe.Name())
+		return err
+	}
+	if !errors.Is(perr, fs.ErrPermission) {
+		return err
+	}
+	return fmt.Errorf("%s is not writable by uid %d, so the database cannot be created there; make it writable (chmod 777 it): %w", dir, os.Getuid(), err)
 }
 
 type sqliteConfig struct{ fullFsync bool }

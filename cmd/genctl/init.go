@@ -100,8 +100,18 @@ func runInitCmd(args []string) {
 		}
 		written = append(written, out)
 	}
+	// 0777: genroc runs as uid 65532, and on Linux a bind mount keeps the host folder's owner -- one
+	// Docker creates itself is root's. installation.mdx says to empty it, never delete it.
+	dataDir := filepath.Join(dir, "data")
+	created, err := makeDataDir(dataDir)
+	if err != nil {
+		fatal("init: %v", err)
+	}
+	if created {
+		written = append(written, dataDir+string(filepath.Separator))
+	}
 	if auth {
-		secrets, err := writeSecrets(filepath.Join(dir, "data"), login != nil, evalNode)
+		secrets, err := writeSecrets(dataDir, login != nil, evalNode)
 		if err != nil {
 			fatal("init: %v", err)
 		}
@@ -150,9 +160,9 @@ func runInitCmd(args []string) {
 		fmt.Println("\nThe password is shown once; `genctl init password` mints a replacement.\n" +
 			keepToken + "\n\ngenroc itself is not published — genctl reaches it through genroc-ui, " +
 			"which passes a\nrequest that already carries a token straight through.")
-		fmt.Println("\ndata/ holds the signing key and is world-readable, which is why it is " +
+		fmt.Println("\ndata/ holds the signing key and is world-readable and writable, which is why it is " +
 			"gitignored.\nIt is a development default: anyone with an account on this machine " +
-			"can read it,\nand whoever holds that key can mint any identity genroc will accept.")
+			"can read or replace it,\nand whoever holds that key can mint any identity genroc will accept.")
 	case auth:
 		fmt.Println("\nThe admin token is shown once; the same command mints another if it is lost.\n" +
 			keepToken)
@@ -323,10 +333,19 @@ func randomPassword() (string, error) {
 	return string(out), nil
 }
 
+// makeDataDir chmods after creating, because the umask would narrow the mode MkdirAll is given.
+func makeDataDir(path string) (created bool, err error) {
+	_, statErr := os.Stat(path)
+	if err := os.MkdirAll(path, 0o777); err != nil {
+		return false, err
+	}
+	return os.IsNotExist(statErr), os.Chmod(path, 0o777)
+}
+
 // writeSecrets writes 0644 so the images can read them as any uid: a development default, stated
 // as one in init's output. The alternative is a root container or a uid pinned in compose.
 func writeSecrets(dir string, jwt, evalNode bool) ([]string, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if _, err := makeDataDir(dir); err != nil {
 		return nil, err
 	}
 	var files []struct{ name, content string }

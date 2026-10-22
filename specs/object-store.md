@@ -52,8 +52,11 @@ config. `secret_log_test.ts` pins the one real guarantee (stored verbatim, redac
 
 Valid in `config_schema`, **refused at registration anywhere else** (`Schema.ContainsSecret`), so
 a definition expecting protection is told it will not get it. The scrub is `redactSecrets`:
-string replacement of the known values `def.SecretConfigValues(inst.Config)`, airtight because
-expressions have no functions, so a secret always appears verbatim. It cannot scrub a value it
+string replacement of the known values `def.SecretConfigValues(inst.Config)`, which holds because
+expressions have no string functions, so a secret always appears verbatim. That is why it needs
+type string (`validateConfigSchema`): `pin + 1` prints a number nothing knows. It covers the
+declaring instance only — a child handed the value prints it, as does `inst_created`, logged
+before config is resolved. It cannot scrub a value it
 does not know — a fetch response body never enters the context — so a marker there would promise
 a scrub nothing delivers. A structural redactor for bodies would have to stringify before
 `audit()`, leaving nothing unredacted to store.

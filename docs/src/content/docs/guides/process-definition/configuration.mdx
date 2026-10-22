@@ -75,12 +75,13 @@ fails at its next step with `engine.config`.
 ### Secrets
 
 `config_schema` is also special, because you can mark
-a property as `secret`. This keeps the value out of
+a string property as `secret`. This keeps the value out of
 the server's console output.
 
 The value can however still leak into db logs accessible through
 `genctl logs` or into the process state.
 
-Genroc replaces the exact value with `***` wherever it appears in the console output.
-That works because expressions can't transform a value, so a secret only ever appears
-verbatim, like in `Bearer <token>`.
+Genroc replaces the exact value with `***` in the console output of the process that declares it.
+That works because expressions can't transform a string, so a secret only ever appears
+verbatim, like in `Bearer <token>`. Redaction doesn't reach the input logged when the process
+starts, or the console output of a child process you pass the secret to.

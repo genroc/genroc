@@ -28,7 +28,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U genroc -d genroc"]
       interval: 2s
       retries: 15
-    # Under ./data like everything that persists, so deleting ./data is the whole reset.
+    # Under ./data like everything that persists. Postgres owns it, so a reset is
+    # `sudo rm -rf data/postgres` on Linux.
     volumes: [./data/postgres:/var/lib/postgresql/data]
 {{- end}}
 
@@ -55,6 +56,8 @@ services:
       GENROC_SEED_TOKENS_FILE: /data/seed-tokens
 {{- end}}
 {{- end}}
+    # genctl init made ./data writable for genroc (uid 65532); on Linux a folder Docker creates is
+    # root's. After a fresh clone, `mkdir -m 777 data`; to reset, delete files in it, never the folder.
     volumes: [./data:/data]
 {{- if .UI}}
     # No ports: the only way in from the host is genroc-ui.

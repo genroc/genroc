@@ -46,7 +46,7 @@ type StartInstanceReq struct {
 	Process string  `json:"process"`
 	Version *int    `json:"version,omitempty"` // explicit version; takes priority over Channel
 	Channel *string `json:"channel,omitempty"` // resolve to version via channel; fallback to latest
-	Input   *any    `json:"input,omitempty"`
+	Input   *any    `json:"input,omitempty" description:"The process input. Omitted when the input_schema is an object, the instance starts from {} so its defaults apply; null is a value, checked like any other."`
 }
 
 type PutDefinitionsReq struct {

@@ -32,6 +32,7 @@ Open the project in your editor. With the default options it looks like this:
 
 ```
 genroc-app/
+├─ data/                  # the database, once the server starts
 ├─ definitions/
 │  └─ hello.genroc.yaml    # the example process definition
 ├─ .genroc                 # genroc configuration
@@ -66,19 +67,35 @@ Should run without an error.
 Stop it with `docker compose down`, your data stays in the `data` folder.
 
 > The default setup has no authentication, anyone on your network can run code through it.
-> Use `genctl init --auth` to turn it on, and see [Running in production](../operating/running-in-production.mdx)
+> Turn it on with `genctl init --auth` in a new project ([Authentication](../operating/authentication.mdx) for an existing one),
+> and see [Running in production](../operating/running-in-production.mdx)
 > before running genroc anywhere but your laptop.
 
 ## `data` folder
 
 Our example project stores database files in the `data` folder. This folder is in `.gitignore` by default.
-If you need to prune database just delete the folder and restart the server with docker.
+
+Genroc runs as its own user in the container, so `genctl init` makes the folder writable for everyone.
+On Linux, a folder Docker creates itself is owned by root and genroc can't write to it, so
+to prune the database delete the files, not the folder:
+
+```sh
+docker compose down
+rm data/genroc.db*
+docker compose up -d
+```
+
+After a fresh clone of the project on Linux, create the folder with `mkdir -m 777 data`.
 
 ## Uninstalling
 To uninstall genctl:
 
 ```sh
-curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall [--purge]
+curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall
 ```
 
-`--purge` also deletes your settings (config directory)
+To also delete your settings (config directory), add `--purge`:
+
+```sh
+curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall --purge
+```

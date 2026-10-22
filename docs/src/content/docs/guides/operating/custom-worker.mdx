@@ -124,7 +124,8 @@ Make leases e.g. 30s and renew them e.g. every 10s. This lets genroc know
 that the worker is alive and the work is advancing (a bit like a heartbeat).
 
 For renewing, there is the [`/api/external-tasks/renew`](../../reference/rest-api/external-tasks.md#post-apiexternal-tasksrenew)
-endpoint, which accepts a list of tokens for the tasks you want to renew.
+endpoint, which accepts a list of tokens for the tasks you want to renew,
+and the same `worker_id` you claimed them with (a lease held by another worker comes back `lost`).
 
 ### Cancelled/lost leases
 
