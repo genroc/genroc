@@ -203,6 +203,13 @@ into the <code>genroc-ui</code> container. It will look something like this:</p>
 Genroc UI signs a short-lived token with it, and genroc checks the signature with
 the same file (genroc reads it through <code>GENROC_JWT_SECRET_FILE</code>).
 Both have to point at the same file.</p>
+<h3 id="rotating-the-secret">Rotating the secret<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#rotating-the-secret"><span></span></a></h3>
+<p>Both containers read the secret only when they start, so write a new one and restart both.
+Everyone has to sign in again, because their sessions were signed with the old secret;
+genroc tokens keep working.</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">openssl</span><span style="color:#8FB996"> rand</span><span style="color:#8FB996"> -base64</span><span style="color:#D4A76A"> 32</span><span style="color:#E07A4F"> &gt;</span><span style="color:#8FB996"> data/jwt-secret</span></span>
+<span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> restart</span><span style="color:#8FB996"> genroc</span><span style="color:#8FB996"> genroc-ui</span></span></code></pre>
+<p>Restarting only one of them leaves the two disagreeing, and every signed-in request is refused.</p>
 <p>By default Genroc UI signs users in with a static list of users from <code>ui.yaml</code>.
 Passwords are generated and never kept in plain text, only their hash
 is stored. You can add a new user with the following command:</p>
@@ -259,7 +266,7 @@ groups, which Google itself doesn&#39;t put into the token.</p>
 <p>See the <a href="https://github.com/genroc/genroc/tree/main/examples/dex">Dex example</a> for a complete
 setup with docker compose. It runs with Dex&#39;s own users, so you can try it without any
 credentials, and shows how to switch to GitHub.</p>
-<p>All <code>ui.yaml</code> options are listed in the <a href="/reference/genroc-ui/">Genroc UI reference</a>.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/authentication/"> <span>previous</span> <strong>Authentication</strong> </a> <a class="next" href="/guides/operating/running-in-production/"> <span>next</span> <strong>Running in production</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#current-state">Current state</a></li><li class="depth-2"><a href="#how-to-install">How to install</a></li><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-2"><a href="#with-authentication-enabled">With authentication enabled</a></li><li class="depth-2"><a href="#user-groups-and-roles">User groups and roles</a></li><li class="depth-2"><a href="#using-auth-provider">Using auth provider</a></li><li class="depth-3"><a href="#dex">Dex</a></li></ul><script>
+<p>All <code>ui.yaml</code> options are listed in the <a href="/reference/genroc-ui/">Genroc UI reference</a>.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/authentication/"> <span>previous</span> <strong>Authentication</strong> </a> <a class="next" href="/guides/operating/running-in-production/"> <span>next</span> <strong>Running in production</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#current-state">Current state</a></li><li class="depth-2"><a href="#how-to-install">How to install</a></li><li class="depth-2"><a href="#the-setup">The setup</a></li><li class="depth-2"><a href="#with-authentication-enabled">With authentication enabled</a></li><li class="depth-3"><a href="#rotating-the-secret">Rotating the secret</a></li><li class="depth-2"><a href="#user-groups-and-roles">User groups and roles</a></li><li class="depth-2"><a href="#using-auth-provider">Using auth provider</a></li><li class="depth-3"><a href="#dex">Dex</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

@@ -224,6 +224,9 @@ and shows up in logs as <code>jwt:ada@example.com</code>. <code>exp</code> is re
 <p>Genroc tokens keep working beside JWTs, so people can come through the UI
 while <code>genctl</code> and workers use their genroc tokens. A secret without <code>--auth</code>
 is refused at startup.</p>
+<p>Genroc reads the secret only at startup. To rotate it, replace it and restart genroc together with
+whatever mints the tokens; a token signed with the old secret stops verifying
+(<a href="/guides/operating/genroc-ui/#rotating-the-secret">rotating it with Genroc UI</a>).</p>
 <blockquote>
 <p>Anyone with the secret can mint a token with any permissions, so keep it as safe as an admin token.</p>
 </blockquote>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/large-values/"> <span>previous</span> <strong>Large values</strong> </a> <a class="next" href="/guides/operating/genroc-ui/"> <span>next</span> <strong>Genroc UI</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#permissions">Permissions</a></li><li class="depth-2"><a href="#classic-tokens">Classic tokens</a></li><li class="depth-2"><a href="#initialization">Initialization</a></li><li class="depth-3"><a href="#first-admin-token">First admin token</a></li><li class="depth-3"><a href="#seed-tokens">Seed tokens</a></li><li class="depth-2"><a href="#jwt-tokens">JWT tokens</a></li></ul><script>
