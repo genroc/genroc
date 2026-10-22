@@ -87,6 +87,19 @@ Genroc UI signs a short-lived token with it, and genroc checks the signature wit
 the same file (genroc reads it through `GENROC_JWT_SECRET_FILE`).
 Both have to point at the same file.
 
+### Rotating the secret
+
+Both containers read the secret only when they start, so write a new one and restart both.
+Everyone has to sign in again, because their sessions were signed with the old secret;
+genroc tokens keep working.
+
+```sh
+openssl rand -base64 32 > data/jwt-secret
+docker compose restart genroc genroc-ui
+```
+
+Restarting only one of them leaves the two disagreeing, and every signed-in request is refused.
+
 By default Genroc UI signs users in with a static list of users from `ui.yaml`.
 Passwords are generated and never kept in plain text, only their hash
 is stored. You can add a new user with the following command:

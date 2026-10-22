@@ -131,4 +131,8 @@ Genroc tokens keep working beside JWTs, so people can come through the UI
 while `genctl` and workers use their genroc tokens. A secret without `--auth`
 is refused at startup.
 
+Genroc reads the secret only at startup. To rotate it, replace it and restart genroc together with
+whatever mints the tokens; a token signed with the old secret stops verifying
+([rotating it with Genroc UI](./genroc-ui.mdx#rotating-the-secret)).
+
 > Anyone with the secret can mint a token with any permissions, so keep it as safe as an admin token.
