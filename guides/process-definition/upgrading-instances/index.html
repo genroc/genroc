@@ -258,7 +258,7 @@ with a <code>compat</code> command.</p>
 <p>Compat reads two definitions and never an instance, so it answers the pessimistic
 question - could <em>any</em> instance fail to move. Our change breaks one parked at
 <code>wait_for_reply</code>, so the whole comparison reads <code>breaking</code>, even though the instance
-still in <code>wait_some_time</code> would upgrade fine. <code>upgrade</code> is the one that looks at a
+still at <code>welcome</code> would upgrade fine. <code>upgrade</code> is the one that looks at a
 real row.</p>
 <p>Under the verdict is what it compared: a break names the task and the field, <code>(ok)</code>
 is a slot some check passed, and <code>(not judged)</code> is a slot no check covers - a URL or

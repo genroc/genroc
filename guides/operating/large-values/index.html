@@ -228,14 +228,14 @@ and the <code>objects</code> section says where it was and how to get it:</p>
 <span class="line"><span style="color:#8A8A84">    }</span></span>
 <span class="line"><span style="color:#8A8A84">  ]</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
-<p><code>path</code> points to the <code>null</code> field, <code>ref</code> is the id of the stored value
-and <code>size</code> is its size in bytes. Only the large parts are moved out:
-<code>status</code> and <code>content_type</code> stay where they are.</p>
+<p><code>path</code> points to the <code>null</code> field (a top-level field moved out whole, like <code>output</code>, is missing
+instead), <code>ref</code> is the id of the stored value and <code>size</code> is its size in bytes.
+Only the large parts are moved out: <code>status</code> and <code>content_type</code> stay where they are.</p>
 <p>To get the value, use the <code>ref</code>:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> curl http://localhost:8448/api/objects/9f2ac1b4e7d05f38a61c0d2e4b7f9a13</span></span>
 <span class="line"><span style="color:#8A8A84">{</span><span style="color:#E07A4F">&quot;data&quot;</span><span style="color:#E07A4F">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">\&quot;&lt;!doctype html&gt;&lt;html&gt;...\&quot;</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">}</span></span></code></pre>
 <p><code>data</code> is the value encoded as JSON text, so parse it once more to get the original value.</p>
-<p>The CLI does this for you: <code>genctl detail</code> shows <code>{ref, size}</code> in place of the <code>null</code>,
+<p>The CLI does this for you: <code>genctl detail</code> shows <code>{ref, size}</code> where the value was,
 <code>genctl detail --resolve</code> fills it in and <code>genctl object &lt;ref&gt;</code> prints one value.</p>
 <h2 id="which-endpoints">Which endpoints<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#which-endpoints"><span></span></a></h2>
 

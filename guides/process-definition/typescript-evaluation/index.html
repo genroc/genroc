@@ -151,7 +151,8 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
         })
       })()
     </script> <main>  <div class="prose" data-pagefind-body data-pagefind-meta="trail:docs / Guides / Process definition"> <div class="page-head"> <p class="crumb" data-pagefind-ignore> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Typescript evaluation</h1> <p>Learn how to run typescript through genroc</p> </div>  <p>If you want to have custom scripts as part of the process,
-initialize your project with <code>genctl init --eval-node</code>.</p>
+initialize your project with <code>genctl init --eval-node</code> and run <code>npm install</code> in it:
+the resolver that bundles your scripts comes from the <code>@genroc/eval-node</code> package.</p>
 <h2 id="the-setup">The setup<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-setup"><span></span></a></h2>
 <p>If we look at the project structure, you will see, that there are some extra fields
 compared to regular one.</p>
@@ -213,7 +214,7 @@ It will take it&#39;s output as a result. The function may also be async.</p>
 <span class="line"><span style="color:#E07A4F">  return</span><span style="color:#8A8A84"> {</span><span style="color:#D6D6D2"> greeting</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> `</span><span style="color:#8FB996">hello, </span><span style="color:#E07A4F">${</span><span style="color:#D6D6D2">input</span><span style="color:#8A8A84">.</span><span style="color:#D6D6D2">who</span><span style="color:#E07A4F">}</span><span style="color:#8A8A84">`</span><span style="color:#8A8A84">,</span><span style="color:#D6D6D2"> at</span><span style="color:#8A8A84">:</span><span style="color:#E07A4F"> new</span><span style="color:#E07A4F"> Date</span><span style="color:#8A8A84">().</span><span style="color:#E07A4F">toISOString</span><span style="color:#8A8A84">()</span><span style="color:#8A8A84"> };</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
 <p>The bundler will also include any imported files and imported libraries.</p>
-<p>Node built-ins stay as imports and need <code>&quot;types&quot;: [&quot;node&quot;]</code> in <code>tsconfig.json</code>.</p>
+<p>Node built-ins stay as imports. To type them, <code>npm install -D @types/node</code> and set <code>&quot;types&quot;: [&quot;node&quot;]</code> in <code>tsconfig.json</code>.</p>
 <h3 id="how-does-it-work">How does it work?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#how-does-it-work"><span></span></a></h3>
 <p>The content of the <code>.ts</code> file is bundled with rollup into one string and included directly into the process definition,
 so it can&#39;t drift.</p>

@@ -173,7 +173,7 @@ nested properties would be awkward here).</p>
 <span class="line"><span style="color:#D6D6D2">      </span><span style="--col:6;--line:13" class="hovered">default<span class="tip" data-pagefind-ignore>The value used when this one is absent. Annotation only — it does not make a required property optional.</span></span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">http://localhost:8080</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"><span style="color:#D6D6D2">    server_auth</span><span style="color:#8A8A84">:</span></span>
 <span class="line"><span style="color:#D6D6D2">      </span><span style="--col:6;--line:15" class="hovered">type<span class="tip" data-pagefind-ignore>The value&#39;s JSON type, or a list of types it may take.</span></span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> </span><span style="--col:12;--line:15" class="hovered">string<span class="tip" data-pagefind-ignore>The value&#39;s JSON type, or a list of types it may take.</span></span></span>
-<span class="line"><span style="color:#D6D6D2">      </span><span style="--col:6;--line:16" class="hovered">secret<span class="tip" data-pagefind-ignore>Redacts the value from logs. Only meaningful in a process config_schema.</span></span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> </span><span style="--col:14;--line:16" class="hovered">true<span class="tip" data-pagefind-ignore>Redacts the value from logs. Only meaningful in a process config_schema.</span></span></span>
+<span class="line"><span style="color:#D6D6D2">      </span><span style="--col:6;--line:16" class="hovered">secret<span class="tip" data-pagefind-ignore>Keeps the value out of the server&#39;s console output. Only valid on a string in a process config_schema.</span></span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> </span><span style="--col:14;--line:16" class="hovered">true<span class="tip" data-pagefind-ignore>Keeps the value out of the server&#39;s console output. Only valid on a string in a process config_schema.</span></span></span>
 <span class="line"><span style="color:#D6D6D2">  </span><span style="--col:2;--line:17" class="hovered">required<span class="tip" data-pagefind-ignore>Which properties must be present. A property not listed here may be absent, and reading it yields null.</span></span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8FB996">server_auth</span><span style="color:#8A8A84">]</span></span>
 <span class="line"></span>
 <span class="line"><span style="--col:0;--line:19" class="hovered">tasks<span class="tip" data-pagefind-ignore>Ordered list of execution tasks. Control advances linearly unless a switch case redirects.</span></span><span style="color:#8A8A84">:</span></span>
@@ -206,13 +206,14 @@ processes use the new value too. If a value goes missing or stops converting, th
 fails at its next step with <code>engine.config</code>.</p>
 <h3 id="secrets">Secrets<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#secrets"><span></span></a></h3>
 <p><code>config_schema</code> is also special, because you can mark
-a property as <code>secret</code>. This keeps the value out of
+a string property as <code>secret</code>. This keeps the value out of
 the server&#39;s console output.</p>
 <p>The value can however still leak into db logs accessible through
 <code>genctl logs</code> or into the process state.</p>
-<p>Genroc replaces the exact value with <code>***</code> wherever it appears in the console output.
-That works because expressions can&#39;t transform a value, so a secret only ever appears
-verbatim, like in <code>Bearer &lt;token&gt;</code>.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/actions/"> <span>previous</span> <strong>Actions</strong> </a> <a class="next" href="/guides/process-definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#specifying-config_schema">Specifying config_schema</a></li><li class="depth-3"><a href="#specifying-the-env">Specifying the env</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li></ul><script>
+<p>Genroc replaces the exact value with <code>***</code> in the console output of the process that declares it.
+That works because expressions can&#39;t transform a string, so a secret only ever appears
+verbatim, like in <code>Bearer &lt;token&gt;</code>. Redaction doesn&#39;t reach the input logged when the process
+starts, or the console output of a child process you pass the secret to.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/actions/"> <span>previous</span> <strong>Actions</strong> </a> <a class="next" href="/guides/process-definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#specifying-config_schema">Specifying config_schema</a></li><li class="depth-3"><a href="#specifying-the-env">Specifying the env</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

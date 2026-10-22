@@ -161,6 +161,7 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">cd</span><span style="color:#8FB996"> genroc-app</span></span></code></pre>
 <p>Open the project in your editor. With the default options it looks like this:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genroc-app/</span></span>
+<span class="line"><span>├─ data/                  # the database, once the server starts</span></span>
 <span class="line"><span>├─ definitions/</span></span>
 <span class="line"><span>│  └─ hello.genroc.yaml    # the example process definition</span></span>
 <span class="line"><span>├─ .genroc                 # genroc configuration</span></span>
@@ -182,16 +183,24 @@ It provides language support for <code>*.genroc.yaml</code> files.</p>
 <p>Stop it with <code>docker compose down</code>, your data stays in the <code>data</code> folder.</p>
 <blockquote>
 <p>The default setup has no authentication, anyone on your network can run code through it.
-Use <code>genctl init --auth</code> to turn it on, and see <a href="/guides/operating/running-in-production/">Running in production</a>
+Turn it on with <code>genctl init --auth</code> in a new project (<a href="/guides/operating/authentication/">Authentication</a> for an existing one),
+and see <a href="/guides/operating/running-in-production/">Running in production</a>
 before running genroc anywhere but your laptop.</p>
 </blockquote>
 <h2 id="data-folder"><code>data</code> folder<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#data-folder"><span></span></a></h2>
-<p>Our example project stores database files in the <code>data</code> folder. This folder is in <code>.gitignore</code> by default.
-If you need to prune database just delete the folder and restart the server with docker.</p>
+<p>Our example project stores database files in the <code>data</code> folder. This folder is in <code>.gitignore</code> by default.</p>
+<p>Genroc runs as its own user in the container, so <code>genctl init</code> makes the folder writable for everyone.
+On Linux, a folder Docker creates itself is owned by root and genroc can&#39;t write to it, so
+to prune the database delete the files, not the folder:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> down</span></span>
+<span class="line"><span style="color:#E07A4F">rm</span><span style="color:#8FB996"> data/genroc.db</span><span style="color:#D6D6D2">*</span></span>
+<span class="line"><span style="color:#E07A4F">docker</span><span style="color:#8FB996"> compose</span><span style="color:#8FB996"> up</span><span style="color:#8FB996"> -d</span></span></code></pre>
+<p>After a fresh clone of the project on Linux, create the folder with <code>mkdir -m 777 data</code>.</p>
 <h2 id="uninstalling">Uninstalling<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#uninstalling"><span></span></a></h2>
 <p>To uninstall genctl:</p>
-<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">curl</span><span style="color:#8FB996"> -fsSL</span><span style="color:#8FB996"> https://genroc.org/install.sh</span><span style="color:#E07A4F"> |</span><span style="color:#E07A4F"> sh</span><span style="color:#8FB996"> -s</span><span style="color:#8FB996"> --</span><span style="color:#8FB996"> --uninstall</span><span style="color:#D6D6D2"> [--purge]</span></span></code></pre>
-<p><code>--purge</code> also deletes your settings (config directory)</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore>  <a class="next" href="/guides/getting-started/first-process/"> <span>next</span> <strong>Your first process</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-cli">The CLI</a></li><li class="depth-2"><a href="#starting-a-project">Starting a project</a></li><li class="depth-2"><a href="#editor-support">Editor support</a></li><li class="depth-2"><a href="#running-with-docker">Running with docker</a></li><li class="depth-2"><a href="#data-folder">data folder</a></li><li class="depth-2"><a href="#uninstalling">Uninstalling</a></li></ul><script>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">curl</span><span style="color:#8FB996"> -fsSL</span><span style="color:#8FB996"> https://genroc.org/install.sh</span><span style="color:#E07A4F"> |</span><span style="color:#E07A4F"> sh</span><span style="color:#8FB996"> -s</span><span style="color:#8FB996"> --</span><span style="color:#8FB996"> --uninstall</span></span></code></pre>
+<p>To also delete your settings (config directory), add <code>--purge</code>:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">curl</span><span style="color:#8FB996"> -fsSL</span><span style="color:#8FB996"> https://genroc.org/install.sh</span><span style="color:#E07A4F"> |</span><span style="color:#E07A4F"> sh</span><span style="color:#8FB996"> -s</span><span style="color:#8FB996"> --</span><span style="color:#8FB996"> --uninstall</span><span style="color:#8FB996"> --purge</span></span></code></pre>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore>  <a class="next" href="/guides/getting-started/first-process/"> <span>next</span> <strong>Your first process</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-cli">The CLI</a></li><li class="depth-2"><a href="#starting-a-project">Starting a project</a></li><li class="depth-2"><a href="#editor-support">Editor support</a></li><li class="depth-2"><a href="#running-with-docker">Running with docker</a></li><li class="depth-2"><a href="#data-folder">data folder</a></li><li class="depth-2"><a href="#uninstalling">Uninstalling</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

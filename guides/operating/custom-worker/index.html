@@ -235,7 +235,8 @@ are validated against the <code>raises</code> field (<code>code</code> and <code
 Make leases e.g. 30s and renew them e.g. every 10s. This lets genroc know
 that the worker is alive and the work is advancing (a bit like a heartbeat).</p>
 <p>For renewing, there is the <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksrenew"><code>/api/external-tasks/renew</code></a>
-endpoint, which accepts a list of tokens for the tasks you want to renew.</p>
+endpoint, which accepts a list of tokens for the tasks you want to renew,
+and the same <code>worker_id</code> you claimed them with (a lease held by another worker comes back <code>lost</code>).</p>
 <h3 id="cancelledlost-leases">Cancelled/lost leases<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#cancelledlost-leases"><span></span></a></h3>
 <p>The renew endpoint lets you know if a task is no longer worth working on.
 This can happen when the process is <code>cancelled</code> or the lease is <code>lost</code>.</p>
