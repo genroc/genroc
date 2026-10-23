@@ -223,6 +223,10 @@ func TestTimeFormatting(t *testing.T) {
 	if got := shortTime(now.Add(-3 * time.Hour).Format(time.RFC3339)); got != "3h ago" {
 		t.Errorf("shortTime(3h) = %q", got)
 	}
+	// A future instant reads as a distance, not as its own date repeated in another format.
+	if got := longTime(now.Add(90 * time.Minute).Format(time.RFC3339)); !strings.HasSuffix(got, "(in 1h)") {
+		t.Errorf("longTime(+90m) = %q, want the wake-up as a distance", got)
+	}
 	// Unparseable input is returned unchanged.
 	if got := shortTime("not-a-time"); got != "not-a-time" {
 		t.Errorf("shortTime(garbage) = %q", got)

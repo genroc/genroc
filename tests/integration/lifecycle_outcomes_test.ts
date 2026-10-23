@@ -98,6 +98,8 @@ test("resume — 204 when the tree is already advancing, 409 only when it has se
   expect(settled.status).toBe(409);
   expect(settled.body!.code).toBe("conflict");
   expect(settled.body!.error).toContain("settled");
+  expect(settled.body!.error, "retry refuses a completed process, so the advice must not point there")
+    .not.toContain("retry");
 });
 
 test("retry — not an assertion, so every refusal stays a 409 and it never reports unchanged", async () => {

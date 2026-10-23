@@ -175,3 +175,53 @@ func TestValidate_FetchOnlySlots(t *testing.T) {
 		t.Errorf("a fetch carrying all of them must be accepted: %v", err)
 	}
 }
+
+// The child-family slots, likewise: the editor schema refuses each off its owners, and the server
+// must too, or a field the editor marks wrong is accepted and silently never read.
+func TestValidate_ChildSlotsOffTheirOwners(t *testing.T) {
+	for _, tc := range []struct{ action, want string }{
+		{`{"type":"child_list","name":"k","over":"$: []","input":{"a":1}}`, "each element of `over`"},
+		{`{"type":"child_list","name":"k","over":"$: []","children":{"a":{"name":"k"}}}`, `action.children is not valid on a "child_list" task`},
+		{`{"type":"child_map","children":{"a":{"name":"k"}},"name":"k"}`, "children[<key>].name"},
+		{`{"type":"child_map","children":{"a":{"name":"k"}},"result_schema":{"type":"object"}}`, "children[<key>].result_schema"},
+		{`{"type":"child_map","children":{"a":{"name":"k"}},"input":{"a":1}}`, "children[<key>].input"},
+		{`{"type":"child","name":"k","over":"$: []"}`, `action.over is not valid on a "child" task`},
+		{`{"type":"fetch","method":"get","url":"http://x","input":{"a":1}}`, "a fetch sends a `body`"},
+		{`{"type":"external","name":"k"}`, `action.name is not valid on a "external" task`},
+		{`{"type":"delay","for":"1s","result_schema":{"type":"object"}}`, "does not read it"},
+	} {
+		err := responsesDef(t, tc.action).Validate()
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: want a refusal naming %q, got %v", tc.action, tc.want, err)
+		}
+	}
+	for _, ok := range []string{
+		`{"type":"child","name":"k","version":2,"input":{"a":1},"result_schema":{"type":"object"}}`,
+		`{"type":"child_list","name":"k","version":2,"over":"$: []","result_schema":{"type":"object"}}`,
+		`{"type":"external","input":{"a":1},"result_schema":{"type":"object"}}`,
+	} {
+		if err := responsesDef(t, ok).Validate(); err != nil {
+			t.Errorf("%s: every slot here is its owner's: %v", ok, err)
+		}
+	}
+}
+
+// The transport never sends a body with GET or HEAD, so a literal one is a body dropped in silence.
+func TestValidate_BodyOnAMethodThatSendsNone(t *testing.T) {
+	for _, method := range []string{"get", "GET", "head"} {
+		err := responsesDef(t, `{"type":"fetch","url":"http://x","method":"`+method+`","body":{"a":1}}`).Validate()
+		if err == nil || !strings.Contains(err.Error(), "never sent with") {
+			t.Errorf("method %s: want the body refused, got %v", method, err)
+		}
+	}
+	for _, ok := range []string{
+		`{"type":"fetch","url":"http://x","method":"post","body":{"a":1}}`,
+		`{"type":"fetch","url":"http://x","method":"get"}`,
+		// Known only at runtime, so nothing here can say it will be GET.
+		`{"type":"fetch","url":"http://x","method":"$: 'get'","body":{"a":1}}`,
+	} {
+		if err := responsesDef(t, ok).Validate(); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+}

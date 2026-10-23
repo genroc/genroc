@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "vitest";
-import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
+import { buildGenctlBinary, runCli, runCliAsync, writeDefs } from "../helpers/cli.ts";
 import { uid } from "../helpers/genctl.ts";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 
 /**
  * `genctl upgrade`, sweep (`<process> --from --to`) and id (`<instance-id> --to`) forms. The
@@ -296,3 +296,42 @@ test("a child id is refused, and is not paused on the way", async () => {
     "running",
   );
 });
+
+test("a root whose task outlasts the pause is still moved, and resumed", async () => {
+  // Held past the 10s the command once gave up at, which left the instance paused for good: the
+  // server will not resume a root that is still pausing, and a rerun finds it paused, not its own.
+  const mock = await startMockService(0, { firstRequestDelayMs: Infinity });
+  try {
+    const name = uid("slowpause");
+    const def = (extra: object) => ({
+      name,
+      input_schema: { type: "object", properties: { note: { type: "string" }, ...extra } },
+      tasks: [
+        {
+          id: "call",
+          action: { type: "fetch", method: "get", url: `http://127.0.0.1:${mock.port}/x`, timeout: "60s" },
+          switch: "next",
+        },
+        { id: "hold", action: { type: "external" }, switch: "end" },
+      ],
+    });
+    runCli(bin, ["apply", "-f", writeDefs([def({})])]);
+    const { data } = await client.POST("/instances", { body: { process: name, input: {} } as never });
+    await mock.firstRequestReceived;
+    runCli(bin, ["apply", "-f", writeDefs([def({ tag: { type: "string" } })])]);
+
+    const upgrade = runCliAsync(bin, ["upgrade", data!.id, "--to", "2"]);
+    await new Promise((r) => setTimeout(r, 11_000));
+    mock.release();
+    const r = await upgrade;
+
+    expect(r.ok, r.stderr + r.stdout).toBe(true);
+    expect(r.stderr, "a wait this long says what it is waiting for").toContain("waiting for");
+    const after = await client.GET("/instances/{id}", { params: { path: { id: data!.id } } });
+    expect(after.data!.version, "the move happened once the task landed").toBe(2);
+    expect(after.data!.status, "the command paused it, so the command resumes it").toBe("running");
+  } finally {
+    mock.release();
+    await mock.stop();
+  }
+}, 40_000);

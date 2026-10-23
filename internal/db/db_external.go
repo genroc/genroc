@@ -28,8 +28,12 @@ func BoundToClaim(epoch int64) ClaimBinding { return ClaimBinding{epoch: epoch, 
 // hands two-part tokens to any caller. specs/external-task-queue.md.
 func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.NullInt64) error {
 	if c.bound {
+		// The epoch moves on a claim, a release and a loss alike; only the holder tells them apart.
+		if c.epoch != current && worker.Valid {
+			return fmt.Errorf("claim was taken over: the task was claimed again after this token was granted, now by worker %q: %w", worker.String, ErrConflict)
+		}
 		if c.epoch != current {
-			return fmt.Errorf("claim was taken over (the lease expired and the task was re-claimed): %w", ErrConflict)
+			return fmt.Errorf("claim is no longer held: it was released, or lost after its lease lapsed: %w", ErrConflict)
 		}
 		return nil
 	}

@@ -63,8 +63,8 @@ func parseWhen(flag, s string) (int64, error) {
 	return 0, fmt.Errorf("invalid %s %q: want a duration (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04)", flag, s)
 }
 
-// shortTime renders a timestamp compactly for list columns: a relative age ("5m ago")
-// within a week, else a short absolute "YY-MM-DD HH:MM". Unparseable input is unchanged.
+// shortTime renders a timestamp compactly for list columns: a relative age ("5m ago", "in 3h")
+// within a week of the past, else a short absolute "YY-MM-DD HH:MM". Unparseable input is unchanged.
 func shortTime(rfc string) string {
 	t, ok := parseTime(rfc)
 	if !ok {
@@ -76,7 +76,10 @@ func shortTime(rfc string) string {
 func relAge(t time.Time) string {
 	d := time.Since(t)
 	switch {
-	case d < 0, d >= 7*24*time.Hour:
+	case d < 0:
+		// A wake-up or an expiry: how far off it is, which is what such a timestamp is read for.
+		return "in " + span(-d)
+	case d >= 7*24*time.Hour:
 		return t.Format("06-01-02 15:04")
 	case d < time.Minute:
 		return "just now"

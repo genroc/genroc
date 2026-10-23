@@ -46,7 +46,11 @@ func runTokenCmd(server string, args []string) {
 	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
 	quietFlag := fs.Bool("quiet", false, "on create, print only the token")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
-	fs.Parse(rest)
+	// parseArgs, not fs.Parse: `revoke <id> --server x` would read --server as a second id.
+	ids := parseArgs(fs, rest)
+	if (sub == "generate" || sub == "create" || sub == "list") && len(ids) > 0 {
+		fatal("token %s takes no arguments, got %q", sub, ids)
+	}
 
 	switch sub {
 	case "generate":
@@ -143,10 +147,10 @@ func runTokenCmd(server string, args []string) {
 		}
 		w.Flush()
 	case "revoke":
-		if fs.NArg() == 0 {
+		if len(ids) == 0 {
 			fatal("usage: genctl token revoke <id>...")
 		}
-		for _, id := range fs.Args() {
+		for _, id := range ids {
 			var resp struct {
 				Revoked bool `json:"revoked"`
 			}
@@ -156,7 +160,7 @@ func runTokenCmd(server string, args []string) {
 			fmt.Printf("revoked: %s\n", id)
 		}
 	default:
-		fatal("token: unknown subcommand %q (create, list, revoke)", sub)
+		fatal("token: unknown subcommand %q (generate, create, list, revoke)", sub)
 	}
 }
 

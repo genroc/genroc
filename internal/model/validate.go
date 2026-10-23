@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"genroc/internal/delayspec"
 	"genroc/internal/errcode"
 	"genroc/internal/schema"
+	"genroc/internal/template"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -127,6 +129,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	if err := validateResponses(s, pool); err != nil {
 		return err
 	}
+	if err := validateChildSlots(s); err != nil {
+		return err
+	}
 	if err := validateRaises(s, pool); err != nil {
 		return err
 	}
@@ -164,6 +169,11 @@ func validateActionRequiredFields(s *Task) error {
 		}
 		if s.Action.Method == "" {
 			return fmt.Errorf("task %q: action.method is required for type %q — name the verb, e.g. %s or %s", s.ID, s.Action.Type, "method: get", "method: post")
+		}
+		// The transport sends no body with these (methodAllowsBody); a computed method is known
+		// only at runtime, where the body is still dropped.
+		if m, ok := staticMethod(s.Action.Method); ok && s.Action.Body.Present() && (m == "GET" || m == "HEAD") {
+			return fmt.Errorf("task %q: action.body is never sent with %s — pass the values as %s, or use a method that carries a body", s.ID, m, "query")
 		}
 	case ActionTypeChildMap:
 		if len(s.Action.Children) == 0 {
@@ -567,6 +577,58 @@ func validateDelayOnlySlots(s *Task) error {
 		if slot.set {
 			return fmt.Errorf("task %q: action.%s is only valid on a delay — a %q task does not wait, so the value would be ignored. For a deadline on the call, write %s, whose object form takes these same slots", s.ID, slot.name, s.Action.Type, "timeout")
 		}
+	}
+	return nil
+}
+
+func staticMethod(src string) (string, bool) {
+	tmpl, err := template.Parse(src)
+	if err != nil {
+		return "", false
+	}
+	m, ok := tmpl.Static()
+	return strings.ToUpper(strings.TrimSpace(m)), ok
+}
+
+// validateChildSlots refuses a child-family slot its action type never reads. The Go struct takes
+// every field on every type, so without this the editor schema refuses what the server ignores.
+func validateChildSlots(s *Task) error {
+	if s.Action == nil {
+		return nil
+	}
+	t := s.Action.Type
+	perEntry := func(slot string) string {
+		return fmt.Sprintf("each entry carries its own, so write it as children[<key>].%s", slot)
+	}
+	for _, slot := range []struct {
+		name   string
+		set    bool
+		owners []ActionType
+		hints  map[ActionType]string
+	}{
+		{"name", s.Action.Name != "", []ActionType{ActionTypeChild, ActionTypeChildList},
+			map[ActionType]string{ActionTypeChildMap: perEntry("name")}},
+		{"version", s.Action.Version != 0, []ActionType{ActionTypeChild, ActionTypeChildList},
+			map[ActionType]string{ActionTypeChildMap: perEntry("version")}},
+		{"input", s.Action.Input.Present(), []ActionType{ActionTypeChild, ActionTypeExternal},
+			map[ActionType]string{
+				ActionTypeChildMap:  perEntry("input"),
+				ActionTypeChildList: "each element of `over` is one child's input",
+				ActionTypeFetch:     "a fetch sends a `body`",
+			}},
+		{"children", len(s.Action.Children) > 0, []ActionType{ActionTypeChildMap}, nil},
+		{"over", s.Action.Over != "", []ActionType{ActionTypeChildList}, nil},
+		// fetch is validateResponses', whose message names `responses`.
+		{"result_schema", s.Action.ResultSchema != nil, []ActionType{ActionTypeChild, ActionTypeChildList, ActionTypeExternal, ActionTypeFetch},
+			map[ActionType]string{ActionTypeChildMap: perEntry("result_schema")}},
+	} {
+		if !slot.set || slices.Contains(slot.owners, t) {
+			continue
+		}
+		if hint, ok := slot.hints[t]; ok {
+			return fmt.Errorf("task %q: action.%s is not valid on a %q task — %s", s.ID, slot.name, t, hint)
+		}
+		return fmt.Errorf("task %q: action.%s is not valid on a %q task, which does not read it, so the value would be ignored", s.ID, slot.name, t)
 	}
 	return nil
 }

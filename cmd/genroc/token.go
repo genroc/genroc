@@ -31,10 +31,14 @@ func runTokenCmd(args []string) {
 
 	switch sub {
 	case "create", "list", "revoke":
-		fs.Parse(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "genroc token: unknown subcommand %q\n", sub)
 		tokenUsage()
+		os.Exit(2)
+	}
+	ids := parseInterspersed(fs, rest)
+	if sub != "revoke" && len(ids) > 0 {
+		fmt.Fprintf(os.Stderr, "genroc token %s: takes no arguments, got %q\n", sub, ids)
 		os.Exit(2)
 	}
 
@@ -74,17 +78,31 @@ func runTokenCmd(args []string) {
 		}
 		printTokens(rows)
 	case "revoke":
-		if fs.NArg() == 0 {
+		if len(ids) == 0 {
 			fmt.Fprintln(os.Stderr, "usage: genroc token revoke <id> [--db path | --pg dsn]")
 			os.Exit(2)
 		}
-		for _, id := range fs.Args() {
+		for _, id := range ids {
 			if err := database.RevokeToken(ctx, id, db.ActorTokenRevoke); err != nil {
 				fmt.Fprintf(os.Stderr, "genroc token revoke %s: %v\n", id, err)
 				os.Exit(1)
 			}
 			fmt.Printf("revoked: %s\n", id)
 		}
+	}
+}
+
+// parseInterspersed takes flags after the ids too, as the usage line writes them: flag.Parse stops
+// at the first positional, so `revoke <id> --db x` read `--db` as an id and opened ./genroc.db.
+func parseInterspersed(fs *flag.FlagSet, args []string) []string {
+	var positional []string
+	for {
+		fs.Parse(args)
+		if fs.NArg() == 0 {
+			return positional
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
 	}
 }
 

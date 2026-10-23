@@ -226,10 +226,20 @@ func upgradeOneTree(server string, row instanceRow, to int, jsonOut bool) *strin
 		if err := call(server+"/api/instances/"+row.ID+"/pause", "POST", nil, nil); err != nil {
 			return reasonf("pause: %v", err)
 		}
-		if err := waitForStatus(server, row.ID, "paused", 10*time.Second); err != nil {
+		// Seen through rather than abandoned at a deadline: the server refuses to resume a root
+		// still pausing, so giving up would strand it paused with nobody left to resume it.
+		settled, err := waitUntilSettled(server, row.ID)
+		if err != nil {
 			return reasonf("%v", err)
 		}
-		paused = true
+		switch settled {
+		case "paused":
+			paused = true
+		case "failed":
+			// Its in-flight task failed: a failed tree moves, and stays failed for `retry`.
+		default:
+			return reasonf("became %s while pausing, so nothing is left to move", settled)
+		}
 	}
 
 	var res upgradeResult
@@ -303,19 +313,22 @@ func reasonf(format string, a ...any) *string {
 	return &s
 }
 
-// waitForStatus polls: a pause lands on its owner's next write, so there is no synchronous form.
-func waitForStatus(server, id, want string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+// waitUntilSettled polls: a pause lands on its owner's next write, which is when the task in
+// flight finishes, so there is no synchronous form and no deadline that is not a guess.
+func waitUntilSettled(server, id string) (string, error) {
+	noticeAt := time.Now().Add(10 * time.Second)
 	for {
 		var row instanceRow
 		if err := callGet(server+"/api/instances/"+id, &row); err != nil {
-			return fmt.Errorf("read %s: %w", id, err)
+			return "", fmt.Errorf("read %s: %w", id, err)
 		}
-		if row.Status == want {
-			return nil
+		if row.Status != "pausing" && row.Status != "failing" {
+			return row.Status, nil
 		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%s did not reach %s within %s (still %s)", id, want, timeout, row.Status)
+		if !noticeAt.IsZero() && time.Now().After(noticeAt) {
+			fmt.Fprintf(os.Stderr, "genctl: waiting for %s to finish its task before it can move; "+
+				"interrupted, it stays paused: `genctl resume %s`\n", id, id)
+			noticeAt = time.Time{}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

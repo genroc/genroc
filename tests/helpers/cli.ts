@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdtempSync, writeFileSync } from "fs";
@@ -74,6 +74,30 @@ export function runCli(
     exitCode: result.status ?? 1,
     ok: result.status === 0,
   };
+}
+
+/** runCli without blocking the event loop, for a test whose own mock must answer while genctl waits. */
+export function runCliAsync(
+  bin: string,
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<CliResult> {
+  const child = spawn(bin, args, {
+    env: {
+      ...process.env,
+      GENROC_SERVER: BASE_URL,
+      HOME: CLI_HOME,
+      XDG_CONFIG_HOME: join(CLI_HOME, ".config"),
+      ...env,
+    },
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (c) => (stdout += c));
+  child.stderr.on("data", (c) => (stderr += c));
+  return new Promise((resolve) =>
+    child.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1, ok: code === 0 })),
+  );
 }
 
 /** Write one or more process definitions to a temp YAML file and return the path. */

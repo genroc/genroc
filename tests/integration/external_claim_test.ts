@@ -102,6 +102,12 @@ test("release hands the task back at once and voids the releasing worker's token
   const { error } = await client.POST("/external-tasks/release", { body: { token: first.token } });
   expect(error, `release failed: ${JSON.stringify(error)}`).toBeUndefined();
 
+  const { error: released } = await client.POST("/external-tasks/resolve", {
+    body: { token: first.token, result: { priced: 1 } },
+  });
+  expect(JSON.stringify(released), "nobody re-claimed it, so the refusal must not say someone did")
+    .toContain("released");
+
   const [second] = await claimWhenReady("worker-2", name);
   expect(second.token).not.toBe(first.token);
 
@@ -111,6 +117,7 @@ test("release hands the task back at once and voids the releasing worker's token
     body: { token: first.token, result: { priced: 1 } },
   });
   expect(stale, "a released token must not answer").toBeTruthy();
+  expect(JSON.stringify(stale), "once re-claimed, the refusal names who holds it now").toContain("worker-2");
 
   const { error: ok } = await client.POST("/external-tasks/resolve", {
     body: { token: second.token, result: { priced: 3 } },

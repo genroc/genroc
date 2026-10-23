@@ -530,14 +530,16 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 			// Nothing paused: still advancing (the assertion holds) or settled. Split here, under
 			// the tree lock; an answer derived afterwards describes a tree that may have moved.
 			if rootStatus.Terminal() {
-				// A cancelled tree gets its own advice: retry refuses it by design, so naming
-				// retry here would send the operator to the one door that is bolted.
-				if rootStatus == model.StatusCancelled {
+				// Advice per status: naming retry where it refuses sends the operator to a bolted door.
+				switch rootStatus {
+				case model.StatusCancelled:
 					return fmt.Errorf("process was cancelled and a cancel is final; "+
 						"start a new instance: %w", ErrConflict)
+				case model.StatusFailed:
+					return fmt.Errorf("process is not paused and has failed; retry it: %w", ErrConflict)
 				}
 				return fmt.Errorf("process is not paused and has settled (status: %s); "+
-					"retry it or start a new instance: %w", status, ErrConflict)
+					"start a new instance to run it again: %w", status, ErrConflict)
 			}
 			return nil
 		}

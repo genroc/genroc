@@ -151,7 +151,7 @@ The alternative, `200 {"outcome": ...}` for both, gives up switching on the stat
 | `pause`, nothing running in the tree | **204** |
 | `pause`, some rows left draining | **202** |
 | `resume`, tree is live (`running`, `failing`) | **204** |
-| `resume`, tree is settled (`Status.Terminal()`) | **409** — retry it, or start a new instance |
+| `resume`, tree is settled (`Status.Terminal()`) | **409** — retry it if it failed, else start a new instance |
 | `cancel`, nothing live in the tree | **204** |
 | `retry`, any non-`failed` status, or `only_once` without `force` | **409** |
 | any verb: unknown id, non-root id | 404 / 400 |
