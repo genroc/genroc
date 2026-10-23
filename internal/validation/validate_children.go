@@ -77,15 +77,24 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 	return nil
 }
 
-// R5: every code a child task's on_error names must match something its children can raise.
-// One direction only (D3): typos are caught, uncovered raisables surface at runtime.
+// R5: every code a child task's on_error names must match something its children can raise, or
+// what the call declares in raises where it does. One direction only (D3): typos are caught,
+// uncovered raisables surface at runtime.
 func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) error {
 	if len(s.OnError) == 0 || s.Action == nil {
 		return nil
 	}
 
 	var raisable []string
-	addRaises := func(name string, version int) error {
+	declaredAny := false
+	addRaises := func(name string, version int, declared model.Raises) error {
+		// A declared raises is the caller's catch list, so it replaces what the child can raise;
+		// checkDeclaredRaises holds it inside that set.
+		if len(declared) > 0 {
+			declaredAny = true
+			raisable = append(raisable, sortedCodes(declared)...)
+			return nil
+		}
 		child, _, err := resolveChild(name, version, current, currentVersion, getter)
 		if err != nil {
 			return err // already reported by the input-compat pass; resolve again defensively
@@ -96,17 +105,17 @@ func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefin
 
 	switch s.Action.Type {
 	case model.ActionTypeChild:
-		if err := addRaises(s.Action.Name, s.Action.Version); err != nil {
+		if err := addRaises(s.Action.Name, s.Action.Version, s.Action.Raises); err != nil {
 			return nil
 		}
 	case model.ActionTypeChildMap:
 		for _, entry := range s.Action.Children {
-			if err := addRaises(entry.Name, entry.Version); err != nil {
+			if err := addRaises(entry.Name, entry.Version, entry.Raises); err != nil {
 				return nil // resolution failed; let the input-compat pass own that error
 			}
 		}
 	case model.ActionTypeChildList:
-		if err := addRaises(s.Action.Name, s.Action.Version); err != nil {
+		if err := addRaises(s.Action.Name, s.Action.Version, s.Action.Raises); err != nil {
 			return nil
 		}
 	default:
@@ -129,6 +138,9 @@ func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefin
 	for i, ec := range s.OnError {
 		for _, pattern := range ec.Code {
 			if !matchesSomeRaise(pattern) {
+				if declaredAny {
+					return fmt.Errorf("task %q on_error[%d]: no child of this task can raise a code matching %q, counting only the codes listed where raises is declared", s.ID, i, pattern)
+				}
 				return fmt.Errorf("task %q on_error[%d]: no child of this task can raise a code matching %q", s.ID, i, pattern)
 			}
 		}

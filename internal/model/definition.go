@@ -34,7 +34,7 @@ type ChildEntry struct {
 	Input        *Shape         `json:"input,omitempty"         description:"Templated value building the child's input payload."`
 	InputSchema  *schema.Schema `json:"input_schema,omitempty"  description:"JSON Schema this entry's input is checked against and conformed to before it is sent."`
 	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema validating and exposing this child's output."`
-	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. Read as error.data."`
+	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. Read as error.data. When present, the only codes on_error may name, besides result.invalid."`
 }
 
 // Raises maps a raise code to its fault data's shape, declared by the caller. A nil value
@@ -215,7 +215,7 @@ var actionSchemaTemplate = `{
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing the child's output."},
 					"raises": {
 						"type": "object",
-						"description": "Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it.",
+						"description": "Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it. When present, the only codes on_error may name, besides result.invalid.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
@@ -241,7 +241,7 @@ var actionSchemaTemplate = `{
 								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing this child's output."},
 								"raises": {
 									"type": "object",
-									"description": "Raise code -> JSON Schema for that code's payload, declared per entry.",
+									"description": "Raise code -> JSON Schema for that code's payload, declared per entry. When present, the only codes on_error may catch from this entry.",
 									"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 									"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 								}
@@ -267,7 +267,7 @@ var actionSchemaTemplate = `{
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing EACH child's output; the result is an array."},
 					"raises": {
 						"type": "object",
-						"description": "Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it.",
+						"description": "Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it. When present, the only codes on_error may name, besides result.invalid.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}

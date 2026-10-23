@@ -65,6 +65,31 @@ test("a broken switch case underlines that case, not the clauses around it", asy
 });
 
 // The case sits on the line BELOW the rule's first key, or rule and case would both start on 33.
+test("a child task with raises catches only what it lists, and says so before apply", async () => {
+  // The child is never resolved here: the list is the parent's own, so no server is needed.
+  const doc = {
+    uri: orders.uri.replace(/[^/]+$/, "catch_list.genroc.yaml"),
+    text: [
+      "name: catch_list",
+      "tasks:",
+      "  - id: call",
+      "    action:",
+      "      type: child",
+      "      name: get_item",
+      "      raises:",
+      "        item_not_found: null",
+      "    on_error:",
+      "      - code: [item_gone]",
+      "        goto: end",
+      "    switch: end",
+      "",
+    ].join("\n"),
+  };
+  expect(await lsp.diagnostics(doc)).toEqual([
+    `10-11: task "call" on_error[0]: "item_gone" is not in this task's raises, which lists the codes its rules may catch — declare it there, or name one of item_not_found, result.invalid`,
+  ]);
+});
+
 test("a broken on_error case underlines that rule's case", async () => {
   const ds = await lsp.diagnostics(
     edit(orders, {

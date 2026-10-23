@@ -211,6 +211,62 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 	})
 }
 
+// R5, the half this document can answer: a declared raises is the task's catch list.
+func TestFault_R5_DeclaredRaisesIsTheCatchList(t *testing.T) {
+	declared := Raises{"card_declined": nil, "card_expired": nil}
+	task := func(action *Action, codes ...string) *Task {
+		return &Task{
+			ID:      "pay",
+			Action:  action,
+			OnError: []ErrorCase{{Code: codes, Goto: GotoEnd}},
+			Switch:  SwitchMap{{Goto: GotoEnd}},
+		}
+	}
+	validate := func(tk *Task) error {
+		d := def(tk)
+		return d.Validate()
+	}
+	child := &Action{Type: ActionTypeChild, Name: "charge", Raises: declared}
+
+	for _, codes := range [][]string{{"card_declined"}, {"card_%"}, {"result.invalid"}, nil} {
+		if err := validate(task(child, codes...)); err != nil {
+			t.Errorf("%v must be catchable with raises declared: %v", codes, err)
+		}
+	}
+	err := validate(task(child, "out_of_stock"))
+	if err == nil || !strings.Contains(err.Error(), `"out_of_stock" is not in this task's raises`) {
+		t.Errorf("a code raises does not list must be refused here, where the editor sees it; got %v", err)
+	}
+
+	list := &Action{Type: ActionTypeChildList, Name: "charge", Over: "$: input", Raises: declared}
+	if err := validate(task(list, "out_of_stock")); err == nil {
+		t.Error("child_list declares raises at the action, so the same list applies")
+	}
+
+	undeclared := &Action{Type: ActionTypeChild, Name: "charge"}
+	if err := validate(task(undeclared, "out_of_stock")); err != nil {
+		t.Errorf("without raises the child's own raise set decides, which only R5 can see: %v", err)
+	}
+
+	both := &Action{Type: ActionTypeChildMap, Children: map[string]ChildEntry{
+		"card":  {Name: "charge", Raises: declared},
+		"stock": {Name: "reserve", Raises: Raises{"out_of_stock": nil}},
+	}}
+	if err := validate(task(both, "out_of_stock")); err != nil {
+		t.Errorf("a child_map's list is the union of its entries': %v", err)
+	}
+	if err := validate(task(both, "shipping_late")); err == nil {
+		t.Error("every entry declares raises, so a code none lists is refused")
+	}
+	partly := &Action{Type: ActionTypeChildMap, Children: map[string]ChildEntry{
+		"card":  {Name: "charge", Raises: declared},
+		"stock": {Name: "reserve"},
+	}}
+	if err := validate(task(partly, "out_of_stock")); err != nil {
+		t.Errorf("an undeclared entry may raise anything, so only R5 can judge: %v", err)
+	}
+}
+
 // R6: error_code must mean one thing per process.
 func TestFault_R6_CodeIsRaisedOrPanicked(t *testing.T) {
 	d := def(

@@ -726,7 +726,9 @@ test("a self-referencing call checks declarations against the definition being r
           input: { depth: "$: (input.depth ?? 0) + 1" },
           raises: { [code]: DECLINE_SHAPE },
         },
-        on_error: [{ code: ["too_deep"], goto: "end" }],
+        // Follows the declaration: a declared raises is the catch list, and naming anything else
+        // would be refused before the check this test is about.
+        on_error: [{ code: [code], goto: "end" }],
         switch: [{ goto: "end" }],
       },
     ],

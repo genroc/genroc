@@ -336,7 +336,7 @@ func validateSwitch(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int) 
 
 // CatchableKinds is which entries of errcode's catchable table a task of this shape can
 // report. Registration and the editor share it so they cannot disagree; a child task's rules
-// are bounded by its child's raise set instead (R5).
+// are bounded by its declared raises, or else by its child's raise set (R5).
 func CatchableKinds(actionType ActionType, onlyOnce bool) errcode.Kind {
 	var kinds errcode.Kind
 	switch actionType {
@@ -393,6 +393,34 @@ func matchesAnyCode(pattern string, probe []errcode.Code) bool {
 	return false
 }
 
+// declaredCatchList is the caller's own list of what a child task catches, when every child it
+// starts declares `raises`: then its rules are checkable from this document, editor included.
+// One undeclared child_map entry leaves the question to R5, which can see that child.
+func declaredCatchList(s *Task) ([]string, bool) {
+	switch s.Action.Type {
+	case ActionTypeChild, ActionTypeChildList:
+		if len(s.Action.Raises) == 0 {
+			return nil, false
+		}
+		return sortedRaiseCodes(s.Action.Raises), true
+	case ActionTypeChildMap:
+		union := Raises{}
+		for _, entry := range s.Action.Children {
+			if len(entry.Raises) == 0 {
+				return nil, false
+			}
+			for code := range entry.Raises {
+				union[code] = nil
+			}
+		}
+		if len(union) == 0 {
+			return nil, false
+		}
+		return sortedRaiseCodes(union), true
+	}
+	return nil, false
+}
+
 // isChildTask decides whether on_error names raised codes rather than engine codes (R4/M1).
 func isChildTask(s *Task) bool {
 	return s.Action != nil && (s.Action.Type == ActionTypeChild || s.Action.Type == ActionTypeChildMap || s.Action.Type == ActionTypeChildList)
@@ -401,13 +429,18 @@ func isChildTask(s *Task) bool {
 func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	onlyOnce := s.OnlyOnce != nil && *s.OnlyOnce
 	child := isChildTask(s)
-	// A child's vocabulary is its child's raise set, checked where the child resolves (R5).
-	// Asked as though `only_once` were set — internal/model/CLAUDE.md §2.
+	// A child's vocabulary is its declared raises, else its child's raise set, checked where the
+	// child resolves (R5). Asked as though `only_once` were set — internal/model/CLAUDE.md §2.
 	var probe []errcode.Code
 	var offered []string
 	if !child {
 		const whetherOnlyOnceIsSet = true
 		probe, offered = catchableVocabulary(s, CatchableKinds(actionTypeOf(s), whetherOnlyOnceIsSet))
+	} else if declared, ok := declaredCatchList(s); ok {
+		offered = append(declared, string(errcode.ResultInvalid))
+		for _, code := range offered {
+			probe = append(probe, errcode.Code(code))
+		}
 	}
 	if len(s.OnError) > 0 && !child && len(probe) == 0 {
 		if s.Action == nil {
@@ -446,6 +479,10 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 				// Reachability, the fetch/external counterpart of R5: a pattern no failure can
 				// match reads as handled and is not.
 				if len(probe) > 0 && !matchesAnyCode(pat, probe) {
+					if child {
+						return fmt.Errorf("task %q %s: %q is not in this task's raises, which lists the codes its rules may catch — declare it there, or name one of %s",
+							s.ID, where, pat, strings.Join(offered, ", "))
+					}
 					return fmt.Errorf("task %q %s: %q is not a code a %q task can report, so the rule can never fire — it can report %s",
 						s.ID, where, pat, s.Action.Type, strings.Join(offered, ", "))
 				}

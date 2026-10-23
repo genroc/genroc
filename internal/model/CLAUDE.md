@@ -24,7 +24,9 @@ the runtime half and the unknowable set are in
    fetch/external counterpart of R5. The vocabulary is `errcode.Catchable` for the task's
    kinds, plus two families absent from that table: the unbounded `http.<status>`, and an
    external's declared `raises` — leaving either out refuses working definitions, and the
-   second is what every script task's whole error surface is made of.
+   second is what every script task's whole error surface is made of. A child task joins in
+   once every child it starts declares `raises` (`declaredCatchList`): the declaration is its
+   catch list, so this document answers and the editor reports it; otherwise R5 does, server-side.
    **The question is asked as though `only_once` were set, always.** Nothing about the flag
    may change which rules are legal — the tiers above are the only thing it governs — so a
    handler can be written before the flag is, and toggling it off while debugging costs no

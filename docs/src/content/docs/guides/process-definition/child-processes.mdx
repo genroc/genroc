@@ -188,7 +188,7 @@ The three child actions share most of their fields:
 | `children`      | `child_map`                     | Named entries, each with the fields above. Required.                     |
 | `input_schema`  | all                             | Declares the input sent to the child.                                    |
 | `result_schema` | all                             | Declares the child's output, as the parent reads it.                     |
-| `raises`        | all                             | Data schemas of the codes the child raises, so `error.data` can be read ([more](#the-raises-field)). |
+| `raises`        | all                             | The codes `on_error` may catch, with their data schemas ([more](#the-raises-field)). |
 
 On `child_map`, each entry under `children` has its own `name`, `version`, `input`, schemas and `raises`.
 
@@ -229,9 +229,24 @@ on_error:
 
 ### The `raises` field
 
-The parent can catch any code the child raises without declaring it. `raises` is optional and goes under `action:`;
-it's an object whose keys are the child's raise codes and whose values are JSON schemas of their data.
-If you declare one, you can then access `error.data` (like with `fetch` error responses).
+`raises` is optional and goes under `action:`. Without it, `on_error` can name any code the child raises;
+a code it never raises is refused by `genctl apply`.
+
+With it, `raises` is the list of codes the task catches: `on_error` can name only those
+(and `result.invalid`), and your editor checks it as you type. Its keys are the child's raise codes
+and its values JSON schemas of their data (or `null`), so you can read `error.data`
+(like with `fetch` error responses). The `$process` import below fills it with every code the child raises.
+
+```genroc
+action:
+  type: child
+  name: get_item
+  raises:
+    item_not_found: null
+on_error:
+  - code: ["item_not_found"]
+    goto: $handle_item_not_found
+```
 
 ## Importing child process
 

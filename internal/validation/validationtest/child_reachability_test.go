@@ -230,3 +230,39 @@ func TestR5_CoexistsWithInputCheck(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// A declared raises replaces its entry's raise set, also where another entry leaves its own
+// undeclared and the document alone cannot decide.
+func TestR5_DeclaredRaisesNarrowsItsEntry(t *testing.T) {
+	getter := stubGetter{
+		"charge-card": raisingChild("charge-card", "card_declined", "card_expired"),
+		"reserve":     raisingChild("reserve", "out_of_stock"),
+	}
+	parent := func(code string) *model.ProcessDefinition {
+		return &model.ProcessDefinition{
+			Name: "parent",
+			Tasks: []*model.Task{{
+				ID: "pay",
+				Action: &model.Action{Type: model.ActionTypeChildMap, Children: map[string]model.ChildEntry{
+					"card":  {Name: "charge-card", Raises: model.Raises{"card_declined": nil}},
+					"stock": {Name: "reserve"},
+				}},
+				OnError: []model.ErrorCase{{Code: []string{code}, Goto: model.GotoEnd}},
+				Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
+			}},
+		}
+	}
+	for _, code := range []string{"card_declined", "out_of_stock"} {
+		def := parent(code)
+		if err := def.Normalize(); err != nil {
+			t.Fatalf("normalize: %v", err)
+		}
+		assertValidateOK(t, def, getter)
+	}
+	def := parent("card_expired")
+	if err := def.Normalize(); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	// The child raises it; the call chose not to catch it.
+	assertValidateErr(t, def, getter, `"card_expired", counting only the codes listed where raises is declared`)
+}

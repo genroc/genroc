@@ -782,7 +782,7 @@ export interface components {
             };
             /** @description Name of the child process to invoke. */
             name: string;
-            /** @description Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it. */
+            /** @description Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it. When present, the only codes on_error may name, besides result.invalid. */
             raises?: {
                 [key: string]: {
                     [key: string]: unknown;
@@ -808,7 +808,7 @@ export interface components {
                     };
                     /** @description Name of the child process to invoke. */
                     name: string;
-                    /** @description Raise code -> JSON Schema for that code's payload, declared per entry. */
+                    /** @description Raise code -> JSON Schema for that code's payload, declared per entry. When present, the only codes on_error may catch from this entry. */
                     raises?: {
                         [key: string]: {
                             [key: string]: unknown;
@@ -833,7 +833,7 @@ export interface components {
             name: string;
             /** @description A $: expression evaluating to an array; one child is spawned per element, with it as input. */
             over: string;
-            /** @description Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it. */
+            /** @description Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it. When present, the only codes on_error may name, besides result.invalid. */
             raises?: {
                 [key: string]: {
                     [key: string]: unknown;

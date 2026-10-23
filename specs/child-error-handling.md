@@ -97,7 +97,10 @@ rule, which puts the new code into *its* raise set.
   bounds them to a finite raise set.
 - **R5 — rule reachability.** Every pattern must match some code in `⋃ raises(D)` over the
   task's resolved children (plus `result.invalid`); catch-alls exempt. Its own pass, because
-  reachability is a property of the rule set against the union, not of one entry.
+  reachability is a property of the rule set against the union, not of one entry. Where a call
+  declares `raises`, its keys stand in for that child's `raises(D)`: the caller's catch list,
+  which R7 keeps inside it. With every child declared, the rule needs only the parent's document,
+  so `model.declaredCatchList` checks it there and the editor reports it.
 - **R6 — a code is a raise code or a panic code, never both.** Otherwise `error_code` means two
   things on one process, for exactly the observers it serves.
 - **R7 — a declared payload must be one the code can carry.** `raises[code]` is checked against
