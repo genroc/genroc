@@ -332,7 +332,7 @@ in the same order as the inputs.</p>
 
 
 
-<table><thead><tr><th>Field</th><th>Used by</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td>all</td><td>The process to start. Required.</td></tr><tr><td><code>version</code></td><td>all</td><td>The version to run. When omitted, it&#39;s fixed when the parent is applied (<a href="/guides/process-definition/versioning/#childparent-versioning">more</a>).</td></tr><tr><td><code>input</code></td><td><code>child</code>, <code>child_map</code> entries</td><td>The child&#39;s input.</td></tr><tr><td><code>over</code></td><td><code>child_list</code></td><td>An array expression; one child is started per item, with the item as its input. Required.</td></tr><tr><td><code>children</code></td><td><code>child_map</code></td><td>Named entries, each with the fields above. Required.</td></tr><tr><td><code>input_schema</code></td><td>all</td><td>Declares the input sent to the child.</td></tr><tr><td><code>result_schema</code></td><td>all</td><td>Declares the child&#39;s output, as the parent reads it.</td></tr><tr><td><code>raises</code></td><td>all</td><td>Data schemas of the codes the child raises, so <code>error.data</code> can be read (<a href="#the-raises-field">more</a>).</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Used by</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td>all</td><td>The process to start. Required.</td></tr><tr><td><code>version</code></td><td>all</td><td>The version to run. When omitted, it&#39;s fixed when the parent is applied (<a href="/guides/process-definition/versioning/#childparent-versioning">more</a>).</td></tr><tr><td><code>input</code></td><td><code>child</code>, <code>child_map</code> entries</td><td>The child&#39;s input.</td></tr><tr><td><code>over</code></td><td><code>child_list</code></td><td>An array expression; one child is started per item, with the item as its input. Required.</td></tr><tr><td><code>children</code></td><td><code>child_map</code></td><td>Named entries, each with the fields above. Required.</td></tr><tr><td><code>input_schema</code></td><td>all</td><td>Declares the input sent to the child.</td></tr><tr><td><code>result_schema</code></td><td>all</td><td>Declares the child&#39;s output, as the parent reads it.</td></tr><tr><td><code>raises</code></td><td>all</td><td>The codes <code>on_error</code> may catch, with their data schemas (<a href="#the-raises-field">more</a>).</td></tr></tbody></table>
 <p>On <code>child_map</code>, each entry under <code>children</code> has its own <code>name</code>, <code>version</code>, <code>input</code>, schemas and <code>raises</code>.</p>
 <h2 id="parentchild-type-checking">Parent/child type checking<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#parentchild-type-checking"><span></span></a></h2>
 <p>Genroc checks the parent/child compatibility when the definitions are applied.
@@ -361,9 +361,20 @@ leak types from its children, which we don&#39;t allow.</p>
 <p>Read more about <code>panic</code> and <code>raise</code> in the <a href="/guides/process-definition/error-handling/#panic">error handling</a> section.</p>
 </blockquote>
 <h3 id="the-raises-field">The <code>raises</code> field<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-raises-field"><span></span></a></h3>
-<p>The parent can catch any code the child raises without declaring it. <code>raises</code> is optional and goes under <code>action:</code>;
-it&#39;s an object whose keys are the child&#39;s raise codes and whose values are JSON schemas of their data.
-If you declare one, you can then access <code>error.data</code> (like with <code>fetch</code> error responses).</p>
+<p><code>raises</code> is optional and goes under <code>action:</code>. Without it, <code>on_error</code> can name any code the child raises;
+a code it never raises is refused by <code>genctl apply</code>.</p>
+<p>With it, <code>raises</code> is the list of codes the task catches: <code>on_error</code> can name only those
+(and <code>result.invalid</code>), and your editor checks it as you type. Its keys are the child&#39;s raise codes
+and its values JSON schemas of their data (or <code>null</code>), so you can read <code>error.data</code>
+(like with <code>fetch</code> error responses). The <code>$process</code> import below fills it with every code the child raises.</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#D6D6D2">action</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#D6D6D2">  type</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> child</span></span>
+<span class="line"><span style="color:#D6D6D2">  name</span><span style="color:#8A8A84">:</span><span style="color:#8FB996"> get_item</span></span>
+<span class="line"><span style="color:#D6D6D2">  raises</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#D6D6D2">    item_not_found</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> null</span></span>
+<span class="line"><span style="color:#D6D6D2">on_error</span><span style="color:#8A8A84">:</span></span>
+<span class="line"><span style="color:#8A8A84">  -</span><span style="color:#D6D6D2"> code</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">item_not_found</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">]</span></span>
+<span class="line"><span style="color:#D6D6D2">    goto</span><span style="color:#8A8A84">:</span><span style="color:#E07A4F"> $handle_item_not_found</span></span></code></pre>
 <h2 id="importing-child-process">Importing child process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#importing-child-process"><span></span></a></h2>
 <p>You can import a child process to avoid duplicating its fields in the YAML.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="color:#8A8A84;font-style:italic"># parent.genroc.yaml</span></span>
