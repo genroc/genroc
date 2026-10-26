@@ -329,7 +329,8 @@ It&#39;s available once the instance has completed, if the process defines <code
   <text class="sd-engine-label" x="230" y="408">engine</text>
 </svg>
 </figure> 
-<p><code>Settled</code> marks a terminal state: no work moves and nothing advances out of it.
+<p><code>Settled</code> marks a terminal state: no work moves, and nothing leaves it on its own
+(<code>retry</code> gives a <code>failed</code> one another attempt).
 <code>Accepts a result</code> is whether a worker's answer to an external task is still delivered —
 a pause suspends execution, not delivery.</p>
 

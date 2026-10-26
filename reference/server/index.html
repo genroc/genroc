@@ -241,7 +241,7 @@ search <kbd>/</kbd> </button> <dialog class="search" aria-label="Search the docs
 <p>Delete per-instance audit logs older than this; 0 = keep forever</p>
 <h3 id="--instance-retention">--instance-retention<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--instance-retention"><span></span></a></h3>
 <p><code>duration</code></p>
-<p>Delete a process, with its children and logs, once it concluded (completed, failed or cancelled) longer ago than this; 0 (default) = keep forever. A deleted instance answers 404, so read results and retry failures within it.</p>
+<p>Delete a process, with its children and logs, once it concluded (completed, failed, raised or cancelled) longer ago than this; 0 (default) = keep forever. A deleted instance answers 404, so read results and retry failures within it.</p>
 <h2 id="objects">Objects<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#objects"><span></span></a></h2>
 <p>Large values kept out of the instance row.</p>
 <h3 id="--object-grace">--object-grace<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#--object-grace"><span></span></a></h3>
