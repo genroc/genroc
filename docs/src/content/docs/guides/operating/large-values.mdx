@@ -4,7 +4,7 @@ description: How genroc manages large values in process instances.
 order: 3
 ---
 
-Genroc stores large values separately and doesn't return them 
+Genroc stores large values separately and doesn't return them
 directly when you communicate with the API.
 
 ## What is a large value?
@@ -29,7 +29,8 @@ A log entry's payload over `--log-payload-max` (default 1 MiB) is not stored at 
 
 ## What it looks like
 
-Say a task downloads a web page and keeps the HTML (about 180 KB) in its output.
+Say a task calls an API that renders a page and returns its HTML in a JSON field, and the task
+keeps that HTML (about 180 KB) in its output.
 The instance detail doesn't contain the HTML. The `body` field is `null`,
 and the `objects` section says where it was and how to get it:
 
@@ -57,27 +58,28 @@ and the `objects` section says where it was and how to get it:
 ```
 
 `path` points to the `null` field (a top-level field moved out whole, like `output`, is missing
-instead), `ref` is the id of the stored value and `size` is its size in bytes.
+instead), `ref` is the id of the stored value and `size` is the size of its JSON text in bytes.
 Only the large parts are moved out: `status` and `content_type` stay where they are.
 
 To get the value, use the `ref`:
 
 ```sh
 > curl http://localhost:8448/api/objects/9f2ac1b4e7d05f38a61c0d2e4b7f9a13
-{"data": "\"<!doctype html><html>...\""}
+{"data":"\"\u003c!doctype html\u003e\u003chtml\u003e...\""}
 ```
 
-`data` is the value encoded as JSON text, so parse it once more to get the original value.
+`data` is the value encoded as JSON text (with `<`, `>` and `&` escaped), so parse it once more to get the original value.
 
 The CLI does this for you: `genctl detail` shows `{ref, size}` where the value was,
-`genctl detail --resolve` fills it in and `genctl object <ref>` prints one value.
+`genctl detail --resolve` fills it in and `genctl object <ref>` prints one value
+(a string as itself, anything else as JSON).
 
 ## Which endpoints
 
 | Endpoint | What can be moved out | Paths start at |
 |---|---|---|
 | `GET /api/instances/{id}` | `output`, `error_data`, `external_input` | the response |
-| `GET /api/instances/{id}/detail` | anything in `state` | the response |
+| `GET /api/instances/{id}/detail` | anything in `state`, plus `output`, `error_data` and `external_input` | the response |
 | `GET /api/instances/{id}/logs` | each entry's `data` | the log entry |
 | `POST /api/external-tasks/claim` | each item's `external_input` | the item |
 
@@ -85,4 +87,10 @@ No endpoint fills the values in for you; fetch each one with `GET /api/objects/{
 
 Fetching an object needs the `read` or `worker` permission.
 
+## Limits
 
+- A fetch reads at most 8 MiB of a response body; a larger one fails with `result.too_large`.
+- A fetch `body` can't take more than 8 MiB of moved-out values; past that the process fails
+  with `engine.expression`.
+- A `ref` keeps working while something still uses the value, and for `--object-grace`
+  (1 hour by default) after that.

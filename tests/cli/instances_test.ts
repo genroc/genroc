@@ -502,6 +502,10 @@ test("get --resolve — an output cut whole is put back as the output", async ()
   const got = JSON.parse(runCli(bin, ["get", id, "--resolve", "--json"]).stdout);
   expect(got.output, "the path is the field itself, so the value becomes the field").toBe(blob);
 
+  const object = runCli(bin, ["object", raw.objects[0].ref]);
+  expect(object.stdout.trimEnd(), "`object` decodes the stored JSON text, so a string prints as itself")
+    .toBe(blob);
+
   for (const verb of ["get", "detail"]) {
     const text = runCli(bin, [verb, id]);
     expect(text.ok, text.stderr).toBe(true);

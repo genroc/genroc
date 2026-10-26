@@ -62,6 +62,10 @@
   <path class="sd-op" d="M170,298 V114" marker-end="url(#sd-arrow-op)"/>
   <text class="sd-op-label" transform="translate(160,206) rotate(-90)" text-anchor="middle">resume</text>
 
+  <!-- the task in flight can end the process before the pause lands: settled as its outcome says -->
+  <path class="sd-engine" d="M420,248 H598" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="530" y="240" text-anchor="middle">task ends the process</text>
+
   <!-- cancel, from running or paused -->
   <path class="sd-op" d="M244,316 H318" marker-end="url(#sd-arrow-op)"/>
   <text class="sd-op-label" x="281" y="308" text-anchor="middle">cancel</text>

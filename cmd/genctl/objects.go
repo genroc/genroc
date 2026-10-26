@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 
 	"genroc/internal/numeric"
@@ -176,5 +177,21 @@ func runObjectCmd(server string, args []string) {
 	if err := callGet(*serverFlag+"/api/objects/"+url.PathEscape(ref), &resp); err != nil {
 		fatal("%v", err)
 	}
-	fmt.Println(resp.Data)
+	// `data` is the value's JSON text, decoded once more so a string prints as itself rather than
+	// quoted and escaped. Text that is not JSON (a raw log payload) prints as it came.
+	var value any
+	if err := numeric.Decode([]byte(resp.Data), &value); err != nil {
+		fmt.Println(resp.Data)
+		return
+	}
+	if str, ok := value.(string); ok {
+		fmt.Println(str)
+		return
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(value); err != nil {
+		fatal("%v", err)
+	}
 }

@@ -95,7 +95,7 @@ evaluator=worker=genroc_sk_QUbqpu_q9k4fTbCN2J7RRPUYXTzae0mRXcC2CIF_ftY
 ci=deploy,read=genroc_sk_...
 ```
 
-And point genroc at the file, with the flag or `GENROC_SEED_TOKENS_FILE`:
+And point genroc at the file, with the flag or `GENROC_SEED_TOKENS_FILE`. Genroc reads it only with `--auth` on:
 
 ```sh
 genroc --auth --seed-tokens-file ./seed-tokens
@@ -119,16 +119,18 @@ The token has to carry:
   "aud": "genroc",
   "sub": "ada@example.com",
   "perms": ["deploy", "operate", "read"],
-  "exp": 1788000060
+  "exp": 1893456000
 }
 ```
 
-`perms` are the same [permissions](#permissions) as for genroc tokens, `sub` is who is calling
-and shows up in logs as `jwt:ada@example.com`. `exp` is required, so keep the tokens short-lived.
-`iss` and `aud` default to the values above, change them with `--jwt-issuer` and `--jwt-audience`.
+`perms` are the same [permissions](#permissions) as for classic tokens, `sub` is who is calling
+and shows up in logs as `jwt:ada@example.com`. `exp` is required, so keep the tokens short-lived
+(genroc allows 30s of clock skew, `--jwt-leeway`). `iss` and `aud` default to the values above;
+change them with `--jwt-issuer` and `--jwt-audience`, and change whatever mints the tokens to match
+(in Genroc UI, `token.issuer` and `token.audience`), or every token is refused.
 
-Genroc tokens keep working beside JWTs, so people can come through the UI
-while `genctl` and workers use their genroc tokens. A secret without `--auth`
+Classic tokens keep working beside JWTs, so people can come through the UI
+while `genctl` and workers use their classic tokens. A secret without `--auth`
 is refused at startup.
 
 Genroc reads the secret only at startup. To rotate it, replace it and restart genroc together with

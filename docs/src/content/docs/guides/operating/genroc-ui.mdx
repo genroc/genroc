@@ -29,7 +29,7 @@ Your `compose.yaml` file will now have the following entry:
 
 ```yaml
   genroc-ui:
-    image: ghcr.io/genroc/ui:edge
+    image: ghcr.io/genroc/ui:edge       # the tag follows your genctl build
     command: [--server, "http://genroc:8448"]
     ports: ["8448:8448"]
     restart: unless-stopped
@@ -87,11 +87,15 @@ Genroc UI signs a short-lived token with it, and genroc checks the signature wit
 the same file (genroc reads it through `GENROC_JWT_SECRET_FILE`).
 Both have to point at the same file.
 
+The UI signs tokens only for a signed-in browser. genctl has no session, so it needs a classic
+token of its own: mint one in the UI's tokens tab and run `genctl config set token genroc_sk_...`.
+The UI passes a request that already carries a token straight through to genroc.
+
 ### Rotating the secret
 
 Both containers read the secret only when they start, so write a new one and restart both.
 Everyone has to sign in again, because their sessions were signed with the old secret;
-genroc tokens keep working.
+classic tokens keep working.
 
 ```sh
 openssl rand -base64 32 > data/jwt-secret
@@ -145,7 +149,8 @@ login:
 ```
 
 Register `http://localhost:8448/auth/callback` as the redirect URL of the client
-in your provider. Each provider becomes one button on the sign-in page. With a single
+in your provider. If people reach the UI at another address, or through a proxy, set
+`redirect_url` in `ui.yaml` to the callback URL they use. Each provider becomes one button on the sign-in page. With a single
 provider and no `passwords`, the sign-in page is skipped and users go straight to the provider.
 
 Groups are read from the `groups` claim of the provider's token and matched against

@@ -173,7 +173,7 @@ on_error. No result flags sends an empty result, allowed only without a result_s
 	"object": {
 		summary: "print a stored object by ref",
 		usage:   []string{"object <ref>"},
-		detail:  `Prints a large value that other output shows as a ref.`,
+		detail:  `Prints a large value that other output shows as a ref: a string as itself, anything else as JSON.`,
 	},
 
 	"channel": {

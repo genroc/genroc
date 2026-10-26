@@ -13,8 +13,8 @@ Genroc supports SQLite and PostgreSQL, they are great at different use cases.
 
 SQLite
  - doesn't require separate db server (nice when running locally)
- - db is a single file (plus `-wal` and `-shm` files next to it in WAL mode)
- - lower latency - can be faster when there is low number of parallel processes
+ - db is a single file (plus the `-wal` and `-shm` files of its write-ahead log next to it)
+ - no network round trip to a database server, which suits a low number of parallel processes
  - single writer - doesn't scale horizontally
  - less options to tune the db later
 
@@ -160,7 +160,9 @@ The interrupted task runs again, except an `only_once` task, which raises `only_
 See [Surviving a restart](../getting-started/surviving-a-restart.mdx).
 
 On SIGTERM genroc stops taking new work and lets running work finish for up to `--shutdown-grace`
-(15s). Whatever is still running then continues elsewhere, as after a crash. Give the container
+(15s). Whatever is still running then continues elsewhere, as after a crash. The API stops
+accepting connections right away (requests already in progress get 15s to finish), so a worker
+or probe calling this server should retry, or call another one. Give the container
 longer than that to stop: Docker's default is 10s, so set `stop_grace_period: 20s`;
 Kubernetes' 30s is enough.
 
@@ -172,12 +174,13 @@ If a log collector reads genroc's output, switch it to one JSON object per line 
 Every instance also has its own log in the database, the one `genctl logs` shows. Genroc keeps
 it for `--log-retention`, 7 days by default (`0` keeps it forever). These logs record the inputs
 and outputs of tasks and calls, so anything sensitive in them ends up there too. Turn that off
-with `--log-payloads=false`, or limit the recorded size with `--log-payload-max` (1 MB by default).
+with `--log-payloads=false`, or leave out large ones with `--log-payload-max` (1 MiB by default):
+a larger payload isn't recorded at all, and the entry says how big it was.
 
 When an instance replaces a large value, the old one stays readable for `--object-grace`
 (1 hour by default), so a client that already has a reference to it can still fetch it.
 
 By default genroc keeps concluded processes forever, so the database keeps growing. Set
-`--instance-retention` (for example `720h`, 30 days) to delete completed, failed and cancelled
+`--instance-retention` (for example `720h`, 30 days) to delete completed, failed, raised and cancelled
 processes, with their children and logs, that long after they finished. After that their id
 answers 404, so read results and retry failures within that time.

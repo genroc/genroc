@@ -47,9 +47,9 @@ is the task id.
 
 A task is leased to you for the time you've requested. If your worker
 doesn't provide a result in that time or doesn't renew the lease,
-genroc allows a different worker to claim it instead
-(`only_once` tasks will fail with `external.lost`
-in this case).
+the next claim can hand the task to a different worker; until then, a late renewal
+or result is still accepted. An `only_once` task is never handed out twice: instead,
+it fails with `external.lost`, which `on_error` can catch.
 
 ### Claim response
 
@@ -57,7 +57,7 @@ in this case).
 {
   "items": [
     {
-      "token": "550e8400-e29b-41d4-a716-446655440000.6.1",
+      "token": "5fy765kh.6.1",
       "process": "expense-approval",
       "version": 2,
       "task": "approval",
@@ -94,7 +94,7 @@ endpoint to submit the result:
 
 ```json
 {
-  "token": "550e8400-e29b-41d4-a716-446655440000.6.1",
+  "token": "5fy765kh.6.1",
   "result": {
     "approved": true
   }
@@ -105,7 +105,7 @@ If the work ended with an error, you can submit the error this way:
 
 ```json
 {
-  "token": "550e8400-e29b-41d4-a716-446655440000.6.1",
+  "token": "5fy765kh.6.1",
   "error": {
     "code": "over_budget",
     "message": "Amount exceeds the submitter's limit",
