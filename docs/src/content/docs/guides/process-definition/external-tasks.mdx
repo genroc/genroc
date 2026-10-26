@@ -13,7 +13,7 @@ It parks the instance until a result is submitted.
 ## Example
 
 ```genroc-lsp
-# approval.genroc.yaml
+# definitions/approval.genroc.yaml
 name: approval
 input_schema:
   type: object
@@ -69,12 +69,17 @@ Process:  approval@v1
 Status:   running
 Task:     review
 Phase:    external
+Created:  2026-09-24 14:23:27  (just now)
+Updated:  2026-09-24 14:23:27  (just now)
+
+External input:
+amount: 10
 ```
 
 We can resolve the task through the CLI with the `signal` command.
 
 ```sh
-genctl signal @last --task review --set approved=true
+> genctl signal @last --task review --set approved=true
 signaled: 5fy765kh  task=review  (delivered)
 ```
 
@@ -86,8 +91,8 @@ ID:       5fy765kh
 Process:  approval@v1
 Status:   completed
 Task:     review
-Created:  2026-09-24 14:23:27
-Updated:  2026-09-24 14:44:51
+Created:  2026-09-24 14:23:27  (21m ago)
+Updated:  2026-09-24 14:44:51  (just now)
 
 Output:
 approved: true
@@ -110,10 +115,13 @@ ID        STATUS            PROCESS      UPDATED  CREATED  CODE  ERROR
 ## Signals
 
 In the example above we've used the `genctl signal` command
-to submit the result of an external task. Signals can be
-submitted at any time (even if the instance is not waiting for one yet).
-Genroc puts submitted signals into a queue, and they are picked up
-automatically when needed.
+to submit the result of an external task. A signal can be submitted
+before the instance reaches the task: genroc checks it against the task's
+`result_schema` and `raises`, puts it into a queue, and the task picks it up when it gets there.
+
+Signals are accepted while the instance is running, paused or pausing. While a worker
+holds a claim on the task (see below), a signal waits until that claim is released,
+or a later claim finds it expired.
 
 ## Queues
 
@@ -137,6 +145,9 @@ worker for `lease_ms` milliseconds.
 Your worker should regularly prolong its leases (unless you can guarantee
 it will always finish within a certain time). Lease renewals can be understood
 as a sort of heartbeat, letting genroc know that the worker is alive.
+
+When a lease expires, the next claim can hand the task to another worker. An `only_once`
+task is never handed out twice: instead, the task fails with `external.lost`, which `on_error` can catch.
 
 The `/renew` endpoint also lets you know if the instance was cancelled
 and the result is no longer needed. You can then stop the work (useful

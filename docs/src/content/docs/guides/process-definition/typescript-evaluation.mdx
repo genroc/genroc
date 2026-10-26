@@ -1,6 +1,6 @@
 ---
-title: Typescript evaluation
-description: Learn how to run typescript through genroc
+title: TypeScript evaluation
+description: Learn how to run TypeScript through genroc
 order: 11
 ---
 
@@ -11,8 +11,8 @@ the resolver that bundles your scripts comes from the `@genroc/eval-node` packag
 
 ## The setup
 
-If we look at the project structure, you will see, that there are some extra fields
-compared to regular one.
+If we look at the project structure, you will see that there are some extra files
+compared to a regular one.
 
 ```
 ├── .genroc                        # registers the `import` resolver for .ts files
@@ -30,7 +30,7 @@ above the execution engine. Inside it uses external task to expose the script
 code and the input.
 
 `compose.yaml` then contains setup for `genroc/eval-node` docker
-container. This is our node worker that is able process the script
+container. This is our node worker that is able to process the script
 tasks. You can take this as an example implementation of
 [genroc worker](./external-tasks.mdx#queues).
 
@@ -72,13 +72,13 @@ tasks:
 output: "$: outputs.greet"
 ```
 
-We are using two kinds of resolvers. `$process:` is build in documented in [child process section](./child-processes.mdx#importing-a-child-process).
-Then we have `$import: ./greet.ts`, this is a special resolver intended for importing typescript files.
+We are using two kinds of resolvers. `$process:` is built in, documented in [child process section](./child-processes.mdx#importing-a-child-process).
+Then we have `$import: ./greet.ts`, this is a special resolver intended for importing TypeScript files.
 
 ### The script format
 
 Genroc expects default export to be function and it will pass input as a first argument.
-It will take it's output as a result. The function may also be async.
+It will take its output as a result. The function may also be async.
 
 ```ts
 // greet.ts
@@ -107,10 +107,10 @@ The `script-node` child process exposes external task `eval_node`, which is then
 
 | Code | Kind | When | `error.data` |
 | --- | --- | --- | --- |
-| `script_threw` | raise | the script threw or its promise rejected | `{name, stack?}` |
+| `script_threw` | raise | the script threw or its promise rejected | `{name, stack}`, `stack` may be `null` |
 | `script_timeout` | raise | the script ran past `timeout_ms` (default 5000) | `{budget_ms}` |
 | `script_unknown` | raise | no worker answered within `timeout_ms`: none is running, all are busy, or one died holding the task | — |
-| `script_broken` | panic | the script does not compile, returns a value that is not JSON, or calls `process.exit()` | `{name, stack?}` |
+| `script_broken` | panic | the script does not compile, returns a value that is not JSON, or calls `process.exit()` | `{name, stack}`, `stack` may be `null` |
 
 The raises are copied into your task by `<<: "$process: ./script-node.genroc.yaml"`, so `on_error`
 can match them directly. `script_broken` is a panic and cannot be caught: it fails the caller and
@@ -125,8 +125,8 @@ that is not an `Error` gives `Thrown`.
 
 Run `genctl generate` and this setup will also write `Input` and `Output` types for the `greet.ts` script.
 
-This way the script input and output is tied to the current `input` and `result_schema` defined in process.
-`genctl apply` will fail if those types don't match.
+This way the script input and output is tied to the current `input` and `result_schema` defined in process:
+when the script's function uses these types, `genctl apply` fails if they don't match.
 
 ### Timeouts
 
@@ -173,14 +173,14 @@ resolvers:
 
 The resolver can define what types it needs and genroc will provide json schema types for the specified
 fields. Here we need `task.action.input.input` which is the `input` slot next to the `code`. And then
-we also take `result` as a output.
+we also take `result` as the output.
 
 You can create your custom resolvers in the similar fashion ([check project file reference](../../reference/project-file.mdx)).
 
 ## eval-node
 
-Typescript support is enabled by [eval-node docker image](https://hub.docker.com/r/genroc/eval-node)
-which runs as a separate service. It is a node worker which expects the genroc server on port `8448` 
+TypeScript support is enabled by [eval-node docker image](https://hub.docker.com/r/genroc/eval-node)
+which runs as a separate service. It is a node worker which expects the genroc server on port `8448`
 and resolves external task from `script-node` process.
 
 ### npm package

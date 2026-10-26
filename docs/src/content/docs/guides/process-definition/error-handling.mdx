@@ -56,7 +56,7 @@ responses:
     type: object
     properties:
       success: ...
-  4xx:                # x matches any number
+  4xx:                # a whole hundred-range (1xx-5xx); otherwise an exact code
     type: object
     properties:
       error: ...
@@ -98,7 +98,7 @@ retry:
 ```
 
  - `retries` - the **extra** fetches beyond the first one. So 3 retries can give you 4 failed fetches.
- - `delay` - how long to wait before the next retry (`1s` is default)*
+ - `delay` - how long to wait before the first retry (`1s` is default)*
  - `factor` - a multiplier of the delay after each retry (`1s`, `2s`, `4s` in this case, 2 is default)
  - `max_delay` - a cap on the multiplication (max(`5m`, delay) is default)
 
@@ -219,7 +219,7 @@ In these cases you need to check through a different channel whether the money w
 | `external.lost` | external | a worker's claim expired without an answer |
 
 `not_reached` buys nothing here: it asserts what an error *means*, and that is a claim you can only
-make about an error that came back. Naming one of these alongside `retry` is refused at registration.
+make about an error that came back. On an `only_once` task, naming one of these alongside `retry` is refused at registration.
 
 ### What to do with ambiguous cases
 
@@ -254,12 +254,17 @@ Or you can have an idempotent task that checks whether the transaction happened,
     switch:
       - case: "self.status == 404 && self.output.retries < 3"
         goto: $transfer_money
+      - case: "self.status == 404"
+        panic:
+          code: transfer_failed
+          message: "the transfer didn't go through after 3 attempts"
       - goto: end
 ```
 
 This is a slightly more complicated example, but what we do is check in the
 `check_transfer` task whether the transaction exists.
-We limit the retries to 3 through the output mapping (we read the previous `output.retries` and add one).
+We limit the attempts to 3 through the output mapping (we read the previous `output.retries` and add one),
+and fail the process if the transfer still isn't there.
 
 ## Accepted statuses
 

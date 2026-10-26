@@ -12,7 +12,7 @@ and if it's a new one automatically bumps up the version.
 latest: hello v1 -> v2 (new)
 ```
 
-> Commands are assuming `definitions` glob in `.genroc`. If you don't have that, you can use `-f` to specify defintion file(s).
+> Commands are assuming `definitions` glob in `.genroc`. If you don't have that, you can use `-f` to specify definition file(s).
 
 Definitions are compared as a normalized json. If you apply an already existing
 version it's not duplicated but reused (so the version can also go down if you revert a change).
@@ -38,6 +38,8 @@ channel you want to apply.
 test: hello - -> v3 (new)       # v3 version doesn't influence latest
 ```
 
+The very first apply of a process sets `latest` too, whichever channel you name.
+
 To start the process you can specify the channel or the version:
 
 ```sh
@@ -54,7 +56,7 @@ started: 77fg90c5  hello@v1  (running)
 You can list all the channels for given process like this:
 
 ```sh
-> genctl channel list hello                                                    
+> genctl channel list hello
 latest -> v1   moved 23m ago by ...
 test -> v3   moved 11m ago by ...
 ```
@@ -64,16 +66,18 @@ so you can push your definition to `test` channel, try if it works and then
 just update the `latest` channel to the same version:
 
 ```sh
-genctl channel promote --from test --to latest
+genctl channel promote --from test --to latest --process hello
 ```
+
+Without `--process`, `promote` moves every process the `test` channel points at.
 
 ## Child/parent versioning
 
-By default, you don't have to specify which version of the child parent wants to use,
+By default, you don't have to specify which version of the child the parent wants to use;
 genroc will assume you want the one from the same channel.
 
-On apply it is decided which version of the child will the parent use and it's baked into the
-saved defintion.
+On apply, genroc decides which version of the child the parent will use, and bakes it into the
+saved definition.
 
 ```sh
 > genctl apply
@@ -81,14 +85,17 @@ latest: child v1 (current)
 latest: parent v2 -> v3 (new)
 ```
 
-Here the `parent@v3` will always use `child@v1`. If we would change child, the parent defintion will
-change as well, because the version is part of the defintion comparison.
+Here the `parent@v3` will always use `child@v1`. If we change the child and apply both, the parent
+definition changes as well, because the version is part of the definition comparison.
 
 ```sh
 > genctl apply
 latest: child v1 -> v2 (new)      # only child was changed
 latest: parent v3 -> v4 (new)     # parent was updated automatically
 ```
+
+Applying only the child leaves the parent on the old version.
+`genctl channel status` lists parents like that, pinned to a child version the channel no longer points at.
 
 ### Explicit version
 

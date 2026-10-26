@@ -128,12 +128,13 @@ output:
   nudged: "$: outputs.nudge.nudged ?? false"
 ```
 
-> TIP: Hover any expression and you will see it's type the same way as in 
+> TIP: Hover any expression and you will see its type the same way as in
   [genroc vscode extension](https://marketplace.visualstudio.com/items?itemName=genroc.genroc)
 
 ### Declaring what enters the process
 
 In the example, there are two places where outside data enter the process - `input_schema` and `responses`.
+Both take a subset of JSON Schema ([supported keywords](../../reference/definition/json-schema.md)).
 
 Genroc automatically validates that data and then you can safely access it in expressions.
 
@@ -144,7 +145,7 @@ Every task output is inferred through the `output` shape.
  - `nudge` output is an object with a `nudged: boolean` field
 
 The process output is also inferred; the inferred context is
-based on where all the `goto: end` are in the process.
+based on every way the process can end (`goto: end` or `switch: end`).
 
 ### Static checking
 
@@ -177,7 +178,7 @@ reaches production. `genctl apply --check-only` runs exactly these checks, so
 you can run them in CI; they happen on the server, so you then know that `apply` will pass.
 
 **At runtime** - the outside data entering the process is always validated.
-This ensures that every statically checked expression recieves the data
+This ensures that every statically checked expression receives the data
 it expects, and breaking API changes are detected.
 
 ### Scenarios

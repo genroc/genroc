@@ -4,7 +4,7 @@ description: Learn about instances upgradability
 order: 9
 ---
 
-Once you apply process definition, it is immutable. And if you start a process instance
+Once you apply a process definition, it is immutable. And if you start a process instance
 with that version the instance carries it even after newer versions are applied.
 
 This might be a bit of a grim prospect for long-running instances. The environment
@@ -58,7 +58,8 @@ moved 1 tree(s) to latest
 ```
 
 Only `paused` or `failed` instances can be upgraded (a `running` one is
-paused before the upgrade and resumed afterwards).
+paused before the upgrade and resumed afterwards). A `failed` instance stays failed on the
+new version; run `genctl retry` to continue it.
 Genroc checks if the instance's internal state is compatible
 with the equivalent state in the new definition. And if there is no problem,
 it upgrades the instance.
@@ -156,7 +157,8 @@ leaves it to you.
 
 The two words are two questions. **upgrade** is about instances you already have;
 **compatible** is about callers outside, who were written against this process's
-input and output. Ours is unaffected - the input didn't change.
+input and output. Ours is unaffected - the input didn't change. A check that passes prints
+`upgradable` or `compatible`; one that breaks prints `breaking: upgrade` or `breaking: contract`.
 
 It exits non-zero on a break, so it drops into a pipeline. `--ignore contract` drops
 that half from the exit code, when you meant to break it.
