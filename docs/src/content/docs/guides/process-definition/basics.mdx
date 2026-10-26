@@ -1,17 +1,21 @@
 ---
 title: Basics
-description: How is the process defined.
+description: How a process is defined.
 order: 1
 ---
 
 Genroc uses `*.genroc.yaml` files to describe processes.
 
-Each process has a unique name and a version. Definitions are never deleted, when you
-apply new definition different from the previous ones, it gets a new version automatically.
-Once a process is started, it is pinned to it's current definition version, so new version
-doesn't have influence on already running processes.
+Each process has a unique name and a version. Definitions are never deleted: when you
+apply a new definition different from the previous ones, it gets a new version automatically.
+Once a process is started, it is pinned to its current definition version, so a new version
+doesn't influence already running processes, unless you [upgrade](./upgrading-instances.mdx) them.
 
-Process can optionally also have input, which is defined by [JSON-Schema](https://json-schema.org/) and is always validated.
+A process can optionally also have input, described with a subset of [JSON Schema](https://json-schema.org/)
+(the supported keywords are in the [reference](../../reference/definition/json-schema.md)).
+
+The input is validated when the process starts, and properties the schema doesn't declare are dropped.
+Without `input_schema`, the input isn't checked and the process can't read it.
 
 Then there is a required list of tasks, which represent the executable body.
 
@@ -38,7 +42,7 @@ This process would require input of an object with field `user_name`. Input is s
 
 ## The tasks
 
-Tasks represent a unit of work that needs to be done. Process always starts with a first task from the array.
+Tasks represent a unit of work that needs to be done. A process always starts with the first task in the array.
 Each task then needs to specify what should be the following task with a `switch` statement.
 
 The syntax allows you to use keywords `next` or `end` to go to next task or end the process.
@@ -57,7 +61,7 @@ tasks:
     switch: end         # end of the process
 ```
 
-The switch field is required in every task, there is no default value.
+The switch field is required in every task; there is no default value.
 
 ## Branching
 
@@ -81,5 +85,5 @@ tasks:
     switch: end
 ```
 
-Cases are evaluated top to bottom and first one that evaluates to true wins.
-Last one always need to be "catch-all" - without the `case` expression (we'll explain expression in the next chapter).
+Cases are evaluated top to bottom and the first one that evaluates to true wins.
+The last one always needs to be a "catch-all" - without the `case` expression (we'll explain expressions in the next chapter).

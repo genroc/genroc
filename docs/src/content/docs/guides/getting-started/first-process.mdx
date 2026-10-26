@@ -36,14 +36,14 @@ Full command to do this:
 genctl apply -f definitions/hello.genroc.yaml
 ```
 
-Init project makes this easier for you, if you look into `.genroc` file, it has a glob for definitions.
-When you have setup like this, you can run the command without specifying the file.
+Init makes this easier for you: the `.genroc` file has a glob for definitions.
+With a setup like this, you can run the command without specifying the file.
 
 ```sh
 genctl apply        # uses definitions glob from .genroc
 ```
 
-You can also list existing definitions with `genctl definitions`
+You can also list existing definitions with `genctl definitions`:
 
 ```
 > genctl definitions
@@ -86,7 +86,7 @@ genctl get 4cqpdx8z
 genctl get @last
 ```
 
-But a more convenient way is to use `@last` alias, which will use the last instance id that was created.
+But a more convenient way is to use the `@last` alias, which names the instance `genctl run` started most recently.
 
 ```
 > genctl get @last
@@ -104,7 +104,7 @@ greeting: hello, genroc user
 The example process basically just copies your input and prints it out into the output. So it finishes instantly.
 
 
-> @last alias is genctl shorthand, it works only on the same machine that started the process
+> The `@last` alias is genctl shorthand: genctl remembers it on your machine, so it only knows instances you started there with `genctl run`.
 
 ## Checking the logs
 
@@ -118,5 +118,5 @@ TIME      LEVEL  ID        EVENT             TASK
 13:44:24  INFO   4cqpdx8z  inst_completed    greet           output={"greeting":"hello, genroc user"}
 ```
 
-You can see what was the input and what is the final output.
+You can see what the input was and what the final output is.
 

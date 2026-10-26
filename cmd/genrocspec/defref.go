@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"genroc/internal/defschema"
+	"genroc/internal/schema"
 )
 
 // The names an author knows these by. A schema `$def` is named after the Go type that produced
@@ -52,10 +54,11 @@ type defArm struct {
 // A section is a table of fields OR a list of alternative forms, never both: the shorthand
 // types (Switch, Shape, Retry) are unions of whole values, and a field table cannot say that.
 type defSection struct {
-	title  string
-	intro  string
-	fields []defField
-	arms   []defArm
+	title    string
+	intro    string
+	fields   []defField
+	arms     []defArm
+	keywords []defField // a schema keyword has no "required": it is a field of a different table
 }
 
 type defPage struct {
@@ -112,6 +115,16 @@ func writeDefinitionReference(dir string) error {
 				{title: "Fault", intro: "The value of a rule's `raise` or `panic`.", fields: fieldsOf(def("ModelFault"))},
 			},
 		},
+		{
+			title: "JSON Schema", slug: "json-schema", order: 8,
+			blurb: "The JSON Schema keywords every schema field accepts. `genctl apply` refuses any other.",
+			from:  "internal/schema's keyword table",
+			sections: []defSection{{
+				title:    "Keywords",
+				intro:    "A subset of [JSON Schema](https://json-schema.org/), the same in every `*_schema` field, `responses` and `raises`.",
+				keywords: keywordFields(def("SchemaSchema")),
+			}},
+		},
 	}
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -120,7 +133,7 @@ func writeDefinitionReference(dir string) error {
 	for _, p := range pages {
 		empty := true
 		for _, s := range p.sections {
-			if len(s.fields) > 0 || len(s.arms) > 0 {
+			if len(s.fields) > 0 || len(s.arms) > 0 || len(s.keywords) > 0 {
 				empty = false
 			}
 		}
@@ -305,6 +318,7 @@ func renderDefPage(p defPage, order int) string {
 			fmt.Fprintf(b, "\n%s\n", escapeProse(s.intro))
 		}
 		fieldTable(b, s.fields)
+		keywordTable(b, s.keywords)
 
 		// An arm with a shape needs a heading to hang its table under; a list of scalar forms
 		// does not, and giving Shape six headings for six one-line arms buries it.
@@ -360,6 +374,44 @@ func fieldTable(b *strings.Builder, fields []defField) {
 			desc += " Default `" + strings.ReplaceAll(f.def, "|", `\|`) + "`."
 		}
 		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", f.name, strings.ReplaceAll(f.typ, "|", `\|`), req, desc)
+	}
+}
+
+// keywordFields reads the meanings off the meta-schema and the kinds off the schema package: the
+// meta-schema carries no `type`, which would break the generated TypeScript client.
+func keywordFields(meta jsonSchema) []defField {
+	props, _ := meta["properties"].(map[string]any)
+	names := schema.KeywordOrder()
+	var rest []string
+	for name := range props {
+		if !slices.Contains(names, name) {
+			rest = append(rest, name)
+		}
+	}
+	sort.Strings(rest)
+	var out []defField
+	for _, name := range append(names, rest...) {
+		p, ok := props[name].(map[string]any)
+		if !ok {
+			continue // ordered but not accepted: allOf
+		}
+		desc, _ := p["description"].(string)
+		kind := schema.KeywordKind(name)
+		if kind == "" {
+			kind = "any"
+		}
+		out = append(out, defField{name: name, typ: kind, desc: desc})
+	}
+	return out
+}
+
+func keywordTable(b *strings.Builder, keywords []defField) {
+	if len(keywords) == 0 {
+		return
+	}
+	fmt.Fprint(b, "\n| Keyword | Value | Meaning |\n| --- | --- | --- |\n")
+	for _, k := range keywords {
+		fmt.Fprintf(b, "| `%s` | `%s` | %s |\n", k.name, strings.ReplaceAll(k.typ, "|", `\|`), cell(k.desc))
 	}
 }
 

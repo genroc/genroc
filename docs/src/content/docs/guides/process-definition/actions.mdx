@@ -49,24 +49,26 @@ JSON that fits the defined schema. The response JSON is available as `self.resul
 and is referenced in the `output` field.
 
 If the status isn't accepted, fetch fails with `http.<status>` (e.g. `http.404`); if the body
-doesn't fit the schema, with `result.invalid`. Both can be handled in `on_error`.
+doesn't fit the schema, with `result.invalid`; if it isn't JSON at all, with `result.parse`.
+All of them can be handled in `on_error`.
 Check [error handling](./error-handling.mdx) for details.
 
 Here is a list of the fields available on the fetch action:
 
 | Field             | Required | Meaning                                                                                                 |
 |-------------------|----------|---------------------------------------------------------------------------------------------------------|
-| `method`          | yes      | HTTP method, lowercase: `get`, `post`, `put`, …                                                         |
+| `method`          | yes      | HTTP method: `get`, `post`, `put`, …                                                                    |
 | `url`             | yes      | The request URL; can contain `${…}` templates.                                                          |
 | `headers`         |          | Request headers; each value a string.                                                                   |
 | `query`           |          | Query parameters appended to the URL. A parameter whose value is `null` is left out.                     |
-| `body`            |          | The request body; an object is sent as JSON.                                                            |
+| `body`            |          | The request body; an object is sent as JSON. Never sent with `get` or `head`, so `genctl apply` refuses it there. |
 | `responses`       |          | Response types by status. A 2xx entry types `self.result`; others type the error body ([more](./error-handling.mdx#responses-field)). |
-| `accepted_status` |          | Statuses that count as success; any 2xx by default ([more](./error-handling.mdx#accepted-statuses)).   |
+| `accepted_status` |          | Statuses that count as success; by default the 2xx keys of `responses`, or any 2xx without them ([more](./error-handling.mdx#accepted-statuses)). |
 | `timeout`         |          | Time limit for one attempt, `30s` by default; each retry gets a new one ([more](./error-handling.mdx#custom-timeout)). |
 
-In the task's `output` and `switch`, the response is available as `self.result` (the body),
-`self.status` and `self.headers`.
+In the task's `output` and `switch`, the response is available as `self.result` (the body,
+typed by a 2xx entry of `responses`, which reading it requires), `self.status` and
+`self.headers` (with lowercased names, e.g. `self.headers['content-type']`).
 
 ## Delay
 
@@ -99,7 +101,7 @@ Available fields:
 | Field             | Meaning                                                                                                 |
 |-------------------|---------------------------------------------------------------------------------------------------------|
 | `for`             | How long to wait: `30s`, `2h30m`, `7d`, `1mo`. A plain number is milliseconds.                        |
-| `until`           | When to stop waiting: `2026-09-01 08:00`, `+2d 08:00` (in two days at 8:00), or a pattern like `mon 09:00` (next Monday). |
+| `until`           | When to stop waiting: `2026-09-01 08:00`, `+2d 08:00` (in two days at 8:00), or a pattern like `mon 09:00` (the next time it's Monday 9:00). |
 | `tz`              | The time zone `until` and calendar units (`d`, `w`, `mo`, `y`) are read in: `Europe/Prague` or `+02:00`. UTC by default. |
 
 Use exactly one of `for` and `until`. The full syntax is in the [delay syntax reference](../../reference/definition/delay-syntax.mdx).
@@ -137,7 +139,7 @@ when you apply the definition, and the schemas also drive editor completion.
 You can also use a schema to solve optional vs. nullable field problems.
 Genroc adjusts the shape at runtime in the following way:
 
-- an optional field that comes out as `null` is removed
+- an optional field that comes out as `null` is removed, unless its schema allows `null`
 - a required nullable field that is missing from the shape is added as `null`
 
 Defaults are not applied by these schemas.

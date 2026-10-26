@@ -11,9 +11,9 @@ Genroc allows you to pass environment variables through the `config` property.
 If you want to use `config` in your process, you first need to
 specify what values and types you require for the process.
 
-This is done through `config_schema`, it takes a JSON Schema.
+This is done through `config_schema`, which takes a JSON Schema.
 It is similar to `input_schema`, however it only supports a
-flat object with primitive properties (as it's coming from env and
+flat object with primitive properties (as it comes from the environment,
 nested properties would be awkward here).
 
 ```genroc-lsp
@@ -65,9 +65,10 @@ The process variable wins over the global one, and an empty variable counts
 as unset. Without either, the `default` is used.
 
 Values are converted to the declared type, so for a property declared as `integer`,
-`GENROC_GLOBAL_RETRIES=3` arrives as a number
+`GENROC_GLOBAL_RETRIES=3` arrives as a number (exactly as written, like any number in genroc)
 and `true`/`false` as a boolean. A required value that's missing, or one that doesn't
-convert, is refused by `genctl apply` and when a process starts. Genroc reads the values again
+convert, is refused when a process starts, and by `genctl apply` when it registers a new version
+(re-applying an unchanged definition doesn't check again). Genroc reads the values again
 on every step and never stores them, so after you change one and restart the server, running
 processes use the new value too. If a value goes missing or stops converting, the process
 fails at its next step with `engine.config`.

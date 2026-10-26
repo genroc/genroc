@@ -1,11 +1,13 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
+	"genroc/internal/numeric"
 	"genroc/internal/schema"
 )
 
@@ -139,18 +141,18 @@ func coerceConfigValue(name, typ, raw string, secret bool) (any, error) {
 	switch typ {
 	case "", "string":
 		return raw, nil
-	case "integer":
-		n, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
+	case "integer", "number":
+		// Exact, as every other boundary is (specs/number-precision.md): through int64 or float64
+		// a long id or a precise rate would arrive changed. ParseInt's grammar keeps "1.0" out.
+		if typ == "integer" && !integerLiteral(raw) {
 			return nil, fmt.Errorf("config %q: %q is not a valid integer", name, shown)
 		}
-		return n, nil
-	case "number":
-		f, err := strconv.ParseFloat(raw, 64)
-		if err != nil {
-			return nil, fmt.Errorf("config %q: %q is not a valid number", name, shown)
+		if d, ok := numeric.ToDecimal(json.Number(raw)); ok && !numeric.ExceedsMaxDigits(d) {
+			if n, ok := numeric.Format(d); ok {
+				return n, nil
+			}
 		}
-		return f, nil
+		return nil, fmt.Errorf("config %q: %q is not a valid %s", name, shown, typ)
 	case "boolean":
 		b, err := strconv.ParseBool(raw)
 		if err != nil {
@@ -160,4 +162,17 @@ func coerceConfigValue(name, typ, raw string, secret bool) (any, error) {
 	default:
 		return nil, fmt.Errorf("config %q: unsupported type %q", name, typ)
 	}
+}
+
+func integerLiteral(raw string) bool {
+	digits := strings.TrimPrefix(strings.TrimPrefix(raw, "-"), "+")
+	if digits == "" {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

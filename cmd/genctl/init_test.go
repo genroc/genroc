@@ -45,17 +45,17 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 // Each case presses enter through every prompt, so only the flag can survive.
 func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 	enter := "\n\n\n\n\n\n\n"
-	if got := (options{dir: ".", postgres: true, setPostgres: true}).prompt(newPrompter(enter)); !got.postgres {
+	if got := (options{postgres: true, setPostgres: true}).prompt(newPrompter(enter)); !got.postgres {
 		t.Error("--postgres was overridden by the prompt's sqlite default")
 	}
-	withLogin := options{dir: ".", ui: true, auth: true, setUI: true, setAuth: true}
+	withLogin := options{ui: true, auth: true, setUI: true, setAuth: true}
 	if got := withLogin.prompt(newPrompter(enter)); !got.auth || !got.ui {
 		t.Error("--auth was overridden by the prompt's default")
 	}
-	if got := (options{dir: ".", ui: true, setUI: true}).prompt(newPrompter(enter)); !got.ui {
+	if got := (options{ui: true, setUI: true}).prompt(newPrompter(enter)); !got.ui {
 		t.Error("--ui was overridden by the prompt's default")
 	}
-	if got := (options{dir: ".", evalNode: true, setEvalNode: true}).prompt(newPrompter(enter)); !got.evalNode {
+	if got := (options{evalNode: true, setEvalNode: true}).prompt(newPrompter(enter)); !got.evalNode {
 		t.Error("--eval-node was overridden by the prompt's default")
 	}
 	// And a flag answering one question must not consume the answer meant for the next.
@@ -65,13 +65,17 @@ func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 	}
 }
 
-// Only the folder may differ: -y writes here, the prompt offers a new one.
+// The folder included: -y writing into the current directory instead was a second default.
 func TestInitOptions_AssumeYesAndEnterScaffoldTheSameProject(t *testing.T) {
 	flags, _, _ := parseInitArgs([]string{"-y"})
-	enter := options{dir: "."}.prompt(newPrompter("\n\n\n\n\n\n"))
-	if flags.evalNode != enter.evalNode || flags.postgres != enter.postgres ||
+	flags = flags.withDefaultDir()
+	enter := options{}.prompt(newPrompter("\n\n\n\n\n\n")).withDefaultDir()
+	if flags.dir != enter.dir || flags.evalNode != enter.evalNode || flags.postgres != enter.postgres ||
 		flags.ui != enter.ui || flags.auth != enter.auth {
 		t.Errorf("-y gave %+v, Enter gave %+v: parseInitArgs and prompt disagree on a default", flags, enter)
+	}
+	if named, _, _ := parseInitArgs([]string{".", "-y"}); named.withDefaultDir().dir != "." {
+		t.Error(`an explicit "." must still mean the current directory`)
 	}
 	if flags.auth || flags.ui {
 		t.Error("a UI or login is on by default; init scaffolds a laptop, so both are opt-in (--ui, --auth)")
@@ -99,7 +103,7 @@ func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 			options{dir: "proj", ui: true, auth: true, email: defaultEmail}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := options{dir: "."}.prompt(newPrompter(tc.input))
+			got := options{}.prompt(newPrompter(tc.input))
 			if got != tc.want {
 				t.Errorf("answers %q gave %+v, want %+v", tc.input, got, tc.want)
 			}

@@ -27,7 +27,7 @@ output:
   ticks: "$: outputs.tick.count"
 ```
 
-Copy this yaml and put it into `definitions/ticker.genroc.yaml` (we are still working with project produced by `genctl init` from previous sections).
+Copy this yaml and put it into `definitions/ticker.genroc.yaml` (we are still working with the project produced by `genctl init` in the previous sections).
 
 ## Let's apply
 
@@ -56,7 +56,7 @@ Now let's check the logs.
 genctl logs @last
 ```
 
-This process runs for about 30s, so you can run the `logs` command repeatedly until it ends. 
+This process runs for about 30s, so you can run the `logs` command repeatedly until it ends.
 
 Once it finishes, you should see something like this:
 
@@ -90,7 +90,7 @@ docker compose up -d
 Now let's check the logs:
 
 ```
-> genctl logs @last                       
+> genctl logs @last
 TIME      LEVEL  ID        EVENT             TASK
 --- 2026-09-08 +02:00 ---
 14:50:53  INFO   20he91zm  inst_created                      by=no-auth:anonymous
@@ -104,10 +104,4 @@ TIME      LEVEL  ID        EVENT             TASK
 
 You can see that process started at `14:50:53`, but then there is nothing for 90 seconds. Then it recovers and continues.
 
-The instance lives in the database not in the running server. So if the server restarts, nothing is lost.
-
-## How about hard crashes?
-
-You might object that docker stops the server gracefully and so it never aborts the running process forcibly, but what if our computer crashes or there is an electricity outage?
-
-Genroc is safe in these cases too - and here the nuance starts. None of the actions in ticker have side-effects, so genroc can simply re-execute the task and continue.
+The instance lives in the database, not in the running server. So if the server restarts, nothing is lost.

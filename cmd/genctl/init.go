@@ -38,6 +38,7 @@ func runInitCmd(args []string) {
 	if !assumeYes && interactive() {
 		choices = choices.prompt(prompter{in: bufio.NewReader(os.Stdin), out: os.Stderr})
 	}
+	choices = choices.withDefaultDir()
 	dir, evalNode, postgres, ui, auth := choices.dir, choices.evalNode, choices.postgres, choices.ui, choices.auth
 
 	set := "base"
@@ -179,7 +180,7 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	// No UI and no login by default: this scaffolds a laptop. prompt's defaults must agree.
 	ui, auth := false, false
 	var setEvalNode, setPostgres, setUI, setAuth bool
-	dir, tag := ".", ""
+	dir, tag := "", ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		// A flag answers ITS OWN question only: implying -y would let `--no-auth` silently pick
@@ -268,8 +269,8 @@ type options struct {
 
 func (o options) prompt(p prompter) options {
 	// A folder, not a "project name": the answer is where this writes, not something in the files.
-	if o.dir == "." {
-		o.dir = p.ask("folder to create (. for the current directory)", "genroc-app")
+	if o.dir == "" {
+		o.dir = p.ask("folder to create (. for the current directory)", defaultDir)
 	}
 	if !o.setEvalNode {
 		o.evalNode = p.askYesNo("TypeScript script tasks (@genroc/eval-node)", false)
@@ -295,6 +296,17 @@ func (o options) prompt(p prompter) options {
 }
 
 const defaultEmail = "admin@localhost"
+
+// defaultDir is the folder -y and Enter both take; "" in options means none was named, so an
+// explicit "." still means the current directory.
+const defaultDir = "genroc-app"
+
+func (o options) withDefaultDir() options {
+	if o.dir == "" {
+		o.dir = defaultDir
+	}
+	return o
+}
 
 // login's password is GENERATED, never fixed: every scaffold would share a known credential, and
 // this one reaches the port the UI publishes.

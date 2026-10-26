@@ -37,9 +37,12 @@ Genroc supports expressions, which let you compute values dynamically and pass t
 In an expression you can reference the following variables:
 
   - `input` - the process input defined by `input_schema`
-  - `outputs.<task-id>` - output of any earlier task (if it defines one)
+  - `outputs.<task_id>` - output of a task that runs before this one on the way here (if it defines one;
+    one that may have been skipped can be `null`)
   - `self` - data about the current task, not available outside it (see [looping](#looping))
   - `config` - configuration values resolved from environment variables (we will get to this later)
+
+Error handling adds `error` and `last_error`, which we get to in [error handling](./error-handling.mdx).
 
 You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `??`.
 
@@ -57,7 +60,7 @@ It takes an array as a first argument and callback as second.
 In callback you can transform the items into different shapes.
 
 ```genroc
-$: map(names, (name) => { who: name })
+"$: map(names, (name) => { who: name })"
 # Array<names> -> Array<{who: string}>
 ```
 
@@ -107,7 +110,8 @@ The same syntax is used also for `on_error/case` fields, which we will discuss l
 
 ### Numbers
 
-Expressions support `+`, `-`, `*`, `/` and `%`. Numbers are arbitrary-precision decimals,
+Expressions support `+`, `-`, `*`, `/` and `%`. Numbers are arbitrary-precision decimals (up to 1000
+significant digits; a result past that fails the process with `engine.expression`),
 following the [General Decimal Arithmetic](https://speleotrove.com/decimal/) specification
 (the one Python's `decimal` module implements), computed with the
 [apd](https://github.com/cockroachdb/apd) library. Genroc keeps them exact, also when it only
@@ -236,5 +240,5 @@ reaches `switch: end`. It cannot access `self`, as it is not part of any task.
 
 The output is the contract for the outside world: it is what callers read,
 and what a parent checks a child's result against.
-Task outputs are internal — visible in `genctl detail`, 
+Task outputs are internal — visible in `genctl detail`,
 but nothing outside is written against them.

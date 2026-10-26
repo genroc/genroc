@@ -1,22 +1,24 @@
 ---
 title: Installation
-description: Get genctl, run genroc in docker and start your first process.
+description: Get genctl, start a project and run genroc in docker.
 order: 1
 ---
 
 ## The CLI
 
-Install genctl by running following command in your terminal:
+Install genctl by running the following command in your terminal:
 
 ```sh
 curl -fsSL https://genroc.org/install.sh | sh -s
 ```
 
-This will copy the genctl binary to your default user scoped bin location.
+This puts the genctl binary in `/usr/local/bin` if you can write there, otherwise in `~/.local/bin`
+(set `GENROC_INSTALL_DIR` to choose). If that folder isn't on your `PATH`, the script warns you;
+add it before you continue.
 
 ## Starting a project
 
-Once you install genctl, you can create your first project with init command (we assume defaults are used):
+Once you install genctl, you can create your first project with the init command (we assume you accept the defaults it offers):
 
 ```sh
 genctl init
@@ -32,10 +34,10 @@ Open the project in your editor. With the default options it looks like this:
 
 ```
 genroc-app/
-├─ data/                  # the database, once the server starts
+├─ data/                   # the database, once the server starts
 ├─ definitions/
 │  └─ hello.genroc.yaml    # the example process definition
-├─ .genroc                 # genroc configuration
+├─ .genroc                 # genctl project file: where your definitions are
 ├─ compose.yaml            # docker compose file for starting the server
 └─ .gitignore
 ```
@@ -49,7 +51,7 @@ It provides language support for `*.genroc.yaml` files.
 
 > To continue you need to have [docker installed](https://docs.docker.com/desktop/) on your system.
 
-Following command will start docker containers:
+The following command starts the containers:
 
 ```sh
 docker compose up -d
@@ -64,7 +66,7 @@ no instances
 
 Should run without an error.
 
-Stop it with `docker compose down`, your data stays in the `data` folder.
+Stop it with `docker compose down`; your data stays in the `data` folder.
 
 > The default setup has no authentication, anyone on your network can run code through it.
 > Turn it on with `genctl init --auth` in a new project ([Authentication](../operating/authentication.mdx) for an existing one),

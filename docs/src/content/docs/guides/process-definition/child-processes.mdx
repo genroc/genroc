@@ -185,7 +185,7 @@ The three child actions share most of their fields:
 | `version`       | all                             | The version to run. When omitted, it's fixed when the parent is applied ([more](./versioning.mdx#childparent-versioning)). |
 | `input`         | `child`, `child_map` entries    | The child's input.                                                       |
 | `over`          | `child_list`                    | An array expression; one child is started per item, with the item as its input. Required. |
-| `children`      | `child_map`                     | Named entries, each with the fields above. Required.                     |
+| `children`      | `child_map`                     | Named entries, each starting one child (see below). Required.            |
 | `input_schema`  | all                             | Declares the input sent to the child.                                    |
 | `result_schema` | all                             | Declares the child's output, as the parent reads it.                     |
 | `raises`        | all                             | The codes `on_error` may catch, with their data schemas ([more](#the-raises-field)). |
@@ -197,7 +197,7 @@ On `child_map`, each entry under `children` has its own `name`, `version`, `inpu
 Genroc checks the parent/child compatibility when the definitions are applied.
 It checks that the inputs you pass fit the child's `input_schema`, and that the child's output and error data fit the parent's `result_schema` and `raises`.
 
-The lsp doesn't check the compatibility between processes locally,
+The editor doesn't check the compatibility between processes;
 run `genctl apply --check-only` to check on the server.
 
 ## Child error handling
@@ -205,9 +205,12 @@ run `genctl apply --check-only` to check on the server.
 Genroc doesn't use classic "catching" for child processes. The main reason is that we require
 everything to be explicitly typed, and processes should be self-contained in terms of their interface.
 
-So every process needs to explicitly specify which errors it can produce. This is also
-the reason why errors don't bubble up through the tree: if they did, a process would
-leak types from its children, which we don't allow.
+So every process needs to explicitly specify which errors it can produce. A raised error
+reaches only the direct parent, as something it can catch. If the parent doesn't catch it,
+the parent fails, and a failure fails every process above it up to the root.
+To pass the error further up as something catchable, the parent raises a code of its own,
+which becomes part of its interface: otherwise a process would leak types from its children,
+which we don't allow.
 
 Raised errors are understood as a branching tool for expected failures.
 
@@ -248,7 +251,7 @@ on_error:
     goto: $handle_item_not_found
 ```
 
-## Importing child process
+## Importing a child process
 
 You can import a child process to avoid duplicating its fields in the YAML.
 
@@ -259,7 +262,7 @@ tasks:
   - id: spawn_child
     action:
       type: child
-      <<: "$process: ./child.genroc.yaml"
+      <<: "$process: ./greet.genroc.yaml"
       input:
         who: world
     output: "$: self.result"
@@ -283,12 +286,18 @@ would look like this:
     action:
       type: child
       <<:
-        # product of `$process: ./child.genroc.yaml`
+        # product of `$process: ./greet.genroc.yaml`
         name: greet
+        input_schema:
+          type: object
+          properties:
+            who: {type: string}
+          required: [who]
         result_schema:
           type: object
           properties:
             message: {type: string}
+          required: [message]
       input:
         who: world
 ```

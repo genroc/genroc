@@ -209,8 +209,8 @@ on_error. No result flags sends an empty result, allowed only without a result_s
 			"init password [email]",
 		},
 		detail: "Writes definitions/, a .genroc and optionally a compose.yaml, asking which parts you\n" +
-			"want; -y (or no terminal) takes the defaults. --auth with --ui is a login; without it,\n" +
-			"genroc tokens. `init password` mints a new UI password.",
+			"want; -y (or no terminal) takes the defaults, ./genroc-app unless you name a folder.\n" +
+			"--auth with --ui is a login; without it, genroc tokens. `init password` mints a new UI password.",
 	},
 	"config": {
 		summary: "read and write ~/.config/genroc/config.yaml",

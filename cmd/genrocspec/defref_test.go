@@ -129,3 +129,25 @@ func TestObjectArmsRenderTheirShape(t *testing.T) {
 		}
 	}
 }
+
+// The page is the one place the accepted keywords are published, so one the decoder accepts and
+// the page leaves out is undocumented.
+func TestEverySchemaKeywordReachesItsPage(t *testing.T) {
+	var root map[string]any
+	if err := json.Unmarshal(defschema.Process(), &root); err != nil {
+		t.Fatal(err)
+	}
+	meta := root["$defs"].(map[string]any)["SchemaSchema"].(map[string]any)["properties"].(map[string]any)
+	page := generatedDefinitionPages(t)["json-schema.md"]
+	if page == "" {
+		t.Fatal("no json-schema.md was generated")
+	}
+	for name := range meta {
+		if !strings.Contains(page, "| `"+name+"` |") {
+			t.Errorf("keyword %q is accepted but missing from json-schema.md", name)
+		}
+	}
+	if strings.Contains(page, "`allOf`") {
+		t.Error("allOf is in the reading order but refused, so the page must not offer it")
+	}
+}

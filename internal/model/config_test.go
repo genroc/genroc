@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -55,10 +56,10 @@ func TestResolveConfig(t *testing.T) {
 		if cfg["SERVER_URL"] != "http://x" {
 			t.Errorf("SERVER_URL = %v", cfg["SERVER_URL"])
 		}
-		if cfg["PORT"] != int64(8080) {
-			t.Errorf("PORT = %v (%T), want int64(8080)", cfg["PORT"], cfg["PORT"])
+		if cfg["PORT"] != json.Number("8080") {
+			t.Errorf("PORT = %v (%T), want json.Number(8080)", cfg["PORT"], cfg["PORT"])
 		}
-		if cfg["RATE"] != 1.5 {
+		if cfg["RATE"] != json.Number("1.5") {
 			t.Errorf("RATE = %v", cfg["RATE"])
 		}
 		if cfg["DEBUG"] != true {
@@ -199,7 +200,7 @@ func TestResolveConfigCaseInsensitiveName(t *testing.T) {
 	if cfg["server_url"] != "http://x" {
 		t.Errorf("server_url = %v, want http://x (binds to GENROC_GLOBAL_SERVER_URL)", cfg["server_url"])
 	}
-	if cfg["e2e_port"] != int64(8080) {
+	if cfg["e2e_port"] != json.Number("8080") {
 		t.Errorf("e2e_port = %v, want 8080 (binds to GENROC_BILLING_E2E_PORT)", cfg["e2e_port"])
 	}
 	if cfg["apiKey"] != "k" {
@@ -279,6 +280,32 @@ func TestSecretConfigValues(t *testing.T) {
 	secrets := def.SecretConfigValues(map[string]any{"API_KEY": "s3cr3t", "SERVER_URL": "http://x"})
 	if len(secrets) != 1 || secrets[0] != "s3cr3t" {
 		t.Errorf("SecretConfigValues = %v, want [s3cr3t]", secrets)
+	}
+}
+
+// The environment is a boundary like any other, so a value arrives as written, not as a float64.
+func TestResolveConfigKeepsNumbersExact(t *testing.T) {
+	def := &ProcessDefinition{Name: "billing", ConfigSchema: cfgSchema(`{"type":"object","properties":{
+		"rate": {"type":"number"}, "id": {"type":"integer"}, "bad": {"type":"integer"}}}`)}
+	env := map[string]string{
+		"GENROC_BILLING_RATE": "0.12345678901234567890123",
+		"GENROC_BILLING_ID":   "123456789012345678901234567890",
+	}
+	cfg, err := def.ResolveConfig(lookupFrom(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg["rate"] != json.Number("0.12345678901234567890123") {
+		t.Errorf("rate = %v; through float64 it rounds to 0.12345678901234568", cfg["rate"])
+	}
+	if cfg["id"] != json.Number("123456789012345678901234567890") {
+		t.Errorf("id = %v; through int64 it does not fit at all", cfg["id"])
+	}
+	for _, raw := range []string{"1.0", "1e3", "12abc"} {
+		env["GENROC_BILLING_BAD"] = raw
+		if _, err := def.ResolveConfig(lookupFrom(env)); err == nil {
+			t.Errorf("%q accepted as an integer", raw)
+		}
 	}
 }
 
