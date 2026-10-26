@@ -57,9 +57,9 @@ Keep new list/get commands consistent so the surface stays predictable.
   specs/id-list-commands.md.
 - **One positional, several kinds, told apart by shape.** `upgrade` and `compat` take an
   instance id where a process name goes — `isInstanceRef` (a minted id, a legacy UUID, or
-  `@last`) decides. An id names one row, so the flags that SELECT rows — `--from`, `--status` — are
-  refused there rather than ignored: a selector that is silently overridden reads as if it
-  applied.
+  `@last`) decides. An id names one row, so `--status`, which SELECTS rows, is refused there
+  rather than ignored: a selector that is silently overridden reads as if it applied. `--from`
+  stays, as an assertion — a row on another version is refused, never moved.
 - **`signal` is the only way to answer an external task from here.** The fenced answer —
   `/external-tasks/resolve` with a claim's token — has no command: only a worker that claimed
   holds a token, and there is no `claim` command, so a `resolve` one had no honest caller.

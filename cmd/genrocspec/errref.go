@@ -97,7 +97,8 @@ func writeStatusTable(path string) error {
 		return err
 	}
 	b := &strings.Builder{}
-	fmt.Fprint(b, "`Settled` marks a terminal state: no work moves and nothing advances out of it.\n"+
+	fmt.Fprint(b, "`Settled` marks a terminal state: no work moves, and nothing leaves it on its own\n"+
+		"(`retry` gives a `failed` one another attempt).\n"+
 		"`Accepts a result` is whether a worker's answer to an external task is still delivered —\n"+
 		"a pause suspends execution, not delivery.\n\n")
 	fmt.Fprint(b, "| Status | Settled | Accepts a result | Means |\n| --- | --- | --- | --- |\n")

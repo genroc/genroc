@@ -121,8 +121,9 @@ a tree that cannot be planned (a live child in a `child_map` slot the target no 
 already left, and "would these versions be compatible at all" is `compat`, from documents.
 
 `genctl upgrade` sweeps client-side, one call per tree, pausing a running instance and resuming
-it after. Instance ids replace `--from`, which is the sweep's selector: each row's own version
-goes out as that write's `from_version` assertion, and `--status` is refused. A tree already on
+it after. Instance ids replace `--from` as the selector: each row's own version goes out as that
+write's `from_version` assertion, and `--status` is refused. A `--from` given with ids is checked
+against each row instead, refusing one on another version. A tree already on
 the target counts as already there, so re-running the same ids repairs a partial run.
 `genctl compat <instance-id> --to …` asks the same pair as a question, scoped to the row's
 process — one id, since a side carries one version per process.

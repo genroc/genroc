@@ -67,7 +67,8 @@ apply. Needs no server.
 			"compat <instance-id> --to <version|channel>",
 		},
 		detail: "A side is a channel or name@version pins, not both. With -f, the local files are the\n" +
-			"target. `compat <id> --to N` checks one instance; `upgrade` is the same with the move.\n\n" +
+			"target. `compat <id> --to N` compares that instance's version with N, as documents; only\n" +
+			"`upgrade` judges the instance where it stands, and moves it.\n\n" +
 			"Exits 1 on a break. --ignore contract still prints contract breaks but does not fail.\n\n" +
 			definitionFiles,
 	},

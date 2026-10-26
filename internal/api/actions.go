@@ -182,7 +182,7 @@ var registry = func() []actionDef {
 				return StartInstanceReq{Process: "order_pipeline", Version: &v1, Input: &input}
 			}(),
 			Resp: StartInstanceResp{
-				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
+				ID: "5fy765kh", Process: "order_pipeline",
 				Version: 1, Status: model.StatusRunning,
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
@@ -427,15 +427,16 @@ var registry = func() []actionDef {
 				ID string `path:"id" description:"The instance id"`
 			}{},
 			Resp: InstanceDetailResp{
-				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
+				ID: "5fy765kh", Process: "order_pipeline",
 				Version: 1, Status: model.StatusRunning, Task: "charge_card",
 				State: map[string]any{
-					"input":     map[string]any{"order_id": 42},
-					"outputs":   map[string]any{"reserve": map[string]any{"ok": true}},
-					"_children": map[string]any{"charge_card": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"},
+					"input":      map[string]any{"order_id": 42},
+					"outputs":    map[string]any{"reserve": map[string]any{"ok": true}, "render": nil},
+					"last_error": nil,
 				},
+				Children:  map[string]any{"charge_card": "3k1nz7pq"},
 				TaskEpoch: 3,
-				Objects:   []ObjectEntry{{Path: []any{"state", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
+				Objects:   []ObjectEntry{{Path: []any{"state", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38a61c0d2e4b7f9a13", Size: 221110}},
 			},
 			handle: func(h *Handlers, env Envelope) Reply { return h.getInstanceDetail(env.ID) },
 		},
@@ -451,7 +452,7 @@ var registry = func() []actionDef {
 				ID string `path:"id" description:"The instance id"`
 			}{},
 			Resp: InstanceStatusResp{
-				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
+				ID: "5fy765kh", Process: "order_pipeline",
 				Version: 1, Status: model.StatusFailed, Task: "charge_card",
 				ErrorCode: "only_once.interrupted", ErrorMessage: "the task may have already run",
 				Output: map[string]any{"shipped": true},
@@ -635,7 +636,7 @@ var registry = func() []actionDef {
 			Req:     ClaimExternalTasksReq{WorkerID: "worker-1", Limit: 5, LeaseMs: 30000, Process: "expense-approval", Task: "approval"},
 			Resp: map[string]any{
 				"items": []ExternalTaskResp{{
-					Token:   "550e8400-e29b-41d4-a716-446655440000.6.1",
+					Token:   "5fy765kh.6.1",
 					Process: "expense-approval", Version: 2, TaskID: "approval",
 					Input:        map[string]any{"amount": 420, "submitter": "alice"},
 					WaitingSince: "2026-09-25T09:12:00Z",
@@ -651,9 +652,9 @@ var registry = func() []actionDef {
 			Path:    "/external-tasks/renew",
 			Summary: "Extend this worker's claims. Answers per token: `renewed` is still yours, `lost` is already someone else's (stop, do not release), `cancelled` is no longer wanted (stop; nothing to release). Optional, but the only channel that tells a running worker to stop",
 			Tags:    []string{"External Tasks"},
-			Req:     RenewExternalClaimsReq{WorkerID: "worker-1", Tokens: []string{"550e8400-e29b-41d4-a716-446655440000.6.1"}, LeaseMs: 30000},
+			Req:     RenewExternalClaimsReq{WorkerID: "worker-1", Tokens: []string{"5fy765kh.6.1"}, LeaseMs: 30000},
 			Resp: map[string]any{
-				"renewed":   []string{"550e8400-e29b-41d4-a716-446655440000.6.1"},
+				"renewed":   []string{"5fy765kh.6.1"},
 				"lost":      []string{},
 				"cancelled": []string{},
 			},
@@ -667,7 +668,7 @@ var registry = func() []actionDef {
 			Summary: "Hand a claim back to the queue immediately instead of waiting out its lease",
 			Tags:    []string{"External Tasks"},
 			Errors:  []Code{CodeConflict},
-			Req:     ReleaseExternalTaskReq{Token: "550e8400-e29b-41d4-a716-446655440000.6.1"},
+			Req:     ReleaseExternalTaskReq{Token: "5fy765kh.6.1"},
 			Resp:    map[string]any{"released": true},
 			handle:  func(h *Handlers, env Envelope) Reply { return h.releaseExternalTask(env.Payload) },
 		},
@@ -680,7 +681,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"External Tasks"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			Req: ResolveExternalTaskReq{
-				Token:  "550e8400-e29b-41d4-a716-446655440000.6.1",
+				Token:  "5fy765kh.6.1",
 				Result: map[string]any{"approved": true},
 			},
 			Resp: map[string]any{"resolved": true},
@@ -697,7 +698,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"External Tasks"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			Req: SignalInstanceReq{
-				InstanceID: "550e8400-e29b-41d4-a716-446655440000",
+				InstanceID: "5fy765kh",
 				TaskID:     "approval",
 				Result:     map[string]any{"approved": true},
 			},
