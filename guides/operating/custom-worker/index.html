@@ -181,14 +181,14 @@ is the task id.</p>
 <h3 id="leasing">Leasing<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#leasing"><span></span></a></h3>
 <p>A task is leased to you for the time you&#39;ve requested. If your worker
 doesn&#39;t provide a result in that time or doesn&#39;t renew the lease,
-genroc allows a different worker to claim it instead
-(<code>only_once</code> tasks will fail with <code>external.lost</code>
-in this case).</p>
+the next claim can hand the task to a different worker; until then, a late renewal
+or result is still accepted. An <code>only_once</code> task is never handed out twice: instead,
+it fails with <code>external.lost</code>, which <code>on_error</code> can catch.</p>
 <h3 id="claim-response">Claim response<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#claim-response"><span></span></a></h3>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">items</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span></span>
 <span class="line"><span style="color:#8A8A84">    {</span></span>
-<span class="line"><span style="color:#8A8A84">      &quot;</span><span style="color:#D6D6D2">token</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">550e8400-e29b-41d4-a716-446655440000.6.1</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">      &quot;</span><span style="color:#D6D6D2">token</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">5fy765kh.6.1</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">      &quot;</span><span style="color:#D6D6D2">process</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">expense-approval</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">      &quot;</span><span style="color:#D6D6D2">version</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 2</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">      &quot;</span><span style="color:#D6D6D2">task</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">approval</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
@@ -214,14 +214,14 @@ the <code>timeout</code> field (the timeout also includes time spent in the queu
 <p>Once your worker has finished, use the <a href="/reference/rest-api/external-tasks/#post-apiexternal-tasksresolve"><code>/api/external-tasks/resolve</code></a>
 endpoint to submit the result:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
-<span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">token</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">550e8400-e29b-41d4-a716-446655440000.6.1</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">token</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">5fy765kh.6.1</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">result</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> {</span></span>
 <span class="line"><span style="color:#8A8A84">    &quot;</span><span style="color:#D6D6D2">approved</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> true</span></span>
 <span class="line"><span style="color:#8A8A84">  }</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
 <p>If the work ended with an error, you can submit the error this way:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
-<span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">token</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">550e8400-e29b-41d4-a716-446655440000.6.1</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
+<span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">token</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">5fy765kh.6.1</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">error</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> {</span></span>
 <span class="line"><span style="color:#8A8A84">    &quot;</span><span style="color:#D6D6D2">code</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">over_budget</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">    &quot;</span><span style="color:#D6D6D2">message</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">Amount exceeds the submitter&#39;s limit</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>

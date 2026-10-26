@@ -157,8 +157,8 @@ requires careful consideration about long term sustainability and scalability.</
 <p>SQLite</p>
 <ul>
 <li>doesn&#39;t require separate db server (nice when running locally)</li>
-<li>db is a single file (plus <code>-wal</code> and <code>-shm</code> files next to it in WAL mode)</li>
-<li>lower latency - can be faster when there is low number of parallel processes</li>
+<li>db is a single file (plus the <code>-wal</code> and <code>-shm</code> files of its write-ahead log next to it)</li>
+<li>no network round trip to a database server, which suits a low number of parallel processes</li>
 <li>single writer - doesn&#39;t scale horizontally</li>
 <li>less options to tune the db later</li>
 </ul>
@@ -266,7 +266,9 @@ once the lease lapses (<code>--lease-duration</code>, 10s) another server, or th
 The interrupted task runs again, except an <code>only_once</code> task, which raises <code>only_once.interrupted</code>.
 See <a href="/guides/getting-started/surviving-a-restart/">Surviving a restart</a>.</p>
 <p>On SIGTERM genroc stops taking new work and lets running work finish for up to <code>--shutdown-grace</code>
-(15s). Whatever is still running then continues elsewhere, as after a crash. Give the container
+(15s). Whatever is still running then continues elsewhere, as after a crash. The API stops
+accepting connections right away (requests already in progress get 15s to finish), so a worker
+or probe calling this server should retry, or call another one. Give the container
 longer than that to stop: Docker&#39;s default is 10s, so set <code>stop_grace_period: 20s</code>;
 Kubernetes&#39; 30s is enough.</p>
 <h2 id="logs-and-storage">Logs and storage<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#logs-and-storage"><span></span></a></h2>
@@ -275,11 +277,12 @@ Kubernetes&#39; 30s is enough.</p>
 <p>Every instance also has its own log in the database, the one <code>genctl logs</code> shows. Genroc keeps
 it for <code>--log-retention</code>, 7 days by default (<code>0</code> keeps it forever). These logs record the inputs
 and outputs of tasks and calls, so anything sensitive in them ends up there too. Turn that off
-with <code>--log-payloads=false</code>, or limit the recorded size with <code>--log-payload-max</code> (1 MB by default).</p>
+with <code>--log-payloads=false</code>, or leave out large ones with <code>--log-payload-max</code> (1 MiB by default):
+a larger payload isn&#39;t recorded at all, and the entry says how big it was.</p>
 <p>When an instance replaces a large value, the old one stays readable for <code>--object-grace</code>
 (1 hour by default), so a client that already has a reference to it can still fetch it.</p>
 <p>By default genroc keeps concluded processes forever, so the database keeps growing. Set
-<code>--instance-retention</code> (for example <code>720h</code>, 30 days) to delete completed, failed and cancelled
+<code>--instance-retention</code> (for example <code>720h</code>, 30 days) to delete completed, failed, raised and cancelled
 processes, with their children and logs, that long after they finished. After that their id
 answers 404, so read results and retry failures within that time.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/genroc-ui/"> <span>previous</span> <strong>Genroc UI</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#database">Database</a></li><li class="depth-2"><a href="#durability">Durability</a></li><li class="depth-3"><a href="#persistency">Persistency</a></li><li class="depth-3"><a href="#what-is-guaranteed">What is guaranteed</a></li><li class="depth-3"><a href="#making-sure-data-reach-the-disk">Making sure data reach the disk</a></li><li class="depth-2"><a href="#authentication">Authentication</a></li><li class="depth-2"><a href="#health-checks">Health checks</a></li><li class="depth-2"><a href="#shutdown-and-restarts">Shutdown and restarts</a></li><li class="depth-2"><a href="#logs-and-storage">Logs and storage</a></li></ul><script>
         ;(function () {

@@ -205,7 +205,8 @@ its largest parts into <code>objects</code> until the rest fits.</p>
 <p>A log entry&#39;s payload over <code>--log-payload-max</code> (default 1 MiB) is not stored at all. The entry&#39;s
 <code>meta.payload_omitted_bytes</code> says how big it was.</p>
 <h2 id="what-it-looks-like">What it looks like<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-it-looks-like"><span></span></a></h2>
-<p>Say a task downloads a web page and keeps the HTML (about 180 KB) in its output.
+<p>Say a task calls an API that renders a page and returns its HTML in a JSON field, and the task
+keeps that HTML (about 180 KB) in its output.
 The instance detail doesn&#39;t contain the HTML. The <code>body</code> field is <code>null</code>,
 and the <code>objects</code> section says where it was and how to get it:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="json"><code><span class="line"><span style="color:#8A8A84">{</span></span>
@@ -229,14 +230,15 @@ and the <code>objects</code> section says where it was and how to get it:</p>
 <span class="line"><span style="color:#8A8A84">  ]</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
 <p><code>path</code> points to the <code>null</code> field (a top-level field moved out whole, like <code>output</code>, is missing
-instead), <code>ref</code> is the id of the stored value and <code>size</code> is its size in bytes.
+instead), <code>ref</code> is the id of the stored value and <code>size</code> is the size of its JSON text in bytes.
 Only the large parts are moved out: <code>status</code> and <code>content_type</code> stay where they are.</p>
 <p>To get the value, use the <code>ref</code>:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> curl http://localhost:8448/api/objects/9f2ac1b4e7d05f38a61c0d2e4b7f9a13</span></span>
-<span class="line"><span style="color:#8A8A84">{</span><span style="color:#E07A4F">&quot;data&quot;</span><span style="color:#E07A4F">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">\&quot;&lt;!doctype html&gt;&lt;html&gt;...\&quot;</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">}</span></span></code></pre>
-<p><code>data</code> is the value encoded as JSON text, so parse it once more to get the original value.</p>
+<span class="line"><span style="color:#8A8A84">{</span><span style="color:#E07A4F">&quot;data&quot;</span><span style="color:#E07A4F">:</span><span style="color:#E07A4F">&quot;\&quot;\u003c!doctype html\u003e\u003chtml\u003e...\&quot;&quot;</span><span style="color:#E07A4F">}</span></span></code></pre>
+<p><code>data</code> is the value encoded as JSON text (with <code>&lt;</code>, <code>&gt;</code> and <code>&amp;</code> escaped), so parse it once more to get the original value.</p>
 <p>The CLI does this for you: <code>genctl detail</code> shows <code>{ref, size}</code> where the value was,
-<code>genctl detail --resolve</code> fills it in and <code>genctl object &lt;ref&gt;</code> prints one value.</p>
+<code>genctl detail --resolve</code> fills it in and <code>genctl object &lt;ref&gt;</code> prints one value
+(a string as itself, anything else as JSON).</p>
 <h2 id="which-endpoints">Which endpoints<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#which-endpoints"><span></span></a></h2>
 
 
@@ -268,9 +270,17 @@ Only the large parts are moved out: <code>status</code> and <code>content_type</
 
 
 
-<table><thead><tr><th>Endpoint</th><th>What can be moved out</th><th>Paths start at</th></tr></thead><tbody><tr><td><code>GET /api/instances/{id}</code></td><td><code>output</code>, <code>error_data</code>, <code>external_input</code></td><td>the response</td></tr><tr><td><code>GET /api/instances/{id}/detail</code></td><td>anything in <code>state</code></td><td>the response</td></tr><tr><td><code>GET /api/instances/{id}/logs</code></td><td>each entry&#39;s <code>data</code></td><td>the log entry</td></tr><tr><td><code>POST /api/external-tasks/claim</code></td><td>each item&#39;s <code>external_input</code></td><td>the item</td></tr></tbody></table>
+<table><thead><tr><th>Endpoint</th><th>What can be moved out</th><th>Paths start at</th></tr></thead><tbody><tr><td><code>GET /api/instances/{id}</code></td><td><code>output</code>, <code>error_data</code>, <code>external_input</code></td><td>the response</td></tr><tr><td><code>GET /api/instances/{id}/detail</code></td><td>anything in <code>state</code>, plus <code>output</code>, <code>error_data</code> and <code>external_input</code></td><td>the response</td></tr><tr><td><code>GET /api/instances/{id}/logs</code></td><td>each entry&#39;s <code>data</code></td><td>the log entry</td></tr><tr><td><code>POST /api/external-tasks/claim</code></td><td>each item&#39;s <code>external_input</code></td><td>the item</td></tr></tbody></table>
 <p>No endpoint fills the values in for you; fetch each one with <code>GET /api/objects/{ref}</code>.</p>
-<p>Fetching an object needs the <code>read</code> or <code>worker</code> permission.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/custom-worker/"> <span>previous</span> <strong>Custom worker</strong> </a> <a class="next" href="/guides/operating/authentication/"> <span>next</span> <strong>Authentication</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#what-is-a-large-value">What is a large value?</a></li><li class="depth-2"><a href="#what-it-looks-like">What it looks like</a></li><li class="depth-2"><a href="#which-endpoints">Which endpoints</a></li></ul><script>
+<p>Fetching an object needs the <code>read</code> or <code>worker</code> permission.</p>
+<h2 id="limits">Limits<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#limits"><span></span></a></h2>
+<ul>
+<li>A fetch reads at most 8 MiB of a response body; a larger one fails with <code>result.too_large</code>.</li>
+<li>A fetch <code>body</code> can&#39;t take more than 8 MiB of moved-out values; past that the process fails
+with <code>engine.expression</code>.</li>
+<li>A <code>ref</code> keeps working while something still uses the value, and for <code>--object-grace</code>
+(1 hour by default) after that.</li>
+</ul>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/operating/custom-worker/"> <span>previous</span> <strong>Custom worker</strong> </a> <a class="next" href="/guides/operating/authentication/"> <span>next</span> <strong>Authentication</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#what-is-a-large-value">What is a large value?</a></li><li class="depth-2"><a href="#what-it-looks-like">What it looks like</a></li><li class="depth-2"><a href="#which-endpoints">Which endpoints</a></li><li class="depth-2"><a href="#limits">Limits</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

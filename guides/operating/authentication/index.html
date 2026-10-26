@@ -201,7 +201,7 @@ Separate several permissions with commas, lines starting with <code>#</code> are
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span># workers</span></span>
 <span class="line"><span>evaluator=worker=genroc_sk_QUbqpu_q9k4fTbCN2J7RRPUYXTzae0mRXcC2CIF_ftY</span></span>
 <span class="line"><span>ci=deploy,read=genroc_sk_...</span></span></code></pre>
-<p>And point genroc at the file, with the flag or <code>GENROC_SEED_TOKENS_FILE</code>:</p>
+<p>And point genroc at the file, with the flag or <code>GENROC_SEED_TOKENS_FILE</code>. Genroc reads it only with <code>--auth</code> on:</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genroc</span><span style="color:#8FB996"> --auth</span><span style="color:#8FB996"> --seed-tokens-file</span><span style="color:#8FB996"> ./seed-tokens</span></span></code></pre>
 <p>On every start genroc stores the tokens it doesn&#39;t have yet and skips the rest,
 so restarting is safe. A revoked token stays revoked, even if it&#39;s still in the file.</p>
@@ -216,13 +216,15 @@ Genroc UI works this way, but your own service can mint the tokens too.</p>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">aud</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">genroc</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">sub</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">ada@example.com</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span></span>
 <span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">perms</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#8A8A84"> [</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">deploy</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">operate</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">,</span><span style="color:#8A8A84"> &quot;</span><span style="color:#8FB996">read</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">],</span></span>
-<span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">exp</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1788000060</span></span>
+<span class="line"><span style="color:#8A8A84">  &quot;</span><span style="color:#D6D6D2">exp</span><span style="color:#8A8A84">&quot;</span><span style="color:#8A8A84">:</span><span style="color:#D4A76A"> 1893456000</span></span>
 <span class="line"><span style="color:#8A8A84">}</span></span></code></pre>
-<p><code>perms</code> are the same <a href="#permissions">permissions</a> as for genroc tokens, <code>sub</code> is who is calling
-and shows up in logs as <code>jwt:ada@example.com</code>. <code>exp</code> is required, so keep the tokens short-lived.
-<code>iss</code> and <code>aud</code> default to the values above, change them with <code>--jwt-issuer</code> and <code>--jwt-audience</code>.</p>
-<p>Genroc tokens keep working beside JWTs, so people can come through the UI
-while <code>genctl</code> and workers use their genroc tokens. A secret without <code>--auth</code>
+<p><code>perms</code> are the same <a href="#permissions">permissions</a> as for classic tokens, <code>sub</code> is who is calling
+and shows up in logs as <code>jwt:ada@example.com</code>. <code>exp</code> is required, so keep the tokens short-lived
+(genroc allows 30s of clock skew, <code>--jwt-leeway</code>). <code>iss</code> and <code>aud</code> default to the values above;
+change them with <code>--jwt-issuer</code> and <code>--jwt-audience</code>, and change whatever mints the tokens to match
+(in Genroc UI, <code>token.issuer</code> and <code>token.audience</code>), or every token is refused.</p>
+<p>Classic tokens keep working beside JWTs, so people can come through the UI
+while <code>genctl</code> and workers use their classic tokens. A secret without <code>--auth</code>
 is refused at startup.</p>
 <p>Genroc reads the secret only at startup. To rotate it, replace it and restart genroc together with
 whatever mints the tokens; a token signed with the old secret stops verifying

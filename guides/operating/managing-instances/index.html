@@ -157,11 +157,12 @@ stores the initial state.</p>
 <p>The instance is then picked up by the engine,
 which advances it into a new state.</p>
 <h2 id="listing-instances">Listing instances<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#listing-instances"><span></span></a></h2>
-<p>To list current instances on the server, use the <code>instances</code> command.</p>
+<p>To list current instances on the server, use the <code>instances</code> command. It lists root instances
+(add <code>--children</code> for the rest) and shows the newest 20; pass <code>--since</code> to read further back.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl instances</span></span>
-<span class="line"><span style="color:#E07A4F">ID</span><span style="color:#8FB996">        STATUS</span><span style="color:#8FB996">     PROCESS</span><span style="color:#8FB996">   UPDATED</span><span style="color:#8FB996">  CREATED</span><span style="color:#8FB996">  CODE</span><span style="color:#8FB996">  ERROR</span></span>
-<span class="line"><span style="color:#E07A4F">006y1m7d</span><span style="color:#8FB996">  completed</span><span style="color:#8FB996">  hello@v1</span><span style="color:#8FB996">  22h</span><span style="color:#8FB996"> ago</span><span style="color:#8FB996">  22h</span><span style="color:#8FB996"> ago</span></span>
-<span class="line"><span style="color:#E07A4F">3kjfx4vm</span><span style="color:#8FB996">  completed</span><span style="color:#8FB996">  hello@v1</span><span style="color:#8FB996">  just</span><span style="color:#8FB996"> now</span><span style="color:#8FB996"> just</span><span style="color:#8FB996"> now</span></span></code></pre>
+<span class="line"><span style="color:#E07A4F">ID</span><span style="color:#8FB996">        STATUS</span><span style="color:#8FB996">     PROCESS</span><span style="color:#8FB996">   UPDATED</span><span style="color:#8FB996">   CREATED</span><span style="color:#8FB996">   CODE</span><span style="color:#8FB996">  ERROR</span></span>
+<span class="line"><span style="color:#E07A4F">3kjfx4vm</span><span style="color:#8FB996">  completed</span><span style="color:#8FB996">  hello@v1</span><span style="color:#8FB996">  22h</span><span style="color:#8FB996"> ago</span><span style="color:#8FB996">   22h</span><span style="color:#8FB996"> ago</span></span>
+<span class="line"><span style="color:#E07A4F">006y1m7d</span><span style="color:#8FB996">  completed</span><span style="color:#8FB996">  hello@v1</span><span style="color:#8FB996">  just</span><span style="color:#8FB996"> now</span><span style="color:#8FB996">  just</span><span style="color:#8FB996"> now</span></span></code></pre>
 <p>You can also filter by various parameters like <code>--status</code> or <code>--process</code> (process name);
 check the full <a href="/reference/cli/instances/#instances">cli docs</a> for details.</p>
 <h2 id="info-about-the-instance">Info about the instance<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#info-about-the-instance"><span></span></a></h2>
@@ -179,7 +180,8 @@ check the full <a href="/reference/cli/instances/#instances">cli docs</a> for de
 <span class="line"><span style="color:#E07A4F">greeting:</span><span style="color:#8FB996"> hello,</span><span style="color:#8FB996"> world</span></span></code></pre>
 <p>The example shows a completed instance,
 as indicated by <code>status</code>.</p>
-<p>The output can also contain <code>Phase</code>, <code>Error</code>, <code>Code</code> and <code>Error data</code>.
+<p>The output can also contain <code>Phase</code>, <code>Retries</code>, <code>Error</code>, <code>Code</code> and <code>Error data</code>, and an
+<code>External input</code> block while the instance waits on an external task.
 These are listed only if they have a value.</p>
 <h3 id="task">Task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#task"><span></span></a></h3>
 <p>The <code>task</code> field tells you which task is being or is going to be performed.
@@ -212,7 +214,7 @@ It is shown only when it&#39;s not empty, and has the following meaning:</p>
 
 <table><thead><tr><th>Phase</th><th>Meaning</th></tr></thead><tbody><tr><td><code>children</code></td><td>Child instances were spawned; the parent is blocked until all of them finish.</td></tr><tr><td><code>collecting</code></td><td>All children have finished; the engine still has to merge their outputs into the parent.</td></tr><tr><td><code>external</code></td><td>Parked on an external task, waiting for an answer or for its timeout.</td></tr></tbody></table>
 <h3 id="error-code-and-error-data">Error, Code and Error data<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#error-code-and-error-data"><span></span></a></h3>
-<p>Describes an error if the status is <code>raised</code> or <code>failed</code>.
+<p>Describes an error if the status is <code>raised</code>, <code>failing</code> or <code>failed</code>.
 System error codes contain a dot (e.g. <code>result.invalid</code>); user-defined codes can&#39;t contain one.</p>
 <p><code>Error data</code> is an optional payload of <code>panic</code> or <code>raise</code>.</p>
 <p>Check the <a href="/reference/definition/errors/">task error reference</a>.</p>
@@ -284,6 +286,10 @@ It&#39;s available once the instance has completed, if the process defines <code
   <text class="sd-engine-label" x="238" y="272" text-anchor="end">tasks land</text>
   <path class="sd-op" d="M170,298 V114" marker-end="url(#sd-arrow-op)"/>
   <text class="sd-op-label" transform="translate(160,206) rotate(-90)" text-anchor="middle">resume</text>
+
+  <!-- the task in flight can end the process before the pause lands: settled as its outcome says -->
+  <path class="sd-engine" d="M420,248 H598" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="530" y="240" text-anchor="middle">task ends the process</text>
 
   <!-- cancel, from running or paused -->
   <path class="sd-op" d="M244,316 H318" marker-end="url(#sd-arrow-op)"/>
@@ -402,7 +408,8 @@ into a cancel, wait until the tree is <code>paused</code>.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genctl</span><span style="color:#8FB996"> pause</span><span style="color:#8FB996"> @last</span></span></code></pre>
 <p>This will pause the instance if it&#39;s running. The instance can then be resumed by the <code>resume</code> command with the same syntax.</p>
 <p><code>pause</code> returns at once. An instance a worker is executing goes to <code>pausing</code> and becomes <code>paused</code>
-when that task finishes, so no worker is forcefully interrupted and no work is repeated. Every
+when that task finishes, so no worker is forcefully interrupted and no work is repeated.
+If that task ends the process, the instance settles as it would otherwise (<code>completed</code>, <code>raised</code> or <code>failed</code>). Every
 instance above it stays <code>pausing</code> until nothing below it is running, so the root&#39;s status is the
 whole tree&#39;s: a <code>paused</code> root means nothing in the tree is executing.</p>
 <p>Pause/resume operates strictly within the definition boundaries (they never add a retry),
@@ -429,7 +436,7 @@ failed branch and resumes the paused ones where they stopped; <code>resume</code
 because a retry could easily break the <code>only_once</code> rule by accident.</p>
 <h3 id="upgrade">Upgrade<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#upgrade"><span></span></a></h3>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">genctl</span><span style="color:#8FB996"> upgrade</span><span style="color:#8FB996"> @last</span><span style="color:#8FB996"> --to</span><span style="color:#8FB996"> latest</span></span></code></pre>
-<p>Moves a running instance to a newer version of its definition, for example to fix a URL
+<p>Moves a running, paused or failed instance to another version of its definition, for example to fix a URL
 in a process that&#39;s already running. It only moves if the new version fits the state the
 instance is in. See <a href="/guides/process-definition/upgrading-instances/">Upgrading instances</a>.</p>
 <h2 id="instance-logs">Instance logs<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instance-logs"><span></span></a></h2>
@@ -440,7 +447,7 @@ instance is in. See <a href="/guides/process-definition/upgrading-instances/">Up
 <span class="line"><span style="color:#E07A4F">12:53:58</span><span style="color:#8FB996">  INFO</span><span style="color:#8FB996">   006y1m7d</span><span style="color:#8FB996">  inst_created</span><span style="color:#8FB996">                      by=no-auth:anonymous</span><span style="color:#8FB996"> input={</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">who</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">:</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">world</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">}</span></span>
 <span class="line"><span style="color:#E07A4F">12:53:58</span><span style="color:#8FB996">  INFO</span><span style="color:#8FB996">   006y1m7d</span><span style="color:#8FB996">  child_spawned</span><span style="color:#8FB996">     greet</span><span style="color:#8FB996">           msg=</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">1 children</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"><span style="color:#E07A4F">12:53:58</span><span style="color:#8FB996">  INFO</span><span style="color:#8FB996">   3k1nz7pq</span><span style="color:#8FB996">  inst_created</span><span style="color:#8FB996">                      input={</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">code</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">:</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">async function greet (input) {\n    return …</span></span>
-<span class="line"><span style="color:#8FB996">12:53:58  INFO   3k1nz7pq  extern_armed      eval_node       msg=</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">token=3k1nz7pq.0</span><span style="color:#8FB996"> timeout=30s</span><span style="color:#D6D6D2"> -</span><span style="color:#E07A4F">&gt;</span><span style="color:#8FB996"> 2026-09-30T10:54:28Z</span><span style="color:#8A8A84">&quot;</span></span>
+<span class="line"><span style="color:#8FB996">12:53:58  INFO   3k1nz7pq  extern_armed      eval_node       msg=</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">token=3k1nz7pq.0</span><span style="color:#8FB996"> timeout=5000ms</span><span style="color:#D6D6D2"> -</span><span style="color:#E07A4F">&gt;</span><span style="color:#8FB996"> 2026-09-30T10:54:03Z</span><span style="color:#8A8A84">&quot;</span></span>
 <span class="line"><span style="color:#8FB996">12:53:58  INFO   3k1nz7pq  extern_resolved   eval_node</span></span>
 <span class="line"><span style="color:#8FB996">12:53:58  INFO   3k1nz7pq  inst_completed    eval_node       output={</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">at</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">:</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">2026-09-30T10:53:58.669Z</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">,</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">greeting</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">:</span><span style="color:#8A8A84">&quot;</span><span style="color:#8FB996">hello,…</span></span>
 <span class="line"><span style="color:#E07A4F">12:53:58</span><span style="color:#8FB996">  INFO</span><span style="color:#8FB996">   006y1m7d</span><span style="color:#8FB996">  child_collected</span><span style="color:#8FB996">   greet</span></span>
@@ -514,7 +521,7 @@ instance is in. See <a href="/guides/process-definition/upgrading-instances/">Up
 
 
 
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires - a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task&#39;s output under <code>outputs</code>, and <code>last_error</code> - the error last caught by <code>on_error</code>.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires - a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task&#39;s output under <code>outputs</code>, and <code>last_error</code> - the latest failure that wasn&#39;t retried, until the next task.</td></tr></tbody></table>
 <p>Only <code>Epochs</code> is always shown; the rest appear when they have a value.</p>  <nav class="page-nav" aria-label="reading order" data-pagefind-ignore> <a class="prev" href="/guides/process-definition/typescript-evaluation/"> <span>previous</span> <strong>TypeScript evaluation</strong> </a> <a class="next" href="/guides/operating/custom-worker/"> <span>next</span> <strong>Custom worker</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#listing-instances">Listing instances</a></li><li class="depth-2"><a href="#info-about-the-instance">Info about the instance</a></li><li class="depth-3"><a href="#task">Task</a></li><li class="depth-3"><a href="#phase">Phase</a></li><li class="depth-3"><a href="#error-code-and-error-data">Error, Code and Error data</a></li><li class="depth-3"><a href="#output">Output</a></li><li class="depth-2"><a href="#instance-lifecycle">Instance lifecycle</a></li><li class="depth-3"><a href="#pause-and-resume">Pause (and resume)</a></li><li class="depth-3"><a href="#cancel">Cancel</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-3"><a href="#upgrade">Upgrade</a></li><li class="depth-2"><a href="#instance-logs">Instance logs</a></li><li class="depth-2"><a href="#instance-detail">Instance detail</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
