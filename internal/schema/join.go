@@ -1,7 +1,6 @@
 package schema
 
 import (
-	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -110,18 +109,19 @@ func joinObjects(a, b *node) *node {
 // WithoutOverlappingArms removes oneOf arms one value fits twice, which oneOf refuses: an arm
 // another covers is dropped, and two objects one fits only by losing keys are joined, as an inline
 // pair already is. A `$ref` arm is judged by what it names through pool, so only after Solve — a
-// solver sentinel reads as the top type and would cover every arm.
-func (s Schema) WithoutOverlappingArms(pool Defs) Schema {
-	p := pruner{defs: pool.m, cyclic: reachesCycle(pool.m)}
+// solver sentinel reads as the top type and would cover every arm. self is the pool definition s
+// is, "" when it is none.
+func (s Schema) WithoutOverlappingArms(pool Defs, self string) Schema {
+	p := pruner{defs: pool.m, leadsToSelf: leadingTo(pool.m, self)}
 	return s.keepingContext(wrap(canonicalizeNode(p.prune(s.n)), s.rootDefs()))
 }
 
 type pruner struct {
 	defs map[string]*node
-	// cyclic names every definition that reaches a reference cycle. An arm reaching one is never
-	// compared: two members of a cycle each cover the other's base case, so dropping both
-	// leaves a cycle with none (TestWithoutOverlappingArms_LeavesAReferenceCycleAlone).
-	cyclic map[string]bool
+	// leadsToSelf names every definition from which self is reachable. An arm reaching one is
+	// never compared: a proof that reads self can rest on the very arm it removes, which is how two
+	// members of a cycle each drop the other's base case (…_LeavesAReferenceCycleAlone).
+	leadsToSelf map[string]bool
 }
 
 func (p pruner) prune(n *node) *node {
@@ -180,7 +180,7 @@ func (p pruner) fits(super, sub *node, mode subsetMode) bool {
 	if p.reaches(super) || p.reaches(sub) {
 		return false
 	}
-	ctx := &subsetCtx{subDefs: p.defs, superDefs: p.defs, visiting: map[string]bool{}, subsetMode: mode}
+	ctx := &subsetCtx{subDefs: p.defs, superDefs: p.defs, visiting: map[[2]*node]bool{}, subsetMode: mode}
 	return ctx.check(sub, super, nil)
 }
 
@@ -188,7 +188,7 @@ func (p pruner) reaches(n *node) bool {
 	refs := map[string]bool{}
 	collectRefs(n, refs)
 	for name := range refs {
-		if p.cyclic[name] {
+		if p.leadsToSelf[name] {
 			return true
 		}
 	}
@@ -210,30 +210,27 @@ func collectRefs(nd *node, out map[string]bool) {
 	}
 }
 
-// reachesCycle names each definition from which a reference cycle is reachable, its own
-// included. tarjanSCC yields dependencies first, so one pass settles every name.
-func reachesCycle(defs map[string]*node) map[string]bool {
-	graph := make(map[string][]string, len(defs))
+// leadingTo names every definition from which self is reachable, self included; none for "".
+func leadingTo(defs map[string]*node, self string) map[string]bool {
+	out := map[string]bool{}
+	if self == "" {
+		return out
+	}
+	referrers := map[string][]string{}
 	for name, d := range defs {
 		refs := map[string]bool{}
 		collectRefs(d, refs)
 		for r := range refs {
-			if _, ok := defs[r]; ok {
-				graph[name] = append(graph[name], r)
-			}
+			referrers[r] = append(referrers[r], name)
 		}
-		slices.Sort(graph[name])
 	}
-	out := map[string]bool{}
-	for _, scc := range tarjanSCC(graph, slices.Sorted(maps.Keys(defs))) {
-		hit := len(scc) > 1 || slices.Contains(graph[scc[0]], scc[0])
-		for _, n := range scc {
-			for _, e := range graph[n] {
-				hit = hit || out[e]
+	out[self] = true
+	for queue := []string{self}; len(queue) > 0; queue = queue[1:] {
+		for _, from := range referrers[queue[0]] {
+			if !out[from] {
+				out[from] = true
+				queue = append(queue, from)
 			}
-		}
-		for _, n := range scc {
-			out[n] = hit
 		}
 	}
 	return out

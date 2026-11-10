@@ -305,6 +305,45 @@ test("a `??` over a child's task outputs imports a type the child's own values f
   }
 });
 
+test("a looping child's output joined with a fallback imports a type its own values fit", async () => {
+  const child = uid("spread_loop_child");
+  const parent = uid("spread_loop_parent");
+  const applied = runCli(bin, ["apply", ...files({
+    "child.genroc.yaml": [
+      `name: ${child}`,
+      ...SKIP_T,
+      "  - id: t",
+      "    output: { count: '$: (self.previous.count ?? 0) + 1', prev: '$: self.previous' }",
+      "    switch:",
+      "      - { case: self.output.count < 2, goto: $t }",
+      "      - goto: end",
+      "  - { id: tail, switch: end }",
+      "output: { v: '$: outputs.t ?? {count: 0}' }",
+    ],
+    "parent.genroc.yaml": [
+      `name: ${parent}`,
+      "input_schema: { type: object, properties: { skip: { type: boolean } }, required: [skip] }",
+      "tasks:",
+      "  - id: a",
+      "    action:",
+      "      type: child",
+      SPREAD,
+      "      input: { skip: '$: input.skip' }",
+      "    output: '$: self.result.v'",
+      "    switch: end",
+      "output: '$: outputs.a'",
+    ],
+  })]);
+  expect(applied.stderr).toBe("");
+
+  for (const [skip, want] of [[true, { count: 0 }], [false, { count: 2, prev: { count: 1, prev: null } }]] as const) {
+    const id = startedID(runCli(bin, ["run", parent, "--input", JSON.stringify({ skip })]).stdout);
+    expect(await waitForInstance(id), `skip=${skip}: the loop's value fit two arms of the oneOf the spread imported`)
+      .toBe("completed");
+    expect(JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout).output, `skip=${skip}`).toEqual(want);
+  }
+});
+
 test("a child whose input holds a map imports, and the map arrives whole", async () => {
   const child = uid("spread_map_child");
   const parent = uid("spread_map_parent");

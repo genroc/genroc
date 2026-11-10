@@ -69,7 +69,8 @@ that schema rejects every value it describes. Canonicalizing folds it to
 process output. Two objects one fits only by losing keys (`{x, y}` and `{x}`) are joined instead, as
 the join already joins an inline pair; `??` builds that pair inline too. Objects no value shares
 (`{a}` and `{b}`) stay apart. It runs only once nothing is pending (a solver sentinel reads as `{}`),
-and never compares an arm reaching a reference cycle: two members each cover the other's base case.
+and never compares an arm leading back to the definition being pruned: two members of a cycle each
+cover the other's base case. A recursive arm in the process output is compared like any other.
 
 **`StripNull` and `HasNull` must agree.** `stripNull` recurses into inline arms, so a null inside
 an arm's type list is removed; `hasNullResolved` recurses into nested unions (a one-level scan

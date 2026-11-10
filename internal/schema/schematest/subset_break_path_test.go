@@ -134,6 +134,21 @@ func TestExplainSubset_ConstraintBreaksSayWhatMoved(t *testing.T) {
 	}
 }
 
+// `X|null` is X to anyone holding a non-null value, so a break inside X is the reason. Summarised at
+// the union it read `object {next} → any of [object {next}, null]`, naming an arm that looks fine.
+func TestExplainSubset_NullableUnionReportsTheBreakInsideItsArm(t *testing.T) {
+	list := `{"$defs":{"X":{"type":"object","required":["next"],
+	  "properties":{"next":{"oneOf":[{"$ref":"#/$defs/X"},{"type":"null"}]}}}},"$ref":"#/$defs/X"}`
+	sub := `{"type":"object","required":["next"],"properties":{"next":{"type":"object","required":["next"],
+	  "properties":{"next":{"type":"integer"}}}}}`
+	brk := explainOne(t, normalize(t, sub), normalize(t, list))
+	got := brk.Path + ": " + brk.Sub + " → " + brk.Super
+	// At next.next an integer has no arm of its kind, so the union is the honest summary there.
+	if want := "next.next: integer → any of [object {next}, null]"; got != want {
+		t.Errorf("got %q, want %q — the author has to find the integer, not re-read an arm that fits", got, want)
+	}
+}
+
 func TestExplainSubset_UnionArmBehindARefIsNamedByItsType(t *testing.T) {
 	brk := explainOne(t, normalize(t, `{"type":"string"}`),
 		normalize(t, `{"$defs":{"Count":{"type":"integer"}},"anyOf":[{"$ref":"#/$defs/Count"},{"type":"null"}]}`))

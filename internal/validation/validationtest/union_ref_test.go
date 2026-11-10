@@ -101,3 +101,29 @@ func outputV(t *testing.T, sf validation.SchemaFile) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+// `t` loops, so t_output names itself; the process output is outside that cycle, so joining the
+// `{count}` fallback with it cannot change t_output.
+func TestUnionWithARecursiveArmTakesWhatTheLoopOutputs(t *testing.T) {
+	sf := runGenerate(t, `{
+		"name": "r",
+		"input_schema": {"type": "object", "properties": {"skip": {"type": "boolean"}}, "required": ["skip"]},
+		"tasks": [
+			{"id": "start", "switch": [{"case": "input.skip", "goto": "$tail"}, {"goto": "next"}]},
+			{"id": "t", "output": {"count": "$: (self.previous.count ?? 0) + 1", "prev": "$: self.previous"},
+			 "switch": [{"case": "self.output.count < 3", "goto": "$t"}, {"goto": "end"}]},
+			{"id": "tail", "switch": "end"}
+		],
+		"output": {"v": "$: outputs.t ?? {count: 0}"}
+	}`)
+	for _, v := range []string{`{"v": {"count": 3, "prev": {"count": 2, "prev": {"count": 1, "prev": null}}}}`, `{"v": {"count": 0}}`} {
+		var val any
+		if err := json.Unmarshal([]byte(v), &val); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sf.ProcessOutput.WithDefs(sf.Defs).Validate(val); err != nil {
+			t.Errorf("the process outputs %s and its own published type refuses it: %v — a $process "+
+				"caller conforms the child's output to that type", v, err)
+		}
+	}
+}

@@ -41,7 +41,7 @@ func TestWithoutOverlappingArms(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := mustAssumed(t, tc.in)
-			got := in.WithoutOverlappingArms(in.DefsHandle())
+			got := in.WithoutOverlappingArms(in.DefsHandle(), "")
 			if s := mustJSON(t, got.WithoutDefs()); s != tc.want {
 				t.Errorf("got %s, want %s", s, tc.want)
 			}
@@ -63,8 +63,21 @@ func TestWithoutOverlappingArms_KeepsShapesNoValueShares(t *testing.T) {
 	in := mustAssumed(t, `{"oneOf":[
 	  {"type":"object","properties":{"a":{"type":"integer"}},"required":["a"]},
 	  {"type":"object","properties":{"b":{"type":"integer"}},"required":["b"]}]}`)
-	if got := in.WithoutOverlappingArms(in.DefsHandle()); len(got.Variants()) != 2 {
+	if got := in.WithoutOverlappingArms(in.DefsHandle(), ""); len(got.Variants()) != 2 {
 		t.Errorf("got %s, want both shapes kept", mustJSON(t, got))
+	}
+}
+
+// A loop's output names itself; the union a caller builds over it sits outside that cycle, so
+// joining there cannot change the definition the proof reads.
+func TestWithoutOverlappingArms_JoinsARecursiveArmFromOutsideItsCycle(t *testing.T) {
+	in := mustAssumed(t, `{"$defs":{"T":{"type":"object","required":["count","prev"],
+	    "properties":{"count":{"type":"integer"},"prev":{"oneOf":[{"$ref":"#/$defs/T"},{"type":"null"}]}}}},
+	  "oneOf":[{"$ref":"#/$defs/T"},{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}]}`)
+	got := in.WithoutOverlappingArms(in.DefsHandle(), "")
+	if _, err := got.Validate(decodeValue(t, `{"count":2,"prev":{"count":1,"prev":null}}`)); err != nil {
+		t.Errorf("got %s, which refuses a value of T: %v — the {count} arm takes it too, by stripping prev",
+			mustJSON(t, got.WithoutDefs()), err)
 	}
 }
 
@@ -74,7 +87,7 @@ func TestWithoutOverlappingArms_LeavesAReferenceCycleAlone(t *testing.T) {
 	  "B":{"oneOf":[{"$ref":"#/$defs/A"},{"type":"string"}]}}}`).DefsHandle()
 	for _, name := range []string{"A", "B"} {
 		d, _ := pool.Get(name)
-		if got := d.WithoutOverlappingArms(pool); len(got.Variants()) != 2 {
+		if got := d.WithoutOverlappingArms(pool, name); len(got.Variants()) != 2 {
 			t.Errorf("%s pruned to %s: each covers the other's string arm, so pruning both leaves "+
 				"a cycle with no base case", name, mustJSON(t, got))
 		}

@@ -181,6 +181,10 @@ path), and an ALTERNATIVE — a union arm, an `allOf` member, the `afterConform`
 retry — must bracket itself in `mark`/`rollback`, or a losing arm's break gets reported as
 the reason a later, unrelated check failed.
 
+**A failed union is summarised at the union, with one exception.** `X|null` holding a non-null value
+of X's kind reports from inside X. Widening that to any lone arm hides a dropped variant, which compat
+must name (`testdata/compat/shapes/a-union-narrowed-names-the-variant.yaml`).
+
 **It returns EVERY break, and `checkObject` is the only place that produces more than one.**
 Two properties fail independently, so a caller handed the first reports a difference at a
 time and each fix discovers the next. The walk therefore continues past a failing property
@@ -188,6 +192,11 @@ time and each fix discovers the next. The walk therefore continues past a failin
 bool path allocation-free and short-circuiting. `ok` is what the extra iterations feed:
 returning `true` because the last property happened to fit would invert the verdict. `assertSubset` asserts every false yields a
 complete break, over every case in every `subset_*_test.go` table.
+
+**The relation's cycle guard keys on the pair of nodes, never on ref names.** A finite sub meets a
+recursive super's ref once per level, and keying on the name read the second meeting as a cycle and
+answered true — so `{next: {next: integer}}` fit `X = {next: X|null}` and registration accepted an
+output its own conform then refused.
 
 **A `CheckDoc` error names the definition site, not an access path.** The location is
 assembled from one `errLabel` per slot as the recursion unwinds, and a `$defs` entry is
@@ -305,8 +314,9 @@ Inference keeps `$ref` arms symbolic, so `oneOf[$ref t_output, {maxItems: 0}]` r
 `[]` fits both arms — which `oneOf` refuses at the caller's conform. `WithoutOverlappingArms`
 (`join.go`) drops a covered arm and joins two objects one fits only by losing keys. Two things
 fail silently: it must run **after `Solve`** (a sentinel reads as `{}` and covers everything), and an
-arm reaching a **reference cycle** is never compared — pruning two members of one cycle removes the
-base case each relied on. specs/path-sensitive-output.md §3.
+arm **leading back to the definition being pruned** is never compared — a proof that reads it can
+rest on the arm it removes, which is how two members of one cycle each drop the other's base case.
+specs/path-sensitive-output.md §3.
 
 ## "Optional" is not "may be absent"
 

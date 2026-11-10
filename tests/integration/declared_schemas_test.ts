@@ -144,6 +144,27 @@ test("a declared map keeps every key, conforming each value to the map's type", 
   });
 });
 
+test("a recursive declaration is checked at every level the value has, at registration", async () => {
+  const { error } = await client.PUT("/definitions", {
+    body: { definitions: [{
+      name: `decl_rec_${crypto.randomUUID().slice(0, 8)}`,
+      $defs: {
+        X: {
+          type: "object",
+          properties: { next: { anyOf: [{ $ref: "#/$defs/X" }, { type: "null" }] } },
+          required: ["next"],
+        },
+      },
+      tasks: [{ id: "only", switch: "end" }],
+      output: { next: { next: 5 } },
+      output_schema: { $ref: "#/$defs/X" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any] },
+  });
+  expect(JSON.stringify(error ?? {}), "registered, it fails its own output conform at runtime as engine.output")
+    .toContain("output does not fit the schema declared for it: next.next: integer → any of [object {next}, null]");
+});
+
 test("child_list conforms each element, repairing one without disturbing the others", async () => {
   const child = `decl_cl_child_${crypto.randomUUID().slice(0, 8)}`;
   const parent = `decl_cl_${crypto.randomUUID().slice(0, 8)}`;

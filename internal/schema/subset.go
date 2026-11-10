@@ -92,7 +92,7 @@ func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, []*Su
 	ctx := &subsetCtx{
 		subDefs:    subDefs,
 		superDefs:  superDefs,
-		visiting:   make(map[string]bool),
+		visiting:   make(map[[2]*node]bool),
 		subsetMode: mode,
 	}
 	if explain {
@@ -110,7 +110,7 @@ func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, []*Su
 type subsetCtx struct {
 	subDefs   map[string]*node
 	superDefs map[string]*node
-	visiting  map[string]bool
+	visiting  map[[2]*node]bool
 	subsetMode
 	// trace is nil on the bool path, so the relation carries no reporting cost where it
 	// runs per validation; the explaining entry point sets it and re-runs.
@@ -118,26 +118,19 @@ type subsetCtx struct {
 }
 
 func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
-	// Cycle detection before any deref.
-	subRef := ""
-	superRef := ""
-	if sub != nil {
-		subRef = sub.Ref
-	}
-	if super != nil {
-		superRef = super.Ref
-	}
-	if subRef != "" || superRef != "" {
-		key := subRef + "||" + superRef
+	viaRef := (sub != nil && sub.Ref != "") || (super != nil && super.Ref != "")
+	sub = derefSubset(sub, ctx.subDefs)
+	super = derefSubset(super, ctx.superDefs)
+	// Keyed on the two nodes, not the ref names: a finite sub meets a recursive ref once per level,
+	// and only the same pair meeting again is a cycle that may be assumed to hold.
+	if viaRef {
+		key := [2]*node{sub, super}
 		if ctx.visiting[key] {
 			return true
 		}
 		ctx.visiting[key] = true
 		defer delete(ctx.visiting, key)
 	}
-
-	sub = derefSubset(sub, ctx.subDefs)
-	super = derefSubset(super, ctx.superDefs)
 	// Still a ref after the deref: its pool lacks the target. Read as {} it would accept anything.
 	if super != nil && super.Ref != "" {
 		return ctx.no(at, BreakUnresolved, typeNames(sub), "unresolved $ref "+super.Ref)
@@ -216,6 +209,12 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 			}
 		}
 		ctx.rollback(mark)
+		// `X|null` is X to a non-null value of X's kind, so the reason is inside X. Re-run while
+		// tracing only, for that arm's breaks; any other union is summarised below.
+		if arm := ctx.nullableArm(variants); ctx.trace != nil && arm != nil && sameKind(sub, arm) &&
+			!ctx.check(sub, arm, at) {
+			return false
+		}
 		// Both sides described rather than named: every variant of a union of objects is
 		// `object`, so the type alone says nothing about which one stopped fitting.
 		return ctx.no(at, BreakVariants, describeNode(sub), variantList(variants, ctx.superDefs))
@@ -278,6 +277,41 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 		}
 	}
 
+	return true
+}
+
+// nullableArm is the one arm of a union whose others are all null, resolved; nil otherwise.
+func (ctx *subsetCtx) nullableArm(variants []*node) *node {
+	var arm *node
+	for _, v := range variants {
+		r := derefSubset(v, ctx.superDefs)
+		switch {
+		case isNullType(r):
+		case arm != nil || r == nil:
+			return nil
+		default:
+			arm = r
+		}
+	}
+	if len(variants) < 2 {
+		return nil
+	}
+	return arm
+}
+
+// sameKind: every type sub may take is one arm admits, objects matched by shape.
+func sameKind(sub, arm *node) bool {
+	if isObjectType(sub) && isObjectType(arm) {
+		return true
+	}
+	if len(sub.Type) == 0 || len(arm.Type) == 0 {
+		return false
+	}
+	for _, t := range sub.Type {
+		if !typeAllowed(t, arm.Type) {
+			return false
+		}
+	}
 	return true
 }
 

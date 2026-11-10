@@ -225,6 +225,35 @@ func TestIsSubset_nonrecursive_sub_recursive_super(t *testing.T) {
 	})
 }
 
+// A finite sub meets the super's recursive ref once per level it has. Each meeting is a different
+// question; answering a later one as "already being checked" accepts what the conform refuses.
+func TestIsSubset_FiniteSubIsCheckedAllTheWayDownARecursiveSuper(t *testing.T) {
+	list := `{"$defs":{"X":{"type":"object","required":["next"],
+	  "properties":{"next":{"oneOf":[{"$ref":"#/$defs/X"},{"type":"null"}]}}}},"$ref":"#/$defs/X"}`
+	level := func(next string) string {
+		return `{"type":"object","properties":{"next":` + next + `},"required":["next"]}`
+	}
+	for _, tc := range []struct {
+		name, sub, value string
+		fits             bool
+	}{
+		{"an integer two levels down", level(level(`{"type":"integer"}`)), `{"next":{"next":5}}`, false},
+		{"a null two levels down", level(level(`{"type":"null"}`)), `{"next":{"next":null}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub, super := mustAssumed(t, tc.sub), mustAssumed(t, list)
+			if _, err := super.Validate(decodeValue(t, tc.value)); (err == nil) != tc.fits {
+				t.Fatalf("premise gone: validating %s gave %v", tc.value, err)
+			}
+			if got := sub.IsSubset(super); got != tc.fits {
+				t.Errorf("IsSubset = %v for a type whose value %s the super's conform %s — registration "+
+					"decides on this relation, and the conform at runtime disagrees", got, tc.value,
+					map[bool]string{true: "accepts", false: "refuses"}[tc.fits])
+			}
+		})
+	}
+}
+
 func TestIsSubset_inline_refs(t *testing.T) {
 	sub := `{
 		"$defs": {
