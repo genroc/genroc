@@ -33,7 +33,7 @@ func conformedNode(inf *node, infDefs map[string]*node, dec *node, decDefs map[s
 	}
 
 	switch {
-	case decR.Properties != nil && (infR.Properties != nil || hasObjectArm(infR)):
+	case (decR.Properties != nil || decR.AdditionalProperties != nil) && hasObjectShape(infR):
 		return conformedObject(infR, infDefs, decR, decDefs, depth)
 	case decR.Items != nil && infR.Items != nil:
 		out := *infR
@@ -60,9 +60,12 @@ func conformedObject(inf *node, infDefs map[string]*node, dec *node, decDefs map
 	for name, ip := range baseR.Properties {
 		dp, declared := dec.Properties[name]
 		if !declared || dp == nil {
-			// Undeclared: the closed check refuses this at registration, so it is only reached
-			// where the declaration is open, and the fill leaves an open map's key alone.
+			// Undeclared: only an open map admits it, and the fill conforms the value to the map's
+			// type but never removes the key.
 			out.Properties[name] = ip
+			if dec.AdditionalProperties != nil {
+				out.Properties[name] = conformedNode(ip, infDefs, dec.AdditionalProperties, decDefs, depth-1)
+			}
 			if isRequired(baseR, name) {
 				out.Required = append(out.Required, name)
 			}
@@ -96,6 +99,9 @@ func conformedObject(inf *node, infDefs map[string]*node, dec *node, decDefs map
 			out.Required = append(out.Required, name)
 		}
 	}
+	if baseR.AdditionalProperties != nil && dec.AdditionalProperties != nil {
+		out.AdditionalProperties = conformedNode(baseR.AdditionalProperties, infDefs, dec.AdditionalProperties, decDefs, depth-1)
+	}
 	sort.Strings(out.Required)
 	result := withProse(&out, dec)
 	if nullable {
@@ -104,12 +110,15 @@ func conformedObject(inf *node, infDefs map[string]*node, dec *node, decDefs map
 	return result
 }
 
-// hasObjectArm reports whether a nullable wrapper holds an object — `anyOf[{object}, null]` is
-// how inference spells an optional object, and its properties sit on the arm.
-func hasObjectArm(n *node) bool {
+// hasObjectShape includes a nullable wrapper's object arm: `anyOf[{object}, null]` is how
+// inference spells an optional object, and its keys sit on the arm.
+func hasObjectShape(n *node) bool {
+	if n.Properties != nil || n.AdditionalProperties != nil {
+		return true
+	}
 	for _, arms := range [][]*node{n.AnyOf, n.OneOf} {
 		for _, a := range arms {
-			if a != nil && a.Properties != nil {
+			if a != nil && (a.Properties != nil || a.AdditionalProperties != nil) {
 				return true
 			}
 		}

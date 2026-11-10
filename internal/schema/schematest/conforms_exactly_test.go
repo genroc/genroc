@@ -89,6 +89,27 @@ var pairings = []pairing{
 		in:   `{"v":null,"next":{"v":1,"next":null}}`,
 		want: `{"next":{"next":null,"v":1}}`,
 	},
+	{
+		name: "a declared map keeps every key, each value conformed to its type",
+		sub:  `{"type":"object","properties":{"en":{"type":"string"},"de":{"type":"string"}},"required":["en","de"]}`,
+		sup:  `{"type":"object","additionalProperties":{"type":"string"}}`,
+		in:   `{"en":"Pay","de":"Zahlen"}`,
+		want: `{"de":"Zahlen","en":"Pay"}`,
+	},
+	{
+		name: "a null inside a map value is removed as it is anywhere else",
+		sub:  `{"type":"object","properties":{"k":{"type":"object","properties":{"d":{"type":["number","null"]}},"required":["d"]}},"required":["k"]}`,
+		sup:  `{"type":"object","additionalProperties":{"type":"object","properties":{"d":{"type":"number"}}}}`,
+		in:   `{"k":{"d":null}}`,
+		want: `{"k":{}}`,
+	},
+	{
+		name: "an open map into an open map",
+		sub:  `{"type":"object","additionalProperties":{"type":"object","properties":{"d":{"type":["number","null"]}},"required":["d"]}}`,
+		sup:  `{"type":"object","additionalProperties":{"type":"object","properties":{"d":{"type":"number"}}}}`,
+		in:   `{"a":{"d":null},"b":{"d":1}}`,
+		want: `{"a":{},"b":{"d":1}}`,
+	},
 }
 
 func TestConformsExactlyToAcceptsWhatTheConformCloses(t *testing.T) {
@@ -261,6 +282,18 @@ func TestConformsExactlyToRefusesANullItCannotRemove(t *testing.T) {
 	}
 	if _, err := sup.Validate(decodeValue(t, `{"n":null}`), schema.ConformToSchemaExactly); err == nil {
 		t.Fatal("the conform repaired a required null — the relation above is now too strict")
+	}
+}
+
+// A map's keys are never removed, so a null its value type will not hold has no repair either.
+func TestConformsExactlyToRefusesANullAMapValueCannotHold(t *testing.T) {
+	sub := mustSchema(t, `{"type":"object","properties":{"k":{"type":["string","null"]}},"required":["k"]}`)
+	sup := mustSchema(t, `{"type":"object","additionalProperties":{"type":"string"}}`)
+	if sub.ConformsExactlyTo(sup) {
+		t.Fatal("accepted a map value's null that the conform cannot remove")
+	}
+	if _, err := sup.Validate(decodeValue(t, `{"k":null}`), schema.ConformToSchemaExactly); err == nil {
+		t.Fatal("the conform repaired a map value's null — the relation above is now too strict")
 	}
 }
 

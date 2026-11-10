@@ -1,7 +1,6 @@
 package schema
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -194,32 +193,4 @@ func pathLabel(sl childSlot) string {
 		return sl.kw + "." + strconv.Itoa(sl.idx)
 	}
 	return sl.kw
-}
-
-// CheckNoAdditionalProperties refuses `additionalProperties` anywhere in s, located as CheckDoc
-// locates. A per-slot rule, not a schema one: an open object would make a conformed slot's
-// refusal of undeclared keys conditional. specs/declared-slot-schemas.md §3.
-func (s Schema) CheckNoAdditionalProperties() error {
-	if s.n == nil {
-		return nil
-	}
-	return checkNoAdditionalProperties(s.n, map[*node]bool{})
-}
-
-func checkNoAdditionalProperties(nd *node, seen map[*node]bool) error {
-	if nd == nil || seen[nd] {
-		return nil
-	}
-	seen[nd] = true
-	if nd.AdditionalProperties != nil {
-		return AtPath("additionalProperties", errors.New(
-			"additionalProperties is not allowed in a declared slot schema: this schema is what the "+
-				"value is conformed to, so an undeclared key is refused rather than dropped"))
-	}
-	for sl, c := range children(nd) {
-		if err := checkNoAdditionalProperties(c, seen); err != nil {
-			return AtPath(pathLabel(sl), fmt.Errorf("%s: %w", errLabel(sl), err))
-		}
-	}
-	return nil
 }

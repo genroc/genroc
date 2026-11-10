@@ -63,6 +63,12 @@ that schema rejects every value it describes. Canonicalizing folds it to
 `{"type":["boolean","null"]}`. A `$ref` arm blocks the merge (`isSimpleType` requires
 `Ref == ""`), so a recursive output type stays symbolic and finite.
 
+**After `Solve`, a `$ref` arm is judged by what it names.** Kept symbolic, `t_output ?? []` and
+`kept_output ?? 'none'` still build arms one value fits twice, here and in the join over terminals.
+`Schema.WithoutSubsumedArms` drops an arm another covers from every inferred task output and the
+process output. It runs only once nothing is pending (a solver sentinel reads as `{}`), and never
+compares an arm reaching a reference cycle: two members each cover the other's base case.
+
 **`StripNull` and `HasNull` must agree.** `stripNull` recurses into inline arms, so a null inside
 an arm's type list is removed; `hasNullResolved` recurses into nested unions (a one-level scan
 under-reports null, the unsound direction) with a cycle guard for recursive types. If they

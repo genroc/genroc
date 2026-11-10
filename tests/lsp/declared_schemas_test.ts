@@ -345,32 +345,30 @@ for (const p of placements) {
   });
 }
 
-test("additionalProperties in a declared schema is refused by name", async () => {
-  const ds = await lsp.diagnostics(
-    doc([
-      "tasks:",
-      "  - id: only",
-      "    output: { a: 1 }",
-      "    output_schema: { type: object, properties: { a: { type: number } }, additionalProperties: { type: string } }",
-      "    switch: [{ goto: end }]",
-      "output: { ok: true }",
-    ]),
-  );
-  expect(ds.join("\n")).toContain("additionalProperties");
+const mapDecl = (output: string, schema: string) =>
+  doc([
+    "tasks:",
+    "  - id: only",
+    `    output: ${output}`,
+    `    output_schema: ${schema}`,
+    "    switch: [{ goto: end }]",
+    "output: { ok: true }",
+  ]);
+
+test("additionalProperties in a declared schema is accepted, at any depth", async () => {
+  for (const [output, schema] of [
+    ["{ a: 1, note: x }", "{ type: object, properties: { a: { type: number } }, additionalProperties: { type: string } }"],
+    ["{ a: { b: 1 } }", "{ type: object, properties: { a: { type: object, additionalProperties: { type: number } } } }"],
+  ]) {
+    expect(await lsp.diagnostics(mapDecl(output, schema)), schema).toEqual([]);
+  }
 });
 
-test("additionalProperties nested inside a declared schema is refused too", async () => {
+test("a key a declared map's type does not take is refused, naming the key", async () => {
   const ds = await lsp.diagnostics(
-    doc([
-      "tasks:",
-      "  - id: only",
-      "    output: { a: { b: 1 } }",
-      "    output_schema: { type: object, properties: { a: { type: object, additionalProperties: { type: number } } } }",
-      "    switch: [{ goto: end }]",
-      "output: { ok: true }",
-    ]),
+    mapDecl("{ a: { b: x } }", "{ type: object, properties: { a: { type: object, additionalProperties: { type: number } } } }"),
   );
-  expect(ds.join("\n")).toContain("additionalProperties");
+  expect(ds.join("\n")).toContain("a.b: string → number");
 });
 
 // A declared schema's VALUE is the author's own JSON Schema, treated as `result_schema` is.

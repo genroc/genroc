@@ -80,12 +80,11 @@ open-map sub against a closed super is refused at every depth. Without that arm 
 reachable and §4's assertion is silently false, while every table of declared properties still
 passes.
 
-**`additionalProperties` in a declared schema is refused, at any depth**
-(`Schema.CheckNoAdditionalProperties`, called from model validation's `checkDeclaredSlotSchema`).
-Admitting it would make the closed rule conditional on a keyword. It is a per-slot rule, not in
-`CheckDoc`, because the keyword is valid in a `result_schema`. Refusing is the reversible direction:
-it costs an author a projection today and can be relaxed to exactly the existing open behaviour on
-the day the argument arrives.
+**A declared `additionalProperties` opens the object, at any depth.** The closed rule exists to stop
+a silent delete, and an open map deletes nothing: a key it does not name must fit its value type,
+and the conform keeps the key and conforms the value in the same mode. `Conformed` follows the fill
+into each value. A child's input can be a map (a text per language tag), and `$process` copies the
+child's `input_schema` verbatim, so refusing the keyword made such a child impossible to import.
 
 ## 4. The conform, and the null the author should not have to think about
 
@@ -212,8 +211,8 @@ makes publishing it a statement about what left.
 
 **Hiding is refused.** A declaration omitting keys the output produces (expose `{status}` while
 computing `{status, debug}`) would have the conform strip them, so §3 refuses the undeclared key
-instead: we decline to delete what someone wrote. Admitting `additionalProperties` (§11) is what
-would reopen it, and it should be reopened deliberately rather than as a side effect.
+instead: we decline to delete what someone wrote. An open map does not reopen it: the keys it does
+not name are kept, not stripped.
 
 **A declaration may widen and may resolve an unknown, but may not narrow.** An author who knows a
 field is `enum: [sent, failed]` where inference says `string` is refused. A narrowing declaration is
@@ -260,9 +259,6 @@ a registration failure for a process that runs to completion and then cannot del
 
 - `headers_schema`. Headers have a fixed target (`object<string>`), so it would add only
   required-ness. Trigger: an importer's request side to fill it.
-- `additionalProperties`, and with it hiding (§3, §8). Trigger: a count, not a debate. The refusal
-  names the keyword and slot, so running an importer's request side over real documents counts
-  the cases (the responses already translate it: [openapi-resolver.md](openapi-resolver.md) §3).
 - Narrowing declarations, if [literal-types.md](literal-types.md) does not remove the appetite
   (§8). The measurement that decides it is how many real declarations want to say something
   inference will never produce once literals are inferred.

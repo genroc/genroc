@@ -1,6 +1,7 @@
 # Roadmap
 
-One line per item. The argument lives in `specs/`; this is the index.
+One line per item. The argument lives in `specs/`; this is the index. Reproduced defects live in
+[`bugs/`](bugs/README.md).
 
 ## Open
 
@@ -27,6 +28,17 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
 - [] **`$openapi` resolver** — an operation's response types spread into a fetch; `allOf`
   flattened in the resolver, not the language (specs/openapi-resolver.md)
+- [] **process-output narrowing** — refinements do not reach the process output, pinned as a limit
+  by `ProcessOutputIsNotNarrowed`; a real case is a lookup guarded `!= null` into `end`, which
+  needs a pass-through task to publish a non-null id (specs/guard-narrowing.md)
+- [] **shared `config_schema`** — every definition calling one service repeats the same block;
+  nothing declares it once
+- [] **`x-` extension keys** — keys prefixed `x-` accepted anywhere in a definition and never read
+  by the engine, as in OpenAPI, so tools can keep their data in it; every unknown key is refused
+  today (`unknown field "x-builder"`), so a workflow builder keeps its layout in a separate file
+  and generates the `.genroc.yaml`. Open: inside schemas too (the keyword allowlist refuses them);
+  kept and returned by the API (genroc-ui could draw a layout) or dropped at decode; whether a
+  change only to `x-` keys makes a new version
 
 ## Shipped
 - [x] **docs: running the server** — production (database, durability, health, shutdown, logs),

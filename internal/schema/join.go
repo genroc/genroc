@@ -1,6 +1,11 @@
 package schema
 
-import "sort"
+import (
+	"maps"
+	"slices"
+	"sort"
+	"strings"
+)
 
 // nodesEqual reports whether a and b denote the same type, compared in canonical form.
 func nodesEqual(a, b *node) bool {
@@ -98,6 +103,114 @@ func joinObjects(a, b *node) *node {
 		out.AdditionalProperties = canonicalizeNode(a.AdditionalProperties)
 	case b.AdditionalProperties != nil:
 		out.AdditionalProperties = canonicalizeNode(b.AdditionalProperties)
+	}
+	return out
+}
+
+// WithoutSubsumedArms drops every oneOf arm another arm covers, a `$ref` arm judged by what it
+// names through pool: a value two arms take is one oneOf refuses. Only after Solve — a solver
+// sentinel reads as the top type and would cover every arm.
+func (s Schema) WithoutSubsumedArms(pool Defs) Schema {
+	p := pruner{defs: pool.m, cyclic: reachesCycle(pool.m)}
+	return s.keepingContext(wrap(canonicalizeNode(p.prune(s.n)), s.rootDefs()))
+}
+
+type pruner struct {
+	defs map[string]*node
+	// cyclic names every definition that reaches a reference cycle. An arm reaching one is never
+	// compared: two members of a cycle each cover the other's base case, so dropping both
+	// leaves a cycle with none (TestWithoutSubsumedArms_LeavesAReferenceCycleAlone).
+	cyclic map[string]bool
+}
+
+func (p pruner) prune(n *node) *node {
+	if n == nil {
+		return nil
+	}
+	m := mapChildren(n, func(sl childSlot, c *node) *node {
+		if sl.kind == slotDefs {
+			return c
+		}
+		return p.prune(c)
+	})
+	if len(m.OneOf) < 2 {
+		return m
+	}
+	var kept []*node
+	// Inline arms first: of two naming one type, the one that reads as itself survives.
+	for _, refs := range []bool{false, true} {
+		for _, a := range m.OneOf {
+			if (a.Ref != "") != refs || slices.ContainsFunc(kept, func(k *node) bool { return p.covers(k, a) }) {
+				continue
+			}
+			kept = slices.DeleteFunc(kept, func(k *node) bool { return p.covers(a, k) })
+			kept = append(kept, a)
+		}
+	}
+	m.OneOf = kept
+	return m
+}
+
+// covers: every value of sub is one of super's, and conforming it there strips nothing.
+func (p pruner) covers(super, sub *node) bool {
+	if p.reaches(super) || p.reaches(sub) {
+		return false
+	}
+	ctx := &subsetCtx{subDefs: p.defs, superDefs: p.defs, visiting: map[string]bool{}, subsetMode: subsetMode{closed: true}}
+	return ctx.check(sub, super, nil)
+}
+
+func (p pruner) reaches(n *node) bool {
+	refs := map[string]bool{}
+	collectRefs(n, refs)
+	for name := range refs {
+		if p.cyclic[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// collectRefs gathers the $defs names nd references in any slot, without following them.
+func collectRefs(nd *node, out map[string]bool) {
+	if nd == nil {
+		return
+	}
+	if name, ok := strings.CutPrefix(nd.Ref, "#/$defs/"); ok {
+		out[name] = true
+	}
+	for sl, c := range children(nd) {
+		if sl.kind != slotDefs {
+			collectRefs(c, out)
+		}
+	}
+}
+
+// reachesCycle names each definition from which a reference cycle is reachable, its own
+// included. tarjanSCC yields dependencies first, so one pass settles every name.
+func reachesCycle(defs map[string]*node) map[string]bool {
+	graph := make(map[string][]string, len(defs))
+	for name, d := range defs {
+		refs := map[string]bool{}
+		collectRefs(d, refs)
+		for r := range refs {
+			if _, ok := defs[r]; ok {
+				graph[name] = append(graph[name], r)
+			}
+		}
+		slices.Sort(graph[name])
+	}
+	out := map[string]bool{}
+	for _, scc := range tarjanSCC(graph, slices.Sorted(maps.Keys(defs))) {
+		hit := len(scc) > 1 || slices.Contains(graph[scc[0]], scc[0])
+		for _, n := range scc {
+			for _, e := range graph[n] {
+				hit = hit || out[e]
+			}
+		}
+		for _, n := range scc {
+			out[n] = hit
+		}
 	}
 	return out
 }

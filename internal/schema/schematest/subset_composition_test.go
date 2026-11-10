@@ -72,6 +72,49 @@ func TestIsSubset_composition_super(t *testing.T) {
 			`{"oneOf":[{"type":"string"},{"type":"integer"}]}`,
 			true,
 		},
+		{
+			"[integer,null] ⊆ anyOf [integer,null] (one union, two spellings)",
+			`{"type":["integer","null"]}`,
+			`{"anyOf":[{"type":"integer"},{"type":"null"}]}`,
+			true,
+		},
+		{
+			"[integer,null] ⊆ oneOf [number,null]",
+			`{"type":["integer","null"]}`,
+			`{"oneOf":[{"type":"number"},{"type":"null"}]}`,
+			true,
+		},
+		{
+			"[integer,null] ⊆ anyOf [$ref integer, null]",
+			`{"type":["integer","null"]}`,
+			`{"$defs":{"Count":{"type":"integer"}},"anyOf":[{"$ref":"#/$defs/Count"},{"type":"null"}]}`,
+			true,
+		},
+		{
+			"[integer,string] ⊄ anyOf [integer,null] (each type needs its own arm)",
+			`{"type":["integer","string"]}`,
+			`{"anyOf":[{"type":"integer"},{"type":"null"}]}`,
+			false,
+		},
+		{
+			"a split keeps each type's constraints",
+			`{"type":["integer","null"],"minimum":0}`,
+			`{"anyOf":[{"type":"integer","minimum":1},{"type":"null"}]}`,
+			false,
+		},
+		{
+			"an enum splits by value type",
+			`{"type":["string","null"],"enum":["a",null]}`,
+			`{"anyOf":[{"type":"string","enum":["a"]},{"type":"null"}]}`,
+			true,
+		},
+		{
+			// Kept with a nil enum, the integer arm would read as every integer.
+			"a type no enum value has adds nothing",
+			`{"type":["string","integer"],"enum":["a"]}`,
+			`{"anyOf":[{"type":"string"},{"type":"null"}]}`,
+			true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -156,11 +156,12 @@ func TestGenerate_MutualOutputRecursionUnwrapsTheEstimate(t *testing.T) {
 		  "switch":[{"case":"self.result.more","goto":"$a"},{"goto":"end"}]}]}`
 	}
 
-	// The whole output, so the operand reaches `??` as the bare reference.
+	// The whole output, so the operand reaches `??` as the bare reference. Distinct base cases:
+	// with equal ones b_output covers a's string arm, and both forms prune to `string`.
 	t.Run("the recursive arm survives", func(t *testing.T) {
-		out := runGenerate(t, def(`"$: outputs.b ?? self.result.s"`, `"$: outputs.a ?? self.result.s"`))
-		if got := mustMarshal(defOf(out, "a_output")); got != `{"oneOf":[{"$ref":"#/$defs/b_output"},{"type":"string"}]}` {
-			t.Errorf("a_output = %s\nwant the recursion kept beside the base case", got)
+		out := runGenerate(t, def(`"$: outputs.b ?? self.result.s"`, `"$: outputs.a ?? self.result.more"`))
+		if got := mustMarshal(defOf(out, "a_output")); got != `{"$ref":"#/$defs/b_output"}` {
+			t.Errorf("a_output = %s\nwant the recursion kept, which covers a's own base case", got)
 		}
 	})
 

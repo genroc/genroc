@@ -192,6 +192,17 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 		return ctx.no(at, BreakVariants, "none of "+plural(len(sub.AllOf), "allOf member"), typeNames(super))
 	}
 
+	// A type list is a union too: `[integer, null]` fits `anyOf: [integer, null]` only per type,
+	// since neither arm takes the whole list.
+	if len(sub.Type) > 1 && (super.AnyOf != nil || super.OneOf != nil) {
+		for _, arm := range typeArms(sub) {
+			if !ctx.check(arm, super, at) {
+				return false
+			}
+		}
+		return true
+	}
+
 	// Composition in super (anyOf / oneOf): sub must fit at least one variant.
 	for _, variants := range [][]*node{super.AnyOf, super.OneOf} {
 		if variants == nil {
@@ -207,7 +218,7 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 		ctx.rollback(mark)
 		// Both sides described rather than named: every variant of a union of objects is
 		// `object`, so the type alone says nothing about which one stopped fitting.
-		return ctx.no(at, BreakVariants, describeNode(sub), variantList(variants))
+		return ctx.no(at, BreakVariants, describeNode(sub), variantList(variants, ctx.superDefs))
 	}
 
 	// allOf in super: sub must satisfy every constraint.
@@ -268,6 +279,29 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 	}
 
 	return true
+}
+
+// typeArms is a type list as the union it denotes. An enum beside it splits by value type, and
+// an arm left with no value is dropped: a nil enum there would read as every value of the type.
+func typeArms(n *node) []*node {
+	arms := make([]*node, 0, len(n.Type))
+	for _, t := range n.Type {
+		arm := *n
+		arm.Type = SchemaType{t}
+		if n.Enum != nil {
+			arm.Enum = nil
+			for _, v := range n.Enum {
+				if valueHasType(v, t) {
+					arm.Enum = append(arm.Enum, v)
+				}
+			}
+			if arm.Enum == nil {
+				continue
+			}
+		}
+		arms = append(arms, &arm)
+	}
+	return arms
 }
 
 // typeAllowed reports whether subType is permitted by superTypes.
@@ -540,16 +574,21 @@ func jsonKey(v any) string {
 	return string(b)
 }
 
+// derefSubset follows a whole alias chain, as the conform's `deref` does: stopping after one hop
+// leaves a ref that `check` reads as unresolved. A miss or a pure cycle returns the ref itself.
 func derefSubset(s *node, defs map[string]*node) *node {
-	if s == nil || s.Ref == "" || defs == nil {
-		return s
-	}
 	const prefix = "#/$defs/"
-	if !strings.HasPrefix(s.Ref, prefix) {
-		return s
-	}
-	if target, ok := defs[strings.TrimPrefix(s.Ref, prefix)]; ok && target != nil {
-		return target
+	var seen map[*node]bool
+	for s != nil && s.Ref != "" && defs != nil && strings.HasPrefix(s.Ref, prefix) {
+		target, ok := defs[strings.TrimPrefix(s.Ref, prefix)]
+		if !ok || target == nil || seen[s] {
+			return s
+		}
+		if seen == nil {
+			seen = map[*node]bool{}
+		}
+		seen[s] = true
+		s = target
 	}
 	return s
 }

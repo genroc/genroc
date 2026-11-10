@@ -299,6 +299,15 @@ therefore reads `propDefault` for the presence question and drops the keyword af
 first makes every defaulted property read back nullable. A default behind a `$ref` is left alone,
 because removing it means materializing the reference.
 
+## A published union has no arm another covers
+
+Inference keeps `$ref` arms symbolic, so `oneOf[$ref t_output, {maxItems: 0}]` reaches a pool and
+`[]` fits both arms — which `oneOf` refuses at the caller's conform. `WithoutSubsumedArms`
+(`join.go`) drops such arms, and two things about it fail silently: it must run **after `Solve`**
+(a sentinel reads as `{}` and covers everything), and an arm reaching a **reference cycle** is
+never compared — pruning two members of one cycle removes the base case each relied on.
+specs/path-sensitive-output.md §3.
+
 ## "Optional" is not "may be absent"
 
 `conformObject` fills an absent optional's default, so a property WITH a default is always

@@ -194,7 +194,7 @@ func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchem
 	if err != nil {
 		return schema.Schema{}, err
 	}
-	return published(out, def.OutputSchema), nil
+	return published(out.WithoutSubsumedArms(defs), def.OutputSchema), nil
 }
 
 func collectNamedOutputs(tasks []*model.Task, named map[string]schema.Schema) {

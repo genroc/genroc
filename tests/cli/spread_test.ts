@@ -3,6 +3,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
+import { waitForInstance } from "../helpers/client.ts";
+import { startedID, uid } from "../helpers/genctl.ts";
 
 // `<<: "$<resolver>: <params>"` pre-fills the mapping it sits in. specs/source-resolution.md
 // §The spread form, §`$process`.
@@ -199,4 +201,127 @@ test("an escaped directive in the child stays escaped in what the spread copies"
   const r = runCli(bin, ["generate", "-f", p], OFFLINE);
   expect(r.stderr, "the child's literal `$import:` text became a live directive in the parent").toBe("");
   expect(r.stdout).toBe("no resolvers - nothing to do\n");
+});
+
+// ── what a spread yields must register, and then run ────────────────────────────
+
+/** A project holding exactly these files, as the `-f` arguments naming them. */
+function files(contents: Record<string, string[]>): string[] {
+  const dir = mkdtempSync(join(tmpdir(), "genroc_spread_reg_"));
+  return Object.entries(contents).flatMap(([name, lines]) => {
+    writeFileSync(join(dir, name), [...lines, ""].join("\n"), "utf8");
+    return ["-f", join(dir, name)];
+  });
+}
+
+test("a child's result passed on as a task output keeps its type", () => {
+  const child = [
+    "name: spread-untyped-child",
+    "input_schema:",
+    "  type: object",
+    "  properties: { n: { type: integer } }",
+    "  required: [n]",
+    "tasks:",
+    "  - { id: t, output: '$: input.n', switch: end }",
+    "output: { v: '$: outputs.t' }",
+  ];
+  const call = (id: string, input: string, rest: string[]) => [
+    `  - id: ${id}`,
+    "    action:",
+    "      type: child",
+    ...rest,
+    `      input: { n: ${input} }`,
+  ];
+  const a = [...call("a", "1", [SPREAD]), "    output: '$: self.result.v'", "    switch: next"];
+  for (const b of [
+    call("b", "'$: outputs.a'", [SPREAD]),
+    // Without input_schema the same type reaches the server's parent/child check instead.
+    call("b", "'$: outputs.a'", ["      name: spread-untyped-child"]),
+  ]) {
+    const r = runCli(bin, ["apply", "--check-only", ...files({
+      "child.genroc.yaml": child,
+      "parent.genroc.yaml": ["name: spread-untyped-parent", "tasks:", ...a, ...b, "    switch: end"],
+    })]);
+    expect(r.stderr, "outputs.a is the child's integer, pooled as an alias of the child's def").toBe("");
+    expect(r.ok).toBe(true);
+  }
+});
+
+// `t` does not run on the path the parent takes, so each child below outputs its `??` fallback.
+const SKIP_T = [
+  "input_schema: { type: object, properties: { skip: { type: boolean } }, required: [skip] }",
+  "tasks:",
+  "  - id: start",
+  "    switch:",
+  "      - { case: input.skip, goto: $tail }",
+  "      - goto: next",
+];
+const T = (value: string, then: string) => ["  - id: t", `    output: "$: ${value}"`, `    switch: ${then}`];
+
+test("a `??` over a child's task outputs imports a type the child's own values fit", async () => {
+  for (const [where, body, want] of [
+    // Joined over the process's endings, where `[]` and `t_output` each arrived as an arm.
+    ["an array, joined over endings", [...T("[1, 2]", "end"), "  - { id: tail, switch: end }", "output: { v: '$: outputs.t ?? []' }"], []],
+    ["a string, joined over endings", [...T("'x'", "end"), "  - { id: tail, switch: end }", "output: { v: \"$: outputs.t ?? 'none'\" }"], "none"],
+    // Inside one task, where `t` is merely optional.
+    ["a string, in a task output", [...T("'x'", "next"), "  - id: tail", "    output: \"$: outputs.t ?? 'none'\"", "    switch: end", "output: { v: '$: outputs.tail' }"], "none"],
+  ] as const) {
+    const child = uid("spread_oneof_child");
+    const parent = uid("spread_oneof_parent");
+    const applied = runCli(bin, ["apply", ...files({
+      "child.genroc.yaml": [`name: ${child}`, ...SKIP_T, ...body],
+      "parent.genroc.yaml": [
+        `name: ${parent}`,
+        "tasks:",
+        "  - id: a",
+        "    action:",
+        "      type: child",
+        SPREAD,
+        "      input: { skip: true }",
+        "    output: '$: self.result.v'",
+        "    switch: end",
+        "output: '$: outputs.a'",
+      ],
+    })]);
+    expect(applied.stderr, where).toBe("");
+
+    const id = startedID(runCli(bin, ["run", parent]).stdout);
+    expect(await waitForInstance(id), `${where}: the fallback fit two arms of the oneOf the spread imported`)
+      .toBe("completed");
+    expect(JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout).output, where).toEqual(want);
+  }
+});
+
+test("a child whose input holds a map imports, and the map arrives whole", async () => {
+  const child = uid("spread_map_child");
+  const parent = uid("spread_map_parent");
+  const applied = runCli(bin, ["apply", ...files({
+    "child.genroc.yaml": [
+      `name: ${child}`,
+      "input_schema:",
+      "  type: object",
+      "  properties:",
+      "    texts: { type: object, additionalProperties: { type: string } }",
+      "  required: [texts]",
+      "tasks: [{ id: t, switch: end }]",
+      "output: '$: input.texts'",
+    ],
+    "parent.genroc.yaml": [
+      `name: ${parent}`,
+      "tasks:",
+      "  - id: a",
+      "    action:",
+      "      type: child",
+      SPREAD,
+      "      input: { texts: { en: Pay now, cs: Zaplatit } }",
+      "    output: '$: self.result'",
+      "    switch: end",
+      "output: '$: outputs.a'",
+    ],
+  })]);
+  expect(applied.stderr, "the spread input_schema holds the child's map, which a declared slot takes").toBe("");
+
+  const id = startedID(runCli(bin, ["run", parent]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+  expect(JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout).output).toEqual({ en: "Pay now", cs: "Zaplatit" });
 });

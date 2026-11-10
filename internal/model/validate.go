@@ -36,7 +36,7 @@ func (d *ProcessDefinition) Validate() error {
 	if err := atPath("config_schema", validateConfigSchema(d.ConfigSchema)); err != nil {
 		return err
 	}
-	if err := atPath("output_schema", checkDeclaredSlotSchema("output_schema", d.OutputSchema, d.Defs)); err != nil {
+	if err := atPath("output_schema", checkSchemaDoc("output_schema", d.OutputSchema, d.Defs)); err != nil {
 		return err
 	}
 	taskIDs := make(map[string]struct{}, len(d.Tasks))
@@ -769,7 +769,7 @@ func sortedRaiseCodes(r Raises) []string {
 // validateActionSchemas leaves accepted_status unchecked: it is a shape, and an unrecognized
 // pattern simply never matches at runtime (matchAcceptedStatus).
 func validateActionSchemas(s *Task, pool schema.Defs) error {
-	if err := atPath("output_schema", checkDeclaredSlotSchema(fmt.Sprintf("task %q output_schema", s.ID), s.OutputSchema, pool)); err != nil {
+	if err := atPath("output_schema", checkSchemaDoc(fmt.Sprintf("task %q output_schema", s.ID), s.OutputSchema, pool)); err != nil {
 		return err
 	}
 	if s.Action == nil {
@@ -787,7 +787,7 @@ func validateActionSchemas(s *Task, pool schema.Defs) error {
 		{"input_schema", s.Action.InputSchema},
 	} {
 		label := fmt.Sprintf("task %q action.%s", s.ID, slot.name)
-		if err := atPath("action."+slot.name, checkDeclaredSlotSchema(label, slot.schema, pool)); err != nil {
+		if err := atPath("action."+slot.name, checkSchemaDoc(label, slot.schema, pool)); err != nil {
 			return err
 		}
 	}
@@ -798,27 +798,12 @@ func validateActionSchemas(s *Task, pool schema.Defs) error {
 				return err
 			}
 			label = fmt.Sprintf("task %q action.children[%q].input_schema", s.ID, key)
-			if err := atPath("action.children."+key+".input_schema", checkDeclaredSlotSchema(label, entry.InputSchema, pool)); err != nil {
+			if err := atPath("action.children."+key+".input_schema", checkSchemaDoc(label, entry.InputSchema, pool)); err != nil {
 				return err
 			}
 		}
 	}
 	return validateInputSchemaPlacement(s)
-}
-
-// checkDeclaredSlotSchema adds no `additionalProperties`, so an undeclared key is refused at
-// registration rather than stripped in silence. specs/declared-slot-schemas.md §3.
-func checkDeclaredSlotSchema(label string, s *schema.Schema, pool schema.Defs) error {
-	if err := checkSchemaDoc(label, s, pool); err != nil {
-		return err
-	}
-	if s == nil {
-		return nil
-	}
-	if err := s.CheckNoAdditionalProperties(); err != nil {
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	return nil
 }
 
 func validateInputSchemaPlacement(s *Task) error {

@@ -61,10 +61,17 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 		return err
 	}
 	// Declared outputs go back as written: the solver stores canonical forms, which drop
-	// `description`. A failed slot keeps the `{}` the poison rule expects. See CLAUDE.md.
+	// `description`. Inferred ones lose covered arms, which only a finished pool can judge. A
+	// failed slot keeps the `{}` the poison rule expects. See CLAUDE.md.
 	for _, s := range tasks {
-		if s.OutputSchema != nil && checked[s.ID] {
-			scopes.defs.Set(s.ID+"_output", *s.OutputSchema)
+		if !checked[s.ID] {
+			continue
+		}
+		name := s.ID + "_output"
+		if s.OutputSchema != nil {
+			scopes.defs.Set(name, *s.OutputSchema)
+		} else if out, ok := scopes.defs.Get(name); ok {
+			scopes.defs.Set(name, out.WithoutSubsumedArms(scopes.defs))
 		}
 	}
 	return nil

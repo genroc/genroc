@@ -59,6 +59,31 @@ func TestIsSubset_refs(t *testing.T) {
 			true,
 		},
 		{
+			// A task output that passes a child's result on is pooled as exactly this alias.
+			"an alias chain in sub resolves to its end",
+			`{"$defs":{"A":{"$ref":"#/$defs/B"},"B":{"type":"integer"}},"$ref":"#/$defs/A"}`,
+			`{"type":"integer"}`,
+			true,
+		},
+		{
+			"an alias chain in super resolves to its end",
+			`{"type":"integer"}`,
+			`{"$defs":{"A":{"$ref":"#/$defs/B"},"B":{"type":"integer"}},"$ref":"#/$defs/A"}`,
+			true,
+		},
+		{
+			"an alias chain is still checked at its end",
+			`{"$defs":{"A":{"$ref":"#/$defs/B"},"B":{"type":"string"}},"$ref":"#/$defs/A"}`,
+			`{"type":"integer"}`,
+			false,
+		},
+		{
+			"an alias chain ending in a miss accepts nothing",
+			`{"type":"string"}`,
+			`{"$defs":{"A":{"$ref":"#/$defs/Missing"}},"$ref":"#/$defs/A"}`,
+			false,
+		},
+		{
 			"cross-schema refs resolved independently",
 			`{"$defs":{"MyInt":{"type":"integer"}},"$ref":"#/$defs/MyInt"}`,
 			`{"$defs":{"MyNum":{"type":"number"}},"$ref":"#/$defs/MyNum"}`,

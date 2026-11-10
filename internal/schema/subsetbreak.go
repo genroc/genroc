@@ -144,8 +144,9 @@ func describeNode(n *node) string {
 }
 
 // variantList describes the pool sub failed to fit. Naming what IS accepted is the whole
-// difference between a break an operator can act on and a count of alternatives.
-func variantList(variants []*node) string {
+// difference between a break an operator can act on and a count of alternatives. A ref arm is
+// described resolved: unresolved it reads `untyped`, which names the wrong problem.
+func variantList(variants []*node, defs map[string]*node) string {
 	shown := variants
 	rest := 0
 	if len(shown) > maxPropsRendered {
@@ -157,7 +158,7 @@ func variantList(variants []*node) string {
 			parts = append(parts, "a null variant")
 			continue
 		}
-		parts = append(parts, describeNode(v))
+		parts = append(parts, describeNode(derefSubset(v, defs)))
 	}
 	out := "any of [" + strings.Join(parts, ", ")
 	if rest > 0 {

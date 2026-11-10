@@ -23,6 +23,27 @@ type conformedCase struct {
 
 var conformedCases = []conformedCase{
 	{
+		name:    "a declared map keeps the keys the value set",
+		inf:     `{"type":"object","properties":{"en":{"type":"string"}},"required":["en"]}`,
+		dec:     `{"type":"object","additionalProperties":{"type":"string"}}`,
+		values:  []string{`{"en":"Pay"}`},
+		summary: "object{en}",
+	},
+	{
+		name:    "a null inside a map value is removed there",
+		inf:     `{"type":"object","properties":{"k":{"type":"object","properties":{"d":{"type":["number","null"]}},"required":["d"]}},"required":["k"]}`,
+		dec:     `{"type":"object","additionalProperties":{"type":"object","properties":{"d":{"type":"number"}}}}`,
+		values:  []string{`{"k":{"d":null}}`, `{"k":{"d":1}}`},
+		summary: "object{k}",
+	},
+	{
+		name:    "an inferred open map is conformed value by value",
+		inf:     `{"type":"object","additionalProperties":{"type":"object","properties":{"d":{"type":["number","null"]}},"required":["d"]}}`,
+		dec:     `{"type":"object","additionalProperties":{"type":"object","properties":{"d":{"type":"number"}}}}`,
+		values:  []string{`{"a":{"d":null},"b":{"d":1}}`},
+		summary: "object",
+	},
+	{
 		name:    "a top-type declaration leaves the inferred type alone",
 		inf:     `{"type":"object","properties":{"who":{"type":"string"}},"required":["who"]}`,
 		dec:     `{"description":"opaque here"}`,

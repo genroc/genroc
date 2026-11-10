@@ -29,7 +29,8 @@ The three-way conformance oracle survives the divergence: `x => body` is exactly
   generated schemas are deterministic.
 - `[]` types as provably empty (`maxItems: 0`); that is what makes `?? []` work. Every
   union-building path runs `absorbEmptyArray`: `[]` matches any array arm and `oneOf` demands
-  exactly one, so keeping both arms rejects the empty value the union describes.
+  exactly one, so keeping both arms rejects the empty value the union describes. An arm that is a
+  `$ref` is absorbed after `Solve` instead (path-sensitive-output.md §3).
 - `map(src, λ)` refuses a nullable source (a runtime panic otherwise), a non-array, and an
   itemless array (an unconstrained element turns body typos into runtime nulls). The element type
   is **`Items()`, not `Index()`** — `Index` is nullable for out-of-bounds, and `map` visits only

@@ -123,22 +123,25 @@ test("a body that sets a key its declaration does not name is refused at registr
   expect(JSON.stringify(error ?? {})).toContain("amont");
 });
 
-test("additionalProperties in a declared schema is refused at registration", async () => {
-  const name = `decl_ap_${crypto.randomUUID().slice(0, 8)}`;
-  const { error } = await client.PUT("/definitions", {
-    body: { definitions: [{
-      name,
-      tasks: [{ id: "only", switch: "end" }],
-      output: { a: 1 },
-      output_schema: {
-        type: "object",
-        properties: { a: { type: "number" } },
-        additionalProperties: { type: "string" },
+test("a declared map keeps every key, conforming each value to the map's type", async () => {
+  const { status, output } = await run({
+    name: `decl_ap_${crypto.randomUUID().slice(0, 8)}`,
+    input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
+    tasks: [{ id: "only", switch: "end" }],
+    output: { a: 1, note: "x", tags: { b: { d: "$: input.n" } } },
+    output_schema: {
+      type: "object",
+      properties: {
+        a: { type: "number" },
+        tags: { type: "object", additionalProperties: { type: "object", properties: { d: { type: "number" } } } },
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any] },
+      additionalProperties: { type: "string" },
+    },
+  }, { n: null });
+  expect(status).toBe("completed");
+  expect(output, "an open map strips nothing; only the optional null inside it goes").toEqual({
+    a: 1, note: "x", tags: { b: {} },
   });
-  expect(JSON.stringify(error ?? {})).toContain("additionalProperties");
 });
 
 test("child_list conforms each element, repairing one without disturbing the others", async () => {

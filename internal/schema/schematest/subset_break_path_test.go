@@ -134,6 +134,15 @@ func TestExplainSubset_ConstraintBreaksSayWhatMoved(t *testing.T) {
 	}
 }
 
+func TestExplainSubset_UnionArmBehindARefIsNamedByItsType(t *testing.T) {
+	brk := explainOne(t, normalize(t, `{"type":"string"}`),
+		normalize(t, `{"$defs":{"Count":{"type":"integer"}},"anyOf":[{"$ref":"#/$defs/Count"},{"type":"null"}]}`))
+	if want := "any of [integer, null]"; brk.Super != want {
+		t.Errorf("got %q, want %q — an arm read as `untyped` sends the author after a ref that "+
+			"resolves fine", brk.Super, want)
+	}
+}
+
 // The PERMITTED POOL is capped: an enum has no size limit and a break becomes one line of a
 // report. What was dropped is named separately and never truncated — see
 // TestExplainSubset_EnumBreakNamesTheValuesThatNoLongerFit for why showing both pools failed.
