@@ -258,37 +258,50 @@ const SKIP_T = [
 ];
 const T = (value: string, then: string) => ["  - id: t", `    output: "$: ${value}"`, `    switch: ${then}`];
 
-test("a `??` over a child's task outputs imports a type the child's own values fit", async () => {
-  for (const [where, body, want] of [
-    // Joined over the process's endings, where `[]` and `t_output` each arrived as an arm.
-    ["an array, joined over endings", [...T("[1, 2]", "end"), "  - { id: tail, switch: end }", "output: { v: '$: outputs.t ?? []' }"], []],
-    ["a string, joined over endings", [...T("'x'", "end"), "  - { id: tail, switch: end }", "output: { v: \"$: outputs.t ?? 'none'\" }"], "none"],
-    // Inside one task, where `t` is merely optional.
-    ["a string, in a task output", [...T("'x'", "next"), "  - id: tail", "    output: \"$: outputs.t ?? 'none'\"", "    switch: end", "output: { v: '$: outputs.tail' }"], "none"],
-  ] as const) {
-    const child = uid("spread_oneof_child");
-    const parent = uid("spread_oneof_parent");
-    const applied = runCli(bin, ["apply", ...files({
-      "child.genroc.yaml": [`name: ${child}`, ...SKIP_T, ...body],
-      "parent.genroc.yaml": [
-        `name: ${parent}`,
-        "tasks:",
-        "  - id: a",
-        "    action:",
-        "      type: child",
-        SPREAD,
-        "      input: { skip: true }",
-        "    output: '$: self.result.v'",
-        "    switch: end",
-        "output: '$: outputs.a'",
-      ],
-    })]);
-    expect(applied.stderr, where).toBe("");
+/** `v` is `outputs.t ?? fallback`, joined over the process's endings or computed inside one task. */
+function coalescing(value: string, fallback: string, inTask: boolean): string[] {
+  const expr = `"$: outputs.t ?? ${fallback}"`;
+  return inTask
+    ? [...T(value, "next"), "  - id: tail", `    output: ${expr}`, "    switch: end", "output: { v: '$: outputs.tail' }"]
+    : [...T(value, "end"), "  - { id: tail, switch: end }", `output: { v: ${expr} }`];
+}
 
-    const id = startedID(runCli(bin, ["run", parent]).stdout);
-    expect(await waitForInstance(id), `${where}: the fallback fit two arms of the oneOf the spread imported`)
-      .toBe("completed");
-    expect(JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout).output, where).toEqual(want);
+test("a `??` over a child's task outputs imports a type the child's own values fit, on every path", async () => {
+  for (const [what, value, fallback, ran, skipped] of [
+    ["an array", "[1, 2]", "[]", [1, 2], []],
+    ["a string", "'x'", "'none'", "x", "none"],
+    // A closed {x} also takes {x, y} by stripping `y`, so the two arms overlap without one covering the other.
+    ["an object", "{x: 1, y: 's'}", "{x: 2}", { x: 1, y: "s" }, { x: 2 }],
+  ] as const) {
+    for (const inTask of [false, true]) {
+      const where = `${what}, ${inTask ? "in a task output" : "joined over endings"}`;
+      const child = uid("spread_oneof_child");
+      const parent = uid("spread_oneof_parent");
+      const applied = runCli(bin, ["apply", ...files({
+        "child.genroc.yaml": [`name: ${child}`, ...SKIP_T, ...coalescing(value, fallback, inTask)],
+        "parent.genroc.yaml": [
+          `name: ${parent}`,
+          "input_schema: { type: object, properties: { skip: { type: boolean } }, required: [skip] }",
+          "tasks:",
+          "  - id: a",
+          "    action:",
+          "      type: child",
+          SPREAD,
+          "      input: { skip: '$: input.skip' }",
+          "    output: '$: self.result.v'",
+          "    switch: end",
+          "output: '$: outputs.a'",
+        ],
+      })]);
+      expect(applied.stderr, where).toBe("");
+
+      for (const [skip, want] of [[true, skipped], [false, ran]] as const) {
+        const id = startedID(runCli(bin, ["run", parent, "--input", JSON.stringify({ skip })]).stdout);
+        expect(await waitForInstance(id), `${where}, skip=${skip}: the child's value fit two arms of the oneOf the spread imported`)
+          .toBe("completed");
+        expect(JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout).output, `${where}, skip=${skip}`).toEqual(want);
+      }
+    }
   }
 });
 

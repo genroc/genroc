@@ -71,7 +71,7 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 		if s.OutputSchema != nil {
 			scopes.defs.Set(name, *s.OutputSchema)
 		} else if out, ok := scopes.defs.Get(name); ok {
-			scopes.defs.Set(name, out.WithoutSubsumedArms(scopes.defs))
+			scopes.defs.Set(name, out.WithoutOverlappingArms(scopes.defs))
 		}
 	}
 	return nil

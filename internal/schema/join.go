@@ -107,10 +107,11 @@ func joinObjects(a, b *node) *node {
 	return out
 }
 
-// WithoutSubsumedArms drops every oneOf arm another arm covers, a `$ref` arm judged by what it
-// names through pool: a value two arms take is one oneOf refuses. Only after Solve — a solver
-// sentinel reads as the top type and would cover every arm.
-func (s Schema) WithoutSubsumedArms(pool Defs) Schema {
+// WithoutOverlappingArms removes oneOf arms one value fits twice, which oneOf refuses: an arm
+// another covers is dropped, and two objects one fits only by losing keys are joined, as an inline
+// pair already is. A `$ref` arm is judged by what it names through pool, so only after Solve — a
+// solver sentinel reads as the top type and would cover every arm.
+func (s Schema) WithoutOverlappingArms(pool Defs) Schema {
 	p := pruner{defs: pool.m, cyclic: reachesCycle(pool.m)}
 	return s.keepingContext(wrap(canonicalizeNode(p.prune(s.n)), s.rootDefs()))
 }
@@ -119,7 +120,7 @@ type pruner struct {
 	defs map[string]*node
 	// cyclic names every definition that reaches a reference cycle. An arm reaching one is never
 	// compared: two members of a cycle each cover the other's base case, so dropping both
-	// leaves a cycle with none (TestWithoutSubsumedArms_LeavesAReferenceCycleAlone).
+	// leaves a cycle with none (TestWithoutOverlappingArms_LeavesAReferenceCycleAlone).
 	cyclic map[string]bool
 }
 
@@ -140,23 +141,46 @@ func (p pruner) prune(n *node) *node {
 	// Inline arms first: of two naming one type, the one that reads as itself survives.
 	for _, refs := range []bool{false, true} {
 		for _, a := range m.OneOf {
-			if (a.Ref != "") != refs || slices.ContainsFunc(kept, func(k *node) bool { return p.covers(k, a) }) {
-				continue
+			if (a.Ref != "") == refs {
+				kept = p.add(kept, a)
 			}
-			kept = slices.DeleteFunc(kept, func(k *node) bool { return p.covers(a, k) })
-			kept = append(kept, a)
 		}
 	}
 	m.OneOf = kept
 	return m
 }
 
+func (p pruner) add(kept []*node, a *node) []*node {
+	if slices.ContainsFunc(kept, func(k *node) bool { return p.covers(k, a) }) {
+		return kept
+	}
+	for i, k := range kept {
+		if p.fitsStripped(k, a) || p.fitsStripped(a, k) {
+			joined := joinNodes(derefSubset(k, p.defs), derefSubset(a, p.defs))
+			return p.add(slices.Delete(slices.Clone(kept), i, i+1), joined)
+		}
+	}
+	kept = slices.DeleteFunc(kept, func(k *node) bool { return p.covers(a, k) })
+	return append(kept, a)
+}
+
 // covers: every value of sub is one of super's, and conforming it there strips nothing.
 func (p pruner) covers(super, sub *node) bool {
+	return p.fits(super, sub, subsetMode{closed: true})
+}
+
+// fitsStripped: every value of object sub is also one of object super's once super's conform drops
+// the keys it does not name. Dropping either arm then loses keys or values, so the two are joined.
+func (p pruner) fitsStripped(super, sub *node) bool {
+	return isObjectType(derefSubset(super, p.defs)) && isObjectType(derefSubset(sub, p.defs)) &&
+		p.fits(super, sub, subsetMode{})
+}
+
+func (p pruner) fits(super, sub *node, mode subsetMode) bool {
 	if p.reaches(super) || p.reaches(sub) {
 		return false
 	}
-	ctx := &subsetCtx{subDefs: p.defs, superDefs: p.defs, visiting: map[string]bool{}, subsetMode: subsetMode{closed: true}}
+	ctx := &subsetCtx{subDefs: p.defs, superDefs: p.defs, visiting: map[string]bool{}, subsetMode: mode}
 	return ctx.check(sub, super, nil)
 }
 

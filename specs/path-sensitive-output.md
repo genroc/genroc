@@ -65,9 +65,11 @@ that schema rejects every value it describes. Canonicalizing folds it to
 
 **After `Solve`, a `$ref` arm is judged by what it names.** Kept symbolic, `t_output ?? []` and
 `kept_output ?? 'none'` still build arms one value fits twice, here and in the join over terminals.
-`Schema.WithoutSubsumedArms` drops an arm another covers from every inferred task output and the
-process output. It runs only once nothing is pending (a solver sentinel reads as `{}`), and never
-compares an arm reaching a reference cycle: two members each cover the other's base case.
+`Schema.WithoutOverlappingArms` drops an arm another covers from every inferred task output and the
+process output. Two objects one fits only by losing keys (`{x, y}` and `{x}`) are joined instead, as
+the join already joins an inline pair; `??` builds that pair inline too. Objects no value shares
+(`{a}` and `{b}`) stay apart. It runs only once nothing is pending (a solver sentinel reads as `{}`),
+and never compares an arm reaching a reference cycle: two members each cover the other's base case.
 
 **`StripNull` and `HasNull` must agree.** `stripNull` recurses into inline arms, so a null inside
 an arm's type list is removed; `hasNullResolved` recurses into nested unions (a one-level scan
