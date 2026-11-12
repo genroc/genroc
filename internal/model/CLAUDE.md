@@ -36,8 +36,8 @@ the runtime half and the unknowable set are in
    simply inert (`TestValidateOnlyOnce_IsContextIndependent`).
 3. **`on_error` and `switch` reject unknown keys**, naming the list the key belongs to:
    they select with `code` and `case` respectively, and a silently dropped selector turns an
-   on_error rule into a catch-all. Safe to do in the decoder because `ApplyDefinitions` stores
-   `json.Marshal` of the decoded struct, so stored definitions are canonical.
+   on_error rule into a catch-all. Safe to do in the decoder because what is stored passed this
+   same decoder at the door.
 
 ## `timeout`: one grammar, two homes
 
@@ -85,9 +85,9 @@ An `on_error` rule's `retry` is `{retries, delay, factor, max_delay}`, with the 
    `retries` is refused, and without it an author reads "unknown field" for a key that is
    valid one level down. Silently *accepting* it would be worse still — the rule keeps its
    `code` and its `goto`, so it still matches and still routes, and only never retries.
-2. **`MarshalJSON` always writes the object form.** `ApplyDefinitions` stores the marshalled
-   struct, so this is what canonicalises `retry: 3`; emitting the scalar back would leave
-   two stored shapes for every later reader to handle.
+2. **`MarshalJSON` always writes the object form.** The stored document keeps whatever was
+   written, but the definition cache and every marshalled definition carry this one shape;
+   emitting the scalar back gives each later reader two to handle.
 3. **`RetryDuration` keeps the literal it parsed.** Marshalling the parsed length instead
    turns an authored `"90s"` into `90000` on read-back. It also refuses calendar units,
    because the curve scales the value and compares it to a ceiling — `"1mo"` has no length
@@ -110,6 +110,19 @@ struct accepts it — the failure lands nowhere near the change (specs/child-err
 `TestChangedSlots_EveryActionFieldIsReported` fails until the field is either a compat slot or
 in `notASlot` with its reason. `raises` is the worked example — it is on the child variants,
 the `child_map` entry, and both slot lists.
+
+## `x-` keys: skipped by every decoder, kept only in the document
+
+specs/extension-keys.md. The stdlib does not hand `DisallowUnknownFields` to a type's own
+`UnmarshalJSON`, so `ProcessDefinition`, `Task`, `Action` and `ChildEntry` decode through
+`decodeOwnLevel`, which RECORDS a key it has no field for and leaves refusing it to
+`numeric.DecodeStrict`. Two things are silent when broken:
+
+- **Never refuse there.** A stored row is decoded plainly, and one holding a removed field must
+  still load (delayspec's `ms`); refusing in the decoder makes that version unreadable.
+- **A new struct the stdlib decodes inside one of the four is strict in both paths**, and refuses
+  `x-` keys: it needs `decodeOwnLevel` and an `UnknownKeys` of its own. Add a case for it to
+  `TestPublishedSchemaAgreesWithTheServerOnUnknownKeys`, or nothing notices.
 
 ## Pointers
 

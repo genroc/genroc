@@ -7,6 +7,7 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
+	"genroc/internal/extension"
 	"strconv"
 	"strings"
 
@@ -224,6 +225,9 @@ func describeKey(doc *defdoc.Doc, path string) string {
 	if !ok || path == "" {
 		return ""
 	}
+	if md := extensionKeyHover(root, doc, path); md != "" {
+		return md
+	}
 	parent := defdoc.ParentPath(path)
 	node, ok := walk(root, doc, parent)
 	if !ok {
@@ -240,6 +244,28 @@ func describeKey(doc *defdoc.Doc, path string) string {
 	// reader wants. What they are pointing at is the variant it selects, so answer with that.
 	if name == "type" {
 		return describeNode(node)
+	}
+	return ""
+}
+
+// extensionKeyHover answers on an `x-` key at a set structure and anywhere inside its value. The
+// schema's `^x-` pattern says which those are: a header or a property name that merely starts
+// with `x-` sits where there is none, and is data. specs/extension-keys.md §1.
+func extensionKeyHover(root map[string]any, doc *defdoc.Doc, path string) string {
+	for p := path; p != ""; p = defdoc.ParentPath(p) {
+		parent := defdoc.ParentPath(p)
+		key := strings.TrimPrefix(p[len(parent):], ".")
+		if !extension.Is(key) {
+			continue
+		}
+		node, ok := walk(root, doc, parent)
+		if !ok {
+			continue
+		}
+		node = choose(root, node, doc, parent, key)
+		if patterns, _ := node["patternProperties"].(map[string]any); patterns["^x-"] != nil {
+			return "`" + key + "` is an extension key: kept as written in the stored definition, never read by genroc"
+		}
 	}
 	return ""
 }

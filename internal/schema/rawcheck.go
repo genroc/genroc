@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"genroc/internal/extension"
 	"slices"
 	"sort"
 )
@@ -56,6 +57,12 @@ func checkRawNode(data []byte) error {
 			return fmt.Errorf("%w, not %s", ErrNotASchema, kind)
 		}
 		return err
+	}
+	// An `x-` key is the author's, never a keyword: skipped here, kept only in the stored document.
+	for kw := range raw {
+		if extension.Is(kw) {
+			delete(raw, kw)
+		}
 	}
 	// The allowlist first, over every key: a misspelled keyword is the likelier mistake, and
 	// reporting it before whatever is wrong inside a well-spelled one keeps the order stable.

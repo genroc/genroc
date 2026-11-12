@@ -75,7 +75,8 @@ escaping would be a second grammar to keep true.
 
 **A hover is ONE line, and it always has one.** The answer order is: a type where the cursor is
 on an expression or a slot, else **what the key means** — the prose the struct tag already
-carries. Not the slot's scope too: `genctl schema context` answers that, and dropping it without
+carries. An `x-` key has no tag: `extensionKeyHover` answers where its parent carries the `^x-`
+pattern `defschema` adds, which is what keeps `headers: {x-api-key}` a header (specs/extension-keys.md §1). Not the slot's scope too: `genctl schema context` answers that, and dropping it without
 the key fallback left hover silent on ten lines out of twelve.
 
 **The one block is a STRUCTURAL directive** (`directive.go`) — `$process` or a registered

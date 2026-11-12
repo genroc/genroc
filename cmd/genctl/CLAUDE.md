@@ -141,18 +141,17 @@ because parsing it in JavaScript would corrupt the values under test.
 
 ## YAML merge keys
 
-`defdoc` walks mappings itself (`mergeTarget`), so YAML's `<<` is not free — and getting it wrong is
-silent: the alias lands under a literal `"<<"` field, the server drops it as unknown, and
-the canonical re-marshal strips the evidence. Explicit keys beat merged ones (YAML's own
+`defdoc` walks mappings itself (`mergeTarget`), so YAML's `<<` is not free — and getting it wrong
+lands the alias under a literal `"<<"` field: refused as unknown where genroc's structure is, and
+silently kept as data inside a shape. Explicit keys beat merged ones (YAML's own
 precedence). The **sequence form is refused**: YAML 1.1 gives its *earlier* entries
 precedence, the reverse of every other merge, so `<<: [*base, *override]` would silently do
 the opposite of what it reads as.
 
 **Anchors must hang off a real node** — `action: &defaults` on the first task that uses the
-shape. A top-level holder key (`_defaults: &d`) is rejected, because `ProcessDefinition`
-decodes with unknown fields disallowed. A reserved, genctl-stripped key would fix that; it
-is unbuilt, and is the same shape as `$import`-as-a-key in
-[specs/source-resolution.md](../../specs/source-resolution.md).
+shape — or off a root `x-` key (`x-defaults: &d`), which the server keeps in the stored document
+and never reads (specs/extension-keys.md). Any other holder key (`_defaults: &d`) is an unknown
+field.
 
 ## The scaffold is checked twice, and one of the checks is the one that matters
 

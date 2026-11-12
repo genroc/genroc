@@ -14,6 +14,18 @@ test("a definition that registers underlines nothing", async () => {
   expect(await lsp.diagnostics(orders)).toEqual([]);
 });
 
+// specs/extension-keys.md: the author's own data, wherever genroc's structure is.
+test("x- keys underline nothing, at any level or inside a schema", async () => {
+  const extended = edit(orders, {
+    "name: orders\n": "name: orders\nx-builder: { zoom: 2 }\n",
+    "  - id: price\n": "  - id: price\n    x-pos: { x: 10, y: 20 }\n",
+    "      type: fetch\n": "      type: fetch\n      x-note: priced upstream\n",
+    "    customer_id: { type: string }": "    customer_id: { type: string, x-order: 1 }",
+    "      - goto: \"$fulfil\"\n    on_error:": "      - goto: \"$fulfil\"\n        x-case: fallback\n    on_error:",
+  });
+  expect(await lsp.diagnostics(extended)).toEqual([]);
+});
+
 test("a misspelled key is named, and underlined on the key", async () => {
   // Both tasks have an `on_error`, so the rule under it is what says which one is misspelled.
   const typo = edit(orders, {

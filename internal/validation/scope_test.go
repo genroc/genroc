@@ -31,6 +31,9 @@ func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 		if f.Anonymous {
 			continue // DelaySpec: its own fields are visited below
 		}
+		if !f.IsExported() {
+			continue // no document key decodes into it, so nothing there is ever evaluated
+		}
 		if carriesNoExpression[f.Name] {
 			continue
 		}

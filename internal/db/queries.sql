@@ -1,9 +1,13 @@
 -- name: InsertDefinition :exec
 -- The conflict path leaves actor alone: identical content is not a re-deploy, so the first
 -- deployer keeps the credit.
-INSERT INTO process_definitions (name, version, definition, content_hash, created_at, actor)
-VALUES (sqlc.arg(name), sqlc.arg(version), sqlc.arg(definition), sqlc.arg(content_hash), sqlc.arg(created_at), sqlc.arg(actor))
+INSERT INTO process_definitions (name, version, definition, content_hash, runtime_hash, created_at, actor)
+VALUES (sqlc.arg(name), sqlc.arg(version), sqlc.arg(definition), sqlc.arg(content_hash), sqlc.arg(runtime_hash), sqlc.arg(created_at), sqlc.arg(actor))
 ON CONFLICT (name, version) DO UPDATE SET definition = EXCLUDED.definition;
+
+-- name: RuntimeHash :one
+SELECT runtime_hash FROM process_definitions
+WHERE name = sqlc.arg(name) AND version = sqlc.arg(version);
 
 -- name: GetDefinition :one
 SELECT name, version, definition, content_hash, created_at, actor

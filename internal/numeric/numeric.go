@@ -5,8 +5,12 @@ package numeric
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
+	"fmt"
 	"io"
+	"reflect"
+	"slices"
 	"strconv"
 
 	"github.com/cockroachdb/apd/v3"
@@ -118,5 +122,57 @@ func DecodeStrict(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	dec.DisallowUnknownFields()
-	return dec.Decode(v)
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if key, ok := firstRecordedUnknown(reflect.ValueOf(v)); ok {
+		return fmt.Errorf("json: unknown field %q", key)
+	}
+	return nil
+}
+
+// recordsUnknownKeys is a type whose own decoder cannot see DisallowUnknownFields, and so keeps
+// the keys it had no field for instead of refusing them.
+type recordsUnknownKeys interface{ UnknownKeys() []string }
+
+// firstRecordedUnknown walks what was decoded, outermost first, as encoding/json reports. It
+// does not descend through an interface: no type that records keys is ever held in one.
+func firstRecordedUnknown(v reflect.Value) (string, bool) {
+	if !v.IsValid() || (v.Kind() == reflect.Pointer && v.IsNil()) {
+		return "", false
+	}
+	if v.CanInterface() {
+		if r, ok := v.Interface().(recordsUnknownKeys); ok {
+			if keys := r.UnknownKeys(); len(keys) > 0 {
+				return keys[0], true
+			}
+		}
+	}
+	switch v.Kind() {
+	case reflect.Pointer:
+		return firstRecordedUnknown(v.Elem())
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Type().Field(i).IsExported() {
+				if key, ok := firstRecordedUnknown(v.Field(i)); ok {
+					return key, true
+				}
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if key, ok := firstRecordedUnknown(v.Index(i)); ok {
+				return key, true
+			}
+		}
+	case reflect.Map:
+		keys := v.MapKeys()
+		slices.SortFunc(keys, func(a, b reflect.Value) int { return cmp.Compare(fmt.Sprint(a), fmt.Sprint(b)) })
+		for _, k := range keys {
+			if key, ok := firstRecordedUnknown(v.MapIndex(k)); ok {
+				return key, true
+			}
+		}
+	}
+	return "", false
 }

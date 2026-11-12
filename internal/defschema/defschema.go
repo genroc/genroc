@@ -33,8 +33,8 @@ func ShapeDefName(_ reflect.Type, defaultDefName string) string {
 // diagnostics do not -- specs/language-server.md §5.
 func Process() []byte {
 	processSchemaOnce.Do(func() {
-		processSchemaBytes = reflectSchema(model.ProcessDefinition{}, "processDefinitionSchema",
-			jsonschema.InterceptDefName(ShapeDefName))
+		processSchemaBytes = withExtensionKeys(reflectSchema(model.ProcessDefinition{}, "processDefinitionSchema",
+			jsonschema.InterceptDefName(ShapeDefName)))
 	})
 	return processSchemaBytes
 }
@@ -49,6 +49,35 @@ func Config() []byte {
 func Manifest() []byte { return withoutNull(reflectSchema(sources.Manifest{}, "manifestSchema")) }
 
 func Reply() []byte { return withoutNull(reflectSchema(sources.Reply{}, "replySchema")) }
+
+// withExtensionKeys admits `x-` keys on every object the language closes, which is every place its
+// decoders skip them (specs/extension-keys.md). TestPublishedSchemaAgreesWithTheServerOnUnknownKeys
+// holds the two together, one position per case.
+func withExtensionKeys(b []byte) []byte {
+	var root map[string]any
+	if err := json.Unmarshal(b, &root); err != nil {
+		return b
+	}
+	var walk func(v any)
+	walk = func(v any) {
+		switch node := v.(type) {
+		case map[string]any:
+			if node["additionalProperties"] == false {
+				node["patternProperties"] = map[string]any{"^x-": map[string]any{}}
+			}
+			for _, child := range node {
+				walk(child)
+			}
+		case []any:
+			for _, child := range node {
+				walk(child)
+			}
+		}
+	}
+	walk(root)
+	out, _ := json.Marshal(root)
+	return out
+}
 
 // The reflector makes a non-omitempty slice nullable, and nothing in a `.genroc` may be null.
 // Not the process schema: its nullability is pinned against the server by its own tests.

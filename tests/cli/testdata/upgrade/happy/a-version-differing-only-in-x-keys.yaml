@@ -1,0 +1,33 @@
+# v2 changes only x- keys, so apply reports it as the same runtime as v1 and an instance moves over
+# with nothing to reconcile. specs/extension-keys.md §3.
+apply:
+  - definitions:
+      - name: xkeysproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            output: {v: '$: input.n'}
+            switch: end
+        output: {v: '$: outputs.first.v'}
+  - definitions:
+      - name: xkeysproc
+        x-builder: {zoom: 2}
+        input_schema:
+          type: object
+          x-form: wide
+          properties: {n: {type: number, x-order: 1}}
+          required: [n]
+        tasks:
+          - id: first
+            x-pos: {x: 10, y: 20}
+            output: {v: '$: input.n'}
+            switch: end
+        output: {v: '$: outputs.first.v'}
+start: {process: xkeysproc, input: {n: 1}, ticks: 0}
+resting: {task: first, status: running, phase: "", outputs: [], state_keys: [input, last_error, outputs]}
+after: {task: first, status: running, outputs: [], state_keys: [input, last_error, outputs]}
+run: [xkeysproc, --from, "1", --to, "2"]
+finish: {status: completed, output: {v: 1}}

@@ -36,6 +36,9 @@ section keeps its heading and a one-line pointer.
   `raise` payload typed by the caller's `raises`) is built; X1 and X3 are declined, with triggers.
 - [error-handling-audit](error-handling-audit.md) — the Go plumbing under the workflow error model.
   `errcode` namespaces are guarantees (`pre.` means the request never left), not naming.
+- [extension-keys](extension-keys.md) — `x-` keys wherever genroc's structure is, never read. The
+  model skips them, the stored definition is the document as submitted, and a version is a document
+  that reports when it runs the same as the one before.
 - [external-outcome-as-signal](external-outcome-as-signal.md) — an external outcome is a buffered
   signal, never a row write. `runExternal` phase 2 reads in advance and pops in persist.
 - [external-task-queue](external-task-queue.md) (partly) — `external` as a claim/lease queue. A

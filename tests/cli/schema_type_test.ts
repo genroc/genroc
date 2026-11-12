@@ -242,3 +242,26 @@ test("schema type and schema context answer about the same slot", () => {
   // …and what an expression written there may READ, which is a different document entirely.
   expect(Object.keys(context.properties).sort()).toEqual(["input", "outputs", "self"]);
 });
+
+test("schema answers offline over a definition holding x- keys", () => {
+  const dir = mkdtempSync(join(tmpdir(), "genroc_schema_x_"));
+  const file = join(dir, "x.genroc.yaml");
+  writeFileSync(file, [
+    "name: xkeys",
+    "x-builder: { zoom: 2 }",
+    "input_schema:",
+    "  type: object",
+    "  x-form: wide",
+    "  properties: { amount: { type: number, x-order: 1 } }",
+    "  required: [amount]",
+    "tasks:",
+    "  - id: t",
+    "    x-pos: { x: 10 }",
+    "    output: { v: '$: input.amount' }",
+    "    switch: end",
+    "",
+  ].join("\n"), "utf8");
+  const r = runCli(bin, ["schema", "type", "xkeys", "tasks.t.output", "--json", "-f", file], OFFLINE);
+  expect(r.stderr, "an x- key in a schema node is not a keyword the schema refuses").toBe("");
+  expect(JSON.parse(r.stdout)).toMatchObject({ $defs: { t_output: { properties: { v: { type: "number" } } } } });
+});

@@ -639,9 +639,18 @@ type GetDefinitionParams struct {
 	Version int64
 }
 
-func (q *Queries) GetDefinition(ctx context.Context, arg GetDefinitionParams) (ProcessDefinition, error) {
+type GetDefinitionRow struct {
+	Name        string
+	Version     int64
+	Definition  string
+	ContentHash string
+	CreatedAt   int64
+	Actor       string
+}
+
+func (q *Queries) GetDefinition(ctx context.Context, arg GetDefinitionParams) (GetDefinitionRow, error) {
 	row := q.db.QueryRowContext(ctx, getDefinition, arg.Name, arg.Version)
-	var i ProcessDefinition
+	var i GetDefinitionRow
 	err := row.Scan(
 		&i.Name,
 		&i.Version,
@@ -899,8 +908,8 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 }
 
 const insertDefinition = `-- name: InsertDefinition :exec
-INSERT INTO process_definitions (name, version, definition, content_hash, created_at, actor)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+INSERT INTO process_definitions (name, version, definition, content_hash, runtime_hash, created_at, actor)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
 ON CONFLICT (name, version) DO UPDATE SET definition = EXCLUDED.definition
 `
 
@@ -909,6 +918,7 @@ type InsertDefinitionParams struct {
 	Version     int64
 	Definition  string
 	ContentHash string
+	RuntimeHash string
 	CreatedAt   int64
 	Actor       string
 }
@@ -921,6 +931,7 @@ func (q *Queries) InsertDefinition(ctx context.Context, arg InsertDefinitionPara
 		arg.Version,
 		arg.Definition,
 		arg.ContentHash,
+		arg.RuntimeHash,
 		arg.CreatedAt,
 		arg.Actor,
 	)
@@ -1671,6 +1682,23 @@ func (q *Queries) RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const runtimeHash = `-- name: RuntimeHash :one
+SELECT runtime_hash FROM process_definitions
+WHERE name = ?1 AND version = ?2
+`
+
+type RuntimeHashParams struct {
+	Name    string
+	Version int64
+}
+
+func (q *Queries) RuntimeHash(ctx context.Context, arg RuntimeHashParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, runtimeHash, arg.Name, arg.Version)
+	var runtime_hash string
+	err := row.Scan(&runtime_hash)
+	return runtime_hash, err
 }
 
 const setStatusIn = `-- name: SetStatusIn :exec

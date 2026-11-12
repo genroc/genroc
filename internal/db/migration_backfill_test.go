@@ -140,3 +140,37 @@ func stripSQLComments(s string) string {
 	}
 	return b.String()
 }
+
+// Migration 050 over a version stored before it: the old content_hash was over the runtime, so a
+// first re-apply after upgrading reports "same runtime" rather than looking like a change.
+func TestMigration050BackfillsTheRuntimeHash(t *testing.T) {
+	sqldb, err := sql.Open("sqlite3", t.TempDir()+"/m.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqldb.Close()
+	if _, err := sqldb.Exec(`
+		CREATE TABLE process_definitions (name TEXT NOT NULL, version INTEGER NOT NULL,
+		                                  content_hash TEXT NOT NULL DEFAULT '');
+		INSERT INTO process_definitions (name, version, content_hash) VALUES ('p', 1, 'abc');`); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile("migrations/050_runtime_hash.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range strings.Split(string(body), ";") {
+		if trimmed := strings.TrimSpace(stripSQLComments(stmt)); trimmed != "" {
+			if _, err := sqldb.Exec(trimmed); err != nil {
+				t.Fatalf("%v\n%s", err, trimmed)
+			}
+		}
+	}
+	var got string
+	if err := sqldb.QueryRow(`SELECT runtime_hash FROM process_definitions WHERE name = 'p'`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "abc" {
+		t.Errorf("runtime_hash = %q, want the old content_hash — it was computed over the runtime", got)
+	}
+}

@@ -61,6 +61,7 @@ type ProcessDefinition struct {
 	ContentHash string
 	CreatedAt   int64
 	Actor       string
+	RuntimeHash string
 }
 
 type ProcessDependency struct {

@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
-import { waitForInstance } from "../helpers/client.ts";
+import { client, waitForInstance } from "../helpers/client.ts";
 import { startedID, uid } from "../helpers/genctl.ts";
 
 // `<<: "$<resolver>: <params>"` pre-fills the mapping it sits in. specs/source-resolution.md
@@ -376,4 +376,25 @@ test("a child whose input holds a map imports, and the map arrives whole", async
   const id = startedID(runCli(bin, ["run", parent]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
   expect(JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout).output).toEqual({ en: "Pay now", cs: "Zaplatit" });
+});
+
+test("a directive in an x- value resolves like any other leaf, and $$ escapes it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "genroc_spread_x_"));
+  writeFileSync(join(dir, "child.genroc.yaml"), CHILD, "utf8");
+  const name = uid("spread_x");
+  const parentFile = join(dir, "parent.genroc.yaml");
+  writeFileSync(parentFile, [
+    `name: ${name}`,
+    'x-child: "$process: ./child.genroc.yaml"',
+    'x-literal: "$$process: ./child.genroc.yaml"',
+    "tasks: [{ id: t, switch: end }]",
+    "",
+  ].join("\n"), "utf8");
+  expect(runCli(bin, ["apply", "-f", parentFile]).stderr).toBe("");
+
+  const { data } = await client.GET("/definitions/{name}", { params: { path: { name } } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const doc = data?.definition as any;
+  expect(doc["x-child"], "resolution reads the document, x- values included").toMatchObject({ name: "spread-child" });
+  expect(doc["x-literal"], "and the escape is how a tool keeps a directive's text").toBe("$process: ./child.genroc.yaml");
 });

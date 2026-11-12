@@ -35,6 +35,8 @@ type ChildEntry struct {
 	InputSchema  *schema.Schema `json:"input_schema,omitempty"  description:"JSON Schema this entry's input is checked against and conformed to before it is sent."`
 	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema validating and exposing this child's output."`
 	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. Read as error.data. When present, the only codes on_error may name, besides result.invalid."`
+	// unknown is any key with no field, kept for numeric.DecodeStrict to refuse (decode.go).
+	unknown []string
 }
 
 // Raises maps a raise code to its fault data's shape, declared by the caller. A nil value
@@ -68,6 +70,8 @@ type Action struct {
 	Over        string                `json:"over,omitempty"`             // child_list: expression evaluating to the input array (one child per element)
 	Timeout     Timeout               `json:"timeout,omitempty,omitzero"` // fetch/external: deadline for the call; the prose is per-variant in actionSchemaTemplate
 	DelaySpec                         // delay: exactly one of for / until, plus tz
+	// unknown is any key with no field, kept for numeric.DecodeStrict to refuse (decode.go).
+	unknown []string
 }
 
 // DelaySpec is a target instant: `for` (a duration) or `until` (an instant), in `tz`. Never give
@@ -324,6 +328,8 @@ type Task struct {
 	Output       *Shape         `json:"output,omitempty"                      description:"Templated value remapping this task's output; it becomes outputs.taskID and self.output."`
 	OutputSchema *schema.Schema `json:"output_schema,omitempty"          description:"JSON Schema this task's output is checked against and conformed to. It becomes the published type of outputs.taskID."`
 	Switch       SwitchMap      `json:"switch"                                description:"Required. Routing: a shorthand (\"next\", \"end\", \"$task-id\") or an ordered list of cases."`
+	// unknown is any key with no field, kept for numeric.DecodeStrict to refuse (decode.go).
+	unknown []string
 }
 
 // ProcessDefinition is the immutable versioned blueprint for a process.
@@ -336,6 +342,9 @@ type ProcessDefinition struct {
 	Defs         schema.Defs    `json:"$defs,omitempty,omitzero"        description:"Shared schema definitions, referenced as \"#/$defs/<name>\"."`
 	Output       *Shape         `json:"output,omitempty"                description:"Templated value evaluated at completion to produce the process output."`
 	OutputSchema *schema.Schema `json:"output_schema,omitempty"         description:"JSON Schema the process output is checked against and conformed to. Declared, it is what this process publishes."`
+	// document is the JSON this was decoded from, `x-` keys and all: what an apply stores.
+	document []byte
+	unknown  []string
 }
 
 // OnlyOnceAction reports whether this task is an action the engine must never run twice.

@@ -47,8 +47,8 @@ type DB struct {
 	// hand-back: durability lowers writes beneath it, never above.
 	sqliteBaseSync string
 
-	// defCache holds raw JSON, re-unmarshalled per call so callers never share Task pointers;
-	// ApplyDefinitions must invalidate it (ON CONFLICT overwrites).
+	// defCache holds a definition's NORMALIZED JSON, re-unmarshalled per call so callers never
+	// share Task pointers; ApplyDefinitions must invalidate it (ON CONFLICT overwrites).
 	defCache sync.Map // defKey → string
 
 	// Logs are best-effort (migration 008): AppendLog buffers, logFlusher batch-inserts, and every

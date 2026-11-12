@@ -47,12 +47,17 @@ type VersionedDef struct {
 // Def nil means the content already exists at Version; only channel pointers move. Channels are
 // listed, not derived: the default-channel question is about state *before* the batch.
 type DefinitionWrite struct {
-	Def      *model.ProcessDefinition
+	Def *model.ProcessDefinition
+	// Document is what is stored: the definition as submitted, `x-` keys included. Nil means
+	// Def's own marshal, for a definition built in Go. specs/extension-keys.md.
+	Document []byte
 	Name     string
 	Version  int
 	Deps     []DependencyRow
-	Hash     string
-	Channels []string
+	// Hash is over Document, so it decides the version; RuntimeHash is over what runs.
+	Hash        string
+	RuntimeHash string
+	Channels    []string
 	// Actor is who deployed this, as `source:subject`. specs/api-auth.md section 7.
 	Actor string
 }
@@ -70,8 +75,8 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 	// Marshal before the transaction, so avoidable work never holds the single SQLite writer.
 	rows := make([]marshalled, 0, len(writes))
 	for _, w := range writes {
-		data := ""
-		if w.Def != nil {
+		data := string(w.Document)
+		if w.Def != nil && w.Document == nil {
 			b, err := json.Marshal(w.Def)
 			if err != nil {
 				return fmt.Errorf("marshal %s: %w", w.Name, err)
@@ -91,6 +96,7 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 					Version:     int64(r.w.Version),
 					Definition:  r.data,
 					ContentHash: r.w.Hash,
+					RuntimeHash: r.w.RuntimeHash,
 					CreatedAt:   now,
 					Actor:       r.w.Actor,
 				}); err != nil {
@@ -149,20 +155,56 @@ func (db *DB) GetDefinition(name string, version int) (*model.ProcessDefinition,
 
 	raw, ok := db.defCache.Load(key)
 	if !ok {
-		row, err := db.q.GetDefinition(context.Background(), dbgen.GetDefinitionParams{Name: name, Version: int64(version)})
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("definition %q v%d: %w", name, version, ErrNotFound)
-		}
+		doc, err := db.Document(name, version)
 		if err != nil {
 			return nil, err
 		}
-		raw = row.Definition
+		def, err := decodeStored(string(doc))
+		if err != nil {
+			return nil, err
+		}
+		// Cached normalized, so a call pays for the decode alone, as before documents were stored.
+		b, err := json.Marshal(def)
+		if err != nil {
+			return nil, err
+		}
+		raw = string(b)
 		db.defCache.Store(key, raw)
 	}
 
 	// Unmarshal a fresh copy every call so callers never share mutable Task pointers.
 	var def model.ProcessDefinition
 	return &def, json.Unmarshal([]byte(raw.(string)), &def)
+}
+
+// Document is a version's definition exactly as it was applied.
+func (db *DB) Document(name string, version int) (json.RawMessage, error) {
+	row, err := db.q.GetDefinition(context.Background(), dbgen.GetDefinitionParams{Name: name, Version: int64(version)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("definition %q v%d: %w", name, version, ErrNotFound)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(row.Definition), nil
+}
+
+func (db *DB) RuntimeHash(name string, version int) (string, error) {
+	h, err := db.q.RuntimeHash(context.Background(), dbgen.RuntimeHashParams{Name: name, Version: int64(version)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("definition %q v%d: %w", name, version, ErrNotFound)
+	}
+	return h, err
+}
+
+// decodeStored reads a stored definition, which is the document as submitted, into what planBatch
+// checked: normalized, each schema baking the process `$defs` it uses. Every reader goes through it.
+func decodeStored(doc string) (*model.ProcessDefinition, error) {
+	var def model.ProcessDefinition
+	if err := json.Unmarshal([]byte(doc), &def); err != nil {
+		return nil, err
+	}
+	return &def, def.Normalize()
 }
 
 func (db *DB) LatestVersion(name string) (int, error) {
@@ -215,11 +257,11 @@ func (db *DB) ListDefinitions(created Window, req PageReq) ([]VersionedDef, Page
 		if err := s.Scan(&name, &version, &definition, &createdAt, &actor); err != nil {
 			return VersionedDef{}, err
 		}
-		var def model.ProcessDefinition
-		if err := json.Unmarshal([]byte(definition), &def); err != nil {
+		def, err := decodeStored(definition)
+		if err != nil {
 			return VersionedDef{}, err
 		}
-		return VersionedDef{Version: int(version), Def: &def, CreatedAt: toTime(createdAt), Actor: actor}, nil
+		return VersionedDef{Version: int(version), Def: def, CreatedAt: toTime(createdAt), Actor: actor}, nil
 	}, definitionCursorVals)
 }
 
@@ -392,11 +434,11 @@ func (db *DB) LoadDefinitionsOnChannel(channel string) ([]VersionedDef, error) {
 	}
 	out := make([]VersionedDef, 0, len(rows))
 	for _, r := range rows {
-		var def model.ProcessDefinition
-		if err := json.Unmarshal([]byte(r.Definition), &def); err != nil {
+		def, err := decodeStored(r.Definition)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, VersionedDef{Version: int(r.Version), Def: &def})
+		out = append(out, VersionedDef{Version: int(r.Version), Def: def})
 	}
 	return out, nil
 }

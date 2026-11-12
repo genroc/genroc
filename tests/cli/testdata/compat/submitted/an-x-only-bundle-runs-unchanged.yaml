@@ -1,0 +1,24 @@
+# x- keys are the author's and never read, so a bundle differing only in them changes nothing that
+# runs. Applying it still mints a version (specs/extension-keys.md §3); compat compares what runs.
+apply:
+  - channel: xonly_a
+    definitions:
+      - name: xonly_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, method: post, url: http://x/ship}
+            switch: end
+submit:
+  - name: xonly_proc
+    x-builder: {zoom: 2}
+    tasks:
+      - id: ship
+        x-pos: {x: 10, y: 20}
+        action: {type: fetch, method: post, url: http://x/ship, x-note: priced upstream}
+        switch: end
+run: [--from, xonly_a]
+
+expect: |
+  xonly_proc  v1  unchanged
+
+  exit 0

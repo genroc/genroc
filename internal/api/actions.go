@@ -170,6 +170,28 @@ var registry = func() []actionDef {
 			},
 		},
 		{
+			Name:    "get_definition",
+			Allow:   []Perm{PermRead},
+			Method:  http.MethodGet,
+			Path:    "/definitions/{name}",
+			Summary: "A process definition exactly as it was applied, `x-` keys included: the latest version, or the one `version` names",
+			Tags:    []string{"Definitions"},
+			Errors:  []Code{CodeNotFound},
+			PathQuery: struct {
+				Name    string `path:"name" description:"The process name"`
+				Version int    `query:"version" description:"The version to read. Omitted, the latest"`
+			}{},
+			Resp: DefinitionDocument{
+				Name: "order_pipeline", Version: 3,
+				Definition: storedDocument(`{"name":"order_pipeline","x-builder":{"zoom":1},"tasks":[{"id":"charge","switch":"end"}]}`),
+			},
+			fromHTTP: func(r *http.Request) (Envelope, error) {
+				b, _ := json.Marshal(GetDefinitionReq{Name: r.PathValue("name"), Version: intQuery(r, "version")})
+				return Envelope{Action: "get_definition", Payload: b}, nil
+			},
+			handle: func(h *Handlers, env Envelope) Reply { return h.getDefinition(env.Payload) },
+		},
+		{
 			Name:    "start_instance",
 			Allow:   []Perm{PermOperate},
 			Method:  http.MethodPost,

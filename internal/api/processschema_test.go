@@ -35,6 +35,22 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 		{"a $defs entry", `{"name":"x","tasks":[],"$defs":{"D":{"type":"object","zzz":1}}}`, true},
 		{"a schema keyword that IS allowed", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"input_schema":{"type":"object","properties":{"a":{"type":"string","minLength":1}},"required":["a"]}}`, false},
 
+		// `x-` keys are the author's own data, accepted at every structural position and on any
+		// schema node. specs/extension-keys.md.
+		{"x- at the root", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"x-builder":{"zoom":2}}`, false},
+		{"x- on a task", `{"name":"x","tasks":[{"id":"a","switch":"end","x-pos":{"x":1}}]}`, false},
+		{"x- on an action", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u","x-a":1}}]}`, false},
+		{"x- on a child_map entry", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"child_map","children":{"k":{"name":"c","x-e":1}}}}]}`, false},
+		{"x- on an on_error rule", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u"},"on_error":[{"goto":"end","x-r":1}]}]}`, false},
+		{"x- on a switch case", `{"name":"x","tasks":[{"id":"a","switch":[{"goto":"end","x-c":1}]}]}`, false},
+		{"x- on a retry", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u"},"on_error":[{"retry":{"retries":1,"x-r":1},"goto":"end"}]}]}`, false},
+		{"x- on a timeout object", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"external","timeout":{"for":"1s","x-t":1}}}]}`, false},
+		{"x- on a raise", `{"name":"x","tasks":[{"id":"a","switch":[{"raise":{"code":"c","message":"m","x-f":1}}]}]}`, false},
+		{"x- on a schema", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"input_schema":{"type":"object","x-s":1}}`, false},
+		{"x- on a nested schema", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"input_schema":{"type":"object","properties":{"a":{"type":"string","x-order":1}}}}`, false},
+		{"x- on a $defs entry", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"$defs":{"D":{"type":"object","x-d":1}}}`, false},
+		{"a key that only looks like x-", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"x_builder":1}`, true},
+
 		// The mirror-image bug: a schema stricter than the server underlines working code.
 		{"an output shape is free-form", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"output":{"anything":"$: 1","nested":{"k":"v"}}}`, false},
 		{"a task body is free-form", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u","body":{"any":"thing"}}}]}`, false},

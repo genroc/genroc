@@ -689,8 +689,8 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		if err != nil {
 			return nil, fmt.Errorf("load definition %s v%d: %w", name, version, err)
 		}
-		def := &model.ProcessDefinition{}
-		if err := json.Unmarshal([]byte(row.Definition), def); err != nil {
+		def, err := decodeStored(row.Definition)
+		if err != nil {
 			return nil, fmt.Errorf("decode definition %s v%d: %w", name, version, err)
 		}
 		defCache[key] = def

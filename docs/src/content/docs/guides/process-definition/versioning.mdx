@@ -16,6 +16,16 @@ latest: hello v1 -> v2 (new)
 
 Definitions are compared as a normalized json. If you apply an already existing
 version it's not duplicated but reused (so the version can also go down if you revert a change).
+The json is the definition as you wrote it, so changing an `x-` key, or rewriting `retry: 3` as
+`retry: { retries: 3 }`, is a new version. Apply says when nothing that runs changed:
+
+```sh
+> genctl apply
+latest: hello v2 -> v3 (new, same runtime as v2)
+```
+
+Instances on v2 behave exactly as they would on v3, and `genctl upgrade` moves them over with
+nothing to reconcile.
 
 ```sh
 > genctl apply

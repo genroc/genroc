@@ -87,3 +87,21 @@ tasks:
 
 Cases are evaluated top to bottom and the first one that evaluates to true wins.
 The last one always needs to be a "catch-all" - without the `case` expression (we'll explain expressions in the next chapter).
+
+## Your own data: `x-` keys
+
+A key starting with `x-` is yours. Genroc accepts it anywhere in the definition's structure,
+schemas included, and never reads it, so a tool that generates definitions can keep its data in
+them, a layout for example:
+
+```genroc
+name: process-name
+x-builder: { zoom: 2 }
+tasks:
+  - id: task1
+    x-position: { x: 120, y: 40 }
+    switch: end
+```
+
+A definition is stored as you applied it, so [`GET /api/definitions/{name}`](../../reference/rest-api/definitions.md)
+returns these keys too. Inside a value, such as an `output` or `headers`, an `x-` key is ordinary data.

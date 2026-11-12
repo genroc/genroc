@@ -273,6 +273,27 @@ type TickReq struct {
 	AdvanceMs int64 `json:"advance_ms"` // shift the server clock forward (milliseconds) before ticking (testing only)
 }
 
+type GetDefinitionReq struct {
+	Name    string `json:"name"`
+	Version int    `json:"version"` // 0 = the latest
+}
+
+// DefinitionDocument is one version as it was applied, so it can be applied again unchanged.
+type DefinitionDocument struct {
+	Name       string         `json:"name"`
+	Version    int            `json:"version"`
+	Definition storedDocument `json:"definition"`
+}
+
+// storedDocument is served byte for byte, `x-` keys included, and documented as the type it is.
+type storedDocument json.RawMessage
+
+func (d storedDocument) MarshalJSON() ([]byte, error) { return json.RawMessage(d).MarshalJSON() }
+
+func (storedDocument) JSONSchemaBytes() ([]byte, error) {
+	return []byte(`{"$ref":"#/$defs/ModelProcessDefinition"}`), nil
+}
+
 type DefinitionSummary struct {
 	Name      string `json:"name"`
 	Version   int    `json:"version"`
@@ -292,6 +313,9 @@ type BatchApplyResult struct {
 	// Previous is the REQUESTED channel's prior pointer, 0 for none: what tells a rollback
 	// (nothing saved, pointer moved back) from a no-op.
 	Previous int `json:"previous"`
+	// SameRuntime: a new version that runs exactly as Previous did -- only `x-` keys or spelling
+	// differ -- so upgrading instances onto it has nothing to reconcile.
+	SameRuntime bool `json:"same_runtime"`
 }
 
 // InstanceSummaryResp is the instance list row; it omits the context so a listing stays light.

@@ -62,10 +62,11 @@ func runApplyCmd(server string, args []string) {
 	}
 
 	var resp []struct {
-		Name     string `json:"name"`
-		Version  int    `json:"version"`
-		Saved    bool   `json:"saved"`
-		Previous int    `json:"previous"`
+		Name        string `json:"name"`
+		Version     int    `json:"version"`
+		Saved       bool   `json:"saved"`
+		Previous    int    `json:"previous"`
+		SameRuntime bool   `json:"same_runtime"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		fatal("apply: %v", err)
@@ -86,6 +87,9 @@ func runApplyCmd(server string, args []string) {
 			state = "new"
 		case r.Previous == r.Version:
 			state = "current"
+		}
+		if r.SameRuntime {
+			state += fmt.Sprintf(", same runtime as v%d", r.Previous)
 		}
 		if *checkOnly {
 			state += ", check only"

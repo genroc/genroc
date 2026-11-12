@@ -109,6 +109,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/definitions/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A process definition exactly as it was applied, `x-` keys included: the latest version, or the one `version` names */
+        get: operations["get_definition"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/external-tasks/claim": {
         parameters: {
             query?: never;
@@ -441,6 +458,7 @@ export interface components {
         ApiBatchApplyResult: {
             name: string;
             previous: number;
+            same_runtime: boolean;
             saved: boolean;
             version: number;
         };
@@ -495,6 +513,11 @@ export interface components {
             label?: string;
             perms: string[] | null;
             token: string;
+        };
+        ApiDefinitionDocument: {
+            definition: components["schemas"]["ModelProcessDefinition"];
+            name: string;
+            version: number;
         };
         ApiDefinitionSummary: {
             actor?: string;
@@ -1521,6 +1544,59 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+        };
+    };
+    get_definition: {
+        parameters: {
+            query?: {
+                /** @description The version to read. Omitted, the latest */
+                version?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The process name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiDefinitionDocument"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -210,6 +210,16 @@ Pool size is set by `--pg-max-open-conns` (default 50, idle = half). Size a work
 
 `Flush`'s Postgres path (`SELECT pg_current_xact_id()`, no row) has no automated disk test: `pg_stat_wal` is async and cluster-wide, so a before/after assertion passes with the flush removed. Check by hand (PG ≤ 17): after `select pg_stat_reset_shared('wal')`, twenty `begin; select pg_current_xact_id(); commit;` must move `pg_stat_wal.wal_sync` (0 → 7 when measured) and twenty `begin; select 1; commit;` must not.
 
+### A stored definition is the document as submitted
+
+`process_definitions.definition` holds what was applied, `x-` keys and authored spellings
+included (specs/extension-keys.md). Every reader goes through `decodeStored`, which normalizes:
+the engine resolves a schema's `$ref` into the process `$defs` only once they are baked in, and a
+reader decoding the column directly breaks every definition using a shared def. `defCache` holds
+the normalized text, so a load still pays for the decode alone. `content_hash` is over that document
+and decides the version; `runtime_hash` (migration 050) is over what runs, and only says whether a
+new version runs as the one before.
+
 ### Adding a query
 
 1. Add to `internal/db/queries.sql` with annotation `-- name: QueryName :one/:many/:exec`

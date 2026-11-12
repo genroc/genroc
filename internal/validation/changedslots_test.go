@@ -24,7 +24,16 @@ var notASlot = map[string]string{
 		"are the report, and a whole-list diff would say nothing about where an instance sits. " +
 		"Its ORDER is the one thing no per-task comparison can see, and `reordered` reports " +
 		"that under the `tasks` address",
+	"ProcessDefinition.document": "the text the fields were decoded from; what differs in it is " +
+		"either a field, compared as one, or an `x-` key, which is never read",
+	"ProcessDefinition.unknown": unknownKeys,
+	"Task.unknown":              unknownKeys,
+	"Action.unknown":            unknownKeys,
+	"ChildEntry.unknown":        unknownKeys,
 }
+
+const unknownKeys = "keys a decoder had no field for, refused at the door, so empty on any definition " +
+	"that registered"
 
 func assertEveryFieldIsASlot[T any](t *testing.T, typeName string, covered map[string]bool) {
 	t.Helper()

@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"genroc/internal/extension"
 	"sort"
 	"strings"
 
@@ -198,7 +199,7 @@ func rejectUnknownFields(where string, data []byte, allowed map[string]bool) err
 	}
 	keys := make([]string, 0, len(probe))
 	for k := range probe {
-		if !allowed[k] {
+		if !allowed[k] && !extension.Is(k) {
 			keys = append(keys, k)
 		}
 	}

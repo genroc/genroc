@@ -33,14 +33,11 @@ One line per item. The argument lives in `specs/`; this is the index. Reproduced
   needs a pass-through task to publish a non-null id (specs/guard-narrowing.md)
 - [] **shared `config_schema`** — every definition calling one service repeats the same block;
   nothing declares it once
-- [] **`x-` extension keys** — keys prefixed `x-` accepted anywhere in a definition and never read
-  by the engine, as in OpenAPI, so tools can keep their data in it; every unknown key is refused
-  today (`unknown field "x-builder"`), so a workflow builder keeps its layout in a separate file
-  and generates the `.genroc.yaml`. Open: inside schemas too (the keyword allowlist refuses them);
-  kept and returned by the API (genroc-ui could draw a layout) or dropped at decode; whether a
-  change only to `x-` keys makes a new version
 
 ## Shipped
+- [x] **`x-` extension keys** — accepted wherever genroc's structure is and never read; stored as
+      submitted and read back by `GET /definitions/{name}`; a version that only changes them says
+      it runs as the one before (specs/extension-keys.md)
 - [x] **docs: running the server** — production (database, durability, health, shutdown, logs),
       authentication and genroc-ui guides
 - [x] **instance retention** — `--instance-retention` (opt-in) deletes concluded trees with their

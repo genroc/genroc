@@ -169,7 +169,7 @@ test("POST /definitions/validate — answers what the apply then does, and write
   expect(real.error).toBeUndefined();
   // Had the dry run written, this apply would find v2 stored (saved: false) or staging moved.
   expect(dry.data, "the dry run's answer is the apply's, so it wrote nothing").toEqual(real.data);
-  expect(real.data).toEqual([{ name, version: 2, saved: true, previous: 0 }]);
+  expect(real.data).toEqual([{ name, version: 2, saved: true, previous: 0, same_runtime: false }]);
 });
 
 test("POST /definitions/validate — refuses exactly what apply refuses", async () => {

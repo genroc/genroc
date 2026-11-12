@@ -90,6 +90,37 @@ test("apply — reports the move the channel made, not just whether a version wa
   ).toBe(`latest: ${name} v2 -> v1 (existing)`);
 });
 
+test("apply — an x- only change is a new version that says it runs as the one before", () => {
+  const name = uid("proc");
+  const layout = (zoom: number) => writeDefs([{ ...switchDef(name), "x-builder": { zoom } }]);
+
+  expect(runCli(bin, ["apply", "-f", layout(1)]).stdout.trim()).toBe(`latest: ${name} - -> v1 (new)`);
+  expect(
+    runCli(bin, ["apply", "-f", layout(2)]).stdout.trim(),
+    "the version is new, and the line says nothing that runs changed, so upgrading onto it is free",
+  ).toBe(`latest: ${name} v1 -> v2 (new, same runtime as v1)`);
+  expect(runCli(bin, ["apply", "-f", layout(2)]).stdout.trim()).toBe(`latest: ${name} v2 (current)`);
+});
+
+test("apply — a root x- key holds a YAML anchor the tasks merge", () => {
+  const name = uid("proc");
+  const file = join(tmpdir(), `${name}.genroc.yaml`);
+  writeFileSync(file, [
+    `name: ${name}`,
+    "x-defaults: &call { type: fetch, method: post, timeout: 5s }",
+    "tasks:",
+    "  - id: a",
+    "    action: { <<: *call, url: http://x.invalid/a }",
+    "    switch: next",
+    "  - id: b",
+    "    action: { <<: *call, url: http://x.invalid/b }",
+    "    switch: end",
+    "",
+  ].join("\n"), "utf8");
+  const r = runCli(bin, ["apply", "--check-only", "-f", file]);
+  expect(r.stderr, "a top-level anchor needs a key to hang off, and an x- key is one").toBe("");
+});
+
 test("apply --channel — `previous` is that channel's pointer, not the default's", () => {
   const name = uid("proc");
   const a = writeDefs([switchDef(name)]);
@@ -208,7 +239,7 @@ test("apply --check-only — reports what an apply would do without registering 
   const j = runCli(bin, ["apply", "--check-only", "--json", "-f", file]);
   expect(j.ok, j.stderr).toBe(true);
   expect(JSON.parse(j.stdout), "--json is the answer apply --json would give").toEqual([
-    { name, version: 1, saved: true, previous: 0 },
+    { name, version: 1, saved: true, previous: 0, same_runtime: false },
   ]);
   expect(defs(["--since", "1h"]).some((d) => d.name === name)).toBe(false);
 });

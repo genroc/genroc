@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"genroc/internal/numeric"
 	"os"
 	"sort"
 	"time"
@@ -103,6 +104,24 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 	return results, nil
 }
 
+func (h *Handlers) getDefinition(payload json.RawMessage) Reply {
+	req, err := decodeBody[GetDefinitionReq](payload)
+	if err != nil {
+		return errReply(err)
+	}
+	version := req.Version
+	if version == 0 {
+		if version, err = h.db.LatestVersion(req.Name); err != nil {
+			return errReply(err)
+		}
+	}
+	doc, err := h.db.Document(req.Name, version)
+	if err != nil {
+		return errReply(err)
+	}
+	return okReply(DefinitionDocument{Name: req.Name, Version: version, Definition: storedDocument(doc)})
+}
+
 // planBatch is every check an apply makes, and writes nothing: a dry run is this without the
 // commit. Normalizes defs in place.
 func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor string) ([]db.DefinitionWrite, []BatchApplyResult, error) {
@@ -153,9 +172,20 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 		// because that is the only place it still exists -- ApplyDefinitions upserts it.
 		previous, _ := h.db.GetChannel(def.Name, channel)
 
-		// Content dedup: compute hash and look up any existing version with identical content.
+		// A version is a document, so the dedup hash is over the document as submitted; the
+		// runtime hash, over the decoded model, says whether anything that runs moved.
+		// specs/extension-keys.md §3.
 		rawNew, _ := json.Marshal(def)
-		hash := contentHash(rawNew, newDeps)
+		runtimeHash := contentHash(rawNew, newDeps)
+		doc := def.Document()
+		if doc == nil {
+			doc = rawNew
+		}
+		canonical, err := sortedKeys(doc)
+		if err != nil {
+			return nil, nil, invalid("%s: %w", def.Name, err)
+		}
+		hash := contentHash(canonical, newDeps)
 		if v, err := h.db.FindVersionByHash(def.Name, hash); err == nil {
 			// Actor even with no definition row: ApplyDefinitions still upserts the pointer
 			// (CLAUDE.md).
@@ -165,6 +195,14 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 			batchVersions[def.Name] = v
 			results = append(results, BatchApplyResult{Name: def.Name, Version: v, Previous: previous})
 			continue
+		}
+		sameRuntime := false
+		if previous != 0 {
+			prev, err := h.db.RuntimeHash(def.Name, previous)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", def.Name, err)
+			}
+			sameRuntime = prev == runtimeHash
 		}
 
 		// Build a validation copy with baked-in versions for validation.
@@ -185,12 +223,13 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 		}
 
 		plan = append(plan, db.DefinitionWrite{
-			Def: def, Name: def.Name, Version: newVersion, Deps: newDeps, Hash: hash,
+			Def: def, Document: doc, Name: def.Name, Version: newVersion, Deps: newDeps,
+			Hash: hash, RuntimeHash: runtimeHash,
 			Channels: h.channelsFor(def.Name, channel), Actor: actor,
 		})
 		batchVersions[def.Name] = newVersion
 		results = append(results, BatchApplyResult{
-			Name: def.Name, Version: newVersion, Saved: true, Previous: previous,
+			Name: def.Name, Version: newVersion, Saved: true, Previous: previous, SameRuntime: sameRuntime,
 		})
 	}
 
@@ -377,6 +416,15 @@ func applyDepsToDefCopy(def *model.ProcessDefinition, deps []db.DependencyRow) *
 		}
 	}
 	return &copy
+}
+
+// Numbers stay as written: through float64, documents differing in a long id compare equal.
+func sortedKeys(doc []byte) ([]byte, error) {
+	var v any
+	if err := numeric.Decode(doc, &v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
 }
 
 // contentHash is a SHA256 digest over rawJSON and the sorted deps, uniquely identifying
