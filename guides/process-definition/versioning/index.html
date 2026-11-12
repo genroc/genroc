@@ -158,7 +158,13 @@ and if it&#39;s a new one automatically bumps up the version.</p>
 <p>Commands are assuming <code>definitions</code> glob in <code>.genroc</code>. If you don&#39;t have that, you can use <code>-f</code> to specify definition file(s).</p>
 </blockquote>
 <p>Definitions are compared as a normalized json. If you apply an already existing
-version it&#39;s not duplicated but reused (so the version can also go down if you revert a change).</p>
+version it&#39;s not duplicated but reused (so the version can also go down if you revert a change).
+The json is the definition as you wrote it, so changing an <code>x-</code> key, or rewriting <code>retry: 3</code> as
+<code>retry: { retries: 3 }</code>, is a new version. Apply says when nothing that runs changed:</p>
+<pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl apply</span></span>
+<span class="line"><span style="color:#E07A4F">latest:</span><span style="color:#8FB996"> hello</span><span style="color:#8FB996"> v2</span><span style="color:#D6D6D2"> -</span><span style="color:#E07A4F">&gt;</span><span style="color:#8FB996"> v3</span><span style="color:#D6D6D2"> (new, </span><span style="color:#8FB996">same</span><span style="color:#8FB996"> runtime</span><span style="color:#8FB996"> as</span><span style="color:#8FB996"> v2</span><span style="color:#D6D6D2">)</span></span></code></pre>
+<p>Instances on v2 behave exactly as they would on v3, and <code>genctl upgrade</code> moves them over with
+nothing to reconcile.</p>
 <pre class="astro-code genroc" style="background-color:#1d1d1d;color:#d6d6d2;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#E07A4F">&gt;</span><span style="color:#D6D6D2"> genctl apply</span></span>
 <span class="line"><span style="color:#E07A4F">latest:</span><span style="color:#8FB996"> hello</span><span style="color:#8FB996"> v2</span><span style="color:#D6D6D2"> -</span><span style="color:#E07A4F">&gt;</span><span style="color:#8FB996"> v1</span><span style="color:#D6D6D2"> (existing)</span></span></code></pre>
 <p>An apply moves a channel pointer, so that move is what the line reports. <code>new</code> minted a
