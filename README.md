@@ -1,6 +1,8 @@
 # genroc
 
 A durable process orchestrator. You describe a process as a set of tasks in YAML
+
+[![Genroc on StartupScores](https://startupscores.com/badge/genroc.svg?style=shield&v=combo&theme=dark)](https://startupscores.com/open-source/genroc)
 (or JSON); genroc runs each instance to completion, surviving worker crashes,
 restarts, and long waits without holding a thread or losing state.
 
