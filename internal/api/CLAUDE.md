@@ -171,6 +171,12 @@ Two things follow, and both are silent when broken:
 `db.ApplyDefinitions` judges nothing — it writes what it is given. Validation belongs to the
 planning pass alone.
 
+**A refusal about one definition goes through `refuse` (an `inDefinition`)**, which keeps the
+`<name>: ` prose and puts the definition's index on every `fields` entry. `fieldsOf` sends no field
+without one, since a bare field would read as definition 0, so a check that formats the name into
+the message instead still reads right and silently loses its fields — genctl then prints prose
+where it printed `file:line:col` (specs/language-server.md §7b).
+
 There is deliberately **no cascade**: applying a child does not re-register its parents.
 A parent keeps the child version baked into it until it is applied again, and `status`
 reports the resulting drift as a stale ref. Re-introducing an auto-update would mean

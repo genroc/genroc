@@ -205,7 +205,8 @@ func checkChildContract(prefix string, child *model.ProcessDefinition, childVers
 	}
 	sf, err := Generate(child)
 	if err != nil {
-		return fmt.Errorf("%s: infer %q v%d: %w", prefix, child.Name, childVersion, err)
+		// %v: the diagnostics are addresses in the child, and would be placed in the caller's file.
+		return fmt.Errorf("%s: infer %q v%d: %v", prefix, child.Name, childVersion, err)
 	}
 	if err := checkDeclaredRaises(prefix, sf, child.Name, childVersion, raises); err != nil {
 		return err

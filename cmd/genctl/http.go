@@ -272,9 +272,10 @@ type serverError struct {
 }
 
 type serverField struct {
-	Field   string `json:"field"`
-	Rule    string `json:"rule"`
-	Message string `json:"message"`
+	DefinitionIndex int    `json:"definition_index"`
+	Field           string `json:"field"`
+	Rule            string `json:"rule"`
+	Message         string `json:"message"`
 }
 
 func (e *serverError) Error() string { return "server: " + e.Message }

@@ -100,27 +100,19 @@ func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 
 // locate matches on the slot address, never on prose. A missing REQUIRED field has no node of its
 // own, so the search falls back to the enclosing path that does.
-func locate(docs []sources.Doc, address string) (string, defdoc.Span, bool) {
-	// Exactly one document may claim the address: two that both resolve it are two processes
-	// with the same task id, and pointing at either would be a guess.
-	var file string
-	var span defdoc.Span
-	found := 0
-	for _, d := range docs {
-		if d.Index == nil {
-			continue
-		}
+func locate(d sources.Doc, address string) (defdoc.Span, bool) {
+	if d.Index == nil {
+		return defdoc.Span{}, false
+	}
+	for {
 		if sp, ok := d.Index.Span(address); ok {
-			file, span, found = d.File, sp, found+1
+			return sp, true
 		}
+		if address == "" {
+			return defdoc.Span{}, false
+		}
+		address = defdoc.ParentPath(address)
 	}
-	if found == 1 {
-		return file, span, true
-	}
-	if parent := defdoc.ParentPath(address); parent != "" {
-		return locate(docs, parent)
-	}
-	return "", defdoc.Span{}, false
 }
 
 // takeFileValues gives `-f` every argument up to the next flag. Not a flag.Value: the stdlib hands
@@ -158,19 +150,24 @@ func looksLikePath(s string) bool {
 }
 
 // fatalLocated prints one file:line per failing slot, falling back to the message for a failure
-// with no per-field detail or a slot no source claims.
+// with no per-field detail. A field's definition index is into docs, which are the request's order.
 func fatalLocated(docs []sources.Doc, err error) {
 	var se *serverError
 	if !errors.As(err, &se) || len(se.Fields) == 0 {
 		fatal("%v", err)
 	}
 	for _, f := range se.Fields {
-		file, span, ok := locate(docs, f.Field)
-		if !ok {
+		if f.DefinitionIndex < 0 || f.DefinitionIndex >= len(docs) {
 			fmt.Fprintf(os.Stderr, "genctl: %s: %s\n", f.Field, f.Message)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "genctl: %s:%d:%d: %s\n", file, span.Value.Line, span.Value.Col, f.Message)
+		doc := docs[f.DefinitionIndex]
+		span, ok := locate(doc, f.Field)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "genctl: %s: %s\n", doc.File, f.Message)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "genctl: %s:%d:%d: %s\n", doc.File, span.Value.Line, span.Value.Col, f.Message)
 	}
 	os.Exit(1)
 }

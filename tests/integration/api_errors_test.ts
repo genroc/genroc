@@ -133,10 +133,11 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
   mock.stop();
 });
 
-type Field = { field: string; rule: string; param?: string; message: string };
+type Field = { definition_index: number; field: string; rule: string; param?: string; message: string };
 
 test("api errors — a definition validation failure reports the offending field", async () => {
-  // `fields` keeps per-field detail addressable, so a client need not parse English.
+  // `fields` keeps per-field detail addressable, so a client need not parse English; `definition_index`
+  // is the position of the submitted definition the address is in.
   const { status, body } = await errorOf(`/definitions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -146,7 +147,7 @@ test("api errors — a definition validation failure reports the offending field
   expect(body.code).toBe("invalid");
   const fields = body.fields as Field[];
   expect(fields).toEqual([
-    { field: "tasks", rule: "min", param: "1", message: "tasks must have at least 1 item(s)" },
+    { definition_index: 0, field: "tasks", rule: "min", param: "1", message: "tasks must have at least 1 item(s)" },
   ]);
 });
 
@@ -167,7 +168,7 @@ test("api errors — a nested validation failure carries the indexed path to the
   expect(status).toBe(400);
   expect(body.code).toBe("invalid");
   expect(body.fields as Field[]).toEqual([
-    { field: "tasks[1].id", rule: "required", message: "id is required" },
+    { definition_index: 0, field: "tasks[1].id", rule: "required", message: "id is required" },
   ]);
 });
 

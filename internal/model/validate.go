@@ -950,10 +950,13 @@ func PathOf(err error) string { return schema.PathOf(err) }
 // FieldError is one failed struct-tag rule. Field is the JSON path as the client wrote it:
 // "tasks[0].id", not "ProcessDefinition.tasks[0].id".
 type FieldError struct {
-	Field   string `json:"field"`
-	Rule    string `json:"rule"`
-	Param   string `json:"param,omitempty"`
-	Message string `json:"message"`
+	// DefinitionIndex is the position, in the request's `definitions`, of the definition the field is
+	// in: an address alone is in every one (the root, a shared task id), and a name may be missing.
+	DefinitionIndex int    `json:"definition_index"`
+	Field           string `json:"field"`
+	Rule            string `json:"rule"`
+	Param           string `json:"param,omitempty"`
+	Message         string `json:"message"`
 }
 
 // ValidationError keeps the validator's per-field detail; Error() joins it into prose.

@@ -160,6 +160,13 @@ All built; the feature list is at the top.
   (`tasks.a.action.url`). Checks that know the field (`url`, `method`, `headers`, `query`,
   `accepted_status`, `over`, `for`, `until`, `timeout`) set it, and the rest fall back to the
   address. The API's `fields[].field` carries the location.
+- **`fields[].definition_index` places every field in a definition, always.** An address is a
+  path within one definition, and of several the root or a shared task id is in every one; an index
+  places a definition with no name too. genctl's documents are the request's order, so the index
+  is the file. An address with no definition is not sent — a stored child that no longer analyses
+  is reported as prose, its addresses being its own. Each definition is decoded on its own, so one
+  that does not decode is a field at its root (rule `decode`); any failure still refuses the batch.
+  A name applied twice is refused first, one field per copy.
 - **`Check` returns the partial view it built**, and `SlotContexts` reads that view, not what
   `Generate` would accept. So `genctl schema context`, hover and completion answer over a document
   that would be refused. The strict decode is a verdict, and the diagnostics path is the only one

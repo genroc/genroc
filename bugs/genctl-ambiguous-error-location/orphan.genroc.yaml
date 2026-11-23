@@ -1,0 +1,9 @@
+# Refused at the document root (field ""): "orphan" is unreachable.
+name: bug-located-orphan
+tasks:
+  - id: a
+    action: { type: delay, for: 10 }
+    switch: end
+  - id: orphan
+    action: { type: delay, for: 10 }
+    switch: end

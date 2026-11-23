@@ -933,6 +933,7 @@ export interface components {
             message: string;
         };
         ModelFieldError: {
+            definition_index: number;
             field: string;
             message: string;
             param?: string;

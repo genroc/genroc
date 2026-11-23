@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	"genroc/internal/db"
 	"genroc/internal/model"
@@ -144,9 +145,57 @@ func codeOf(err error) Code {
 	return CodeInternal
 }
 
-// fieldsOf looks through wrapping so a handler's "%s: %w" prefix does not lose the detail;
-// inference reports the same way. specs/language-server.md §2.
+// inDefinition says which submitted definition err is about. The prose leads with its name, as it
+// always did, or with its index when it has none.
+type inDefinition struct {
+	index int
+	name  string
+	err   error
+}
+
+func (e inDefinition) Error() string {
+	if e.name == "" {
+		return fmt.Sprintf("definitions[%d]: %v", e.index, e.err)
+	}
+	return e.name + ": " + e.err.Error()
+}
+
+func (e inDefinition) Unwrap() error { return e.err }
+
+// refusals is several definitions refused at once, each placed by its own index.
+type refusals []inDefinition
+
+func (r refusals) Error() string {
+	msgs := make([]string, len(r))
+	for i, in := range r {
+		msgs[i] = in.Error()
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// fieldsOf sends no address without its definition: it would read as definition 0.
 func fieldsOf(err error) []model.FieldError {
+	var each refusals
+	if !errors.As(err, &each) {
+		var one inDefinition
+		if !errors.As(err, &one) {
+			return nil
+		}
+		each = refusals{one}
+	}
+	var fields []model.FieldError
+	for _, in := range each {
+		for _, f := range addressedFields(in.err) {
+			f.DefinitionIndex = in.index
+			fields = append(fields, f)
+		}
+	}
+	return fields
+}
+
+// addressedFields looks through wrapping so a handler's "%s: %w" prefix does not lose the detail;
+// inference reports the same way. specs/language-server.md §2.
+func addressedFields(err error) []model.FieldError {
 	var ve *model.ValidationError
 	if errors.As(err, &ve) {
 		return ve.Fields

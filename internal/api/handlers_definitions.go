@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"genroc/internal/numeric"
 	"os"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"genroc/internal/db"
@@ -83,12 +85,32 @@ func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
 	return okReply(results)
 }
 
+// decodePutDefinitionsReq decodes each definition on its own, so a failure knows which one it is.
+// Any failure still refuses the whole request.
 func decodePutDefinitionsReq(raw json.RawMessage) (PutDefinitionsReq, error) {
-	req, err := decodeBody[PutDefinitionsReq](raw)
+	var wire struct {
+		PutDefinitionsReq
+		Definitions []json.RawMessage `json:"definitions"` // shadows the embedded field
+	}
+	if err := numeric.DecodeStrict(raw, &wire); err != nil {
+		return PutDefinitionsReq{}, invalid("decode: %w", err)
+	}
+	req := wire.PutDefinitionsReq
 	if req.Channel == "" {
 		req.Channel = defaultChannel
 	}
-	return req, err
+	req.Definitions = make([]model.ProcessDefinition, len(wire.Definitions))
+	var refused refusals
+	for i, doc := range wire.Definitions {
+		if err := numeric.DecodeStrict(doc, &req.Definitions[i]); err != nil {
+			field := model.FieldError{Rule: "decode", Message: err.Error()}
+			refused = append(refused, inDefinition{i, "", &model.ValidationError{Fields: []model.FieldError{field}}})
+		}
+	}
+	if len(refused) > 0 {
+		return req, invalid("%w", refused)
+	}
+	return req, nil
 }
 
 // applyBatch plans, then commits in one transaction: nothing in planning may write, nothing
@@ -122,19 +144,59 @@ func (h *Handlers) getDefinition(payload json.RawMessage) Reply {
 	return okReply(DefinitionDocument{Name: req.Name, Version: version, Definition: storedDocument(doc)})
 }
 
+// refuseRepeatedNames runs first: everything after it, topoSort included, keys a definition by
+// name, and a second one would replace the first in silence. A missing name is Validate's.
+func refuseRepeatedNames(defs []*model.ProcessDefinition) error {
+	count := map[string]int{}
+	for _, d := range defs {
+		count[d.Name]++
+	}
+	var refused refusals
+	var msgs []string
+	for i, d := range defs {
+		n := count[d.Name]
+		if d.Name == "" || n < 2 {
+			continue
+		}
+		times := fmt.Sprintf("%d times", n)
+		if n == 2 {
+			times = "twice"
+		}
+		msg := fmt.Sprintf("definition %q appears %s in this apply", d.Name, times)
+		if !slices.Contains(msgs, msg) {
+			msgs = append(msgs, msg)
+		}
+		field := model.FieldError{Field: "name", Rule: "unique", Message: msg}
+		refused = append(refused, inDefinition{i, d.Name, &model.ValidationError{Fields: []model.FieldError{field}}})
+	}
+	if len(refused) == 0 {
+		return nil
+	}
+	// The prose says each name once; the fields place every copy.
+	return &Error{Code: CodeInvalid, Message: strings.Join(msgs, "; "), Err: refused}
+}
+
 // planBatch is every check an apply makes, and writes nothing: a dry run is this without the
 // commit. Normalizes defs in place.
 func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor string) ([]db.DefinitionWrite, []BatchApplyResult, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
+	index := make(map[*model.ProcessDefinition]int, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
+		index[&defs[i]] = i
+	}
+	refuse := func(def *model.ProcessDefinition, err error) error {
+		return invalid("%w", inDefinition{index[def], def.Name, err})
 	}
 
+	if err := refuseRepeatedNames(ptrs); err != nil {
+		return nil, nil, err
+	}
 	// Before topoSort: a null `tasks` entry decodes to a nil *Task, which every walk below
 	// dereferences.
 	for _, def := range ptrs {
 		if err := def.Validate(); err != nil {
-			return nil, nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, refuse(def, err)
 		}
 	}
 
@@ -155,7 +217,7 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 	for _, def := range sorted {
 		// Normalize schemas to canonical form before any comparison or storage.
 		if err := def.Normalize(); err != nil {
-			return nil, nil, invalid("%s: normalize: %w", def.Name, err)
+			return nil, nil, refuse(def, fmt.Errorf("normalize: %w", err))
 		}
 
 		// Server assigns the next version; user-supplied value is ignored.
@@ -183,7 +245,7 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 		}
 		canonical, err := sortedKeys(doc)
 		if err != nil {
-			return nil, nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, refuse(def, err)
 		}
 		hash := contentHash(canonical, newDeps)
 		if v, err := h.db.FindVersionByHash(def.Name, hash); err == nil {
@@ -211,10 +273,10 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 		// Invalid, not internal. ResolveConfig below stays unclassified: an unset GENROC_*
 		// var is the server's environment, not the request.
 		if _, err := validation.Generate(defForValidation); err != nil {
-			return nil, nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, refuse(def, err)
 		}
 		if err := validation.ValidateChildProcessRefs(defForValidation, newVersion, getter); err != nil {
-			return nil, nil, invalid("%s: %w", def.Name, err)
+			return nil, nil, refuse(def, err)
 		}
 		// Reject if a required config var is unset in the server environment, the
 		// same rule ResolveConfig enforces at instance start.

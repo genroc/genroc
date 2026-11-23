@@ -172,6 +172,68 @@ test("POST /definitions/validate — answers what the apply then does, and write
   expect(real.data).toEqual([{ name, version: 2, saved: true, previous: 0, same_runtime: false }]);
 });
 
+// Without it a client applying several definitions cannot tell which one an address belongs to:
+// `""` and a shared task id are in every one of them, and a definition may have no name.
+test("POST /definitions/validate — each field gives the index of the definition it is in", async () => {
+  const ok = `named_ok_${crypto.randomUUID().slice(0, 8)}`;
+  const orphan = `named_orphan_${crypto.randomUUID().slice(0, 8)}`;
+  const delay = (forValue: unknown) => ({ id: "a", action: { type: "delay", for: forValue }, switch: "end" });
+  const { error } = await dryRun([
+    { name: ok, tasks: [delay(10)] },
+    { name: orphan, tasks: [delay(10), { ...delay(10), id: "orphan" }] },
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fields = (error as any)?.fields;
+  expect(fields, JSON.stringify(error)).toEqual([expect.objectContaining({ definition_index: 1, field: "" })]);
+});
+
+test("POST /definitions/validate — a definition with no name is still placed, by its index", async () => {
+  const nameless = { tasks: [{ id: "route", switch: "end" }] };
+  const { error } = await dryRun([switchOnly(`nameless_ok_${crypto.randomUUID().slice(0, 8)}`), nameless]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = error as any;
+  expect(body?.fields, JSON.stringify(error)).toEqual([
+    expect.objectContaining({ definition_index: 1, field: "name", rule: "required" }),
+  ]);
+  expect(body?.error, "the prose has no name to lead with either").toBe("definitions[1]: name is required");
+});
+
+test("PUT /definitions — every definition that does not decode is named, and nothing is stored", async () => {
+  const ok = `decode_ok_${crypto.randomUUID().slice(0, 8)}`;
+  const { error } = await apply([
+    { ...switchOnly(`decode_a_${crypto.randomUUID().slice(0, 8)}`), tasks: [{ id: "a", swtich: "end" }] },
+    switchOnly(ok),
+    { ...switchOnly(`decode_c_${crypto.randomUUID().slice(0, 8)}`), tasks: "a" },
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fields = (error as any)?.fields;
+  expect(fields, "one strict decode of the whole body stopped at the first, and named no definition").toEqual([
+    { definition_index: 0, field: "", rule: "decode", message: 'json: unknown field "swtich"' },
+    expect.objectContaining({ definition_index: 2, field: "", rule: "decode" }),
+  ]);
+  const stored = await client.GET("/definitions/{name}", { params: { path: { name: ok } } });
+  expect(stored.response.status, "a decode failure refuses the whole batch").toBe(404);
+});
+
+test("PUT /definitions — two definitions with one name are refused, rather than one dropped", async () => {
+  const name = `twice_${crypto.randomUUID().slice(0, 8)}`;
+  const { error } = await apply([
+    { name, tasks: [{ id: "a", action: { type: "delay", for: "x" }, switch: "end" }] },
+    switchOnly(`twice_other_${crypto.randomUUID().slice(0, 8)}`),
+    { name, tasks: [{ id: "a", action: { type: "delay", for: 10 }, switch: "end" }] },
+  ]);
+  const message = `definition "${name}" appears twice in this apply`;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = error as any;
+  expect(body?.error, "the first was skipped in silence, invalid as it was").toBe(message);
+  expect(body?.fields, "each copy is placed, by its own index").toEqual([
+    { definition_index: 0, field: "name", rule: "unique", message },
+    { definition_index: 2, field: "name", rule: "unique", message },
+  ]);
+  const stored = await client.GET("/definitions/{name}", { params: { path: { name } } });
+  expect(stored.response.status, "nothing of the batch was stored").toBe(404);
+});
+
 test("POST /definitions/validate — refuses exactly what apply refuses", async () => {
   const child = `dryrun_child_${crypto.randomUUID()}`;
   await apply([switchOnly(child)], "latest");

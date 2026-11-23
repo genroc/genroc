@@ -1,6 +1,7 @@
 package validationtest
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -521,4 +522,24 @@ func TestValidateChildProcessRefs_ChildAction_VersionZeroResolvesToLatest(t *tes
 	getter := stubGetter{"worker": childDef(t, "worker", "")}
 	def := childActionDef(t, "", model.ChildEntry{Name: "worker", Version: 0})
 	assertValidateOK(t, def, getter)
+}
+
+// A stored child that no longer analyses: its diagnostics are addresses inside the CHILD, so they
+// must reach the caller as prose, or the apply labels them with the parent's name and a client
+// looks for them in the parent's file.
+func TestValidateChildProcessRefs_aChildThatNoLongerAnalysesIsProse(t *testing.T) {
+	child := &model.ProcessDefinition{
+		Name:   "stale",
+		Tasks:  []*model.Task{{ID: "t", Output: &model.Shape{Raw: "$: nosuch.x"}, Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},
+		Output: &model.Shape{Raw: "$: outputs.t"},
+	}
+	def := parentDef(t, "", []model.ChildEntry{{Name: "stale", ResultSchema: normalizedSchema(t, `{"type":"object"}`)}})
+	err := validation.ValidateChildProcessRefs(def, 1, stubGetter{"stale": child})
+	if err == nil || !strings.Contains(err.Error(), "nosuch") {
+		t.Fatalf("got %v, want the child's failure named", err)
+	}
+	var ds validation.Diagnostics
+	if errors.As(err, &ds) {
+		t.Errorf("the child's diagnostics travel with the parent's error: %v — their addresses are in the child", ds)
+	}
 }

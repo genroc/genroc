@@ -114,6 +114,55 @@ function readFrames(out: string): any[] {
   return msgs;
 }
 
+test("apply — of several files, each error names its own, even at an address they share", () => {
+  const delay = (id: string, value: string) => `  - id: ${id}\n    action: { type: delay, for: ${value} }\n    switch: end\n`;
+  const ok = writeSource(`name: ${uid("located_ok")}\ntasks:\n${delay("a", "10")}`);
+  const orphan = writeSource(`name: ${uid("located_orphan")}\ntasks:\n${delay("a", "10")}${delay("orphan", "10")}`);
+  const shared = writeSource(`name: ${uid("located_shared")}\ntasks:\n${delay("a", '"x"')}`);
+
+  const atRoot = runCli(bin, ["apply", "--check-only", "-f", ok, orphan]);
+  expect(atRoot.stderr.trim(), "the root is in every file").toBe(
+    `genctl: ${orphan}:1:1: task "orphan" is unreachable: no switch or error handler routes to it`,
+  );
+  const atSharedTask = runCli(bin, ["apply", "--check-only", "-f", ok, shared]);
+  expect(atSharedTask.stderr.trim(), "both files have a task a").toBe(
+    `genctl: ${shared}:4:33: task "a" delay for: duration "x": expected a number before "x"`,
+  );
+});
+
+test("apply — two files defining one name are both named", () => {
+  const name = uid("located_twice");
+  const first = writeSource(`name: ${name}\ntasks:\n  - id: a\n    switch: end\n`);
+  const second = writeSource(`name: ${name}\ntasks:\n  - id: b\n    switch: end\n`);
+  const r = runCli(bin, ["apply", "--check-only", "-f", first, second]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stderr.trim().split("\n")).toEqual([
+    `genctl: ${first}:1:7: definition "${name}" appears twice in this apply`,
+    `genctl: ${second}:1:7: definition "${name}" appears twice in this apply`,
+  ]);
+});
+
+test("apply — a file with no name is placed in itself, not in the file beside it", () => {
+  const named = writeSource(`name: ${uid("located_named")}\ntasks:\n  - id: a\n    switch: end\n`);
+  const nameless = writeSource(`tasks:\n  - id: a\n    switch: end\n`);
+  const r = runCli(bin, ["apply", "--check-only", "-f", named, nameless]);
+  expect(r.stderr.trim(), "`name` is in only the named file, which is where it was pointed").toBe(
+    `genctl: ${nameless}:1:1: name is required`,
+  );
+});
+
+test("apply — every file that does not decode is named", () => {
+  const unknownKey = writeSource(`name: ${uid("located_unknown")}\ntasks:\n  - id: a\n    swtich: end\n`);
+  const ok = writeSource(`name: ${uid("located_decodes")}\ntasks:\n  - id: a\n    switch: end\n`);
+  const wrongType = writeSource(`name: ${uid("located_wrong_type")}\ntasks: a\n`);
+  const r = runCli(bin, ["apply", "--check-only", "-f", unknownKey, ok, wrongType]);
+  const lines = r.stderr.trim().split("\n");
+  expect(lines[0]).toBe(`genctl: ${unknownKey}:1:1: json: unknown field "swtich"`);
+  const second = `genctl: ${wrongType}:1:1: `;
+  expect(lines[1]?.slice(0, second.length), "the second is reported too, not only the first").toBe(second);
+  expect(lines).toHaveLength(2);
+});
+
 // The extension's probe: `-v` cannot answer, since it succeeds on a genctl that lacks `lsp`.
 test("lsp — `genctl lsp -h` is the probe an editor can trust", () => {
   const r = runCli(bin, ["lsp", "-h"]);
