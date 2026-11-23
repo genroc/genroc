@@ -30,8 +30,12 @@ function runCase(c: CompatCase): string {
       throw new Error(`apply failed for ${c.id}: ${applied.stderr || applied.stdout}`);
     }
   }
-  const args = c.submit ? ["-f", writeDefs(c.submit), ...c.run] : c.run;
-  const { stdout, stderr, exitCode } = runCli(bin, ["compat", ...args]);
+  const submitted = c.submit ? writeDefs(c.submit) : undefined;
+  const args = submitted ? ["-f", submitted, ...c.run] : c.run;
+  const run = runCli(bin, ["compat", ...args]);
+  const { stdout, exitCode } = run;
+  // The file is a fresh temp path each run; where in it is the part worth pinning.
+  const stderr = submitted ? run.stderr.replaceAll(submitted, "<submitted>") : run.stderr;
 
   const parts: string[] = [];
   if (stdout.trim()) parts.push(stdout.trimEnd(), "");

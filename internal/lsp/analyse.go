@@ -151,29 +151,42 @@ func nodeHoldingQuoted(doc *defdoc.Doc, message string) (defdoc.Range, bool) {
 var unknownFieldRe = regexp.MustCompile(`unknown field "([^"]+)"`)
 
 func decodeDiagnostic(doc *defdoc.Doc, lines []string, err error) diagnostic {
-	msg := err.Error()
+	r, code, msg := placeDecode(doc, err)
+	return diagnostic{Range: toRange(lines, r), Severity: severityError, Source: source, Code: code, Message: msg}
+}
+
+// DecodeRefusal places a strict decode's refusal in the document it came from, worded in the
+// document's terms. genctl reports an apply's with it, so the editor and the command agree.
+func DecodeRefusal(doc *defdoc.Doc, err error) (defdoc.Range, string) {
+	r, _, msg := placeDecode(doc, err)
+	return r, msg
+}
+
+func placeDecode(doc *defdoc.Doc, err error) (r defdoc.Range, code, msg string) {
+	msg = err.Error()
 	if m := unknownFieldRe.FindStringSubmatch(msg); m != nil {
 		key := m[1]
 		if path, ok := solePathEndingIn(doc, key); ok {
-			return keyDiagnostic(doc, lines, path, fmt.Sprintf("unknown field %q", key))
+			msg = fmt.Sprintf("unknown field %q", key)
+			return keyRange(doc, path, msg), "def.unknown_key", msg
 		}
-		return at(doc, lines, "", "def.unknown_key", msg)
+		return locatedRange(doc, "", msg), "def.unknown_key", msg
 	}
 	// A schema reports its failure relative to its OWN root (`properties.who`), so it is matched
 	// as a suffix of the document path.
 	if p := schema.PathOf(err); p != "" {
 		if path, ok := solePathEndingIn(doc, p); ok {
 			if errors.Is(err, schema.ErrUnknownKeyword) {
-				return keyDiagnostic(doc, lines, path, msg)
+				return keyRange(doc, path, msg), "def.unknown_key", msg
 			}
-			return at(doc, lines, path, "def.structure", msg)
+			return locatedRange(doc, path, msg), "def.structure", msg
 		}
 	}
 	// A schema that is not an object at all reports the slot IS the mistake, with no path
 	// inside it to name; the document holds few schema slots, so ask which one that is.
 	if errors.Is(err, schema.ErrNotASchema) {
 		if path, ok := soleSchemaSlotNotAnObject(doc); ok {
-			return at(doc, lines, path, "def.structure", msg)
+			return locatedRange(doc, path, msg), "def.structure", msg
 		}
 	}
 	// encoding/json names the field that failed LAST in a dotted stack that skips list indices
@@ -183,13 +196,13 @@ func decodeDiagnostic(doc *defdoc.Doc, lines []string, err error) diagnostic {
 	if errors.As(err, &typeErr) && typeErr.Field != "" {
 		msg = typeErrorMessage(typeErr, msg)
 		if path, ok := solePathEndingIn(doc, lastSegment(typeErr.Field)); ok {
-			return at(doc, lines, path, "def.structure", msg)
+			return locatedRange(doc, path, msg), "def.structure", msg
 		}
 		if _, ok := doc.Locate(typeErr.Field); ok {
-			return at(doc, lines, typeErr.Field, "def.structure", msg)
+			return locatedRange(doc, typeErr.Field, msg), "def.structure", msg
 		}
 	}
-	return at(doc, lines, "", "def.structure", msg)
+	return locatedRange(doc, "", msg), "def.structure", msg
 }
 
 // typeErrorMessage says what the field takes in the document's own words, where encoding/json
@@ -245,14 +258,13 @@ func jsonValueWord(value string) string {
 	return ""
 }
 
-// keyDiagnostic underlines a node's KEY rather than its value, for the mistakes that are in
+// keyRange is a node's KEY rather than its value, for the mistakes that are in
 // the spelling. It falls back to the value's range where the key has none (a list element).
-func keyDiagnostic(doc *defdoc.Doc, lines []string, path, message string) diagnostic {
-	d := at(doc, lines, path, "def.unknown_key", message)
+func keyRange(doc *defdoc.Doc, path, message string) defdoc.Range {
 	if span, found := doc.Locate(path); found && !span.Key.Empty() {
-		d.Range = toRange(lines, span.Key)
+		return span.Key
 	}
-	return d
+	return locatedRange(doc, path, message)
 }
 
 // solePathEndingIn finds the one place key appears, counting by SPAN: every node is addressable

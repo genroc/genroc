@@ -14,6 +14,7 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/schema"
 	"genroc/internal/validation"
 )
 
@@ -85,32 +86,12 @@ func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
 	return okReply(results)
 }
 
-// decodePutDefinitionsReq decodes each definition on its own, so a failure knows which one it is.
-// Any failure still refuses the whole request.
 func decodePutDefinitionsReq(raw json.RawMessage) (PutDefinitionsReq, error) {
-	var wire struct {
-		PutDefinitionsReq
-		Definitions []json.RawMessage `json:"definitions"` // shadows the embedded field
-	}
-	if err := numeric.DecodeStrict(raw, &wire); err != nil {
-		return PutDefinitionsReq{}, invalid("decode: %w", err)
-	}
-	req := wire.PutDefinitionsReq
+	req, err := decodeBody[PutDefinitionsReq](raw)
 	if req.Channel == "" {
 		req.Channel = defaultChannel
 	}
-	req.Definitions = make([]model.ProcessDefinition, len(wire.Definitions))
-	var refused refusals
-	for i, doc := range wire.Definitions {
-		if err := numeric.DecodeStrict(doc, &req.Definitions[i]); err != nil {
-			field := model.FieldError{Rule: "decode", Message: err.Error()}
-			refused = append(refused, inDefinition{i, "", &model.ValidationError{Fields: []model.FieldError{field}}})
-		}
-	}
-	if len(refused) > 0 {
-		return req, invalid("%w", refused)
-	}
-	return req, nil
+	return req, err
 }
 
 // applyBatch plans, then commits in one transaction: nothing in planning may write, nothing
@@ -194,10 +175,14 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 	}
 	// Before topoSort: a null `tasks` entry decodes to a nil *Task, which every walk below
 	// dereferences.
-	for _, def := range ptrs {
+	var refused refusals
+	for i, def := range ptrs {
 		if err := def.Validate(); err != nil {
-			return nil, nil, refuse(def, err)
+			refused = append(refused, inDefinition{i, def.Name, err})
 		}
+	}
+	if len(refused) > 0 {
+		return nil, nil, invalid("%w", refused)
 	}
 
 	sorted, err := topoSort(ptrs)
@@ -227,7 +212,7 @@ func (h *Handlers) planBatch(defs []model.ProcessDefinition, channel, actor stri
 		// Build resolved deps without mutating def (raw def is stored as-is).
 		newDeps, err := h.buildResolvedDeps(def, newVersion, channel, batchVersions)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", def.Name, err)
+			return nil, nil, refuse(def, err)
 		}
 
 		// Where the requested channel points BEFORE the commit moves it. Read in planning
@@ -325,7 +310,7 @@ func (h *Handlers) buildResolvedDeps(def *model.ProcessDefinition, selfVersion i
 			}
 			version, err := h.resolveChildVersion(task.Action.Name, task.Action.Version, task.ID, "", channel, batchVersions)
 			if err != nil {
-				return nil, err
+				return nil, schema.AtPath("tasks."+task.ID+".action.name", err)
 			}
 			deps = append(deps, db.DependencyRow{
 				ParentName:    def.Name,
@@ -342,7 +327,7 @@ func (h *Handlers) buildResolvedDeps(def *model.ProcessDefinition, selfVersion i
 				}
 				version, err := h.resolveChildVersion(entry.Name, entry.Version, task.ID, key, channel, batchVersions)
 				if err != nil {
-					return nil, err
+					return nil, schema.AtPath("tasks."+task.ID+".action.children."+key+".name", err)
 				}
 				deps = append(deps, db.DependencyRow{
 					ParentName:    def.Name,

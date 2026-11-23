@@ -243,7 +243,8 @@ not hold the value, in a field stack that skips list indices and map keys — `o
 as "cannot unmarshal number into Go struct field Task.tasks.only_once of type bool" and
 underlined the whole `tasks:` block. The stack's LAST segment is the field that actually failed,
 so it locates like an unknown key does, and `typeErrorMessage` says what that field takes in the
-words the document is written in.
+words the document is written in. `DecodeRefusal` is this placement for `genctl apply`/`compat`
+too, which decode every document before sending: a change here changes what they print.
 
 **Key completion has a SECOND source, and the generated schema cannot absorb it.** Where a slot
 carries a declared schema (`declared.go`), the keys offered are that schema's properties rather

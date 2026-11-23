@@ -65,7 +65,6 @@ func (d *Doc) Locate(path string) (Span, bool) {
 }
 
 // ParentPath drops the last segment of either spelling: `a.b[0].c` → `a.b[0]` → `a.b` → `a`.
-// Exported for a caller searching SEVERAL documents, which has to walk the levels itself.
 func ParentPath(path string) string {
 	dot := strings.LastIndexByte(path, '.')
 	br := strings.LastIndexByte(path, '[')

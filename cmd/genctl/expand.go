@@ -4,6 +4,7 @@ package main
 // behind both, and the source documents they load. See cmd/genctl/CLAUDE.md.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	"genroc/internal/defdoc"
+	"genroc/internal/lsp"
+	"genroc/internal/model"
+	"genroc/internal/numeric"
 	"genroc/internal/sources"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -77,12 +80,8 @@ func expandPaths(paths []string) ([]string, error) {
 	return out, nil
 }
 
-// resolvedDefs leaves no import directive behind: the server has no resolver.
-func resolvedDefs(files []string) ([]any, error) {
-	defs, _, err := resolvedDefsLocated(files)
-	return defs, err
-}
-
+// resolvedDefsLocated leaves no import directive behind, since the server has no resolver, and
+// exits on a document that does not decode: the server could name only the definition, not the key.
 func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 	docs, err := sources.LoadDocs(files)
 	if err != nil {
@@ -91,6 +90,7 @@ func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 	if err := sources.Resolve(docs); err != nil {
 		return nil, nil, err
 	}
+	refuseUndecodable(docs)
 	out := make([]any, len(docs))
 	for i, d := range docs {
 		out[i] = d.Value
@@ -98,20 +98,26 @@ func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
 	return out, docs, nil
 }
 
-// locate matches on the slot address, never on prose. A missing REQUIRED field has no node of its
-// own, so the search falls back to the enclosing path that does.
-func locate(d sources.Doc, address string) (defdoc.Span, bool) {
-	if d.Index == nil {
-		return defdoc.Span{}, false
+func refuseUndecodable(docs []sources.Doc) {
+	failed := false
+	for _, d := range docs {
+		raw, err := json.Marshal(d.Value)
+		if err != nil {
+			fatal("%s: %v", d.File, err)
+		}
+		var def model.ProcessDefinition
+		if err := numeric.DecodeStrict(raw, &def); err != nil {
+			failed = true
+			if d.Index == nil {
+				fmt.Fprintf(os.Stderr, "genctl: %s: %v\n", d.File, err)
+				continue
+			}
+			r, msg := lsp.DecodeRefusal(d.Index, err)
+			fmt.Fprintf(os.Stderr, "genctl: %s:%d:%d: %s\n", d.File, r.Line, r.Col, msg)
+		}
 	}
-	for {
-		if sp, ok := d.Index.Span(address); ok {
-			return sp, true
-		}
-		if address == "" {
-			return defdoc.Span{}, false
-		}
-		address = defdoc.ParentPath(address)
+	if failed {
+		os.Exit(1)
 	}
 }
 
@@ -153,7 +159,7 @@ func looksLikePath(s string) bool {
 // with no per-field detail. A field's definition index is into docs, which are the request's order.
 func fatalLocated(docs []sources.Doc, err error) {
 	var se *serverError
-	if !errors.As(err, &se) || len(se.Fields) == 0 {
+	if !errors.As(err, &se) || len(se.Fields) == 0 || len(docs) == 0 {
 		fatal("%v", err)
 	}
 	for _, f := range se.Fields {
@@ -162,11 +168,11 @@ func fatalLocated(docs []sources.Doc, err error) {
 			continue
 		}
 		doc := docs[f.DefinitionIndex]
-		span, ok := locate(doc, f.Field)
-		if !ok {
+		if doc.Index == nil {
 			fmt.Fprintf(os.Stderr, "genctl: %s: %s\n", doc.File, f.Message)
 			continue
 		}
+		span, _ := doc.Index.Locate(f.Field)
 		fmt.Fprintf(os.Stderr, "genctl: %s:%d:%d: %s\n", doc.File, span.Value.Line, span.Value.Col, f.Message)
 	}
 	os.Exit(1)

@@ -1,9 +1,11 @@
 package api
 
 import (
+	"errors"
 	"testing"
 
 	"genroc/internal/model"
+	"genroc/internal/schema"
 )
 
 // A field is an address within one definition, and of several submitted the root or a shared task
@@ -25,5 +27,15 @@ func TestSeveralRefusalsEachKeepTheirDefinition(t *testing.T) {
 	got := fieldsOf(invalid("%w", refusals{{0, "p", field("first")}, {2, "p", field("second")}}))
 	if len(got) != 2 || got[0].DefinitionIndex != 0 || got[1].DefinitionIndex != 2 || got[1].Message != "second" {
 		t.Errorf("got %+v, want first in definition 0 and second in definition 2", got)
+	}
+}
+
+func TestARefusalWithNoFieldsOfItsOwnIsPlacedAtItsPathOrTheRoot(t *testing.T) {
+	cases := map[string]error{"tasks.a": schema.AtPath("tasks.a", errors.New("rule")), "": errors.New("rule")}
+	for want, err := range cases {
+		got := fieldsOf(invalid("%w", inDefinition{1, "p", err}))
+		if len(got) != 1 || got[0].Field != want || got[0].DefinitionIndex != 1 || got[0].Message != "rule" {
+			t.Errorf("got %+v, want one field at %q — without it genctl prints prose naming no file", got, want)
+		}
 	}
 }

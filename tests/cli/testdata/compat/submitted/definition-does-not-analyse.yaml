@@ -18,6 +18,6 @@ run: [--from, badexpr_a]
 
 expect: |
   --- stderr ---
-  genctl: server: badexpr_proc: task "ship" url: template expression " outputs.nope.v ": cannot access .nope: schema has no properties
+  genctl: <submitted>:7:12: task "ship" url: template expression " outputs.nope.v ": cannot access .nope: schema has no properties
 
   exit 1

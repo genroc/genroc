@@ -215,6 +215,58 @@ test("PUT /definitions — every definition that does not decode is named, and n
   expect(stored.response.status, "a decode failure refuses the whole batch").toBe(404);
 });
 
+test("POST /definitions/validate — a child that is not there is placed at its name", async () => {
+  const missing = `missing_child_${crypto.randomUUID().slice(0, 8)}`;
+  const { error } = await dryRun([{
+    name: `missing_parent_${crypto.randomUUID().slice(0, 8)}`,
+    tasks: [{ id: "a", action: { type: "child_map", children: { k: { name: missing } } }, switch: "end" }],
+  }]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expect((error as any)?.fields, JSON.stringify(error)).toEqual([expect.objectContaining({
+    definition_index: 0,
+    field: "tasks.a.action.children.k.name",
+    message: expect.stringContaining(`task "a" child ${missing}["k"]: not on channel "latest"`),
+  })]);
+});
+
+test("POST /definitions/validate — a rule written by hand is placed at the slot it names", async () => {
+  const { error } = await dryRun([{
+    name: `hand_rule_${crypto.randomUUID().slice(0, 8)}`,
+    tasks: [{ id: "a", switch: [{ goto: "end", raise: { code: "x" } }] }],
+  }]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expect((error as any)?.fields, "only struct-tag rules were placed; the rest came back as prose").toEqual([{
+    definition_index: 0,
+    field: "tasks.a.switch.0",
+    rule: "def.structure",
+    message: 'task "a" switch case 0: set exactly one of "goto", "raise", "panic"',
+  }]);
+});
+
+test("POST /definitions/validate — every definition that fails its own checks is reported", async () => {
+  const { error } = await dryRun([
+    { name: `empty_a_${crypto.randomUUID().slice(0, 8)}`, tasks: [] },
+    switchOnly(`empty_ok_${crypto.randomUUID().slice(0, 8)}`),
+    { name: `empty_c_${crypto.randomUUID().slice(0, 8)}`, tasks: [] },
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fields = (error as any)?.fields;
+  expect(fields?.map((f: { definition_index: number }) => f.definition_index), "not only the first").toEqual([0, 2]);
+});
+
+test("POST /definitions/compat — a submitted definition that does not decode is named by its index", async () => {
+  const { error } = await client.POST("/definitions/compat", {
+    body: {
+      from: { channel: "latest" },
+      to: { definitions: [switchOnly(`compat_ok_${crypto.randomUUID().slice(0, 8)}`), { name: "x", tasks: [{ id: "a", swtich: "end" }] }] },
+    } as never,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expect((error as any)?.fields, JSON.stringify(error)).toEqual([
+    { definition_index: 1, field: "", rule: "decode", message: 'json: unknown field "swtich"' },
+  ]);
+});
+
 test("PUT /definitions — two definitions with one name are refused, rather than one dropped", async () => {
   const name = `twice_${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await apply([

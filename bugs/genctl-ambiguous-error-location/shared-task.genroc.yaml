@@ -1,6 +1,0 @@
-# Refused at tasks.a.action.for, an address ok.genroc.yaml holds too.
-name: bug-located-shared-task
-tasks:
-  - id: a
-    action: { type: delay, for: "x" }
-    switch: end

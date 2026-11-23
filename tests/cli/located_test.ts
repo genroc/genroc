@@ -151,16 +151,53 @@ test("apply — a file with no name is placed in itself, not in the file beside 
   );
 });
 
-test("apply — every file that does not decode is named", () => {
+test("apply — every file that does not decode is placed at the key, before anything is sent", () => {
   const unknownKey = writeSource(`name: ${uid("located_unknown")}\ntasks:\n  - id: a\n    swtich: end\n`);
   const ok = writeSource(`name: ${uid("located_decodes")}\ntasks:\n  - id: a\n    switch: end\n`);
   const wrongType = writeSource(`name: ${uid("located_wrong_type")}\ntasks: a\n`);
   const r = runCli(bin, ["apply", "--check-only", "-f", unknownKey, ok, wrongType]);
-  const lines = r.stderr.trim().split("\n");
-  expect(lines[0]).toBe(`genctl: ${unknownKey}:1:1: json: unknown field "swtich"`);
-  const second = `genctl: ${wrongType}:1:1: `;
-  expect(lines[1]?.slice(0, second.length), "the second is reported too, not only the first").toBe(second);
-  expect(lines).toHaveLength(2);
+  expect(r.stderr.trim().split("\n"), "the server can only say which definition, not where in it").toEqual([
+    `genctl: ${unknownKey}:4:5: unknown field "swtich"`,
+    `genctl: ${wrongType}:2:8: tasks must be a list, not a string`,
+  ]);
+});
+
+test("apply — a child that is not there is placed at its name", () => {
+  const child = uid("located_missing_child");
+  const file = writeSource(`name: ${uid("located_parent")}\ntasks:\n  - id: a\n    action: { type: child, name: ${child} }\n    switch: end\n`);
+  const r = runCli(bin, ["apply", "--check-only", "-f", file]);
+  const at = `genctl: ${file}:4:34: task "a" child ${child}: not on channel "latest"`;
+  expect(r.stderr.trim().slice(0, at.length)).toBe(at);
+});
+
+const handRule = () =>
+  writeSource(`name: ${uid("located_rule")}\ntasks:\n  - id: a\n    switch:\n      - goto: end\n        raise: { code: x }\n`);
+const handRuleAt = (file: string) =>
+  `genctl: ${file}:5:9: task "a" switch case 0: set exactly one of "goto", "raise", "panic"`;
+
+test("apply — a rule written by hand is placed at the slot it names", () => {
+  const file = handRule();
+  expect(runCli(bin, ["apply", "--check-only", "-f", file]).stderr.trim()).toBe(handRuleAt(file));
+});
+
+test("apply — every file that fails its own checks is reported, not only the first", () => {
+  const empty = () => writeSource(`name: ${uid("located_empty")}\ntasks: []\n`);
+  const [a, b] = [empty(), empty()];
+  expect(runCli(bin, ["apply", "--check-only", "-f", a, b]).stderr.trim().split("\n")).toEqual([
+    `genctl: ${a}:2:8: tasks must have at least 1 item(s)`,
+    `genctl: ${b}:2:8: tasks must have at least 1 item(s)`,
+  ]);
+});
+
+test("compat — a submitted file is placed as apply places it", () => {
+  const file = handRule();
+  const r = runCli(bin, ["compat", "--from", "latest", "-f", file]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stderr.trim()).toBe(handRuleAt(file));
+  const unknownKey = writeSource(`name: ${uid("located_compat_unknown")}\ntasks:\n  - id: a\n    swtich: end\n`);
+  expect(runCli(bin, ["compat", "--from", "latest", "-f", unknownKey]).stderr.trim()).toBe(
+    `genctl: ${unknownKey}:4:5: unknown field "swtich"`,
+  );
 });
 
 // The extension's probe: `-v` cannot answer, since it succeeds on a genctl that lacks `lsp`.

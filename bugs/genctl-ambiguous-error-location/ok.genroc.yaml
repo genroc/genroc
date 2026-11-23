@@ -1,6 +1,0 @@
-# Valid on its own: the other file of each pair is the one genroc refuses.
-name: bug-located-ok
-tasks:
-  - id: a
-    action: { type: delay, for: 10 }
-    switch: end

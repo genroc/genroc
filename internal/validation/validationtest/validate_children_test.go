@@ -543,3 +543,27 @@ func TestValidateChildProcessRefs_aChildThatNoLongerAnalysesIsProse(t *testing.T
 		t.Errorf("the child's diagnostics travel with the parent's error: %v — their addresses are in the child", ds)
 	}
 }
+
+// Without a path an apply can only point at the top of the file, where the task is not.
+func TestValidateChildProcessRefs_aFailureCarriesTheSlotItIsAbout(t *testing.T) {
+	stale := &model.ProcessDefinition{
+		Name:   "stale",
+		Tasks:  []*model.Task{{ID: "t", Output: &model.Shape{Raw: "$: nosuch.x"}, Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},
+		Output: &model.Shape{Raw: "$: outputs.t"},
+	}
+	entry := parentDef(t, "", []model.ChildEntry{{Name: "stale", ResultSchema: normalizedSchema(t, `{"type":"object"}`)}})
+	unraisable := childMapParent("charge-card", []model.ErrorCase{{Code: []string{"card_expired"}, Goto: model.GotoEnd}})
+	if err := unraisable.Normalize(); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	getter := stubGetter{"stale": stale, "charge-card": raisingChild("charge-card", "card_declined")}
+	for want, def := range map[string]*model.ProcessDefinition{
+		"tasks.spawn.action.children.child0": entry,
+		"tasks.pay.on_error":                 unraisable,
+	} {
+		err := validation.ValidateChildProcessRefs(def, 1, getter)
+		if got := model.PathOf(err); got != want {
+			t.Errorf("path %q for %v, want %q", got, err, want)
+		}
+	}
+}

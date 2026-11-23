@@ -56,22 +56,22 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 				Raises:       s.Action.Raises,
 			}
 			if err := validateChildEntry(s.ID, "child", entry, ctx, defs, def, currentVersion, getter); err != nil {
-				return err
+				return schema.AtPath(taskSlot(s.ID, "action"), err)
 			}
 		case model.ActionTypeChildMap:
 			for key, entry := range s.Action.Children {
 				if err := validateChildEntry(s.ID, fmt.Sprintf("children[%q]", key), entry, ctx, defs, def, currentVersion, getter); err != nil {
-					return err
+					return schema.AtPath(schema.JoinPath(schema.JoinPath(taskSlot(s.ID, "action"), "children"), key), err)
 				}
 			}
 		case model.ActionTypeChildList:
 			if err := validateChildListEntry(s.ID, s.Action, ctx, defs, def, currentVersion, getter); err != nil {
-				return err
+				return schema.AtPath(taskSlot(s.ID, "action"), err)
 			}
 		}
 
 		if err := validateChildOnErrorReachability(s, def, currentVersion, getter); err != nil {
-			return err
+			return schema.AtPath(taskSlot(s.ID, "on_error"), err)
 		}
 	}
 	return nil

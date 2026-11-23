@@ -55,7 +55,7 @@ func parseSelector(side string, values []string) map[string]any {
 // compatSidesForInstance reads both sides off a row: the side it RUNS is its own process at
 // its own version, so only the target is named. The row's process also scopes the report --
 // a --to channel carries every process on it. specs/version-compatibility.md s6.
-func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag) (map[string]any, map[string]any, string) {
+func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag) (map[string]any, map[string]any, string, []sources.Doc) {
 	if len(fromFlag) > 0 {
 		fatal("an instance id already names the side it is running; drop --from")
 	}
@@ -69,22 +69,22 @@ func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag
 	from := map[string]any{"versions": map[string]any{row.Process: row.Version}}
 	switch {
 	case len(files) > 0:
-		defs, err := resolvedDefs(files)
+		defs, docs, err := resolvedDefsLocated(files)
 		if err != nil {
 			fatal("%v", err)
 		}
-		return from, map[string]any{"definitions": defs}, row.Process
+		return from, map[string]any{"definitions": defs}, row.Process, docs
 	case len(toFlag) > 1:
 		fatal("--to names %d targets; after an instance id it names one version or channel for %s",
 			len(toFlag), row.Process)
 	case len(toFlag) == 1:
 		if n, err := strconv.Atoi(toFlag[0]); err == nil {
-			return from, map[string]any{"versions": map[string]any{row.Process: n}}, row.Process
+			return from, map[string]any{"versions": map[string]any{row.Process: n}}, row.Process, nil
 		}
-		return from, map[string]any{"channel": toFlag[0]}, row.Process
+		return from, map[string]any{"channel": toFlag[0]}, row.Process, nil
 	}
 	fatal("usage: genctl compat <instance-id> --to <version|channel> | genctl compat <instance-id> -f <file>")
-	return nil, nil, ""
+	return nil, nil, "", nil
 }
 
 func runCompatCmd(server string, args []string) {
@@ -132,10 +132,11 @@ func runCompatCmd(server string, args []string) {
 	}
 
 	var from, to map[string]any
+	var docs []sources.Doc
 	process := ""
 	switch {
 	case len(pos) == 1 && isInstanceRef(pos[0]):
-		from, to, process = compatSidesForInstance(*serverFlag, resolveInstanceID(pos[0]), fromFlag, toFlag, files)
+		from, to, process, docs = compatSidesForInstance(*serverFlag, resolveInstanceID(pos[0]), fromFlag, toFlag, files)
 	case len(files) > 0:
 		if len(toFlag) > 0 {
 			fatal("-f already names the target side; drop --to")
@@ -145,10 +146,11 @@ func runCompatCmd(server string, args []string) {
 		}
 		// Resolved as apply resolves: an unresolved `$import:` leaf compares changed against the
 		// stored code, so the row could never read `unchanged`.
-		defs, err := resolvedDefs(files)
+		defs, located, err := resolvedDefsLocated(files)
 		if err != nil {
 			fatal("%v", err)
 		}
+		docs = located
 		from, to = parseSelector("from", fromFlag), map[string]any{"definitions": defs}
 	default:
 		if len(fromFlag) == 0 || len(toFlag) == 0 {
@@ -182,7 +184,7 @@ func runCompatCmd(server string, args []string) {
 	if *jsonFlag {
 		var raw json.RawMessage
 		if err := call(*serverFlag+"/api/definitions/compat", http.MethodPost, body, &raw); err != nil {
-			fatal("%v", err)
+			fatalLocated(docs, err)
 		}
 		printIndented(raw)
 		// --json is a RENDERING, not a mode: it must gate exactly as the report does, or a
@@ -197,7 +199,7 @@ func runCompatCmd(server string, args []string) {
 
 	var resp compatReport
 	if err := call(*serverFlag+"/api/definitions/compat", http.MethodPost, body, &resp); err != nil {
-		fatal("%v", err)
+		fatalLocated(docs, err)
 	}
 	printCompatReport(resp)
 	exitOnBreak(resp)

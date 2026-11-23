@@ -6,6 +6,7 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/numeric"
 	"genroc/internal/validation"
 )
 
@@ -50,8 +51,34 @@ type StartInstanceReq struct {
 }
 
 type PutDefinitionsReq struct {
-	Definitions []model.ProcessDefinition `json:"definitions"`
-	Channel     string                    `json:"channel,omitempty" description:"The channel to point at the applied versions. Default latest."`
+	Definitions definitionList `json:"definitions"`
+	Channel     string         `json:"channel,omitempty" description:"The channel to point at the applied versions. Default latest."`
+}
+
+// definitionList decodes each definition on its own, so a failure knows which one it is. Any
+// failure still refuses the whole request.
+type definitionList []model.ProcessDefinition
+
+// InlineJSONSchema keeps the published request a plain list of definitions.
+func (definitionList) InlineJSONSchema() {}
+
+func (l *definitionList) UnmarshalJSON(data []byte) error {
+	var docs []json.RawMessage
+	if err := json.Unmarshal(data, &docs); err != nil {
+		return err
+	}
+	*l = make(definitionList, len(docs))
+	var refused refusals
+	for i, doc := range docs {
+		if err := numeric.DecodeStrict(doc, &(*l)[i]); err != nil {
+			field := model.FieldError{Rule: "decode", Message: err.Error()}
+			refused = append(refused, inDefinition{i, "", &model.ValidationError{Fields: []model.FieldError{field}}})
+		}
+	}
+	if len(refused) > 0 {
+		return refused
+	}
+	return nil
 }
 
 type ChannelEntry struct {
@@ -119,7 +146,7 @@ func (v *VersionRef) UnmarshalJSON(data []byte) error {
 type CompatSelector struct {
 	Channel     string                    `json:"channel,omitempty"      description:"Every process on this channel, at the version the channel points at."`
 	Versions    map[string]VersionRef     `json:"versions,omitempty"     description:"Process name → version number, or a channel name to resolve it through."`
-	Definitions []model.ProcessDefinition `json:"definitions,omitempty"  description:"Documents that are not stored yet — the ones an apply would take. They have no version, so they report version null."`
+	Definitions definitionList            `json:"definitions,omitempty"  description:"Documents that are not stored yet — the ones an apply would take. They have no version, so they report version null."`
 }
 
 type CompatReq struct {

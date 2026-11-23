@@ -210,5 +210,6 @@ func addressedFields(err error) []model.FieldError {
 		}
 		return out
 	}
-	return nil
+	// A rule written by hand: its prose, at the slot it carries or the definition's root.
+	return []model.FieldError{{Field: model.PathOf(err), Rule: string(validation.CodeStructure), Message: err.Error()}}
 }
